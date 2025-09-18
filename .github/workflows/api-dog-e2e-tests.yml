@@ -1,0 +1,71 @@
+name: "API Dog E2E Tests"
+
+# This reusable workflow handles automated API testing using Apidog CLI
+# It runs API test scenarios and generates HTML reports
+
+on:
+  workflow_call:
+    inputs:
+      node_version:
+        description: 'Node.js version to use'
+        type: string
+        default: '20'
+      test_scenario_id:
+        description: 'Apidog test scenario ID'
+        required: true
+        type: string
+      environment_id:
+        description: 'Apidog environment ID'
+        required: true
+        type: string
+      test_iterations:
+        description: 'Number of test iterations'
+        type: string
+        default: '1'
+      output_formats:
+        description: 'Output report formats (comma-separated)'
+        type: string
+        default: 'html,cli'
+      runner_type:
+        description: 'GitHub runner type to use'
+        type: string
+        default: 'ubuntu-latest'
+    secrets:
+      apidog_access_token:
+        description: 'Apidog access token for authentication'
+        required: true
+
+jobs:
+  api-dog-e2e-tests:
+    runs-on: ${{ inputs.runner_type }}
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ inputs.node_version }}
+
+      - name: Install Apidog CLI
+        run: npm install -g apidog-cli
+
+      - name: Run Apidog Test Scenario
+        env:
+          APIDOG_ACCESS_TOKEN: ${{ secrets.apidog_access_token }}
+        run: |
+          apidog run \
+            --access-token "$APIDOG_ACCESS_TOKEN" \
+            --test-scenario ${{ inputs.test_scenario_id }} \
+            -e ${{ inputs.environment_id }} \
+            -n ${{ inputs.test_iterations }} \
+            -r ${{ inputs.output_formats }} \
+            --out-dir ./apidog-reports
+
+      - name: Upload Test Reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: apidog-e2e-test-reports
+          path: ./apidog-reports
+          retention-days: 30

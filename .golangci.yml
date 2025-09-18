@@ -1,0 +1,49 @@
+run:
+  timeout: 5m
+  tests: true
+  skip-dirs:
+    - vendor
+    - mocks
+
+linters:
+  enable:
+    - errcheck
+    - gosimple
+    - govet
+    - ineffassign
+    - staticcheck
+    - typecheck
+    - unused
+    - gosec
+    - revive
+    - gofmt
+    - goimports
+    - misspell
+    - unconvert
+    - unparam
+    - whitespace
+
+linters-settings:
+  errcheck:
+    check-type-assertions: true
+    check-blank: true
+  govet:
+    check-shadowing: true
+  revive:
+    rules:
+      - name: exported
+        arguments:
+          - disableStutteringCheck
+  gofmt:
+    simplify: true
+  goimports:
+    local-prefixes: github.com/LerianStudio
+
+issues:
+  exclude-rules:
+    - path: _test\.go
+      linters:
+        - gosec
+        - errcheck
+  max-issues-per-linter: 0
+  max-same-issues: 0
