@@ -43,7 +43,7 @@ jobs:
         id: changed-paths
         uses: LerianStudio/github-actions-changed-paths@main
         with:
-          filter_paths: |
+          filter_paths: |-
             ${{ inputs.filter_paths }}
           get_app_name: true
           path_level: ${{ inputs.path_level }}
