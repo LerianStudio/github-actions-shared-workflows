@@ -36,18 +36,18 @@ jobs:
 
 | Input | Description | Required | Default |
 |-------|-------------|----------|---------|
-| `test_scenario_id` | Apidog test scenario ID | ✅ | - |
-| `environment_id` | Apidog environment ID | ✅ | - |
-| `test_iterations` | Number of test iterations | ❌ | `"1"` |
-| `output_formats` | Report formats (comma-separated) | ❌ | `"html,cli"` |
-| `node_version` | Node.js version to use | ❌ | `"20"` |
-| `runner_type` | GitHub runner type | ❌ | `"ubuntu-latest"` |
+| `test_scenario_id` | Apidog test scenario ID | Yes | - |
+| `environment_id` | Apidog environment ID | Yes | - |
+| `test_iterations` | Number of test iterations | No | `"1"` |
+| `output_formats` | Report formats (comma-separated) | No | `"html,cli"` |
+| `node_version` | Node.js version to use | No | `"20"` |
+| `runner_type` | GitHub runner type | No | `"ubuntu-latest"` |
 
 **Secrets:**
 
 | Secret | Description | Required |
 |--------|-------------|----------|
-| `apidog_access_token` | Apidog access token for authentication | ✅ |
+| `apidog_access_token` | Apidog access token for authentication | Yes |
 
 **Features:**
 
@@ -57,6 +57,64 @@ jobs:
 - ✅ Artifact upload with 30-day retention
 - ✅ Test results summary in GitHub Actions
 - ✅ Support for both GitHub-hosted and self-hosted runners
+
+### PR Security Scan
+
+Reusable workflow that detects changed application components in a PR and runs Trivy scans:
+- Secret scan on the repository filesystem
+- Vulnerability scan on built Docker images (SARIF + table outputs)
+
+Workflow file: `.github/workflows/pr-security-scan.yml`
+
+**Usage:**
+
+```yaml
+name: PR Security Scan
+on:
+  pull_request:
+    branches: [ main, develop ]
+
+jobs:
+  pr-security-scan:
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/pr-security-scan.yml@main
+    with:
+      runner_type: ubuntu-latest
+      filter_paths: |
+        components/onboarding
+        components/transaction
+        components/console
+      app_name_prefix: midaz
+      path_level: "2"
+      dockerhub_org: lerianstudio
+```
+
+**Inputs:**
+
+| Input | Description | Required | Default |
+|-------|-------------|----------|---------|
+| `runner_type` | GitHub runner type to use | No | `"ubuntu-latest"` |
+| `filter_paths` | Newline-separated list of directories to monitor for changes | No | `components/onboarding`, `components/transaction`, `components/console` |
+| `app_name_prefix` | Prefix used when composing the image tag (e.g., `midaz`) | No | `"midaz"` |
+| `path_level` | Directory depth level to extract app name from path | No | `"2"` |
+| `dockerhub_org` | DockerHub organization to build/tag images under | No | `"lerianstudio"` |
+
+**Required permissions:**
+
+```yaml
+permissions:
+  id-token: write       # for OIDC auth
+  contents: read        # to checkout
+  pull-requests: write  # to comment on PRs (if needed later)
+  security-events: write # to upload SARIF to GitHub Security tab
+```
+
+**What it does:**
+
+- Detects changed paths using `LerianStudio/github-actions-changed-paths@main` and builds a matrix of affected apps
+- Runs Trivy Secret Scan (filesystem) to detect credentials and sensitive data
+- Builds Docker images for each changed app and runs Trivy Vulnerability scan
+- Uploads SARIF results to GitHub Security tab and prints a readable table summary
+- Skips the scan if no relevant paths changed
 
 ## Contributing
 

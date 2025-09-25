@@ -1,0 +1,119 @@
+name: "PR Security Scan"
+
+# This reusable workflow handles security scanning for pull requests
+# It detects changed components and runs Trivy scans on them
+
+on:
+  workflow_call:
+    inputs:
+      runner_type:
+        description: 'GitHub runner type to use'
+        type: string
+        default: 'ubuntu-latest'
+      filter_paths:
+        description: 'Paths to monitor for changes (newline separated)'
+        type: string
+        default: |
+          components/onboarding
+          components/transaction
+          components/console
+      app_name_prefix:
+        description: 'Prefix for app names'
+        type: string
+        default: 'midaz'
+      path_level:
+        description: 'Directory depth level to extract app name'
+        type: string
+        default: '2'
+      dockerhub_org:
+        description: 'DockerHub organization name'
+        type: string
+        default: 'lerianstudio'
+
+permissions:
+  id-token: write       # Required for OIDC authentication
+  contents: read        # Required to checkout the repository
+  pull-requests: write  # Allows commenting on PRs
+  security-events: write # Required for security scanning
+
+jobs:
+  detect_changes:
+    runs-on: ${{ inputs.runner_type }}
+    outputs:
+      matrix: ${{ steps.changed-paths.outputs.matrix }}
+    name: Detect changed paths
+    steps:
+      - name: Get changed paths
+        id: changed-paths
+        uses: LerianStudio/github-actions-changed-paths@main
+        with:
+          filter_paths: ${{ inputs.filter_paths }}
+          get_app_name: true
+          path_level: ${{ inputs.path_level }}
+          app_name_prefix: ${{ inputs.app_name_prefix }}
+
+  security_scan:
+    needs: detect_changes
+    if: needs.detect_changes.outputs.matrix != '[]'  # Skip if no relevant changes
+    runs-on: ${{ inputs.runner_type }}
+    strategy:
+      matrix:
+        app: ${{ fromJson(needs.detect_changes.outputs.matrix) }}
+    env:
+      DOCKERHUB_ORG: ${{ inputs.dockerhub_org }}
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # ----------------- Security Scans -----------------
+      - name: Trivy Secret Scan (Repository)
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          format: table
+          exit-code: '1'
+          hide-progress: true
+          security-checks: secret
+          skip-dirs: '.git,node_modules,dist,build,.next,coverage,vendor'
+
+      - name: Build Docker Image for Scanning
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ${{ matrix.app.working_dir }}/Dockerfile
+          platforms: linux/amd64
+          load: true
+          push: false
+          tags: ${{ env.DOCKERHUB_ORG }}/${{ matrix.app.name }}:pr-scan-${{ github.sha }}
+
+      - name: Trivy Vulnerability Scan (Docker Image)
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: '${{ env.DOCKERHUB_ORG }}/${{ matrix.app.name }}:pr-scan-${{ github.sha }}'
+          format: sarif
+          output: 'trivy-results-${{ matrix.app.name }}.sarif'
+          ignore-unfixed: true
+          vuln-type: os,library
+          severity: CRITICAL,HIGH
+          exit-code: '1'  # Fail if critical/high vulnerabilities found
+
+      - name: Upload Trivy Scan Results to GitHub Security Tab
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: 'trivy-results-${{ matrix.app.name }}.sarif'
+
+      - name: Trivy Vulnerability Scan (Table Output)
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: '${{ env.DOCKERHUB_ORG }}/${{ matrix.app.name }}:pr-scan-${{ github.sha }}'
+          format: table
+          ignore-unfixed: true
+          vuln-type: os,library
+          severity: CRITICAL,HIGH
+          exit-code: '1'  # Fail if critical/high vulnerabilities found
