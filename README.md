@@ -83,7 +83,6 @@ jobs:
         components/onboarding
         components/transaction
         components/console
-      app_name_prefix: midaz
       path_level: "2"
       dockerhub_org: lerianstudio
 ```
@@ -94,7 +93,6 @@ jobs:
 |-------|-------------|----------|---------|
 | `runner_type` | GitHub runner type to use | No | `"ubuntu-latest"` |
 | `filter_paths` | Newline-separated list of directories to monitor for changes | No | `components/onboarding`, `components/transaction`, `components/console` |
-| `app_name_prefix` | Prefix used when composing the image tag (e.g., `midaz`) | No | `"midaz"` |
 | `path_level` | Directory depth level to extract app name from path | No | `"2"` |
 | `dockerhub_org` | DockerHub organization to build/tag images under | No | `"lerianstudio"` |
 

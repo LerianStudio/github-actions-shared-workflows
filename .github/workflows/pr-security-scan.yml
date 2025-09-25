@@ -17,10 +17,6 @@ on:
           components/onboarding
           components/transaction
           components/console
-      app_name_prefix:
-        description: 'Prefix for app names'
-        type: string
-        default: 'midaz'
       path_level:
         description: 'Directory depth level to extract app name'
         type: string
@@ -51,7 +47,6 @@ jobs:
             ${{ inputs.filter_paths }}
           get_app_name: true
           path_level: ${{ inputs.path_level }}
-          app_name_prefix: ${{ inputs.app_name_prefix }}
 
   security_scan:
     needs: detect_changes
