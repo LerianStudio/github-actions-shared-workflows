@@ -22,13 +22,13 @@ jobs:
   api-tests:
     uses: LerianStudio/github-actions-shared-workflows/.github/workflows/api-dog-e2e-tests.yml@main
     with:
-      test_scenario_id: "1407969"
       environment_id: "4770599"
       test_iterations: "1"
       output_formats: "html,cli"
       node_version: "20"
       runner_type: "ubuntu-latest"
     secrets:
+      test_scenario_id: ${{ secrets.APIDOG_TEST_SCENARIO_ID }}
       apidog_access_token: ${{ secrets.APIDOG_ACCESS_TOKEN }}
 ```
 
@@ -46,10 +46,9 @@ jobs:
   api-tests:
     uses: LerianStudio/github-actions-shared-workflows/.github/workflows/api-dog-e2e-tests.yml@main
     with:
-      test_scenario_id: "1407969"
       auto_detect_environment: true
-      runner_type: "firmino-lxc-runners"
     secrets:
+      test_scenario_id: ${{ secrets.MIDAZ_APIDOG_TEST_SCENARIO_ID }}
       apidog_access_token: ${{ secrets.APIDOG_ACCESS_TOKEN }}
       dev_environment_id: ${{ secrets.MIDAZ_APIDOG_DEV_ENVIRONMENT_ID }}
       stg_environment_id: ${{ secrets.MIDAZ_APIDOG_STG_ENVIRONMENT_ID }}
@@ -59,7 +58,6 @@ jobs:
 
 | Input | Description | Required | Default |
 |-------|-------------|----------|---------|
-| `test_scenario_id` | Apidog test scenario ID | Yes | - |
 | `environment_id` | Apidog environment ID (ignored if auto_detect_environment is true) | No | - |
 | `auto_detect_environment` | Enable automatic environment detection from tag (beta/rc) | No | `false` |
 | `test_iterations` | Number of test iterations | No | `"1"` |
@@ -71,6 +69,7 @@ jobs:
 
 | Secret | Description | Required |
 |--------|-------------|----------|
+| `test_scenario_id` | Apidog test scenario ID | Yes | 
 | `apidog_access_token` | Apidog access token for authentication | Yes |
 | `dev_environment_id` | Apidog dev environment ID (for beta tags) | No* |
 | `stg_environment_id` | Apidog staging environment ID (for rc tags) | No* |

@@ -10,10 +10,6 @@ on:
         description: 'Node.js version to use'
         type: string
         default: '20'
-      test_scenario_id:
-        description: 'Apidog test scenario ID'
-        required: true
-        type: string
       environment_id:
         description: 'Apidog environment ID (optional - will auto-detect from tag if not provided)'
         required: false
@@ -35,6 +31,9 @@ on:
         type: boolean
         default: false
     secrets:
+      test_scenario_id:
+        description: 'Apidog test scenario ID'
+        required: true
       apidog_access_token:
         description: 'Apidog access token for authentication'
         required: true
@@ -93,7 +92,7 @@ jobs:
           echo "Running e2e tests for $TAG_TYPE environment with ID: $ENVIRONMENT_ID"
           apidog run \
             --access-token "$APIDOG_ACCESS_TOKEN" \
-            --test-scenario ${{ inputs.test_scenario_id }} \
+            --test-scenario ${{ secrets.test_scenario_id }} \
             -e ${{ env.ENVIRONMENT_ID }} \
             --color on \
             -n ${{ inputs.test_iterations }} \
