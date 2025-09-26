@@ -15,8 +15,8 @@ on:
         required: true
         type: string
       environment_id:
-        description: 'Apidog environment ID'
-        required: true
+        description: 'Apidog environment ID (optional - will auto-detect from tag if not provided)'
+        required: false
         type: string
       test_iterations:
         description: 'Number of test iterations'
@@ -29,11 +29,21 @@ on:
       runner_type:
         description: 'GitHub runner type to use'
         type: string
-        default: 'ubuntu-latest'
+        default: 'firmino-lxc-runners'
+      auto_detect_environment:
+        description: 'Enable automatic environment detection from tag (beta/rc)'
+        type: boolean
+        default: false
     secrets:
       apidog_access_token:
         description: 'Apidog access token for authentication'
         required: true
+      dev_environment_id:
+        description: 'Apidog dev environment ID (for beta tags)'
+        required: false
+      stg_environment_id:
+        description: 'Apidog staging environment ID (for rc tags)'
+        required: false
 
 jobs:
   api-dog-e2e-tests:
@@ -50,14 +60,42 @@ jobs:
       - name: Install Apidog CLI
         run: npm install -g apidog-cli
 
+      - name: Determine environment ID based on tag
+        if: ${{ inputs.auto_detect_environment }}
+        id: set-env
+        run: |
+          TAG_NAME="${{ github.ref_name }}"
+          echo "Processing tag: $TAG_NAME"
+
+          if [[ "$TAG_NAME" == *"-beta."* ]]; then
+            echo "ENVIRONMENT_ID=${{ secrets.dev_environment_id }}" >> $GITHUB_ENV
+            echo "TAG_TYPE=beta" >> $GITHUB_ENV
+            echo "Detected beta tag - using dev environment"
+          elif [[ "$TAG_NAME" == *"-rc."* ]]; then
+            echo "ENVIRONMENT_ID=${{ secrets.stg_environment_id }}" >> $GITHUB_ENV
+            echo "TAG_TYPE=rc" >> $GITHUB_ENV
+            echo "Detected rc tag - using stg environment"
+          else
+            echo "::error::Unrecognized tag format for e2e tests: $TAG_NAME. Expected a tag containing '-beta.' or '-rc.'"
+            exit 1
+          fi
+
+      - name: Set manual environment ID
+        if: ${{ !inputs.auto_detect_environment }}
+        run: |
+          echo "ENVIRONMENT_ID=${{ inputs.environment_id }}" >> $GITHUB_ENV
+          echo "TAG_TYPE=manual" >> $GITHUB_ENV
+
       - name: Run Apidog Test Scenario
         env:
           APIDOG_ACCESS_TOKEN: ${{ secrets.apidog_access_token }}
         run: |
+          echo "Running e2e tests for $TAG_TYPE environment with ID: $ENVIRONMENT_ID"
           apidog run \
             --access-token "$APIDOG_ACCESS_TOKEN" \
             --test-scenario ${{ inputs.test_scenario_id }} \
-            -e ${{ inputs.environment_id }} \
+            -e ${{ env.ENVIRONMENT_ID }} \
+            --color on \
             -n ${{ inputs.test_iterations }} \
             -r ${{ inputs.output_formats }} \
             --out-dir ./apidog-reports
@@ -66,6 +104,12 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: apidog-e2e-test-reports
+          name: apidog-e2e-test-reports-${{ env.TAG_TYPE }}
           path: ./apidog-reports
           retention-days: 30
+
+      - name: Cleanup apidog-cli
+        if: always()
+        run: |
+          npm uninstall -g apidog-cli || true
+          rm -rf $(npm root -g)/apidog-cli || true

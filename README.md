@@ -6,9 +6,9 @@ Centralized repository for reusable GitHub Actions workflows used across the Ler
 
 ### API Dog E2E Tests
 
-Automated API testing workflow using Apidog CLI that runs test scenarios and generates comprehensive reports.
+Automated API testing workflow using Apidog CLI that runs test scenarios and generates comprehensive reports. Supports both manual environment specification and automatic environment detection based on git tags (beta/rc).
 
-**Usage:**
+**Usage (Manual Environment):**
 
 ```yaml
 name: API Testing
@@ -27,9 +27,32 @@ jobs:
       test_iterations: "1"
       output_formats: "html,cli"
       node_version: "20"
-      runner_type: "ubuntu-latest"  # or "firmino-lxc-runners" for self-hosted
+      runner_type: "ubuntu-latest"
     secrets:
       apidog_access_token: ${{ secrets.APIDOG_ACCESS_TOKEN }}
+```
+
+**Usage (Auto-detect Environment from Tag):**
+
+```yaml
+name: API Testing on Release
+on:
+  push:
+    tags:
+      - '*-beta.*'
+      - '*-rc.*'
+
+jobs:
+  api-tests:
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/api-dog-e2e-tests.yml@main
+    with:
+      test_scenario_id: "1407969"
+      auto_detect_environment: true
+      runner_type: "firmino-lxc-runners"
+    secrets:
+      apidog_access_token: ${{ secrets.APIDOG_ACCESS_TOKEN }}
+      dev_environment_id: ${{ secrets.MIDAZ_APIDOG_DEV_ENVIRONMENT_ID }}
+      stg_environment_id: ${{ secrets.MIDAZ_APIDOG_STG_ENVIRONMENT_ID }}
 ```
 
 **Inputs:**
@@ -37,17 +60,22 @@ jobs:
 | Input | Description | Required | Default |
 |-------|-------------|----------|---------|
 | `test_scenario_id` | Apidog test scenario ID | Yes | - |
-| `environment_id` | Apidog environment ID | Yes | - |
+| `environment_id` | Apidog environment ID (ignored if auto_detect_environment is true) | No | - |
+| `auto_detect_environment` | Enable automatic environment detection from tag (beta/rc) | No | `false` |
 | `test_iterations` | Number of test iterations | No | `"1"` |
 | `output_formats` | Report formats (comma-separated) | No | `"html,cli"` |
 | `node_version` | Node.js version to use | No | `"20"` |
-| `runner_type` | GitHub runner type | No | `"ubuntu-latest"` |
+| `runner_type` | GitHub runner type | No | `"firmino-lxc-runners"` |
 
 **Secrets:**
 
 | Secret | Description | Required |
 |--------|-------------|----------|
 | `apidog_access_token` | Apidog access token for authentication | Yes |
+| `dev_environment_id` | Apidog dev environment ID (for beta tags) | No* |
+| `stg_environment_id` | Apidog staging environment ID (for rc tags) | No* |
+
+*Required when `auto_detect_environment` is `true`
 
 **Features:**
 
@@ -57,6 +85,8 @@ jobs:
 - ✅ Artifact upload with 30-day retention
 - ✅ Test results summary in GitHub Actions
 - ✅ Support for both GitHub-hosted and self-hosted runners
+- ✅ Automatic environment detection from git tags (beta/rc)
+- ✅ Automatic CLI cleanup after test execution
 
 ### PR Security Scan
 
