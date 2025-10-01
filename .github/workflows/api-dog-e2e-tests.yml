@@ -59,6 +59,9 @@ jobs:
       - name: Install Apidog CLI
         run: npm install -g apidog-cli
 
+      - name: Install Apidog CLI
+        run: pwd && ls -la
+
       - name: Determine environment ID based on tag
         if: ${{ inputs.auto_detect_environment }}
         id: set-env
