@@ -56,11 +56,11 @@ jobs:
         with:
           node-version: ${{ inputs.node_version }}
 
-      - name: Install Apidog CLI
-        run: npm install -g apidog-cli
-
       - name: pwd && ls -la
         run: pwd && ls -la
+
+      - name: Install Apidog CLI
+        run: npm install -g apidog-cli
 
       - name: Determine environment ID based on tag
         if: ${{ inputs.auto_detect_environment }}
