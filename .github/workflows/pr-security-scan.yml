@@ -115,14 +115,13 @@ jobs:
         with:
           image-ref: '${{ env.DOCKERHUB_ORG }}/${{ matrix.app.name }}:pr-scan-${{ github.sha }}'
           format: table
-          ignore-unfixed: true
           vuln-type: os,library
           severity: CRITICAL,HIGH
-          exit-code: '1'  # Fail if critical/high vulnerabilities found
-          hide-progress: false
+          ignore-unfixed: true
+          scanners: vuln
+          exit-code: '1'            # still fail if CRITICAL/HIGH
           timeout: 10m0s
-        env:
-          TRIVY_DEBUG: true
+          hide-progress: false
 
       - name: Trivy Vulnerability Scan - Docker Image (SARIF Output)
         if: always()
