@@ -119,6 +119,10 @@ jobs:
           vuln-type: os,library
           severity: CRITICAL,HIGH
           exit-code: '1'  # Fail if critical/high vulnerabilities found
+          hide-progress: false
+          timeout: 10m0s
+        env:
+          TRIVY_DEBUG: true
 
       - name: Trivy Vulnerability Scan - Docker Image (SARIF Output)
         if: always()
@@ -132,18 +136,16 @@ jobs:
           severity: UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL
           exit-code: '0'  # Do not fail; gate failures in the table step
 
-      - name: ls -lah to check sarif outputs
-        if: always()
-        run: ls -lah
-
       - name: Upload Secret Scan Results - Repository (SARIF) to GitHub Security Tab
         uses: github/codeql-action/upload-sarif@v3
-        if: always() && hashFiles('trivy-secret-scan-repo-${{ matrix.app.name }}.sarif') != ''
+        if: always()
+        continue-on-error: true
         with:
           sarif_file: 'trivy-secret-scan-repo-${{ matrix.app.name }}.sarif'
 
       - name: Upload Vulnerability Scan Results - Docker Image (SARIF) to GitHub Security Tab
         uses: github/codeql-action/upload-sarif@v3
-        if: always() && hashFiles('trivy-vulnerability-scan-docker-${{ matrix.app.name }}.sarif') != ''
+        if: always()
+        continue-on-error: true
         with:
           sarif_file: 'trivy-vulnerability-scan-docker-${{ matrix.app.name }}.sarif'
