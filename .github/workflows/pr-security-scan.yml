@@ -25,6 +25,10 @@ on:
         description: 'DockerHub organization name'
         type: string
         default: 'lerianstudio'
+    secrets:
+      MANAGE_TOKEN:
+        description: 'GitHub token for accessing private repositories during Docker build'
+        required: false
 
 permissions:
   id-token: write       # Required for OIDC authentication
@@ -93,8 +97,21 @@ jobs:
           security-checks: secret
           skip-dirs: '.git,node_modules,dist,build,.next,coverage,vendor'
 
-      - name: Build Docker Image for Scanning
-        if: always()
+      - name: Build Docker Image for Scanning (with secrets)
+        if: secrets.MANAGE_TOKEN != ''
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ${{ matrix.app.working_dir }}/Dockerfile
+          platforms: linux/amd64
+          load: true
+          push: false
+          tags: ${{ env.DOCKERHUB_ORG }}/${{ matrix.app.name }}:pr-scan-${{ github.sha }}
+          secrets: |
+            github_token=${{ secrets.MANAGE_TOKEN }}
+
+      - name: Build Docker Image for Scanning (without secrets)
+        if: secrets.MANAGE_TOKEN == ''
         uses: docker/build-push-action@v5
         with:
           context: .
@@ -128,6 +145,7 @@ jobs:
           exit-code: '0'  # Do not fail; gate failures in the table step
 
       - name: ls -lah to check sarif outputs
+        if: always()
         run: ls -lah
 
       - name: Upload Secret Scan Results - Repository (SARIF) to GitHub Security Tab
