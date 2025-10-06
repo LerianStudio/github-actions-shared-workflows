@@ -54,6 +54,7 @@ jobs:
     runs-on: ${{ inputs.runner_type }}
     strategy:
       max-parallel: 1
+      fail-fast: false
       matrix:
         app: ${{ fromJson(needs.detect_changes.outputs.matrix) }}
     env:
@@ -67,7 +68,7 @@ jobs:
         uses: docker/setup-buildx-action@v3
 
       # ----------------- Security Scans -----------------
-      - name: Trivy Secret Scan (Repository)
+      - name: Trivy Secret Scan (Repository - Table Output)
         uses: aquasecurity/trivy-action@0.28.0
         if: always()
         with:
@@ -75,6 +76,19 @@ jobs:
           scan-ref: .
           format: table
           exit-code: '1'
+          hide-progress: true
+          security-checks: secret
+          skip-dirs: '.git,node_modules,dist,build,.next,coverage,vendor'
+
+      - name: Trivy Secret Scan (Repository - SARIF Output)
+        uses: aquasecurity/trivy-action@0.28.0
+        if: always()
+        with:
+          scan-type: fs
+          scan-ref: .
+          format: sarif
+          output: 'trivy-secret-scan-repo-${{ matrix.app.name }}.sarif'
+          exit-code: '0'
           hide-progress: true
           security-checks: secret
           skip-dirs: '.git,node_modules,dist,build,.next,coverage,vendor'
@@ -107,14 +121,20 @@ jobs:
         with:
           image-ref: '${{ env.DOCKERHUB_ORG }}/${{ matrix.app.name }}:pr-scan-${{ github.sha }}'
           format: sarif
-          output: 'trivy-results-${{ matrix.app.name }}.sarif'
+          output: 'trivy-vulnerability-scan-docker-${{ matrix.app.name }}.sarif'
           ignore-unfixed: true
           vuln-type: os,library
           severity: UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL
           exit-code: '0'  # Do not fail; gate failures in the table step
 
-      - name: Upload Trivy Scan Results to GitHub Security Tab
+      - name: Upload Trivy Secret Scan Results (Repository) to GitHub Security Tab
         uses: github/codeql-action/upload-sarif@v3
-        if: always() && hashFiles('trivy-results-${{ matrix.app.name }}.sarif') != ''
+        if: always() && hashFiles('trivy-secret-scan-repo-${{ matrix.app.name }}.sarif') != ''
         with:
-          sarif_file: 'trivy-results-${{ matrix.app.name }}.sarif'
+          sarif_file: 'trivy-secret-scan-repo-${{ matrix.app.name }}.sarif'
+
+      - name: Upload Trivy Vulnerability Scan Results (Docker Image) to GitHub Security Tab
+        uses: github/codeql-action/upload-sarif@v3
+        if: always() && hashFiles('trivy-vulnerability-scan-docker-${{ matrix.app.name }}.sarif') != ''
+        with:
+          sarif_file: 'trivy-vulnerability-scan-docker-${{ matrix.app.name }}.sarif'
