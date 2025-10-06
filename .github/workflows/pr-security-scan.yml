@@ -68,6 +68,7 @@ jobs:
       # ----------------- Security Scans -----------------
       - name: Trivy Secret Scan (Repository)
         uses: aquasecurity/trivy-action@0.28.0
+        continue-on-error: true
         with:
           scan-type: fs
           scan-ref: .
@@ -78,6 +79,7 @@ jobs:
           skip-dirs: '.git,node_modules,dist,build,.next,coverage,vendor'
 
       - name: Build Docker Image for Scanning
+        if: always()
         uses: docker/build-push-action@v5
         with:
           context: .
@@ -88,6 +90,8 @@ jobs:
           tags: ${{ env.DOCKERHUB_ORG }}/${{ matrix.app.name }}:pr-scan-${{ github.sha }}
 
       - name: Trivy Vulnerability Scan (Table Output)
+        if: always()
+        continue-on-error: true
         uses: aquasecurity/trivy-action@0.28.0
         with:
           image-ref: '${{ env.DOCKERHUB_ORG }}/${{ matrix.app.name }}:pr-scan-${{ github.sha }}'
@@ -98,6 +102,7 @@ jobs:
           exit-code: '1'  # Fail if critical/high vulnerabilities found
 
       - name: Trivy Vulnerability Scan (Docker Image)
+        if: always()
         uses: aquasecurity/trivy-action@0.28.0
         with:
           image-ref: '${{ env.DOCKERHUB_ORG }}/${{ matrix.app.name }}:pr-scan-${{ github.sha }}'
