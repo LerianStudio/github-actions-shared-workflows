@@ -87,23 +87,6 @@ jobs:
           push: false
           tags: ${{ env.DOCKERHUB_ORG }}/${{ matrix.app.name }}:pr-scan-${{ github.sha }}
 
-      - name: Trivy Vulnerability Scan (Docker Image)
-        uses: aquasecurity/trivy-action@0.28.0
-        with:
-          image-ref: '${{ env.DOCKERHUB_ORG }}/${{ matrix.app.name }}:pr-scan-${{ github.sha }}'
-          format: sarif
-          output: 'trivy-results-${{ matrix.app.name }}.sarif'
-          ignore-unfixed: true
-          vuln-type: os,library
-          severity: CRITICAL,HIGH
-          exit-code: '1'  # Fail if critical/high vulnerabilities found
-
-      - name: Upload Trivy Scan Results to GitHub Security Tab
-        uses: github/codeql-action/upload-sarif@v3
-        if: always() && hashFiles('trivy-results-${{ matrix.app.name }}.sarif') != ''
-        with:
-          sarif_file: 'trivy-results-${{ matrix.app.name }}.sarif'
-
       - name: Trivy Vulnerability Scan (Table Output)
         uses: aquasecurity/trivy-action@0.28.0
         with:
@@ -113,3 +96,20 @@ jobs:
           vuln-type: os,library
           severity: CRITICAL,HIGH
           exit-code: '1'  # Fail if critical/high vulnerabilities found
+
+      - name: Trivy Vulnerability Scan (Docker Image)
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: '${{ env.DOCKERHUB_ORG }}/${{ matrix.app.name }}:pr-scan-${{ github.sha }}'
+          format: sarif
+          output: 'trivy-results-${{ matrix.app.name }}.sarif'
+          ignore-unfixed: true
+          vuln-type: os,library
+          severity: UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL
+          exit-code: '0'  # Do not fail; gate failures in the table step
+
+      - name: Upload Trivy Scan Results to GitHub Security Tab
+        uses: github/codeql-action/upload-sarif@v3
+        if: always() && hashFiles('trivy-results-${{ matrix.app.name }}.sarif') != ''
+        with:
+          sarif_file: 'trivy-results-${{ matrix.app.name }}.sarif'
