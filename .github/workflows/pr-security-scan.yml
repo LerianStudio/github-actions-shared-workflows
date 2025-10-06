@@ -98,7 +98,7 @@ jobs:
           skip-dirs: '.git,node_modules,dist,build,.next,coverage,vendor'
 
       - name: Build Docker Image for Scanning (with secrets)
-        if: secrets.MANAGE_TOKEN != ''
+        if: secrets.manage_token != ''
         uses: docker/build-push-action@v5
         with:
           context: .
@@ -108,10 +108,10 @@ jobs:
           push: false
           tags: ${{ env.DOCKERHUB_ORG }}/${{ matrix.app.name }}:pr-scan-${{ github.sha }}
           secrets: |
-            github_token=${{ secrets.MANAGE_TOKEN }}
+            github_token=${{ secrets.manage_token }}
 
       - name: Build Docker Image for Scanning (without secrets)
-        if: secrets.MANAGE_TOKEN == ''
+        if: secrets.manage_token == ''
         uses: docker/build-push-action@v5
         with:
           context: .
