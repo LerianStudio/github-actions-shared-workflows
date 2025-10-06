@@ -53,6 +53,7 @@ jobs:
     if: needs.detect_changes.outputs.matrix != '[]'  # Skip if no relevant changes
     runs-on: ${{ inputs.runner_type }}
     strategy:
+      max-parallel: 1
       matrix:
         app: ${{ fromJson(needs.detect_changes.outputs.matrix) }}
     env:
@@ -68,7 +69,7 @@ jobs:
       # ----------------- Security Scans -----------------
       - name: Trivy Secret Scan (Repository)
         uses: aquasecurity/trivy-action@0.28.0
-        continue-on-error: true
+        if: always()
         with:
           scan-type: fs
           scan-ref: .
@@ -91,7 +92,6 @@ jobs:
 
       - name: Trivy Vulnerability Scan (Table Output)
         if: always()
-        continue-on-error: true
         uses: aquasecurity/trivy-action@0.28.0
         with:
           image-ref: '${{ env.DOCKERHUB_ORG }}/${{ matrix.app.name }}:pr-scan-${{ github.sha }}'
