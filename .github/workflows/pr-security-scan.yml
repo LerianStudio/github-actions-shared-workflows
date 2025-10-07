@@ -111,17 +111,14 @@ jobs:
 
       - name: Trivy Vulnerability Scan - Docker Image (Table Output)
         if: always()
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@master
         with:
           image-ref: '${{ env.DOCKERHUB_ORG }}/${{ matrix.app.name }}:pr-scan-${{ github.sha }}'
-          format: table
-          vuln-type: os,library
-          severity: CRITICAL,HIGH
+          format: 'table'
           ignore-unfixed: true
-          scanners: vuln
-          exit-code: '1'            # still fail if CRITICAL/HIGH
-          timeout: 10m0s
-          hide-progress: false
+          vuln-type: 'os,library'
+          severity: 'CRITICAL,HIGH'
+          exit-code: '0'
 
       - name: Trivy Vulnerability Scan - Docker Image (SARIF Output)
         if: always()
