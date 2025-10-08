@@ -1,7 +1,8 @@
 name: "PR Security Scan"
 
 # This reusable workflow handles security scanning for pull requests
-# It detects changed components and runs Trivy scans on them
+# - If filter_paths is provided: treats as monorepo and scans changed components
+# - If filter_paths is empty/not provided: treats as single app and scans entire repo
 
 on:
   workflow_call:
@@ -11,14 +12,11 @@ on:
         type: string
         default: 'ubuntu-latest'
       filter_paths:
-        description: 'Paths to monitor for changes (newline separated)'
+        description: 'Paths to monitor for changes (newline separated). If not provided, treats as single app repo'
         type: string
-        default: |-
-          components/onboarding
-          components/transaction
-          components/console
+        required: false
       path_level:
-        description: 'Directory depth level to extract app name'
+        description: 'Directory depth level to extract app name (only used for monorepo)'
         type: string
         default: '2'
       dockerhub_org:
@@ -38,6 +36,7 @@ permissions:
 
 jobs:
   detect_changes:
+    if: inputs.filter_paths != ''
     runs-on: ${{ inputs.runner_type }}
     outputs:
       matrix: ${{ steps.changed-paths.outputs.matrix }}
@@ -53,16 +52,18 @@ jobs:
           path_level: ${{ inputs.path_level }}
 
   security_scan:
-    needs: detect_changes
-    if: needs.detect_changes.outputs.matrix != '[]'  # Skip if no relevant changes
     runs-on: ${{ inputs.runner_type }}
+    if: always() && (inputs.filter_paths == '' || (needs.detect_changes.outputs.matrix != '[]'))
+    needs: [detect_changes]
     strategy:
       max-parallel: 1
       fail-fast: false
       matrix:
-        app: ${{ fromJson(needs.detect_changes.outputs.matrix) }}
+        app: ${{ inputs.filter_paths == '' && fromJson('[{"name": "single-app", "working_dir": "."}]') || fromJson(needs.detect_changes.outputs.matrix) }}
     env:
       DOCKERHUB_ORG: ${{ inputs.dockerhub_org }}
+      APP_NAME: ${{ inputs.filter_paths == '' && github.event.repository.name || matrix.app.name }}
+      DOCKERFILE_PATH: ${{ inputs.filter_paths == '' && './Dockerfile' || format('{0}/Dockerfile', matrix.app.working_dir) }}
 
     steps:
       - name: Checkout Repository
@@ -91,7 +92,7 @@ jobs:
           scan-type: fs
           scan-ref: .
           format: sarif
-          output: 'trivy-secret-scan-repo-${{ matrix.app.name }}.sarif'
+          output: 'trivy-secret-scan-repo-${{ env.APP_NAME }}.sarif'
           exit-code: '0'
           hide-progress: true
           security-checks: secret
@@ -102,18 +103,18 @@ jobs:
         uses: docker/build-push-action@v5
         with:
           context: .
-          file: ${{ matrix.app.working_dir }}/Dockerfile
+          file: ${{ env.DOCKERFILE_PATH }}
           platforms: linux/amd64
           load: true
           push: false
-          tags: ${{ env.DOCKERHUB_ORG }}/${{ matrix.app.name }}:pr-scan-${{ github.sha }}
+          tags: ${{ env.DOCKERHUB_ORG }}/${{ env.APP_NAME }}:pr-scan-${{ github.sha }}
           secrets: ${{ secrets.manage_token && format('github_token={0}', secrets.manage_token) || '' }}
 
       - name: Trivy Vulnerability Scan - Docker Image (Table Output)
         if: always()
         uses: aquasecurity/trivy-action@master
         with:
-          image-ref: '${{ env.DOCKERHUB_ORG }}/${{ matrix.app.name }}:pr-scan-${{ github.sha }}'
+          image-ref: '${{ env.DOCKERHUB_ORG }}/${{ env.APP_NAME }}:pr-scan-${{ github.sha }}'
           format: 'table'
           ignore-unfixed: true
           vuln-type: 'os,library'
@@ -124,9 +125,9 @@ jobs:
         if: always()
         uses: aquasecurity/trivy-action@0.28.0
         with:
-          image-ref: '${{ env.DOCKERHUB_ORG }}/${{ matrix.app.name }}:pr-scan-${{ github.sha }}'
+          image-ref: '${{ env.DOCKERHUB_ORG }}/${{ env.APP_NAME }}:pr-scan-${{ github.sha }}'
           format: sarif
-          output: 'trivy-vulnerability-scan-docker-${{ matrix.app.name }}.sarif'
+          output: 'trivy-vulnerability-scan-docker-${{ env.APP_NAME }}.sarif'
           ignore-unfixed: true
           vuln-type: os,library
           severity: UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL
@@ -138,11 +139,11 @@ jobs:
       #   if: always()
       #   continue-on-error: true
       #   with:
-      #     sarif_file: 'trivy-secret-scan-repo-${{ matrix.app.name }}.sarif'
+      #     sarif_file: 'trivy-secret-scan-repo-${{ env.APP_NAME }}.sarif'
 
       # - name: Upload Vulnerability Scan Results - Docker Image (SARIF) to GitHub Security Tab
       #   uses: github/codeql-action/upload-sarif@v3
       #   if: always()
       #   continue-on-error: true
       #   with:
-      #     sarif_file: 'trivy-vulnerability-scan-docker-${{ matrix.app.name }}.sarif'
+      #     sarif_file: 'trivy-vulnerability-scan-docker-${{ env.APP_NAME }}.sarif'
