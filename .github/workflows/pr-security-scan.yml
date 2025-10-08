@@ -33,10 +33,10 @@ on:
         required: false
       docker_username:
         description: 'Docker registry username'
-        required: false
+        required: true
       docker_password:
         description: 'Docker registry password'
-        required: false
+        required: true
 
 permissions:
   id-token: write       # Required for OIDC authentication
@@ -49,7 +49,6 @@ jobs:
     runs-on: ${{ inputs.runner_type }}
     steps:
       - name: Login to Docker Registry
-        if: secrets.docker_username != '' && secrets.docker_password != ''
         uses: docker/login-action@v3
         with:
           registry: ${{ inputs.docker_registry }}
