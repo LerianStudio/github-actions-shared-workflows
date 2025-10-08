@@ -6,7 +6,7 @@ updates:
     schedule:
       interval: "weekly"
       day: "monday"
-    target-branch: "develop"
+    target-branch: "main"
     labels:
       - "dependencies"
       - "github-actions"
@@ -33,7 +33,7 @@ updates:
     schedule:
       interval: "weekly"
       day: "wednesday"
-    target-branch: "develop"
+    target-branch: "main"
     labels:
       - "dependencies"
       - "go"
