@@ -23,9 +23,19 @@ on:
         description: 'DockerHub organization name'
         type: string
         default: 'lerianstudio'
+      docker_registry:
+        description: 'Docker registry URL'
+        type: string
+        default: 'docker.io'
     secrets:
       manage_token:
         description: 'GitHub token for accessing private repositories during Docker build'
+        required: false
+      docker_username:
+        description: 'Docker registry username'
+        required: false
+      docker_password:
+        description: 'Docker registry password'
         required: false
 
 permissions:
@@ -35,7 +45,19 @@ permissions:
   security-events: write # Required for security scanning
 
 jobs:
+  docker_login:
+    runs-on: ${{ inputs.runner_type }}
+    steps:
+      - name: Login to Docker Registry
+        if: secrets.docker_username != '' && secrets.docker_password != ''
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ inputs.docker_registry }}
+          username: ${{ secrets.docker_username }}
+          password: ${{ secrets.docker_password }}
+
   prepare_matrix:
+    needs: docker_login
     runs-on: ${{ inputs.runner_type }}
     outputs:
       matrix: ${{ steps.set-matrix.outputs.matrix }}
@@ -62,7 +84,7 @@ jobs:
           fi
 
   security_scan:
-    needs: prepare_matrix
+    needs: [docker_login, prepare_matrix]
     if: needs.prepare_matrix.outputs.matrix != '[]'
     runs-on: ${{ inputs.runner_type }}
     strategy:
