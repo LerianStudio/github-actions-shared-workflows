@@ -116,7 +116,6 @@ jobs:
           format: table
           exit-code: '1'
           hide-progress: true
-          security-checks: secret
           skip-dirs: '.git,node_modules,dist,build,.next,coverage,vendor'
 
       - name: Trivy Secret Scan - Repository (SARIF Output)
@@ -129,7 +128,6 @@ jobs:
           output: 'trivy-secret-scan-repo-${{ env.APP_NAME }}.sarif'
           exit-code: '0'
           hide-progress: true
-          security-checks: secret
           skip-dirs: '.git,node_modules,dist,build,.next,coverage,vendor'
 
       - name: Build Docker Image for Scanning
