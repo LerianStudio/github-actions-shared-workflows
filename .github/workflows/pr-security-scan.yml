@@ -122,14 +122,7 @@ jobs:
     env:
       DOCKERHUB_ORG: ${{ inputs.dockerhub_org }}
       APP_NAME: ${{ matrix.name }}
-      DOCKERFILE_PATH: ${{
-        inputs.monorepo_type == 'type2' && (
-          matrix.working_dir == inputs.frontend_folder && format('{0}/Dockerfile', inputs.frontend_folder) ||
-          matrix.working_dir == '.' && './Dockerfile'
-        ) || (
-          matrix.working_dir == '.' && './Dockerfile' || format('{0}/Dockerfile', matrix.working_dir)
-        )
-      }}
+      DOCKERFILE_PATH: ${{ matrix.working_dir == '.' && './Dockerfile' || format('{0}/Dockerfile', matrix.working_dir) }}
 
     steps:
       - name: Login to Docker Registry
@@ -173,9 +166,7 @@ jobs:
         if: always()
         uses: docker/build-push-action@v5
         with:
-          context: ${{ 
-            inputs.monorepo_type == 'type2' && matrix.working_dir == inputs.frontend_folder && inputs.frontend_folder || '.'
-          }}
+          context: ${{ inputs.monorepo_type == 'type2' && matrix.working_dir == inputs.frontend_folder && inputs.frontend_folder || '.' }}
           file: ${{ env.DOCKERFILE_PATH }}
           platforms: linux/amd64
           load: true
