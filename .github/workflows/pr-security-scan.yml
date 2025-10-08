@@ -35,14 +35,13 @@ permissions:
   security-events: write # Required for security scanning
 
 jobs:
-  detect_changes:
-    if: inputs.filter_paths != ''
+  prepare_matrix:
     runs-on: ${{ inputs.runner_type }}
     outputs:
-      matrix: ${{ steps.changed-paths.outputs.matrix }}
-    name: Detect changed paths
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
     steps:
-      - name: Get changed paths
+      - name: Get changed paths (monorepo)
+        if: inputs.filter_paths != ''
         id: changed-paths
         uses: LerianStudio/github-actions-changed-paths@main
         with:
@@ -51,19 +50,30 @@ jobs:
           get_app_name: true
           path_level: ${{ inputs.path_level }}
 
+      - name: Set matrix
+        id: set-matrix
+        run: |
+          if [ "${{ inputs.filter_paths }}" = "" ]; then
+            # Single app mode
+            echo 'matrix=[{"name": "${{ github.event.repository.name }}", "working_dir": "."}]' >> $GITHUB_OUTPUT
+          else
+            # Monorepo mode
+            echo 'matrix=${{ steps.changed-paths.outputs.matrix }}' >> $GITHUB_OUTPUT
+          fi
+
   security_scan:
+    needs: prepare_matrix
+    if: needs.prepare_matrix.outputs.matrix != '[]'
     runs-on: ${{ inputs.runner_type }}
-    if: always() && (inputs.filter_paths == '' || (needs.detect_changes.outputs.matrix != '[]'))
-    needs: [detect_changes]
     strategy:
       max-parallel: 1
       fail-fast: false
       matrix:
-        app: ${{ inputs.filter_paths == '' && fromJson('[{"name": "single-app", "working_dir": "."}]') || fromJson(needs.detect_changes.outputs.matrix) }}
+        include: ${{ fromJson(needs.prepare_matrix.outputs.matrix) }}
     env:
       DOCKERHUB_ORG: ${{ inputs.dockerhub_org }}
-      APP_NAME: ${{ inputs.filter_paths == '' && github.event.repository.name || matrix.app.name }}
-      DOCKERFILE_PATH: ${{ inputs.filter_paths == '' && './Dockerfile' || format('{0}/Dockerfile', matrix.app.working_dir) }}
+      APP_NAME: ${{ matrix.name }}
+      DOCKERFILE_PATH: ${{ matrix.working_dir == '.' && './Dockerfile' || format('{0}/Dockerfile', matrix.working_dir) }}
 
     steps:
       - name: Checkout Repository
