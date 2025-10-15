@@ -164,7 +164,7 @@ jobs:
 
       - name: Build Docker Image for Scanning
         if: always()
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v6
         with:
           context: ${{ inputs.monorepo_type == 'type2' && matrix.working_dir == inputs.frontend_folder && inputs.frontend_folder || '.' }}
           file: ${{ env.DOCKERFILE_PATH }}
