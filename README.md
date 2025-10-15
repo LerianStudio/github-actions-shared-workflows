@@ -69,7 +69,7 @@ jobs:
 
 | Secret | Description | Required |
 |--------|-------------|----------|
-| `test_scenario_id` | Apidog test scenario ID | Yes | 
+| `test_scenario_id` | Apidog test scenario ID | Yes |
 | `apidog_access_token` | Apidog access token for authentication | Yes |
 | `dev_environment_id` | Apidog dev environment ID (for beta tags) | No* |
 | `stg_environment_id` | Apidog staging environment ID (for rc tags) | No* |
@@ -89,13 +89,14 @@ jobs:
 
 ### PR Security Scan
 
-Reusable workflow that detects changed application components in a PR and runs Trivy scans:
-- Secret scan on the repository filesystem
-- Vulnerability scan on built Docker images (SARIF + table outputs)
+Reusable workflow that handles security scanning for pull requests. Supports both single app repositories and monorepos with two different architectures:
+- **Single App Mode**: Scans entire repository when `filter_paths` is not provided
+- **Monorepo Type 1**: Components in separate folders with individual Dockerfiles
+- **Monorepo Type 2**: Backend in root with `./Dockerfile`, frontend in folder with `folder/Dockerfile`
 
 Workflow file: `.github/workflows/pr-security-scan.yml`
 
-**Usage:**
+**Usage (Single App):**
 
 ```yaml
 name: PR Security Scan
@@ -104,16 +105,70 @@ on:
     branches: [ main, develop ]
 
 jobs:
-  pr-security-scan:
+  security-scan:
     uses: LerianStudio/github-actions-shared-workflows/.github/workflows/pr-security-scan.yml@main
     with:
-      runner_type: ubuntu-latest
+      runner_type: "firmino-lxc-runners"
+      dockerhub_org: "lerianstudio"
+    secrets:
+      manage_token: ${{ secrets.MANAGE_TOKEN }}
+      docker_username: ${{ secrets.DOCKER_USERNAME }}
+      docker_password: ${{ secrets.DOCKER_PASSWORD }}
+```
+
+**Usage (Monorepo Type 1):**
+
+```yaml
+name: PR Security Scan
+on:
+  pull_request:
+    branches: [ main, develop ]
+
+jobs:
+  security-scan:
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/pr-security-scan.yml@main
+    with:
+      runner_type: "firmino-lxc-runners"
       filter_paths: |-
         components/onboarding
         components/transaction
         components/console
       path_level: "2"
-      dockerhub_org: lerianstudio
+      dockerhub_org: "lerianstudio"
+    secrets:
+      manage_token: ${{ secrets.MANAGE_TOKEN }}
+      docker_username: ${{ secrets.DOCKER_USERNAME }}
+      docker_password: ${{ secrets.DOCKER_PASSWORD }}
+```
+
+**Usage (Monorepo Type 2):**
+
+```yaml
+name: PR Security Scan
+on:
+  pull_request:
+    branches: [ main, develop ]
+
+jobs:
+  security-scan:
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/pr-security-scan.yml@main
+    with:
+      runner_type: "firmino-lxc-runners"
+      filter_paths: |-
+        frontend
+        cmd
+        internal
+        api
+        pkg
+        .
+      path_level: "1"
+      monorepo_type: "type2"
+      frontend_folder: "frontend"
+      dockerhub_org: "lerianstudio"
+    secrets:
+      manage_token: ${{ secrets.MANAGE_TOKEN }}
+      docker_username: ${{ secrets.DOCKER_USERNAME }}
+      docker_password: ${{ secrets.DOCKER_PASSWORD }}
 ```
 
 **Inputs:**
@@ -121,27 +176,55 @@ jobs:
 | Input | Description | Required | Default |
 |-------|-------------|----------|---------|
 | `runner_type` | GitHub runner type to use | No | `"ubuntu-latest"` |
-| `filter_paths` | Newline-separated list of directories to monitor for changes | No | `components/onboarding`, `components/transaction`, `components/console` |
-| `path_level` | Directory depth level to extract app name from path | No | `"2"` |
-| `dockerhub_org` | DockerHub organization to build/tag images under | No | `"lerianstudio"` |
+| `filter_paths` | Paths to monitor for changes (newline separated). If not provided, treats as single app repo | No | - |
+| `path_level` | Directory depth level to extract app name (only used for monorepo) | No | `"2"` |
+| `monorepo_type` | Type of monorepo: "type1" (components in folders) or "type2" (backend in root, frontend in folder) | No | `"type1"` |
+| `frontend_folder` | Name of the frontend folder for type2 monorepos | No | `"frontend"` |
+| `dockerhub_org` | DockerHub organization name | No | `"lerianstudio"` |
+| `docker_registry` | Docker registry URL | No | `"docker.io"` |
+
+**Secrets:**
+
+| Secret | Description | Required |
+|--------|-------------|----------|
+| `manage_token` | GitHub token for accessing private repositories during Docker build | No |
+| `docker_username` | Docker registry username | Yes |
+| `docker_password` | Docker registry password | Yes |
 
 **Required permissions:**
 
 ```yaml
 permissions:
-  id-token: write       # for OIDC auth
-  contents: read        # to checkout
-  pull-requests: write  # to comment on PRs (if needed later)
-  security-events: write # to upload SARIF to GitHub Security tab
+  id-token: write       # Required for OIDC authentication
+  contents: read        # Required to checkout the repository
+  pull-requests: write  # Allows commenting on PRs
+  security-events: write # Required for security scanning
 ```
+
+**Features:**
+
+- ✅ Trivy Secret Scan on repository filesystem (fails on secrets found)
+- ✅ Trivy Vulnerability Scan on Docker images (CRITICAL, HIGH severity)
+- ✅ SARIF output generation for both scans
+- ✅ Supports single app and monorepo architectures
+- ✅ Automatic detection of changed components in monorepos
+- ✅ Type 2 monorepo support with backend/frontend separation
+- ✅ Ignores `.github` and `.githooks` folders in Type 2 monorepos
+- ✅ Sequential scanning with `max-parallel: 1`
+- ✅ Continues on failure with `fail-fast: false`
 
 **What it does:**
 
-- Detects changed paths using `LerianStudio/github-actions-changed-paths@main` and builds a matrix of affected apps
-- Runs Trivy Secret Scan (filesystem) to detect credentials and sensitive data
-- Builds Docker images for each changed app and runs Trivy Vulnerability scan
-- Uploads SARIF results to GitHub Security tab and prints a readable table summary
-- Skips the scan if no relevant paths changed
+1. **prepare_matrix** job: Detects changed paths and prepares matrix of components to scan
+   - Single app: Creates matrix with repository name and root directory
+   - Type 1 monorepo: Uses changed paths directly
+   - Type 2 monorepo: Consolidates backend changes to root, keeps frontend separate
+
+2. **security_scan** job: For each component in the matrix:
+   - Runs Trivy Secret Scan (table + SARIF output) - **fails workflow if secrets found**
+   - Builds Docker image for scanning
+   - Runs Trivy Vulnerability Scan (table + SARIF output) - informative only
+   - Generates reports for both scans
 
 ## Contributing
 
