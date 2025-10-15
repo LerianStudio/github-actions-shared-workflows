@@ -3,6 +3,9 @@ name: "PR Security Scan"
 # This reusable workflow handles security scanning for pull requests
 # - If filter_paths is provided: treats as monorepo and scans changed components
 # - If filter_paths is empty/not provided: treats as single app and scans entire repo
+# - Supports two monorepo types:
+#   * Type 1 (default): Components in separate folders with individual Dockerfiles
+#   * Type 2: Backend in root with ./Dockerfile, frontend in folder with folder/Dockerfile
 
 on:
   workflow_call:
@@ -19,6 +22,14 @@ on:
         description: 'Directory depth level to extract app name (only used for monorepo)'
         type: string
         default: '2'
+      monorepo_type:
+        description: 'Type of monorepo: "type1" (components in folders) or "type2" (backend in root, frontend in folder)'
+        type: string
+        default: 'type1'
+      frontend_folder:
+        description: 'Name of the frontend folder for type2 monorepos'
+        type: string
+        default: 'frontend'
       dockerhub_org:
         description: 'DockerHub organization name'
         type: string
@@ -73,8 +84,29 @@ jobs:
           if [ "${{ inputs.filter_paths }}" = "" ]; then
             # Single app mode
             echo 'matrix=[{"name": "${{ github.event.repository.name }}", "working_dir": "."}]' >> $GITHUB_OUTPUT
+          elif [ "${{ inputs.monorepo_type }}" = "type2" ]; then
+            # Type 2 monorepo: backend in root, frontend in folder
+            CHANGED_MATRIX='${{ steps.changed-paths.outputs.matrix }}'
+
+            # Process the matrix to handle Type 2 logic
+            PROCESSED_MATRIX=$(echo "$CHANGED_MATRIX" | jq -c '
+              map(
+                if .working_dir == "${{ inputs.frontend_folder }}" then
+                  # Frontend changes - keep as is
+                  .
+                elif (.working_dir == ".github" or .working_dir == ".githooks") then
+                  # Ignore .github and .githooks folders
+                  empty
+                else
+                  # Backend changes - consolidate to root
+                  {"name": "${{ github.event.repository.name }}", "working_dir": "."}
+                end
+              ) | unique_by(.working_dir)
+            ')
+
+            echo "matrix=$PROCESSED_MATRIX" >> $GITHUB_OUTPUT
           else
-            # Monorepo mode
+            # Type 1 monorepo mode (default)
             echo 'matrix=${{ steps.changed-paths.outputs.matrix }}' >> $GITHUB_OUTPUT
           fi
 
@@ -134,7 +166,7 @@ jobs:
         if: always()
         uses: docker/build-push-action@v5
         with:
-          context: .
+          context: ${{ inputs.monorepo_type == 'type2' && matrix.working_dir == inputs.frontend_folder && inputs.frontend_folder || '.' }}
           file: ${{ env.DOCKERFILE_PATH }}
           platforms: linux/amd64
           load: true
