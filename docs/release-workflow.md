@@ -142,12 +142,11 @@ Commits to `main` branch create production releases:
 - Pre-release: No
 - Use case: Production deployment
 
-### hotfix/* → Hotfix Releases
+## Configuration
 
-Commits to `hotfix/*` branches use `.releaserc.hotfix` configuration:
-- Version: `v1.2.4` (patch bump)
-- Pre-release: No
-- Use case: Emergency fixes
+The workflow uses `.releaserc.yml` for all branches (no separate hotfix configuration).
+
+**Configuration file**: `.releaserc.yml` in repository root
 
 ## Conventional Commits
 
@@ -193,51 +192,38 @@ ci: update GitHub Actions workflow
 
 No version bump, but included in changelog.
 
-## Configuration Files
+## Configuration File Example
 
-### .releaserc (Default)
+### .releaserc.yml
 
-Used for `develop`, `release-candidate`, and `main` branches:
+Single configuration file for all branches:
 
-```json
-{
-  "branches": [
-    "main",
-    {
-      "name": "release-candidate",
-      "prerelease": "rc"
-    },
-    {
-      "name": "develop",
-      "prerelease": "beta"
-    }
-  ],
-  "plugins": [
-    "@semantic-release/commit-analyzer",
-    "@semantic-release/release-notes-generator",
-    "@semantic-release/github"
-  ]
-}
-```
+```yaml
+branches:
+  - name: main
+  - name: release-candidate
+    prerelease: rc
+  - name: develop
+    prerelease: beta
 
-### .releaserc.hotfix (Hotfix)
-
-Used for `hotfix/*` branches:
-
-```json
-{
-  "branches": [
-    {
-      "name": "hotfix/*",
-      "prerelease": false
-    }
-  ],
-  "plugins": [
-    "@semantic-release/commit-analyzer",
-    "@semantic-release/release-notes-generator",
-    "@semantic-release/github"
-  ]
-}
+plugins:
+  - - "@semantic-release/commit-analyzer"
+    - preset: conventionalcommits
+      releaseRules:
+        - type: feat
+          release: minor
+        - type: fix
+          release: patch
+        - type: perf
+          release: patch
+        - breaking: true
+          release: major
+  - "@semantic-release/release-notes-generator"
+  - "@semantic-release/changelog"
+  - "@semantic-release/github"
+  - - "@saithodev/semantic-release-backmerge"
+    - backmergeBranches: [develop]
+      backmergeStrategy: merge
 ```
 
 ## Workflow Steps
@@ -248,8 +234,7 @@ Used for `hotfix/*` branches:
 4. **Import GPG Key**: Import and configure GPG key for signing
 5. **Initialize package.json**: Create if doesn't exist
 6. **Install Plugins**: Install semantic-release plugins
-7. **Select Configuration**: Choose `.releaserc` or `.releaserc.hotfix`
-8. **Run Semantic Release**: Calculate version and create release
+7. **Run Semantic Release**: Calculate version and create release using `.releaserc.yml`
 
 ## GPG Signing
 

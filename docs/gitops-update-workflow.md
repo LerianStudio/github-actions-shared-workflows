@@ -4,34 +4,26 @@ Reusable workflow for updating GitOps repository with new image tags across mult
 
 ## Features
 
+- **Convention-based configuration**: Auto-generates paths, names, and patterns from repository name
 - **Multi-environment support**: dev (beta), stg (rc), prd (production), sandbox
+- **Production + Sandbox sync**: Production releases automatically update both environments
 - **Flexible tag mapping**: Static or dynamic YAML key mapping
 - **Automatic environment detection**: Based on git tag suffix
-- **ArgoCD integration**: Optional automatic sync after GitOps update
-- **Checksum verification**: Optional yq binary verification
+- **ArgoCD integration**: Automatic sync after GitOps update (enabled by default)
+- **Docker Hub login**: Enabled by default to avoid rate limits
 - **Customizable runners**: Support for different GitHub runner types
 
 ## Usage
 
-### Basic Example (Single Component)
+### Minimal Example (Convention-Based)
 
 ```yaml
 update_gitops:
   needs: build_backend
-  if: ${{ needs.build_backend.result == 'success' }}
+  if: needs.build_backend.result == 'success'
   uses: LerianStudio/github-actions-shared-workflows/.github/workflows/gitops-update.yml@main
   with:
-    gitops_file_dev: gitops/environments/firmino/helmfile/applications/dev/plugin-auth/values.yaml
-    gitops_file_stg: gitops/environments/firmino/helmfile/applications/stg/plugin-auth/values.yaml
-    gitops_file_prd: gitops/environments/firmino/helmfile/applications/prd/plugin-auth/values.yaml
-    artifact_pattern: 'gitops-tags-backend'
-    yaml_key_mappings: |
-      {
-        "backend.tag": ".auth.image.tag"
-      }
-    commit_message_prefix: 'plugin-auth'
-    argocd_app_name: 'firmino-plugin-access-manager'
-    enable_docker_login: true
+    yaml_key_mappings: '{"backend.tag": ".auth.image.tag"}'
   secrets:
     manage_token: ${{ secrets.MANAGE_TOKEN }}
     ci_cd_user_name: ${{ secrets.LERIAN_CI_CD_USER_NAME }}
@@ -42,34 +34,30 @@ update_gitops:
     docker_password: ${{ secrets.DOCKER_PASSWORD }}
 ```
 
+**Auto-generated values** (for repo `plugin-auth`):
+- App name: `plugin-auth`
+- Artifact pattern: `gitops-tags-plugin-auth-*`
+- GitOps paths: `gitops/environments/firmino/helmfile/applications/{env}/plugin-auth/values.yaml`
+- ArgoCD app: `firmino-plugin-auth`
+- Commit prefix: `plugin-auth`
+
 ### Multi-Component Example (Backend + Frontend)
 
 ```yaml
 update_gitops:
   needs: [build_backend, build_frontend]
-  if: |
-    (needs.build_backend.result == 'success') ||
-    (needs.build_frontend.result == 'success')
+  if: needs.build_backend.result == 'success' || needs.build_frontend.result == 'success'
   uses: LerianStudio/github-actions-shared-workflows/.github/workflows/gitops-update.yml@main
   with:
-    gitops_file_dev: gitops/environments/firmino/helmfile/applications/dev/plugin-crm/values.yaml
-    gitops_file_stg: gitops/environments/firmino/helmfile/applications/stg/plugin-crm/values.yaml
-    gitops_file_prd: gitops/environments/firmino/helmfile/applications/prd/plugin-crm/values.yaml
-    artifact_pattern: 'gitops-tags-plugin-crm-*'
-    yaml_key_mappings: |
-      {
-        "backend.tag": ".crm.image.tag",
-        "frontend.tag": ".frontend.image.tag"
-      }
-    commit_message_prefix: 'plugin-crm'
-    argocd_app_name: 'firmino-plugin-crm'
-    runner_type: 'ubuntu-latest'
+    yaml_key_mappings: '{"backend.tag": ".crm.image.tag", "frontend.tag": ".frontend.image.tag"}'
   secrets:
     manage_token: ${{ secrets.MANAGE_TOKEN }}
     ci_cd_user_name: ${{ secrets.LERIAN_CI_CD_USER_NAME }}
     ci_cd_user_email: ${{ secrets.LERIAN_CI_CD_USER_EMAIL }}
     argocd_token: ${{ secrets.ARGOCD_GHUSER_TOKEN }}
     argocd_url: ${{ secrets.ARGOCD_URL }}
+    docker_username: ${{ secrets.DOCKER_USERNAME }}
+    docker_password: ${{ secrets.DOCKER_PASSWORD }}
 ```
 
 ### Dynamic Mapping Example (Multiple Components like Midaz)
@@ -77,26 +65,19 @@ update_gitops:
 ```yaml
 update_gitops:
   needs: build_and_publish
-  if: ${{ contains(github.ref, '-beta') || contains(github.ref, '-rc') }}
+  if: contains(github.ref, '-beta') || contains(github.ref, '-rc')
   uses: LerianStudio/github-actions-shared-workflows/.github/workflows/gitops-update.yml@main
   with:
-    gitops_file_dev: gitops/environments/firmino/helmfile/applications/dev/midaz/values.yaml
-    gitops_file_stg: gitops/environments/firmino/helmfile/applications/stg/midaz/values.yaml
-    gitops_file_prd: gitops/environments/firmino/helmfile/applications/prd/midaz/values.yaml
-    artifact_pattern: 'gitops-tags-*'
     use_dynamic_mapping: true
-    yaml_key_mappings: |
-      {
-        "prefix": "midaz-"
-      }
-    commit_message_prefix: 'midaz'
-    argocd_app_name: 'firmino-midaz'
+    yaml_key_mappings: '{"prefix": "midaz-"}'
   secrets:
     manage_token: ${{ secrets.MANAGE_TOKEN }}
     ci_cd_user_name: ${{ secrets.LERIAN_CI_CD_USER_NAME }}
     ci_cd_user_email: ${{ secrets.LERIAN_CI_CD_USER_EMAIL }}
     argocd_token: ${{ secrets.ARGOCD_GHUSER_TOKEN }}
     argocd_url: ${{ secrets.ARGOCD_URL }}
+    docker_username: ${{ secrets.DOCKER_USERNAME }}
+    docker_password: ${{ secrets.DOCKER_PASSWORD }}
 ```
 
 ### Manual Environment Selection
@@ -128,27 +109,29 @@ update_gitops:
 
 | Input | Description | Example |
 |-------|-------------|---------|
-| `artifact_pattern` | Pattern to download artifacts | `gitops-tags-*` |
 | `yaml_key_mappings` | JSON object mapping artifact names to YAML keys | `{"backend.tag": ".auth.image.tag"}` |
-| `commit_message_prefix` | Prefix for commit message | `plugin-auth` |
 
 ### Optional Inputs
 
 | Input | Type | Default | Description |
 |-------|------|---------|-------------|
 | `gitops_repository` | string | `LerianStudio/midaz-firmino-gitops` | GitOps repository to update |
-| `gitops_file_dev` | string | - | Path to dev environment values.yaml |
-| `gitops_file_stg` | string | - | Path to stg environment values.yaml |
-| `gitops_file_prd` | string | - | Path to prd environment values.yaml |
-| `gitops_file_sandbox` | string | - | Path to sandbox environment values.yaml |
+| `gitops_server` | string | `firmino` | Server name for GitOps path generation |
+| `app_name` | string | (repo name) | Application name (auto-detected from repository) |
+| `artifact_pattern` | string | `gitops-tags-{app}-*` | Pattern to download artifacts (auto-generated) |
+| `commit_message_prefix` | string | (repo name) | Prefix for commit message (auto-generated) |
+| `argocd_app_name` | string | `{server}-{app}` | ArgoCD application name (auto-generated) |
+| `gitops_file_dev` | string | (auto-generated) | Path to dev environment values.yaml |
+| `gitops_file_stg` | string | (auto-generated) | Path to stg environment values.yaml |
+| `gitops_file_prd` | string | (auto-generated) | Path to prd environment values.yaml |
+| `gitops_file_sandbox` | string | (auto-generated) | Path to sandbox environment values.yaml |
 | `runner_type` | string | `firmino-lxc-runners` | GitHub runner type |
 | `enable_argocd_sync` | boolean | `true` | Enable ArgoCD sync |
-| `argocd_app_name` | string | - | ArgoCD application name |
 | `use_dynamic_mapping` | boolean | `false` | Use dynamic mapping for multiple components |
 | `yq_version` | string | `v4.44.3` | Version of yq to install |
 | `environment_detection` | string | `tag_suffix` | Environment detection strategy (`tag_suffix` or `manual`) |
 | `manual_environment` | string | - | Manually specify environment (dev/stg/prd/sandbox) |
-| `enable_docker_login` | boolean | `false` | Enable Docker Hub login to avoid rate limits (429 errors) |
+| `enable_docker_login` | boolean | `true` | Enable Docker Hub login to avoid rate limits |
 
 ## Secrets
 
@@ -160,25 +143,46 @@ update_gitops:
 | `ci_cd_user_name` | Git user name for commits |
 | `ci_cd_user_email` | Git user email for commits |
 
-### Optional Secrets
+### Required Secrets (ArgoCD)
 
-| Secret | Description | Required When |
-|--------|-------------|---------------|
-| `argocd_token` | ArgoCD authentication token | `enable_argocd_sync` is `true` |
-| `argocd_url` | ArgoCD server URL | `enable_argocd_sync` is `true` |
-| `docker_username` | Docker Hub username | `enable_docker_login` is `true` |
-| `docker_password` | Docker Hub password | `enable_docker_login` is `true` |
+| Secret | Description |
+|--------|-------------|
+| `argocd_token` | ArgoCD authentication token |
+| `argocd_url` | ArgoCD server URL |
+
+### Required Secrets (Docker Hub)
+
+| Secret | Description |
+|--------|-------------|
+| `docker_username` | Docker Hub username (to avoid rate limits) |
+| `docker_password` | Docker Hub password |
+
+## Convention-Based Configuration
+
+The workflow automatically generates configuration based on repository name:
+
+**For repository `plugin-br-pix-direct-jd`:**
+- **App name**: `plugin-br-pix-direct-jd`
+- **Artifact pattern**: `gitops-tags-plugin-br-pix-direct-jd-*`
+- **Commit prefix**: `plugin-br-pix-direct-jd`
+- **ArgoCD app**: `firmino-plugin-br-pix-direct-jd`
+- **GitOps paths**:
+  - Dev: `gitops/environments/firmino/helmfile/applications/dev/plugin-br-pix-direct-jd/values.yaml`
+  - Stg: `gitops/environments/firmino/helmfile/applications/stg/plugin-br-pix-direct-jd/values.yaml`
+  - Prd: `gitops/environments/firmino/helmfile/applications/prd/plugin-br-pix-direct-jd/values.yaml`
+  - Sandbox: `gitops/environments/firmino/helmfile/applications/sandbox/plugin-br-pix-direct-jd/values.yaml`
 
 ## Environment Detection
 
 The workflow automatically detects the target environment based on git tag suffix:
 
-| Tag Pattern | Environment | GitOps File Used |
-|-------------|-------------|------------------|
-| `*-beta*` | dev | `gitops_file_dev` |
-| `*-rc*` | stg | `gitops_file_stg` |
-| `*-sandbox*` | sandbox | `gitops_file_sandbox` |
-| `v*.*.*` (no suffix) | prd | `gitops_file_prd` |
+| Tag Pattern | Environment | Files Updated | ArgoCD Synced |
+|-------------|-------------|---------------|---------------|
+| `v*.*.*-beta.*` | dev | dev only | dev |
+| `v*.*.*-rc.*` | stg | stg only | stg |
+| `v*.*.*` (no suffix) | prd | **prd + sandbox** | **prd + sandbox** |
+
+**Note**: Production releases automatically update both production and sandbox environments.
 
 ## YAML Key Mappings
 
