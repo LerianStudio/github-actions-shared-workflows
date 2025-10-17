@@ -1,0 +1,315 @@
+name: "GitOps Update"
+
+# Reusable workflow for updating GitOps repository with new image tags
+# Supports multiple environments: dev (beta), stg (rc), prd (production), sandbox
+# Handles single or multiple components with flexible YAML key mapping
+
+on:
+  workflow_call:
+    inputs:
+      gitops_repository:
+        description: 'GitOps repository to update (org/repo format)'
+        type: string
+        default: 'LerianStudio/midaz-firmino-gitops'
+      gitops_file_dev:
+        description: 'Path to dev environment values.yaml (for beta tags)'
+        type: string
+        required: false
+      gitops_file_stg:
+        description: 'Path to stg environment values.yaml (for rc tags)'
+        type: string
+        required: false
+      gitops_file_prd:
+        description: 'Path to prd environment values.yaml (for production tags)'
+        type: string
+        required: false
+      gitops_file_sandbox:
+        description: 'Path to sandbox environment values.yaml'
+        type: string
+        required: false
+      artifact_pattern:
+        description: 'Pattern to download artifacts (e.g., "gitops-tags-*")'
+        type: string
+        required: true
+      yaml_key_mappings:
+        description: 'JSON object mapping artifact names to YAML keys (e.g., {"backend.tag": ".auth.image.tag", "frontend.tag": ".frontend.image.tag"})'
+        type: string
+        required: true
+      commit_message_prefix:
+        description: 'Prefix for commit message (e.g., "plugin-auth", "midaz")'
+        type: string
+        required: true
+      runner_type:
+        description: 'GitHub runner type to use'
+        type: string
+        default: 'firmino-lxc-runners'
+      enable_argocd_sync:
+        description: 'Enable ArgoCD sync after GitOps update'
+        type: boolean
+        default: true
+      argocd_app_name:
+        description: 'ArgoCD application name (required if enable_argocd_sync is true)'
+        type: string
+        required: false
+      use_dynamic_mapping:
+        description: 'Use dynamic mapping for multiple components (like midaz)'
+        type: boolean
+        default: false
+      yq_version:
+        description: 'Version of yq to install'
+        type: string
+        default: 'v4.44.3'
+      environment_detection:
+        description: 'Environment detection strategy: tag_suffix (beta/rc/prd) or manual'
+        type: string
+        default: 'tag_suffix'
+      manual_environment:
+        description: 'Manually specify environment (dev/stg/prd/sandbox) - only used if environment_detection is manual'
+        type: string
+        required: false
+      enable_docker_login:
+        description: 'Enable Docker Hub login to avoid rate limits'
+        type: boolean
+        default: false
+    secrets:
+      manage_token:
+        description: 'GitHub token with access to GitOps repository'
+        required: true
+      ci_cd_user_name:
+        description: 'Git user name for commits'
+        required: true
+      ci_cd_user_email:
+        description: 'Git user email for commits'
+        required: true
+      argocd_token:
+        description: 'ArgoCD authentication token (required if enable_argocd_sync is true)'
+        required: false
+      argocd_url:
+        description: 'ArgoCD server URL (required if enable_argocd_sync is true)'
+        required: false
+      docker_username:
+        description: 'Docker Hub username (required if enable_docker_login is true)'
+        required: false
+      docker_password:
+        description: 'Docker Hub password (required if enable_docker_login is true)'
+        required: false
+
+jobs:
+  update_gitops:
+    runs-on: ${{ inputs.runner_type }}
+    steps:
+      - name: Log in to Docker Hub
+        if: ${{ inputs.enable_docker_login }}
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.docker_username }}
+          password: ${{ secrets.docker_password }}
+
+      - name: Checkout GitOps Repository
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ inputs.gitops_repository }}
+          token: ${{ secrets.manage_token }}
+          path: gitops
+          fetch-depth: 0
+
+      - name: Detect environment from tag
+        if: ${{ inputs.environment_detection == 'tag_suffix' }}
+        id: detect_env
+        shell: bash
+        run: |
+          TAG_REF="${GITHUB_REF}"
+          echo "Processing ref: $TAG_REF"
+
+          if [[ "$TAG_REF" == *"-beta"* ]]; then
+            echo "environment=dev" >> "$GITHUB_OUTPUT"
+            echo "env_label=beta/dev" >> "$GITHUB_OUTPUT"
+            echo "Detected beta tag → dev environment"
+          elif [[ "$TAG_REF" == *"-rc"* ]]; then
+            echo "environment=stg" >> "$GITHUB_OUTPUT"
+            echo "env_label=rc/stg" >> "$GITHUB_OUTPUT"
+            echo "Detected rc tag → stg environment"
+          elif [[ "$TAG_REF" == *"-sandbox"* ]]; then
+            echo "environment=sandbox" >> "$GITHUB_OUTPUT"
+            echo "env_label=sandbox" >> "$GITHUB_OUTPUT"
+            echo "Detected sandbox tag → sandbox environment"
+          elif [[ "$TAG_REF" == refs/tags/* ]] && [[ ! "$TAG_REF" =~ -(beta|rc|sandbox) ]]; then
+            echo "environment=prd" >> "$GITHUB_OUTPUT"
+            echo "env_label=production" >> "$GITHUB_OUTPUT"
+            echo "Detected production tag → prd environment"
+          else
+            echo "❌ Unable to detect environment from ref: $TAG_REF"
+            exit 1
+          fi
+
+      - name: Set manual environment
+        if: ${{ inputs.environment_detection == 'manual' }}
+        id: manual_env
+        shell: bash
+        run: |
+          ENV="${{ inputs.manual_environment }}"
+          if [[ -z "$ENV" ]]; then
+            echo "❌ manual_environment input is required when environment_detection is 'manual'"
+            exit 1
+          fi
+          echo "environment=$ENV" >> "$GITHUB_OUTPUT"
+          echo "env_label=$ENV" >> "$GITHUB_OUTPUT"
+          echo "Using manual environment: $ENV"
+
+      - name: Select target values.yaml file
+        id: select_file
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          ENV="${{ steps.detect_env.outputs.environment || steps.manual_env.outputs.environment }}"
+
+          case "$ENV" in
+            dev)
+              FILE="${{ inputs.gitops_file_dev }}"
+              ;;
+            stg)
+              FILE="${{ inputs.gitops_file_stg }}"
+              ;;
+            prd)
+              FILE="${{ inputs.gitops_file_prd }}"
+              ;;
+            sandbox)
+              FILE="${{ inputs.gitops_file_sandbox }}"
+              ;;
+            *)
+              echo "❌ Unknown environment: $ENV"
+              exit 1
+              ;;
+          esac
+
+          if [[ -z "$FILE" ]]; then
+            echo "❌ No GitOps file configured for environment: $ENV"
+            echo "Please provide gitops_file_${ENV} input"
+            exit 1
+          fi
+
+          echo "file=$FILE" >> "$GITHUB_OUTPUT"
+          echo "Using values file: $FILE for environment: $ENV"
+
+      - name: Install yq
+        shell: bash
+        run: |
+          set -euo pipefail
+          YQ_VERSION="${{ inputs.yq_version }}"
+          YQ_BIN="yq_linux_amd64"
+          YQ_URL="https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}/${YQ_BIN}"
+
+          sudo curl -L "$YQ_URL" -o /usr/local/bin/yq
+          sudo chmod +x /usr/local/bin/yq
+          yq --version
+
+      - name: Git pull before update
+        shell: bash
+        run: |
+          set -e
+          cd gitops
+          git pull origin main
+
+      - name: Download artifact tags
+        uses: actions/download-artifact@v4
+        with:
+          pattern: ${{ inputs.artifact_pattern }}
+          path: .gitops-tags
+
+      - name: Apply tags to values.yaml (static mapping)
+        if: ${{ !inputs.use_dynamic_mapping }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          FILE='${{ steps.select_file.outputs.file }}'
+
+          echo "Applying static YAML key mappings..."
+          MAPPINGS='${{ inputs.yaml_key_mappings }}'
+
+          # Parse JSON mappings and apply each one
+          echo "$MAPPINGS" | jq -r 'to_entries[] | "\(.key)|\(.value)"' | while IFS='|' read -r artifact_key yaml_key; do
+            # Find matching artifact file
+            ARTIFACT_FILE=$(find .gitops-tags -type f -name "*${artifact_key}*" | head -n 1)
+
+            if [[ -n "$ARTIFACT_FILE" && -f "$ARTIFACT_FILE" ]]; then
+              TAG="$(tr -d '[:space:]' < "$ARTIFACT_FILE")"
+              if [[ -n "$TAG" ]]; then
+                echo "Setting ${yaml_key} → ${TAG}"
+                TAG="${TAG}" yq e -i "${yaml_key} = strenv(TAG)" "$FILE"
+              else
+                echo "⚠️  Empty tag in $ARTIFACT_FILE, skipping"
+              fi
+            else
+              echo "⚠️  No artifact found for key: $artifact_key, skipping"
+            fi
+          done
+
+      - name: Apply tags to values.yaml (dynamic mapping)
+        if: ${{ inputs.use_dynamic_mapping }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          FILE='${{ steps.select_file.outputs.file }}'
+
+          echo "Applying dynamic YAML key mappings..."
+
+          # Iterate through all tag artifacts and apply changes dynamically
+          find .gitops-tags -type f | while read -r tagfile; do
+            filename="$(basename "$tagfile")"
+
+            # Expected format: "app-name=version" (e.g., "midaz-onboarding=1.2.3-rc.1")
+            if [[ "$filename" == *"="* ]]; then
+              full_app="${filename%%=*}"
+              tag="${filename#*=}"
+
+              # Extract component name (remove prefix if configured)
+              MAPPINGS='${{ inputs.yaml_key_mappings }}'
+              PREFIX=$(echo "$MAPPINGS" | jq -r '.prefix // ""')
+
+              if [[ -n "$PREFIX" ]]; then
+                app_name="${full_app#${PREFIX}}"
+              else
+                app_name="$full_app"
+              fi
+
+              echo "Setting .${app_name}.image.tag → ${tag}"
+              yq e -i ".${app_name}.image.tag = \"${tag}\"" "$FILE"
+            else
+              echo "⚠️  Skipping file with unexpected format: $filename"
+            fi
+          done
+
+      - name: Show git diff
+        shell: bash
+        run: |
+          cd gitops
+          echo "Changes to be committed:"
+          git diff -- "${{ steps.select_file.outputs.file }}" || true
+
+      - name: Commit and push GitOps update
+        shell: bash
+        run: |
+          set -e
+          cd gitops
+          git config user.name "${{ secrets.ci_cd_user_name }}"
+          git config user.email "${{ secrets.ci_cd_user_email }}"
+
+          ENV_LABEL="${{ steps.detect_env.outputs.env_label || steps.manual_env.outputs.env_label }}"
+
+          if git diff --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -am "ci(${{ inputs.commit_message_prefix }}): update image tags (${ENV_LABEL})"
+            git push origin main
+            echo "✅ GitOps update pushed successfully"
+          fi
+
+      - name: ArgoCD Sync
+        if: ${{ inputs.enable_argocd_sync }}
+        uses: LerianStudio/github-actions-argocd-sync@main
+        with:
+          app-name: ${{ inputs.argocd_app_name }}
+          argo-cd-token: ${{ secrets.argocd_token }}
+          argo-cd-url: ${{ secrets.argocd_url }}
+          env-prefix: ${{ steps.detect_env.outputs.environment || steps.manual_env.outputs.environment }}
