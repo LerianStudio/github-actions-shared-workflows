@@ -28,12 +28,12 @@ jobs:
   release:
     uses: LerianStudio/github-actions-shared-workflows/.github/workflows/release.yml@main
     secrets:
-      lerian_studio_push_bot_app_id: ${{ secrets.LERIAN_STUDIO_MIDAZ_PUSH_BOT_APP_ID }}
-      lerian_studio_push_bot_private_key: ${{ secrets.LERIAN_STUDIO_MIDAZ_PUSH_BOT_PRIVATE_KEY }}
-      lerian_ci_cd_user_gpg_key: ${{ secrets.LERIAN_CI_CD_USER_GPG_KEY }}
-      lerian_ci_cd_user_gpg_key_password: ${{ secrets.LERIAN_CI_CD_USER_GPG_KEY_PASSWORD }}
-      lerian_ci_cd_user_name: ${{ secrets.LERIAN_CI_CD_USER_NAME }}
-      lerian_ci_cd_user_email: ${{ secrets.LERIAN_CI_CD_USER_EMAIL }}
+      lerian_studio_push_bot_app_id: ${{ secrets.GITHUB_APP_ID }}
+      lerian_studio_push_bot_private_key: ${{ secrets.GITHUB_APP_PRIVATE_KEY }}
+      lerian_ci_cd_user_gpg_key: ${{ secrets.GPG_PRIVATE_KEY }}
+      lerian_ci_cd_user_gpg_key_password: ${{ secrets.GPG_KEY_PASSWORD }}
+      lerian_ci_cd_user_name: ${{ secrets.CI_USER_NAME }}
+      lerian_ci_cd_user_email: ${{ secrets.CI_USER_EMAIL }}
 ```
 
 ### With Custom Runner
@@ -85,12 +85,12 @@ jobs:
     needs: tests
     uses: LerianStudio/github-actions-shared-workflows/.github/workflows/release.yml@main
     secrets:
-      lerian_studio_push_bot_app_id: ${{ secrets.LERIAN_STUDIO_MIDAZ_PUSH_BOT_APP_ID }}
-      lerian_studio_push_bot_private_key: ${{ secrets.LERIAN_STUDIO_MIDAZ_PUSH_BOT_PRIVATE_KEY }}
-      lerian_ci_cd_user_gpg_key: ${{ secrets.LERIAN_CI_CD_USER_GPG_KEY }}
-      lerian_ci_cd_user_gpg_key_password: ${{ secrets.LERIAN_CI_CD_USER_GPG_KEY_PASSWORD }}
-      lerian_ci_cd_user_name: ${{ secrets.LERIAN_CI_CD_USER_NAME }}
-      lerian_ci_cd_user_email: ${{ secrets.LERIAN_CI_CD_USER_EMAIL }}
+      lerian_studio_push_bot_app_id: ${{ secrets.GITHUB_APP_ID }}
+      lerian_studio_push_bot_private_key: ${{ secrets.GITHUB_APP_PRIVATE_KEY }}
+      lerian_ci_cd_user_gpg_key: ${{ secrets.GPG_PRIVATE_KEY }}
+      lerian_ci_cd_user_gpg_key_password: ${{ secrets.GPG_KEY_PASSWORD }}
+      lerian_ci_cd_user_name: ${{ secrets.CI_USER_NAME }}
+      lerian_ci_cd_user_email: ${{ secrets.CI_USER_EMAIL }}
 ```
 
 ## Inputs
@@ -257,8 +257,8 @@ gpg --armor --export-secret-keys YOUR_EMAIL > private-key.asc
 ```
 
 3. **Add to GitHub Secrets**:
-- `LERIAN_CI_CD_USER_GPG_KEY`: Contents of `private-key.asc`
-- `LERIAN_CI_CD_USER_GPG_KEY_PASSWORD`: Key passphrase
+- `GPG_PRIVATE_KEY`: Contents of `private-key.asc`
+- `GPG_KEY_PASSWORD`: Key passphrase
 
 4. **Add public key to GitHub**:
 ```bash
@@ -279,7 +279,7 @@ Add to GitHub Settings → SSH and GPG keys
 1. Go to GitHub Settings → Developer settings → GitHub Apps
 2. Click "New GitHub App"
 3. Configure:
-   - **Name**: `Lerian CI/CD Bot`
+   - **Name**: `My CI/CD Bot`
    - **Homepage URL**: Your organization URL
    - **Permissions**:
      - Contents: Read & Write
@@ -288,8 +288,8 @@ Add to GitHub Settings → SSH and GPG keys
 4. Generate private key
 5. Install app to repositories
 6. Add to secrets:
-   - `LERIAN_STUDIO_MIDAZ_PUSH_BOT_APP_ID`: App ID
-   - `LERIAN_STUDIO_MIDAZ_PUSH_BOT_PRIVATE_KEY`: Private key contents
+   - `GITHUB_APP_ID`: App ID
+   - `GITHUB_APP_PRIVATE_KEY`: Private key contents
 
 ## Best Practices
 

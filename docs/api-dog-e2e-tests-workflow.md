@@ -20,7 +20,6 @@ Reusable workflow for automated API testing using Apidog CLI. Runs test scenario
 api-tests:
   uses: LerianStudio/github-actions-shared-workflows/.github/workflows/api-dog-e2e-tests.yml@main
   with:
-    environment_id: "4770599"
     test_iterations: "1"
     output_formats: "html,cli"
     node_version: "20"
@@ -28,6 +27,7 @@ api-tests:
   secrets:
     test_scenario_id: ${{ secrets.APIDOG_TEST_SCENARIO_ID }}
     apidog_access_token: ${{ secrets.APIDOG_ACCESS_TOKEN }}
+    environment_id: ${{ secrets.APIDOG_ENVIRONMENT_ID }}
 ```
 
 ### Auto-detect Environment from Tag
@@ -38,10 +38,10 @@ api-tests:
   with:
     auto_detect_environment: true
   secrets:
-    test_scenario_id: ${{ secrets.MIDAZ_APIDOG_TEST_SCENARIO_ID }}
+    test_scenario_id: ${{ secrets.APIDOG_TEST_SCENARIO_ID }}
     apidog_access_token: ${{ secrets.APIDOG_ACCESS_TOKEN }}
-    dev_environment_id: ${{ secrets.MIDAZ_APIDOG_DEV_ENVIRONMENT_ID }}
-    stg_environment_id: ${{ secrets.MIDAZ_APIDOG_STG_ENVIRONMENT_ID }}
+    dev_environment_id: ${{ secrets.APIDOG_DEV_ENVIRONMENT_ID }}
+    stg_environment_id: ${{ secrets.APIDOG_STG_ENVIRONMENT_ID }}
 ```
 
 ### Complete Example with GitOps Integration
@@ -86,7 +86,6 @@ jobs:
 | Input | Type | Default | Description |
 |-------|------|---------|-------------|
 | `node_version` | string | `20` | Node.js version to use |
-| `environment_id` | string | - | Apidog environment ID (ignored if auto_detect_environment is true) |
 | `test_iterations` | string | `1` | Number of test iterations |
 | `output_formats` | string | `html,cli` | Report formats (comma-separated: html, cli, json) |
 | `runner_type` | string | `firmino-lxc-runners` | GitHub runner type |
@@ -105,6 +104,7 @@ jobs:
 
 | Secret | Description | Required When |
 |--------|-------------|---------------|
+| `environment_id` | Apidog environment ID | `auto_detect_environment` is `false` |
 | `dev_environment_id` | Apidog dev environment ID | `auto_detect_environment` is `true` |
 | `stg_environment_id` | Apidog staging environment ID | `auto_detect_environment` is `true` |
 
@@ -292,13 +292,12 @@ on:
     branches: [main]
 
 jobs:
-  test:
+  api-tests:
     uses: LerianStudio/github-actions-shared-workflows/.github/workflows/api-dog-e2e-tests.yml@main
-    with:
-      environment_id: "4770599"
     secrets:
       test_scenario_id: ${{ secrets.APIDOG_TEST_SCENARIO_ID }}
       apidog_access_token: ${{ secrets.APIDOG_ACCESS_TOKEN }}
+      environment_id: ${{ secrets.APIDOG_ENVIRONMENT_ID }}
 ```
 
 ### Release Pipeline with E2E
@@ -344,20 +343,20 @@ jobs:
   test_dev:
     uses: LerianStudio/github-actions-shared-workflows/.github/workflows/api-dog-e2e-tests.yml@main
     with:
-      environment_id: ${{ secrets.APIDOG_DEV_ENVIRONMENT_ID }}
       test_iterations: "2"
     secrets:
       test_scenario_id: ${{ secrets.APIDOG_TEST_SCENARIO_ID }}
       apidog_access_token: ${{ secrets.APIDOG_ACCESS_TOKEN }}
+      environment_id: ${{ secrets.APIDOG_DEV_ENVIRONMENT_ID }}
 
   test_stg:
     uses: LerianStudio/github-actions-shared-workflows/.github/workflows/api-dog-e2e-tests.yml@main
     with:
-      environment_id: ${{ secrets.APIDOG_STG_ENVIRONMENT_ID }}
       test_iterations: "2"
     secrets:
       test_scenario_id: ${{ secrets.APIDOG_TEST_SCENARIO_ID }}
       apidog_access_token: ${{ secrets.APIDOG_ACCESS_TOKEN }}
+      environment_id: ${{ secrets.APIDOG_STG_ENVIRONMENT_ID }}
 ```
 
 ## Related Workflows
