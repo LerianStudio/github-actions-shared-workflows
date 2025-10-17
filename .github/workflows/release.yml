@@ -85,17 +85,11 @@ jobs:
       - name: Install missing plugin @semantic-release/exec
         run: npm install --save-dev @semantic-release/exec
 
-      # Dynamically sets the semantic-release config file path based on the branch type.
-      # If the branch is a hotfix (refs/heads/hotfix/*), use `.releaserc.hotfix`;
-      # otherwise, use the default `.releaserc` file.
-      - name: Set releaserc path based on branch
+      # Use .releaserc.yml configuration file
+      - name: Set releaserc path
         id: releaserc
         run: |
-          if [[ "${GITHUB_REF}" == refs/heads/hotfix/* ]]; then
-            echo "path=.releaserc.hotfix" >> $GITHUB_OUTPUT
-          else
-            echo "path=.releaserc" >> $GITHUB_OUTPUT
-          fi
+          echo "path=.releaserc.yml" >> $GITHUB_OUTPUT
 
       # Run semantic release to create version tags based on conventional commits
       - name: Semantic Release

@@ -1,0 +1,37 @@
+name: release
+
+on:
+  push:
+    branches:
+      - develop
+      - release-candidate
+      - main
+    paths-ignore:
+      - '.gitignore'
+      - '**/*.env'
+      - '*.env'
+      - '**/*.md'
+      - '*.md'
+      - '**/*.txt'
+      - '*.txt'
+    tags-ignore:
+      - '**'
+
+permissions:
+  id-token: write
+  contents: write
+  pull-requests: write
+  packages: read
+
+jobs:
+  publish-release:
+    uses: ./.github/workflows/release.yml
+    with:
+      runner: ubuntu-24.04
+    secrets:
+      lerian_studio_push_bot_app_id: ${{ secrets.LERIAN_STUDIO_MIDAZ_PUSH_BOT_APP_ID }}
+      lerian_studio_push_bot_private_key: ${{ secrets.LERIAN_STUDIO_MIDAZ_PUSH_BOT_PRIVATE_KEY }}
+      lerian_ci_cd_user_gpg_key: ${{ secrets.LERIAN_CI_CD_USER_GPG_KEY }}
+      lerian_ci_cd_user_gpg_key_password: ${{ secrets.LERIAN_CI_CD_USER_GPG_KEY_PASSWORD }}
+      lerian_ci_cd_user_name: ${{ secrets.LERIAN_CI_CD_USER_NAME }}
+      lerian_ci_cd_user_email: ${{ secrets.LERIAN_CI_CD_USER_EMAIL }}
