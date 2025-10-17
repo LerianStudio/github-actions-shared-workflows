@@ -10,10 +10,6 @@ on:
         description: 'Node.js version to use'
         type: string
         default: '20'
-      environment_id:
-        description: 'Apidog environment ID (optional - will auto-detect from tag if not provided)'
-        required: false
-        type: string
       test_iterations:
         description: 'Number of test iterations'
         type: string
@@ -37,6 +33,9 @@ on:
       apidog_access_token:
         description: 'Apidog access token for authentication'
         required: true
+      environment_id:
+        description: 'Apidog environment ID (optional - will auto-detect from tag if not provided)'
+        required: false
       dev_environment_id:
         description: 'Apidog dev environment ID (for beta tags)'
         required: false
@@ -82,7 +81,7 @@ jobs:
       - name: Set manual environment ID
         if: ${{ !inputs.auto_detect_environment }}
         run: |
-          echo "ENVIRONMENT_ID=${{ inputs.environment_id }}" >> $GITHUB_ENV
+          echo "ENVIRONMENT_ID=${{ secrets.environment_id }}" >> $GITHUB_ENV
           echo "TAG_TYPE=manual" >> $GITHUB_ENV
 
       - name: Run Apidog Test Scenario

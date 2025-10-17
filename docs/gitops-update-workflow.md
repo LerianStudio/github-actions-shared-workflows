@@ -34,12 +34,12 @@ update_gitops:
     docker_password: ${{ secrets.DOCKER_PASSWORD }}
 ```
 
-**Auto-generated values** (for repo `plugin-auth`):
-- App name: `plugin-auth`
-- Artifact pattern: `gitops-tags-plugin-auth-*`
-- GitOps paths: `gitops/environments/firmino/helmfile/applications/{env}/plugin-auth/values.yaml`
-- ArgoCD app: `firmino-plugin-auth`
-- Commit prefix: `plugin-auth`
+**Auto-generated values** (for repo `my-backend-service`):
+- App name: `my-backend-service`
+- Artifact pattern: `gitops-tags-my-backend-service-*`
+- GitOps paths: `gitops/environments/firmino/helmfile/applications/{env}/my-backend-service/values.yaml`
+- ArgoCD app: `firmino-my-backend-service`
+- Commit prefix: `my-backend-service`
 
 ### Multi-Component Example (Backend + Frontend)
 
@@ -89,13 +89,13 @@ update_gitops:
   with:
     environment_detection: 'manual'
     manual_environment: 'sandbox'
-    gitops_file_sandbox: gitops/environments/firmino/helmfile/applications/sandbox/plugin-auth/values.yaml
+    gitops_file_sandbox: gitops/environments/firmino/helmfile/applications/sandbox/my-backend-service/values.yaml
     artifact_pattern: 'gitops-tags-backend'
     yaml_key_mappings: |
       {
         "backend.tag": ".auth.image.tag"
       }
-    commit_message_prefix: 'plugin-auth'
+    commit_message_prefix: 'my-backend-service'
     enable_argocd_sync: false
   secrets:
     manage_token: ${{ secrets.MANAGE_TOKEN }}
@@ -115,7 +115,7 @@ update_gitops:
 
 | Input | Type | Default | Description |
 |-------|------|---------|-------------|
-| `gitops_repository` | string | `LerianStudio/midaz-firmino-gitops` | GitOps repository to update |
+| `gitops_repository` | string | `MyOrg/my-gitops-repo` | GitOps repository to update |
 | `gitops_server` | string | `firmino` | Server name for GitOps path generation |
 | `app_name` | string | (repo name) | Application name (auto-detected from repository) |
 | `artifact_pattern` | string | `gitops-tags-{app}-*` | Pattern to download artifacts (auto-generated) |
@@ -161,16 +161,16 @@ update_gitops:
 
 The workflow automatically generates configuration based on repository name:
 
-**For repository `plugin-br-pix-direct-jd`:**
-- **App name**: `plugin-br-pix-direct-jd`
-- **Artifact pattern**: `gitops-tags-plugin-br-pix-direct-jd-*`
-- **Commit prefix**: `plugin-br-pix-direct-jd`
-- **ArgoCD app**: `firmino-plugin-br-pix-direct-jd`
+**For repository `my-api-service`:**
+- **App name**: `my-api-service`
+- **Artifact pattern**: `gitops-tags-my-api-service-*`
+- **Commit prefix**: `my-api-service`
+- **ArgoCD app**: `firmino-my-api-service`
 - **GitOps paths**:
-  - Dev: `gitops/environments/firmino/helmfile/applications/dev/plugin-br-pix-direct-jd/values.yaml`
-  - Stg: `gitops/environments/firmino/helmfile/applications/stg/plugin-br-pix-direct-jd/values.yaml`
-  - Prd: `gitops/environments/firmino/helmfile/applications/prd/plugin-br-pix-direct-jd/values.yaml`
-  - Sandbox: `gitops/environments/firmino/helmfile/applications/sandbox/plugin-br-pix-direct-jd/values.yaml`
+  - Dev: `gitops/environments/firmino/helmfile/applications/dev/my-api-service/values.yaml`
+  - Stg: `gitops/environments/firmino/helmfile/applications/stg/my-api-service/values.yaml`
+  - Prd: `gitops/environments/firmino/helmfile/applications/prd/my-api-service/values.yaml`
+  - Sandbox: `gitops/environments/firmino/helmfile/applications/sandbox/my-api-service/values.yaml`
 
 ## Environment Detection
 
@@ -208,18 +208,18 @@ Used for multiple components with consistent naming:
 
 ```json
 {
-  "prefix": "midaz-"
+  "prefix": "myapp-"
 }
 ```
 
 The workflow expects artifact files named: `{app-name}={version}`
 
-Example: `midaz-onboarding=1.2.3-rc.1`
+Example: `myapp-auth=1.2.3-rc.1`
 
 The workflow will:
 1. Parse the artifact filename
-2. Remove the prefix (e.g., "midaz-" → "onboarding")
-3. Update `.{component}.image.tag` (e.g., `.onboarding.image.tag`)
+2. Remove the prefix (e.g., "myapp-" → "auth")
+3. Update `.{component}.image.tag` (e.g., `.auth.image.tag`)
 
 ## Artifact Requirements
 
@@ -244,20 +244,20 @@ echo "1.2.3-beta.1" > gitops-tags/backend.tag
 Artifacts should be named: `{app-name}={version}`
 
 ```bash
-# Example: Create artifact for midaz-onboarding
+# Example: Create artifact for myapp-auth
 mkdir -p gitops-tags
-echo "midaz-onboarding=1.2.3-rc.1" > "gitops-tags/midaz-onboarding=1.2.3-rc.1"
+echo "myapp-auth=1.2.3-rc.1" > "gitops-tags/myapp-auth=1.2.3-rc.1"
 
 # Upload artifact
 - uses: actions/upload-artifact@v4
   with:
-    name: gitops-tags-midaz-onboarding
+    name: gitops-tags-myapp-auth
     path: gitops-tags/
 ```
 
 ## Migration Guide
 
-### From plugin-auth
+### From Single Component App
 
 **Before:**
 ```yaml
@@ -276,12 +276,12 @@ update_gitops_backend:
   if: ${{ needs.build_backend.result == 'success' }}
   uses: LerianStudio/github-actions-shared-workflows/.github/workflows/gitops-update.yml@main
   with:
-    gitops_file_dev: gitops/environments/firmino/helmfile/applications/dev/plugin-access-manager/values.yaml
-    gitops_file_stg: gitops/environments/firmino/helmfile/applications/stg/plugin-access-manager/values.yaml
+    gitops_file_dev: gitops/environments/firmino/helmfile/applications/dev/my-backend-service/values.yaml
+    gitops_file_stg: gitops/environments/firmino/helmfile/applications/stg/my-backend-service/values.yaml
     artifact_pattern: 'gitops-tags-backend'
     yaml_key_mappings: '{"backend.tag": ".auth.image.tag"}'
-    commit_message_prefix: 'plugin-auth'
-    argocd_app_name: 'firmino-plugin-access-manager'
+    commit_message_prefix: 'my-backend-service'
+    argocd_app_name: 'firmino-my-backend-service'
   secrets:
     manage_token: ${{ secrets.MANAGE_TOKEN }}
     ci_cd_user_name: ${{ secrets.LERIAN_CI_CD_USER_NAME }}
@@ -290,7 +290,7 @@ update_gitops_backend:
     argocd_url: ${{ secrets.ARGOCD_URL }}
 ```
 
-### From plugin-crm/plugin-fees
+### From Multi-Component App
 
 **Before:**
 ```yaml
@@ -311,16 +311,16 @@ update_gitops:
     (needs.detect_changes.outputs.has_frontend == 'true' && needs.build_frontend.result == 'success')
   uses: LerianStudio/github-actions-shared-workflows/.github/workflows/gitops-update.yml@main
   with:
-    gitops_file_dev: gitops/environments/firmino/helmfile/applications/dev/plugin-crm/values.yaml
-    gitops_file_stg: gitops/environments/firmino/helmfile/applications/stg/plugin-crm/values.yaml
-    artifact_pattern: 'gitops-tags-plugin-crm-*'
+    gitops_file_dev: gitops/environments/firmino/helmfile/applications/dev/my-fullstack-app/values.yaml
+    gitops_file_stg: gitops/environments/firmino/helmfile/applications/stg/my-fullstack-app/values.yaml
+    artifact_pattern: 'gitops-tags-my-fullstack-app-*'
     yaml_key_mappings: |
       {
-        "backend.tag": ".crm.image.tag",
-        "frontend.tag": ".frontend.image.tag"
+        "backend.tag": ".api.image.tag",
+        "frontend.tag": ".web.image.tag"
       }
-    commit_message_prefix: 'plugin-crm'
-    argocd_app_name: 'firmino-plugin-crm'
+    commit_message_prefix: 'my-fullstack-app'
+    argocd_app_name: 'firmino-my-fullstack-app'
     runner_type: 'ubuntu-latest'
   secrets:
     manage_token: ${{ secrets.MANAGE_TOKEN }}
@@ -330,7 +330,7 @@ update_gitops:
     argocd_url: ${{ secrets.ARGOCD_URL }}
 ```
 
-### From midaz
+### From Monorepo with Dynamic Mapping
 
 **Before:**
 ```yaml
@@ -349,13 +349,13 @@ update_gitops:
   if: ${{ contains(github.ref, '-beta') || contains(github.ref, '-rc') }}
   uses: LerianStudio/github-actions-shared-workflows/.github/workflows/gitops-update.yml@main
   with:
-    gitops_file_dev: gitops/environments/firmino/helmfile/applications/dev/midaz/values.yaml
-    gitops_file_stg: gitops/environments/firmino/helmfile/applications/stg/midaz/values.yaml
+    gitops_file_dev: gitops/environments/firmino/helmfile/applications/dev/my-platform/values.yaml
+    gitops_file_stg: gitops/environments/firmino/helmfile/applications/stg/my-platform/values.yaml
     artifact_pattern: 'gitops-tags-*'
     use_dynamic_mapping: true
-    yaml_key_mappings: '{"prefix": "midaz-"}'
-    commit_message_prefix: 'midaz'
-    argocd_app_name: 'firmino-midaz'
+    yaml_key_mappings: '{"prefix": "myapp-"}'
+    commit_message_prefix: 'my-platform'
+    argocd_app_name: 'firmino-my-platform'
   secrets:
     manage_token: ${{ secrets.MANAGE_TOKEN }}
     ci_cd_user_name: ${{ secrets.LERIAN_CI_CD_USER_NAME }}
