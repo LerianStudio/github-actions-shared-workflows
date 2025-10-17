@@ -140,7 +140,7 @@ jobs:
 
       # ----------------- Security Scans -----------------
       - name: Trivy Secret Scan - Repository (Table Output)
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@0.33.1
         if: always()
         with:
           scan-type: fs
@@ -151,7 +151,7 @@ jobs:
           skip-dirs: '.git,node_modules,dist,build,.next,coverage,vendor'
 
       - name: Trivy Secret Scan - Repository (SARIF Output)
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@0.33.1
         if: always()
         with:
           scan-type: fs
@@ -187,7 +187,7 @@ jobs:
 
       - name: Trivy Vulnerability Scan - Docker Image (SARIF Output)
         if: always()
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@0.33.1
         with:
           image-ref: '${{ env.DOCKERHUB_ORG }}/${{ env.APP_NAME }}:pr-scan-${{ github.sha }}'
           format: sarif
