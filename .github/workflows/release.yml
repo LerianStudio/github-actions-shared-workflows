@@ -99,7 +99,7 @@ jobs:
 
       # Run semantic release to create version tags based on conventional commits
       - name: Semantic Release
-        uses: cycjimmy/semantic-release-action@v4
+        uses: cycjimmy/semantic-release-action@v5
         id: semantic
         with:
           ci: false
