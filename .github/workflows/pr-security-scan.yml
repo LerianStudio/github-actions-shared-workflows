@@ -42,6 +42,10 @@ on:
         description: 'Name of the Dockerfile'
         type: string
         default: 'Dockerfile'
+      build_secrets:
+        description: 'Additional build secrets in format key=value (e.g., npmrc=//npm.pkg.github.com/:_authToken=TOKEN)'
+        type: string
+        required: false
     secrets:
       manage_token:
         description: 'GitHub token for accessing private repositories during Docker build'
@@ -176,7 +180,9 @@ jobs:
           load: true
           push: false
           tags: ${{ env.DOCKERHUB_ORG }}/${{ env.APP_NAME }}:pr-scan-${{ github.sha }}
-          secrets: ${{ secrets.manage_token && format('github_token={0}', secrets.manage_token) || '' }}
+          secrets: |
+            ${{ secrets.manage_token && format('github_token={0}', secrets.manage_token) || '' }}
+            ${{ inputs.build_secrets || '' }}
 
       - name: Trivy Vulnerability Scan - Docker Image (Table Output)
         if: always()
