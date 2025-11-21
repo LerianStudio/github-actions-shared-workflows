@@ -79,6 +79,10 @@ on:
         description: 'Enable Docker Hub login to avoid rate limits'
         type: boolean
         default: true
+      configmap_updates:
+        description: 'JSON object mapping artifact names to configmap keys (e.g., {"pix.tag": ".pix.configmap.VERSION"})'
+        type: string
+        required: false
     secrets:
       manage_token:
         description: 'GitHub token with access to GitOps repository'
@@ -89,7 +93,7 @@ on:
       ci_cd_user_email:
         description: 'Git user email for commits'
         required: true
-      argocd_token:
+      argocd_ghuser_token:
         description: 'ArgoCD authentication token (required if enable_argocd_sync is true)'
         required: false
       argocd_url:
@@ -105,6 +109,15 @@ on:
 jobs:
   update_gitops:
     runs-on: ${{ inputs.runner_type }}
+    env:
+      IS_RC: ${{ contains(github.ref, '-rc.') }}
+      IS_BETA: ${{ contains(github.ref, '-beta.') }}
+      IS_SANDBOX: ${{ contains(github.ref, '-sandbox.') }}
+      IS_PRODUCTION: ${{ !contains(github.ref, '-rc.') && !contains(github.ref, '-beta.') && !contains(github.ref, '-sandbox.') && startsWith(github.ref, 'refs/tags/') }}
+      GITOPS_FILE_STG: ${{ inputs.gitops_file_stg }}
+      GITOPS_FILE_DEV: ${{ inputs.gitops_file_dev }}
+      GITOPS_FILE_PRD: ${{ inputs.gitops_file_prd }}
+      GITOPS_FILE_SANDBOX: ${{ inputs.gitops_file_sandbox }}
     steps:
       - name: Log in to Docker Hub
         if: ${{ inputs.enable_docker_login }}
@@ -167,14 +180,14 @@ jobs:
           echo "gitops_file_prd=$PRD_FILE" >> "$GITHUB_OUTPUT"
           echo "gitops_file_sandbox=$SANDBOX_FILE" >> "$GITHUB_OUTPUT"
 
-          # Generate ArgoCD app name if not provided
+          # Generate ArgoCD app name base if not provided (without environment suffix)
           if [[ -z "${{ inputs.argocd_app_name }}" ]]; then
-            ARGOCD_APP="${SERVER}-${APP_NAME}"
+            ARGOCD_APP_BASE="${SERVER}-${APP_NAME}"
           else
-            ARGOCD_APP="${{ inputs.argocd_app_name }}"
+            ARGOCD_APP_BASE="${{ inputs.argocd_app_name }}"
           fi
-          echo "argocd_app_name=$ARGOCD_APP" >> "$GITHUB_OUTPUT"
-          echo "ArgoCD app name: $ARGOCD_APP"
+          echo "argocd_app_base=$ARGOCD_APP_BASE" >> "$GITHUB_OUTPUT"
+          echo "ArgoCD app base name: $ARGOCD_APP_BASE"
 
           # Generate commit message prefix if not provided
           if [[ -z "${{ inputs.commit_message_prefix }}" ]]; then
@@ -296,140 +309,133 @@ jobs:
           cd gitops
           git pull origin main
 
-      - name: Download artifact tags
+      - name: Download GitOps tag artifact
         uses: actions/download-artifact@v4
         with:
-          pattern: ${{ steps.setup.outputs.artifact_pattern }}
+          name: gitops-tags
           path: .gitops-tags
 
-      - name: Apply tags to values.yaml (static mapping)
-        if: ${{ !inputs.use_dynamic_mapping }}
+      - name: Apply tags to values.yaml
         shell: bash
         run: |
           set -euo pipefail
-          FILES='${{ steps.select_file.outputs.files }}'
 
-          echo "Applying static YAML key mappings..."
+          # Detect environment and select appropriate file
+          if [[ "${{ env.IS_RC }}" == "true" ]]; then
+            FILE="${{ env.GITOPS_FILE_STG }}"
+            ENV_NAME="stg"
+          elif [[ "${{ env.IS_BETA }}" == "true" ]]; then
+            FILE="${{ env.GITOPS_FILE_DEV }}"
+            ENV_NAME="dev"
+          elif [[ "${{ env.IS_SANDBOX }}" == "true" ]]; then
+            FILE="${{ env.GITOPS_FILE_SANDBOX }}"
+            ENV_NAME="sandbox"
+          elif [[ "${{ env.IS_PRODUCTION }}" == "true" ]]; then
+            FILE="${{ env.GITOPS_FILE_PRD }}"
+            ENV_NAME="prd"
+          else
+            echo "❌ Unable to detect environment from tag: ${{ github.ref }}"
+            exit 1
+          fi
+          echo "Detected environment: $ENV_NAME"
+          echo "Using values file: $FILE"
+
+          upd() {
+            local key="$1" file="$2"
+            [[ -f "$file" ]] || return 0
+            local TAG
+            TAG="$(cut -d= -f2 < "$file" | tr -d '[:space:]')"
+            [[ -n "$TAG" ]] || return 0
+            TAG="$TAG" yq e -i "$key = strenv(TAG)" "$FILE"
+            echo "Set $key → $TAG"
+          }
+
+          # Apply mappings from inputs
           MAPPINGS='${{ inputs.yaml_key_mappings }}'
-
-          # Split files by pipe separator and process each
-          IFS='|' read -ra FILE_ARRAY <<< "$FILES"
-          for FILE in "${FILE_ARRAY[@]}"; do
-            echo "Processing file: $FILE"
-
-            # Parse JSON mappings and apply each one
-            echo "$MAPPINGS" | jq -r 'to_entries[] | "\(.key)|\(.value)"' | while IFS='|' read -r artifact_key yaml_key; do
-              # Find matching artifact file
-              ARTIFACT_FILE=$(find .gitops-tags -type f -name "*${artifact_key}*" | head -n 1)
-
-              if [[ -n "$ARTIFACT_FILE" && -f "$ARTIFACT_FILE" ]]; then
-                TAG="$(tr -d '[:space:]' < "$ARTIFACT_FILE")"
-                if [[ -n "$TAG" ]]; then
-                  echo "  Setting ${yaml_key} → ${TAG} in $FILE"
-                  TAG="${TAG}" yq e -i "${yaml_key} = strenv(TAG)" "$FILE"
-                else
-                  echo "  ⚠️  Empty tag in $ARTIFACT_FILE, skipping"
-                fi
-              else
-                echo "  ⚠️  No artifact found for key: $artifact_key, skipping"
-              fi
-            done
+          echo "$MAPPINGS" | jq -r 'to_entries[] | "\(.key)|\(.value)"' | while IFS='|' read -r artifact_key yaml_key; do
+            upd "$yaml_key" ".gitops-tags/${artifact_key}"
           done
 
-      - name: Apply tags to values.yaml (dynamic mapping)
-        if: ${{ inputs.use_dynamic_mapping }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          FILES='${{ steps.select_file.outputs.files }}'
-
-          echo "Applying dynamic YAML key mappings..."
-
-          # Split files by pipe separator and process each
-          IFS='|' read -ra FILE_ARRAY <<< "$FILES"
-          for FILE in "${FILE_ARRAY[@]}"; do
-            echo "Processing file: $FILE"
-
-            # Iterate through all tag artifacts and apply changes dynamically
-            find .gitops-tags -type f | while read -r tagfile; do
-              filename="$(basename "$tagfile")"
-
-              # Expected format: "app-name=version" (e.g., "midaz-onboarding=1.2.3-rc.1")
-              if [[ "$filename" == *"="* ]]; then
-                full_app="${filename%%=*}"
-                tag="${filename#*=}"
-
-                # Extract component name (remove prefix if configured)
-                MAPPINGS='${{ inputs.yaml_key_mappings }}'
-                PREFIX=$(echo "$MAPPINGS" | jq -r '.prefix // ""')
-
-                if [[ -n "$PREFIX" ]]; then
-                  app_name="${full_app#${PREFIX}}"
-                else
-                  app_name="$full_app"
-                fi
-
-                echo "  Setting .${app_name}.image.tag → ${tag} in $FILE"
-                yq e -i ".${app_name}.image.tag = \"${tag}\"" "$FILE"
-              else
-                echo "  ⚠️  Skipping file with unexpected format: $filename"
-              fi
+          # Apply configmap updates if configured
+          if [[ -n "${{ inputs.configmap_updates }}" ]]; then
+            CONFIGMAP_MAPPINGS='${{ inputs.configmap_updates }}'
+            echo "$CONFIGMAP_MAPPINGS" | jq -r 'to_entries[] | "\(.key)|\(.value)"' | while IFS='|' read -r artifact_key configmap_key; do
+              upd "$configmap_key" ".gitops-tags/${artifact_key}"
             done
-          done
+          fi
 
       - name: Show git diff
         shell: bash
         run: |
           cd gitops
           echo "Changes to be committed:"
-          FILES='${{ steps.select_file.outputs.files }}'
-          IFS='|' read -ra FILE_ARRAY <<< "$FILES"
-          for FILE in "${FILE_ARRAY[@]}"; do
-            echo "--- Changes in $FILE ---"
-            git diff -- "$FILE" || true
-          done
+          # Detect environment and select appropriate file (same logic as apply step)
+          if [[ "${{ env.IS_RC }}" == "true" ]]; then
+            FILE="${{ env.GITOPS_FILE_STG }}"
+            ENV_NAME="stg"
+          elif [[ "${{ env.IS_BETA }}" == "true" ]]; then
+            FILE="${{ env.GITOPS_FILE_DEV }}"
+            ENV_NAME="dev"
+          elif [[ "${{ env.IS_SANDBOX }}" == "true" ]]; then
+            FILE="${{ env.GITOPS_FILE_SANDBOX }}"
+            ENV_NAME="sandbox"
+          elif [[ "${{ env.IS_PRODUCTION }}" == "true" ]]; then
+            FILE="${{ env.GITOPS_FILE_PRD }}"
+            ENV_NAME="prd"
+          fi
+          echo "--- Changes in $FILE ($ENV_NAME) ---"
+          git diff -- "$FILE" || true
 
-      - name: Commit and push GitOps update
-        shell: bash
+      - name: Commit & push (GitOps)
         run: |
           set -e
           cd gitops
           git config user.name "${{ secrets.ci_cd_user_name }}"
           git config user.email "${{ secrets.ci_cd_user_email }}"
-
-          ENV_LABEL="${{ steps.detect_env.outputs.env_label || steps.manual_env.outputs.env_label }}"
-
-          if git diff --quiet; then
-            echo "No changes to commit"
+          # Detect environment for commit message
+          if [[ "${{ env.IS_RC }}" == "true" ]]; then
+            ENV_LABEL="rc/stg"
+          elif [[ "${{ env.IS_BETA }}" == "true" ]]; then
+            ENV_LABEL="beta/dev"
+          elif [[ "${{ env.IS_SANDBOX }}" == "true" ]]; then
+            ENV_LABEL="sandbox"
+          elif [[ "${{ env.IS_PRODUCTION }}" == "true" ]]; then
+            ENV_LABEL="production"
           else
-            git commit -am "ci(${{ steps.setup.outputs.commit_prefix }}): update image tags (${ENV_LABEL})"
-            git push origin main
-            echo "✅ GitOps update pushed successfully"
+            ENV_LABEL="unknown"
           fi
+          git commit -am "ci(${{ steps.setup.outputs.commit_prefix }}): update image tags ($ENV_LABEL)" || echo "No changes to commit"
+          git push origin main
 
-      - name: ArgoCD Sync (Production)
-        if: ${{ inputs.enable_argocd_sync && (steps.detect_env.outputs.environment == 'prd' || steps.manual_env.outputs.environment == 'prd') }}
+      - name: ArgoCD Sync
+        if: ${{ inputs.enable_argocd_sync }}
+        shell: bash
+        run: |
+          # Detect environment for ArgoCD sync
+          if [[ "${{ env.IS_RC }}" == "true" ]]; then
+            ENV_SUFFIX="stg"
+          elif [[ "${{ env.IS_BETA }}" == "true" ]]; then
+            ENV_SUFFIX="dev"
+          elif [[ "${{ env.IS_SANDBOX }}" == "true" ]]; then
+            ENV_SUFFIX="sandbox"
+          elif [[ "${{ env.IS_PRODUCTION }}" == "true" ]]; then
+            ENV_SUFFIX="prd"
+          else
+            echo "❌ Unable to detect environment for ArgoCD sync"
+            exit 1
+          fi
+          APP_NAME="${{ steps.setup.outputs.argocd_app_base }}-${ENV_SUFFIX}"
+          echo "Syncing ArgoCD app: $APP_NAME with env-prefix: $ENV_SUFFIX"
+
+          # Call ArgoCD sync action
+          echo "APP_NAME=$APP_NAME" >> "$GITHUB_ENV"
+          echo "ENV_PREFIX=$ENV_SUFFIX" >> "$GITHUB_ENV"
+
+      - name: Execute ArgoCD Sync
+        if: ${{ inputs.enable_argocd_sync }}
         uses: LerianStudio/github-actions-argocd-sync@main
         with:
-          app-name: ${{ steps.setup.outputs.argocd_app_name }}
-          argo-cd-token: ${{ secrets.argocd_token }}
+          app-name: ${{ env.APP_NAME }}
+          argo-cd-token: ${{ secrets.argocd_ghuser_token }}
           argo-cd-url: ${{ secrets.argocd_url }}
-          env-prefix: prd
-
-      - name: ArgoCD Sync (Sandbox)
-        if: ${{ inputs.enable_argocd_sync && (steps.detect_env.outputs.environment == 'prd' || steps.manual_env.outputs.environment == 'prd') }}
-        uses: LerianStudio/github-actions-argocd-sync@main
-        with:
-          app-name: ${{ steps.setup.outputs.argocd_app_name }}
-          argo-cd-token: ${{ secrets.argocd_token }}
-          argo-cd-url: ${{ secrets.argocd_url }}
-          env-prefix: sandbox
-
-      - name: ArgoCD Sync (Dev/Stg)
-        if: ${{ inputs.enable_argocd_sync && (steps.detect_env.outputs.environment == 'dev' || steps.detect_env.outputs.environment == 'stg' || steps.manual_env.outputs.environment == 'dev' || steps.manual_env.outputs.environment == 'stg') }}
-        uses: LerianStudio/github-actions-argocd-sync@main
-        with:
-          app-name: ${{ steps.setup.outputs.argocd_app_name }}
-          argo-cd-token: ${{ secrets.argocd_token }}
-          argo-cd-url: ${{ secrets.argocd_url }}
-          env-prefix: ${{ steps.detect_env.outputs.environment || steps.manual_env.outputs.environment }}
+          env-prefix: ${{ env.ENV_PREFIX }}
