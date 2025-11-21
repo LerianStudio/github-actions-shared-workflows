@@ -424,18 +424,18 @@ jobs:
             echo "❌ Unable to detect environment for ArgoCD sync"
             exit 1
           fi
-          APP_NAME="${{ steps.setup.outputs.argocd_app_base }}-${ENV_SUFFIX}"
-          echo "Syncing ArgoCD app: $APP_NAME with env-prefix: $ENV_SUFFIX"
+          APP_BASE="${{ steps.setup.outputs.argocd_app_base }}"
+          echo "Syncing ArgoCD app: ${APP_BASE}-${ENV_SUFFIX} (base: $APP_BASE, env: $ENV_SUFFIX)"
 
-          # Call ArgoCD sync action
-          echo "APP_NAME=$APP_NAME" >> "$GITHUB_ENV"
+          # Call ArgoCD sync action with base name and env prefix
+          echo "APP_BASE=$APP_BASE" >> "$GITHUB_ENV"
           echo "ENV_PREFIX=$ENV_SUFFIX" >> "$GITHUB_ENV"
 
       - name: Execute ArgoCD Sync
         if: ${{ inputs.enable_argocd_sync }}
         uses: LerianStudio/github-actions-argocd-sync@main
         with:
-          app-name: ${{ env.APP_NAME }}
+          app-name: ${{ env.APP_BASE }}
           argo-cd-token: ${{ secrets.argocd_ghuser_token }}
           argo-cd-url: ${{ secrets.argocd_url }}
           env-prefix: ${{ env.ENV_PREFIX }}
