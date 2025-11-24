@@ -411,7 +411,7 @@ jobs:
 name: Release
 on:
   push:
-    branches: [main, develop, release-candidate]
+    branches: [develop, release-candidate, main]
 
 jobs:
   release:
@@ -431,7 +431,7 @@ jobs:
 name: Release Pipeline
 on:
   push:
-    branches: [main, develop, release-candidate]
+    branches: [develop, release-candidate, main]
 
 jobs:
   test:

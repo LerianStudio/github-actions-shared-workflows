@@ -50,7 +50,7 @@ project/
 name: PR Security Scan
 on:
   pull_request:
-    branches: [main, develop]
+    branches: [develop, release-candidate, main]
 
 jobs:
   security-scan:
@@ -70,7 +70,7 @@ jobs:
 name: PR Security Scan
 on:
   pull_request:
-    branches: [main, develop]
+    branches: [develop, release-candidate, main]
 
 jobs:
   security-scan:
@@ -95,7 +95,7 @@ jobs:
 name: PR Security Scan
 on:
   pull_request:
-    branches: [main, develop]
+    branches: [develop, release-candidate, main]
 
 jobs:
   security-scan:
@@ -243,7 +243,7 @@ Changes to `.github` and `.githooks` are ignored in Type 2 monorepos.
 ```yaml
 on:
   pull_request:
-    branches: [main, develop, release-candidate]
+    branches: [develop, release-candidate, main]
 ```
 
 ### 2. Use Self-hosted Runners for Better Performance
@@ -393,7 +393,7 @@ security-scan:
 name: Pull Request Checks
 on:
   pull_request:
-    branches: [main, develop]
+    branches: [develop, release-candidate, main]
 
 permissions:
   id-token: write
