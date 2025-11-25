@@ -50,7 +50,7 @@ on:
         type: string
         default: '.github/labeler.yml'
     secrets:
-      github_token:
+      manage_token:
         description: 'GitHub token for API operations (defaults to GITHUB_TOKEN if not provided)'
         required: false
 
@@ -133,7 +133,7 @@ jobs:
       - name: Add size label
         uses: actions/github-script@v7
         with:
-          github-token: ${{ secrets.github_token || secrets.GITHUB_TOKEN }}
+          github-token: ${{ secrets.manage_token || secrets.GITHUB_TOKEN }}
           script: |
             const size = '${{ steps.size.outputs.size }}';
             const labels = ['size/XS', 'size/S', 'size/M', 'size/L', 'size/XL'];
@@ -164,7 +164,7 @@ jobs:
         if: steps.size.outputs.size == 'XL'
         uses: actions/github-script@v7
         with:
-          github-token: ${{ secrets.github_token || secrets.GITHUB_TOKEN }}
+          github-token: ${{ secrets.manage_token || secrets.GITHUB_TOKEN }}
           script: |
             github.rest.issues.createComment({
               owner: context.repo.owner,
@@ -183,7 +183,7 @@ jobs:
       - name: Check description length
         uses: actions/github-script@v7
         with:
-          github-token: ${{ secrets.github_token || secrets.GITHUB_TOKEN }}
+          github-token: ${{ secrets.manage_token || secrets.GITHUB_TOKEN }}
           script: |
             const body = context.payload.pull_request.body || '';
             const minLength = ${{ inputs.min_description_length }};
@@ -195,7 +195,7 @@ jobs:
       - name: Check for required sections
         uses: actions/github-script@v7
         with:
-          github-token: ${{ secrets.github_token || secrets.GITHUB_TOKEN }}
+          github-token: ${{ secrets.manage_token || secrets.GITHUB_TOKEN }}
           script: |
             const body = context.payload.pull_request.body || '';
             const requiredSections = ['Description', 'Type of Change'];
@@ -240,7 +240,7 @@ jobs:
       - name: Check for assignee
         uses: actions/github-script@v7
         with:
-          github-token: ${{ secrets.github_token || secrets.GITHUB_TOKEN }}
+          github-token: ${{ secrets.manage_token || secrets.GITHUB_TOKEN }}
           script: |
             const pr = context.payload.pull_request;
             if (pr.assignees.length === 0) {
@@ -257,7 +257,7 @@ jobs:
       - name: Check for linked issues
         uses: actions/github-script@v7
         with:
-          github-token: ${{ secrets.github_token || secrets.GITHUB_TOKEN }}
+          github-token: ${{ secrets.manage_token || secrets.GITHUB_TOKEN }}
           script: |
             const body = context.payload.pull_request.body || '';
             const issueKeywords = ['closes', 'fixes', 'resolves', 'relates to'];
@@ -299,7 +299,7 @@ jobs:
         if: steps.changelog.outputs.updated == 'false'
         uses: actions/github-script@v7
         with:
-          github-token: ${{ secrets.github_token || secrets.GITHUB_TOKEN }}
+          github-token: ${{ secrets.manage_token || secrets.GITHUB_TOKEN }}
           script: |
             const labels = context.payload.pull_request.labels.map(l => l.name);
 
@@ -325,7 +325,7 @@ jobs:
       - name: Summary
         uses: actions/github-script@v7
         with:
-          github-token: ${{ secrets.github_token || secrets.GITHUB_TOKEN }}
+          github-token: ${{ secrets.manage_token || secrets.GITHUB_TOKEN }}
           script: |
             const checks = {
               'PR Title': '${{ needs.pr-title.result }}',

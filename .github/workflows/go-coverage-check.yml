@@ -44,7 +44,7 @@ on:
         type: string
         default: 'both'
     secrets:
-      github_token:
+      manage_token:
         description: 'GitHub token for posting PR comments (defaults to GITHUB_TOKEN if not provided)'
         required: false
 
@@ -129,7 +129,7 @@ jobs:
         if: inputs.enable_pr_comment && github.event_name == 'pull_request'
         uses: actions/github-script@v7
         with:
-          github-token: ${{ secrets.github_token || secrets.GITHUB_TOKEN }}
+          github-token: ${{ secrets.manage_token || secrets.GITHUB_TOKEN }}
           script: |
             const fs = require('fs');
             const coverage = '${{ steps.coverage.outputs.coverage }}';
