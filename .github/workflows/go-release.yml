@@ -68,7 +68,7 @@ on:
         type: boolean
         default: false
     secrets:
-      github_token:
+      manage_token:
         description: 'GitHub token for creating releases (defaults to GITHUB_TOKEN if not provided)'
         required: false
       tap_github_token:
@@ -119,7 +119,7 @@ jobs:
           version: ${{ inputs.goreleaser_version }}
           args: ${{ inputs.goreleaser_args }}
         env:
-          GITHUB_TOKEN: ${{ secrets.github_token || secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.manage_token || secrets.GITHUB_TOKEN }}
           GORELEASER_KEY: ${{ secrets.goreleaser_key }}
 
   homebrew:
