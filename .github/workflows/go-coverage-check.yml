@@ -81,18 +81,52 @@ jobs:
           echo "coverage=$COVERAGE" >> $GITHUB_OUTPUT
           echo "Total coverage: $COVERAGE%"
 
-          # Calculate coverage by package
+          # Generate coverage by package table
           echo "## Coverage by Package" > coverage-report.md
           echo "" >> coverage-report.md
-          go tool cover -func=${{ inputs.coverage_file }} | grep -v "total:" | awk '{
+          echo "| Package | Coverage |" >> coverage-report.md
+          echo "|---------|----------|" >> coverage-report.md
+
+          # Aggregate coverage by package
+          go tool cover -func=${{ inputs.coverage_file }} | grep -v "total:" | awk '
+          {
             if (NF >= 3) {
+              # Extract package path from "file:line: function coverage"
               split($1, parts, ":");
-              package = parts[1];
-              func = parts[2];
-              coverage = $3;
-              print "- **" package "**: " coverage;
+              filepath = parts[1];
+
+              # Remove filename to get package path
+              split(filepath, pathparts, "/");
+              n = length(pathparts);
+              pkg = "";
+              for (i = 1; i < n; i++) {
+                if (i > 1) pkg = pkg "/";
+                pkg = pkg pathparts[i];
+              }
+
+              # Extract coverage percentage
+              cov_str = $NF;
+              gsub(/%/, "", cov_str);
+              cov = cov_str + 0;
+
+              # Accumulate coverage data per package
+              pkg_lines[pkg] += 1;
+              pkg_coverage[pkg] += cov;
             }
-          }' | sort -u >> coverage-report.md
+          }
+          END {
+            # Calculate average coverage per package
+            for (p in pkg_coverage) {
+              if (pkg_lines[p] > 0) {
+                avg = pkg_coverage[p] / pkg_lines[p];
+                printf "| `%s` | %.1f%% |\n", p, avg;
+              }
+            }
+          }' | sort >> coverage-report.md
+
+          echo ""
+          echo "Coverage report generated:"
+          cat coverage-report.md
 
       - name: Check coverage threshold
         if: inputs.fail_on_threshold
