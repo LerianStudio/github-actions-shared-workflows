@@ -126,7 +126,7 @@ jobs:
           name: coverage-report
 
       - name: Go Coverage Comment
-        uses: fgrosse/go-coverage-report@v1
+        uses: fgrosse/go-coverage-report@v1.2.0
         with:
           coverage-artifact-name: coverage-report
           coverage-file-name: coverage.txt
@@ -270,30 +270,3 @@ jobs:
           use-quiet-mode: 'yes'
           config-file: '.github/markdown-link-check-config.json'
         continue-on-error: true
-
-  all-checks-pass:
-    name: All Checks Pass
-    runs-on: ${{ inputs.runner_type }}
-    needs: [test, lint, verify-module, check-format, check-docs, coverage-report]
-    if: always()
-
-    steps:
-      - name: Check all jobs
-        run: |
-          results=(
-            "${{ needs.test.result }}"
-            "${{ needs.lint.result }}"
-            "${{ needs.verify-module.result }}"
-            "${{ needs.check-format.result }}"
-            "${{ needs.check-docs.result }}"
-            "${{ needs.coverage-report.result }}"
-          )
-
-          for result in "${results[@]}"; do
-            if [[ "$result" != "success" && "$result" != "skipped" ]]; then
-              echo "One or more checks failed"
-              exit 1
-            fi
-          done
-
-          echo "All checks passed!"
