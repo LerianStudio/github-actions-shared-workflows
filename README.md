@@ -54,6 +54,11 @@ Semantic versioning and automated release management with GPG signing.
 
 **Key Features**: Semantic versioning, GPG signing, hotfix support
 
+### 11. [Changed Paths](docs/changed-paths-workflow.md)
+Detect changed paths between commits for monorepo CI/CD optimization.
+
+**Key Features**: Path filtering, path level trimming, app name generation, matrix strategy support
+
 ## Documentation
 
 **[Complete Documentation →](docs/README.md)**
