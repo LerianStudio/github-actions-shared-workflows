@@ -1,0 +1,418 @@
+name: "Go PR Analysis"
+
+# Reusable workflow for Go PR analysis in monorepos
+# Handles change detection, CI, security, and coverage checks per changed app
+# All logic is centralized here for easy maintenance
+
+on:
+  workflow_call:
+    inputs:
+      runner_type:
+        description: 'GitHub runner type'
+        type: string
+        default: 'ubuntu-24.04'
+      filter_paths:
+        description: 'JSON array of paths to monitor for changes (e.g., ["apps/api", "apps/worker"])'
+        type: string
+        required: true
+      path_level:
+        description: 'Directory depth level to extract app name'
+        type: number
+        default: 2
+      app_name_prefix:
+        description: 'Prefix for app names in matrix output'
+        type: string
+        default: ''
+      go_version:
+        description: 'Go version to use'
+        type: string
+        default: '1.23'
+      golangci_lint_version:
+        description: 'GolangCI-Lint version'
+        type: string
+        default: 'v1.62.2'
+      golangci_lint_args:
+        description: 'Additional arguments for golangci-lint'
+        type: string
+        default: '--timeout=5m'
+      coverage_threshold:
+        description: 'Minimum coverage percentage required (0-100)'
+        type: number
+        default: 80
+      fail_on_coverage_threshold:
+        description: 'Fail the workflow if coverage is below threshold'
+        type: boolean
+        default: false
+      enable_lint:
+        description: 'Enable GolangCI-Lint'
+        type: boolean
+        default: true
+      enable_security:
+        description: 'Enable security scanning (gosec, govulncheck)'
+        type: boolean
+        default: true
+      enable_tests:
+        description: 'Enable unit tests'
+        type: boolean
+        default: true
+      enable_coverage:
+        description: 'Enable coverage check with PR comment'
+        type: boolean
+        default: true
+      enable_build:
+        description: 'Enable build verification'
+        type: boolean
+        default: true
+    secrets:
+      manage_token:
+        description: 'GitHub token for PR comments'
+        required: false
+
+permissions:
+  contents: read
+  pull-requests: write
+  security-events: write
+
+jobs:
+  # ============================================
+  # CHANGE DETECTION
+  # ============================================
+  detect-changes:
+    name: Detect Changes
+    runs-on: ${{ inputs.runner_type }}
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+      has_changes: ${{ steps.set-matrix.outputs.has_changes }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get changed files
+        id: changed
+        shell: bash
+        run: |
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            # For PRs, compare base and head
+            BASE_SHA="${{ github.event.pull_request.base.sha }}"
+            HEAD_SHA="${{ github.event.pull_request.head.sha }}"
+            git fetch origin $BASE_SHA --depth=1 2>/dev/null || true
+            FILES=$(git diff --name-only $BASE_SHA $HEAD_SHA 2>/dev/null || git diff --name-only origin/${{ github.base_ref }}...HEAD)
+          elif [[ "${{ github.event.before }}" == "0000000000000000000000000000000000000000" ]] || [[ -z "${{ github.event.before }}" ]]; then
+            PREV_COMMIT=$(git rev-parse HEAD^)
+            if [[ $? -eq 0 ]]; then
+              FILES=$(git diff --name-only $PREV_COMMIT HEAD)
+            else
+              FILES=$(git ls-tree -r --name-only HEAD)
+            fi
+          else
+            FILES=$(git diff --name-only ${{ github.event.before }} ${{ github.sha }})
+          fi
+          printf "files<<EOF\n%s\nEOF\n" "$FILES" >> "$GITHUB_OUTPUT"
+
+      - name: Build matrix from changed paths
+        id: set-matrix
+        shell: bash
+        run: |
+          FILES="${{ steps.changed.outputs.files }}"
+          FILTER_PATHS='${{ inputs.filter_paths }}'
+          PATH_LEVEL="${{ inputs.path_level }}"
+          APP_NAME_PREFIX="${{ inputs.app_name_prefix }}"
+
+          if [[ -z "$FILES" ]]; then
+            echo "No files changed."
+            echo "matrix=[]" >> "$GITHUB_OUTPUT"
+            echo "has_changes=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Get directory for each file
+          DIRS=$(echo "$FILES" | xargs -n1 dirname)
+
+          # Trim to first N path segments
+          if [[ -n "$PATH_LEVEL" ]] && [[ "$PATH_LEVEL" -gt 0 ]]; then
+            DIRS=$(echo "$DIRS" | cut -d'/' -f-"$PATH_LEVEL")
+          fi
+
+          # Filter paths
+          if [[ -n "$FILTER_PATHS" ]] && [[ "$FILTER_PATHS" != "[]" ]]; then
+            FILTER_LIST=$(echo "$FILTER_PATHS" | jq -r '.[]' 2>/dev/null || echo "")
+            if [[ -n "$FILTER_LIST" ]]; then
+              FILTERED=""
+              while read -r DIR; do
+                while read -r FILTER; do
+                  if [[ "$DIR" == "$FILTER"* ]]; then
+                    FILTERED+="$DIR"$'\n'
+                    break
+                  fi
+                done <<< "$FILTER_LIST"
+              done <<< "$DIRS"
+              DIRS="$FILTERED"
+            fi
+          fi
+
+          # Deduplicate and remove empty lines
+          DIRS=$(echo "$DIRS" | grep -v '^$' | sort -u || true)
+
+          if [[ -z "$DIRS" ]]; then
+            echo "No matching directories found."
+            echo "matrix=[]" >> "$GITHUB_OUTPUT"
+            echo "has_changes=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Build matrix with app names
+          MATRIX="["
+          FIRST=true
+          while read -r DIR; do
+            if [[ -n "$APP_NAME_PREFIX" ]]; then
+              APP_NAME="${APP_NAME_PREFIX}-$(echo "$DIR" | rev | cut -d'/' -f1 | rev)"
+            else
+              APP_NAME="$(echo "$DIR" | rev | cut -d'/' -f1 | rev)"
+            fi
+            ENTRY="{\"name\":\"$APP_NAME\",\"working_dir\":\"$DIR\"}"
+            if $FIRST; then
+              MATRIX+="$ENTRY"
+              FIRST=false
+            else
+              MATRIX+=",$ENTRY"
+            fi
+          done <<< "$DIRS"
+          MATRIX+="]"
+
+          echo "Changed apps matrix: $MATRIX"
+          echo "matrix=$MATRIX" >> "$GITHUB_OUTPUT"
+          echo "has_changes=true" >> "$GITHUB_OUTPUT"
+
+  # ============================================
+  # GOLANGCI-LINT
+  # ============================================
+  lint:
+    name: Lint (${{ matrix.app.name }})
+    needs: detect-changes
+    if: needs.detect-changes.outputs.has_changes == 'true' && inputs.enable_lint
+    runs-on: ${{ inputs.runner_type }}
+    strategy:
+      fail-fast: false
+      matrix:
+        app: ${{ fromJson(needs.detect-changes.outputs.matrix) }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ inputs.go_version }}
+          cache: true
+
+      - name: Run GolangCI-Lint
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: ${{ inputs.golangci_lint_version }}
+          working-directory: ${{ matrix.app.working_dir }}
+          args: ${{ inputs.golangci_lint_args }}
+
+  # ============================================
+  # SECURITY SCANNING
+  # ============================================
+  security:
+    name: Security (${{ matrix.app.name }})
+    needs: detect-changes
+    if: needs.detect-changes.outputs.has_changes == 'true' && inputs.enable_security
+    runs-on: ${{ inputs.runner_type }}
+    strategy:
+      fail-fast: false
+      matrix:
+        app: ${{ fromJson(needs.detect-changes.outputs.matrix) }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ inputs.go_version }}
+          cache: true
+
+      - name: Run Gosec
+        uses: securego/gosec@v2.21.4
+        with:
+          args: -no-fail -fmt sarif -out gosec-${{ matrix.app.name }}.sarif ./${{ matrix.app.working_dir }}/...
+
+      - name: Upload Gosec SARIF
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: gosec-${{ matrix.app.name }}.sarif
+          category: gosec-${{ matrix.app.name }}
+        continue-on-error: true
+
+      - name: Install govulncheck
+        run: go install golang.org/x/vuln/cmd/govulncheck@latest
+
+      - name: Run govulncheck
+        working-directory: ${{ matrix.app.working_dir }}
+        run: govulncheck ./...
+        continue-on-error: true
+
+  # ============================================
+  # UNIT TESTS
+  # ============================================
+  tests:
+    name: Tests (${{ matrix.app.name }})
+    needs: detect-changes
+    if: needs.detect-changes.outputs.has_changes == 'true' && inputs.enable_tests
+    runs-on: ${{ inputs.runner_type }}
+    strategy:
+      fail-fast: false
+      matrix:
+        app: ${{ fromJson(needs.detect-changes.outputs.matrix) }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ inputs.go_version }}
+          cache: true
+
+      - name: Download dependencies
+        working-directory: ${{ matrix.app.working_dir }}
+        run: go mod download
+
+      - name: Run tests
+        working-directory: ${{ matrix.app.working_dir }}
+        run: go test -v -race -coverprofile=coverage.txt -covermode=atomic ./...
+
+      - name: Upload coverage artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-${{ matrix.app.name }}
+          path: ${{ matrix.app.working_dir }}/coverage.txt
+          retention-days: 7
+
+  # ============================================
+  # COVERAGE CHECK
+  # ============================================
+  coverage:
+    name: Coverage (${{ matrix.app.name }})
+    needs: [detect-changes, tests]
+    if: needs.detect-changes.outputs.has_changes == 'true' && inputs.enable_coverage
+    runs-on: ${{ inputs.runner_type }}
+    strategy:
+      fail-fast: false
+      matrix:
+        app: ${{ fromJson(needs.detect-changes.outputs.matrix) }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ inputs.go_version }}
+          cache: true
+
+      - name: Download coverage artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: coverage-${{ matrix.app.name }}
+          path: ${{ matrix.app.working_dir }}
+
+      - name: Calculate coverage
+        id: coverage
+        working-directory: ${{ matrix.app.working_dir }}
+        run: |
+          if [[ -f coverage.txt ]]; then
+            COVERAGE=$(go tool cover -func=coverage.txt | grep total | awk '{print $3}' | sed 's/%//')
+            echo "coverage=$COVERAGE" >> $GITHUB_OUTPUT
+            echo "Total coverage: $COVERAGE%"
+          else
+            echo "coverage=0" >> $GITHUB_OUTPUT
+            echo "No coverage file found"
+          fi
+
+      - name: Check coverage threshold
+        if: inputs.fail_on_coverage_threshold
+        run: |
+          COVERAGE=${{ steps.coverage.outputs.coverage }}
+          THRESHOLD=${{ inputs.coverage_threshold }}
+          if (( $(echo "$COVERAGE < $THRESHOLD" | bc -l) )); then
+            echo "::error::Coverage $COVERAGE% is below threshold $THRESHOLD%"
+            exit 1
+          fi
+
+      - name: Post coverage comment
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.manage_token || github.token }}
+          script: |
+            const coverage = '${{ steps.coverage.outputs.coverage }}';
+            const threshold = '${{ inputs.coverage_threshold }}';
+            const appName = '${{ matrix.app.name }}';
+            const passFail = parseFloat(coverage) >= parseFloat(threshold) ? '✅ PASS' : '⚠️ BELOW THRESHOLD';
+            
+            const body = `## 📊 Coverage Report: \`${appName}\`
+            
+            | Metric | Value |
+            |--------|-------|
+            | **Coverage** | \`${coverage}%\` ${passFail} |
+            | **Threshold** | \`${threshold}%\` |
+            
+            ---
+            *Generated by Go PR Analysis workflow*`;
+            
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: body
+            });
+
+  # ============================================
+  # BUILD VERIFICATION
+  # ============================================
+  build:
+    name: Build (${{ matrix.app.name }})
+    needs: detect-changes
+    if: needs.detect-changes.outputs.has_changes == 'true' && inputs.enable_build
+    runs-on: ${{ inputs.runner_type }}
+    strategy:
+      fail-fast: false
+      matrix:
+        app: ${{ fromJson(needs.detect-changes.outputs.matrix) }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ inputs.go_version }}
+          cache: true
+
+      - name: Download dependencies
+        working-directory: ${{ matrix.app.working_dir }}
+        run: go mod download
+
+      - name: Build
+        working-directory: ${{ matrix.app.working_dir }}
+        run: go build -v ./...
+
+  # ============================================
+  # NO CHANGES DETECTED
+  # ============================================
+  no-changes:
+    name: No Go Changes
+    needs: detect-changes
+    if: needs.detect-changes.outputs.has_changes != 'true'
+    runs-on: ${{ inputs.runner_type }}
+    steps:
+      - name: Skip
+        run: |
+          echo "No Go code changes detected in monitored paths."
+          echo "Skipping Go analysis workflows."
