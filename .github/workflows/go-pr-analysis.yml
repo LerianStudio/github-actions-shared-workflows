@@ -413,8 +413,13 @@ jobs:
 
             let coverageReport = '';
             try {
-              coverageReport = fs.readFileSync(`${workingDir}/coverage-report.md`, 'utf8');
+              const path = require('path');
+              const fullPath = path.join(process.cwd(), workingDir, 'coverage-report.md');
+              console.log('Reading coverage report from:', fullPath);
+              coverageReport = fs.readFileSync(fullPath, 'utf8');
+              console.log('Coverage report content length:', coverageReport.length);
             } catch (err) {
+              console.log('Error reading coverage report:', err.message);
               coverageReport = 'Coverage report not available';
             }
 
@@ -442,19 +447,23 @@ jobs:
             );
 
             if (botComment) {
+              console.log('Updating existing comment:', botComment.id);
               await github.rest.issues.updateComment({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 comment_id: botComment.id,
                 body: body
               });
+              console.log('Comment updated successfully');
             } else {
+              console.log('Creating new comment');
               await github.rest.issues.createComment({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 issue_number: context.issue.number,
                 body: body
               });
+              console.log('Comment created successfully');
             }
 
       - name: Coverage summary
