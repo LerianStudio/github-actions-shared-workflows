@@ -2,6 +2,10 @@ name: "Release Workflow"
 
 # This reusable workflow handles semantic versioning and release management
 # It creates releases based on conventional commits and manages version tags
+#
+# Monorepo Support:
+# - If filter_paths is provided: detects changes and runs release for each changed app
+# - If filter_paths is empty: runs release for the entire repository (single app mode)
 
 on:
   workflow_call:
@@ -27,13 +31,65 @@ on:
         description: 'Runner to use for the workflow'
         type: string
         default: 'ubuntu-24.04'
+      filter_paths:
+        description: 'Paths to monitor for changes (YAML format for dorny/paths-filter). If not provided, treats as single app repo.'
+        type: string
+        required: false
 
 jobs:
+  prepare_matrix:
+    runs-on: ${{ inputs.runner }}
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+      has_changes: ${{ steps.set-matrix.outputs.has_changes }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get changed paths (monorepo)
+        if: inputs.filter_paths != ''
+        id: changed-paths
+        uses: dorny/paths-filter@v3
+        with:
+          filters: ${{ inputs.filter_paths }}
+
+      - name: Set matrix
+        id: set-matrix
+        run: |
+          if [ -z "${{ inputs.filter_paths }}" ]; then
+            # Single app mode - release from root
+            echo 'matrix=[{"name": "${{ github.event.repository.name }}", "working_dir": "."}]' >> $GITHUB_OUTPUT
+            echo "has_changes=true" >> $GITHUB_OUTPUT
+          else
+            # Monorepo mode - build matrix from changed paths
+            CHANGED='${{ steps.changed-paths.outputs.changes }}'
+            
+            if [ "$CHANGED" == "[]" ] || [ -z "$CHANGED" ]; then
+              echo "matrix=[]" >> $GITHUB_OUTPUT
+              echo "has_changes=false" >> $GITHUB_OUTPUT
+            else
+              # Convert changed filters to matrix format
+              # Each filter name corresponds to its path (e.g., apps/agent -> apps/agent)
+              MATRIX=$(echo "$CHANGED" | jq -c '[.[] | {name: (. | split("/") | .[-1]), working_dir: .}]')
+              echo "matrix=$MATRIX" >> $GITHUB_OUTPUT
+              echo "has_changes=true" >> $GITHUB_OUTPUT
+            fi
+          fi
+
   publish_release:
+    needs: prepare_matrix
+    if: needs.prepare_matrix.outputs.has_changes == 'true'
     runs-on: ${{ inputs.runner }}
     environment:
       name: create_release
-    name: Create Release
+    name: Release ${{ matrix.app.name }}
+    strategy:
+      max-parallel: 1
+      fail-fast: false
+      matrix:
+        app: ${{ fromJson(needs.prepare_matrix.outputs.matrix) }}
 
     outputs:
       gpg_fingerprint: ${{ steps.import_gpg.outputs.fingerprint }}
@@ -46,14 +102,9 @@ jobs:
           app-id: ${{ secrets.lerian_studio_push_bot_app_id }}
           private-key: ${{ secrets.lerian_studio_push_bot_private_key }}
 
-      # Checkout repository with shallow clone
+      # Checkout repository with full history
       - name: Checkout repository
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0  # Ensure we get the full git history including tags
-
-      # Checkout again with the app token for authentication
-      - uses: actions/checkout@v4
         with:
           fetch-depth: 0
           token: ${{ steps.app-token.outputs.token }}
@@ -79,20 +130,20 @@ jobs:
 
       # Initialize package.json if it doesn't exist
       - name: Init package.json
+        working-directory: ${{ matrix.app.working_dir }}
         run: npm init -y
 
       # Install semantic-release plugins
-      - name: Install missing plugin @semantic-release/exec
-        run: npm install --save-dev @semantic-release/exec
-
-      # Use .releaserc.yml configuration file
-      - name: Set releaserc path
-        id: releaserc
+      - name: Install semantic-release plugins
+        working-directory: ${{ matrix.app.working_dir }}
         run: |
-          echo "path=.releaserc.yml" >> $GITHUB_OUTPUT
+          npm install --save-dev \
+            @semantic-release/exec \
+            @semantic-release/changelog
 
       # Run semantic release to create version tags based on conventional commits
       - name: Semantic Release
+        working-directory: ${{ matrix.app.working_dir }}
         uses: cycjimmy/semantic-release-action@v4
         id: semantic
         with:
@@ -107,4 +158,3 @@ jobs:
           GIT_AUTHOR_EMAIL: ${{ secrets.lerian_ci_cd_user_email }}
           GIT_COMMITTER_NAME: ${{ secrets.lerian_ci_cd_user_name }}
           GIT_COMMITTER_EMAIL: ${{ secrets.lerian_ci_cd_user_email }}
-
