@@ -30,9 +30,9 @@ on:
       runner:
         description: 'Runner to use for the workflow'
         type: string
-        default: 'ubuntu-24.04'
+        default: 'firmino-lxc-runners'
       filter_paths:
-        description: 'Paths to monitor for changes (YAML format for dorny/paths-filter). If not provided, treats as single app repo.'
+        description: 'Paths to monitor for changes. If not provided, treats as single app repo.'
         type: string
         required: false
 

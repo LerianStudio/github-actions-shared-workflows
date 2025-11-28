@@ -1,0 +1,213 @@
+name: "Build and Push Docker Images"
+
+# This reusable workflow handles Docker image builds and pushes to registries
+# Supports both DockerHub and GHCR (GitHub Container Registry)
+#
+# Features:
+# - Monorepo support with optional change detection via filter_paths
+# - Multi-registry support (DockerHub and/or GHCR)
+# - Platform strategy: beta/rc builds amd64 only, release builds amd64+arm64
+# - Semantic versioning tags
+
+on:
+  workflow_call:
+    inputs:
+      runner:
+        description: 'Runner to use for the workflow'
+        type: string
+        default: 'firmino-lxc-runners'
+      filter_paths:
+        description: 'Paths to monitor for changes. If not provided, builds all apps.'
+        type: string
+        required: false
+      enable_dockerhub:
+        description: 'Enable pushing to DockerHub'
+        type: boolean
+        default: true
+      enable_ghcr:
+        description: 'Enable pushing to GitHub Container Registry'
+        type: boolean
+        default: false
+      dockerhub_org:
+        description: 'DockerHub organization name'
+        type: string
+        default: 'lerianstudio'
+      ghcr_org:
+        description: 'GHCR organization name (defaults to repository owner)'
+        type: string
+        default: ''
+      dockerfile_name:
+        description: 'Name of the Dockerfile'
+        type: string
+        default: 'Dockerfile'
+      app_name_prefix:
+        description: 'Prefix for app names in monorepo (e.g., "midaz" results in "midaz-agent")'
+        type: string
+        default: ''
+      build_context:
+        description: 'Docker build context (defaults to repository root for monorepo)'
+        type: string
+        default: '.'
+    secrets:
+      docker_username:
+        description: 'DockerHub username'
+        required: false
+      docker_password:
+        description: 'DockerHub password/token'
+        required: false
+      ghcr_token:
+        description: 'GitHub token for GHCR (defaults to GITHUB_TOKEN)'
+        required: false
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  prepare_matrix:
+    runs-on: ${{ inputs.runner }}
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+      has_builds: ${{ steps.set-matrix.outputs.has_builds }}
+      platforms: ${{ steps.set-platforms.outputs.platforms }}
+      is_release: ${{ steps.set-platforms.outputs.is_release }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get changed paths (monorepo)
+        if: inputs.filter_paths != ''
+        id: changed-paths
+        uses: dorny/paths-filter@v3
+        with:
+          base: ${{ github.ref }}
+          filters: ${{ inputs.filter_paths }}
+
+      - name: Set matrix
+        id: set-matrix
+        run: |
+          PREFIX="${{ inputs.app_name_prefix }}"
+          
+          if [ -z "${{ inputs.filter_paths }}" ]; then
+            # Single app mode - build from root
+            APP_NAME="${{ github.event.repository.name }}"
+            echo "matrix=[{\"name\": \"${APP_NAME}\", \"working_dir\": \".\"}]" >> $GITHUB_OUTPUT
+            echo "has_builds=true" >> $GITHUB_OUTPUT
+          else
+            # Monorepo mode - build matrix from changed paths
+            CHANGED='${{ steps.changed-paths.outputs.changes }}'
+            
+            if [ "$CHANGED" == "[]" ] || [ -z "$CHANGED" ]; then
+              echo "matrix=[]" >> $GITHUB_OUTPUT
+              echo "has_builds=false" >> $GITHUB_OUTPUT
+            else
+              # Convert changed filters to matrix format with optional prefix
+              if [ -n "$PREFIX" ]; then
+                MATRIX=$(echo "$CHANGED" | jq -c --arg prefix "$PREFIX" '[.[] | {name: ($prefix + "-" + (. | split("/") | .[-1])), working_dir: .}]')
+              else
+                MATRIX=$(echo "$CHANGED" | jq -c '[.[] | {name: (. | split("/") | .[-1]), working_dir: .}]')
+              fi
+              echo "matrix=$MATRIX" >> $GITHUB_OUTPUT
+              echo "has_builds=true" >> $GITHUB_OUTPUT
+            fi
+          fi
+
+      - name: Set platforms based on tag type
+        id: set-platforms
+        run: |
+          TAG="${GITHUB_REF#refs/tags/}"
+          
+          # Check if this is a beta or rc tag
+          if [[ "$TAG" == *"-beta"* ]] || [[ "$TAG" == *"-rc"* ]]; then
+            echo "platforms=linux/amd64" >> $GITHUB_OUTPUT
+            echo "is_release=false" >> $GITHUB_OUTPUT
+            echo "Building for amd64 only (beta/rc tag)"
+          else
+            echo "platforms=linux/amd64,linux/arm64" >> $GITHUB_OUTPUT
+            echo "is_release=true" >> $GITHUB_OUTPUT
+            echo "Building for amd64 and arm64 (release tag)"
+          fi
+
+  build:
+    needs: prepare_matrix
+    if: needs.prepare_matrix.outputs.has_builds == 'true'
+    runs-on: ${{ inputs.runner }}
+    name: Build ${{ matrix.app.name }}
+    strategy:
+      max-parallel: 2
+      fail-fast: false
+      matrix:
+        app: ${{ fromJson(needs.prepare_matrix.outputs.matrix) }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        if: needs.prepare_matrix.outputs.is_release == 'true'
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to DockerHub
+        if: inputs.enable_dockerhub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.docker_username }}
+          password: ${{ secrets.docker_password }}
+
+      - name: Log in to GHCR
+        if: inputs.enable_ghcr
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.ghcr_token || github.token }}
+
+      - name: Set image names
+        id: image-names
+        run: |
+          IMAGES=""
+          GHCR_ORG="${{ inputs.ghcr_org }}"
+          if [ -z "$GHCR_ORG" ]; then
+            GHCR_ORG="${{ github.repository_owner }}"
+          fi
+          
+          if [ "${{ inputs.enable_dockerhub }}" == "true" ]; then
+            IMAGES="${{ inputs.dockerhub_org }}/${{ matrix.app.name }}"
+          fi
+          
+          if [ "${{ inputs.enable_ghcr }}" == "true" ]; then
+            if [ -n "$IMAGES" ]; then
+              IMAGES="${IMAGES},ghcr.io/${GHCR_ORG}/${{ matrix.app.name }}"
+            else
+              IMAGES="ghcr.io/${GHCR_ORG}/${{ matrix.app.name }}"
+            fi
+          fi
+          
+          echo "images=$IMAGES" >> $GITHUB_OUTPUT
+
+      - name: Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ steps.image-names.outputs.images }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}},enable=${{ needs.prepare_matrix.outputs.is_release }}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ inputs.build_context }}
+          file: ${{ matrix.app.working_dir }}/${{ inputs.dockerfile_name }}
+          platforms: ${{ needs.prepare_matrix.outputs.platforms }}
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
