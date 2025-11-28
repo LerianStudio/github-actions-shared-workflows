@@ -32,55 +32,59 @@ on:
         type: string
         default: 'firmino-lxc-runners'
       filter_paths:
-        description: 'Paths to monitor for changes. If not provided, treats as single app repo.'
+        description: 'JSON array of path prefixes to filter (e.g., ["apps/agent", "apps/control-plane"]). If not provided, treats as single app repo.'
         type: string
         required: false
+        default: ''
+      path_level:
+        description: 'Limits the path to the first N segments (e.g., 2 -> "apps/agent")'
+        type: number
+        default: 2
 
 jobs:
-  prepare_matrix:
+  # Job 1: Detect changed paths using the shared workflow
+  detect_changes:
+    if: inputs.filter_paths != ''
+    uses: ./.github/workflows/changed-paths.yml
+    with:
+      filter_paths: ${{ inputs.filter_paths }}
+      path_level: ${{ inputs.path_level }}
+      get_app_name: true
+      runner_type: ${{ inputs.runner }}
+
+  # Job 2: Prepare matrix (handles both monorepo and single-app modes)
+  prepare:
     runs-on: ${{ inputs.runner }}
+    needs: [detect_changes]
+    if: always()
     outputs:
       matrix: ${{ steps.set-matrix.outputs.matrix }}
       has_changes: ${{ steps.set-matrix.outputs.has_changes }}
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Get changed paths (monorepo)
-        if: inputs.filter_paths != ''
-        id: changed-paths
-        uses: dorny/paths-filter@v3
-        with:
-          filters: ${{ inputs.filter_paths }}
-
       - name: Set matrix
         id: set-matrix
         run: |
           if [ -z "${{ inputs.filter_paths }}" ]; then
             # Single app mode - release from root
-            echo 'matrix=[{"name": "${{ github.event.repository.name }}", "working_dir": "."}]' >> $GITHUB_OUTPUT
+            APP_NAME="${{ github.event.repository.name }}"
+            echo "matrix=[{\"name\": \"${APP_NAME}\", \"working_dir\": \".\"}]" >> $GITHUB_OUTPUT
             echo "has_changes=true" >> $GITHUB_OUTPUT
           else
-            # Monorepo mode - build matrix from changed paths
-            CHANGED='${{ steps.changed-paths.outputs.changes }}'
-            
-            if [ "$CHANGED" == "[]" ] || [ -z "$CHANGED" ]; then
+            MATRIX='${{ needs.detect_changes.outputs.matrix }}'
+            HAS_CHANGES='${{ needs.detect_changes.outputs.has_changes }}'
+            if [ "$MATRIX" == "[]" ] || [ -z "$MATRIX" ] || [ "$HAS_CHANGES" != "true" ]; then
               echo "matrix=[]" >> $GITHUB_OUTPUT
               echo "has_changes=false" >> $GITHUB_OUTPUT
             else
-              # Convert changed filters to matrix format
-              # Each filter name corresponds to its path (e.g., apps/agent -> apps/agent)
-              MATRIX=$(echo "$CHANGED" | jq -c '[.[] | {name: (. | split("/") | .[-1]), working_dir: .}]')
               echo "matrix=$MATRIX" >> $GITHUB_OUTPUT
               echo "has_changes=true" >> $GITHUB_OUTPUT
             fi
           fi
 
+  # Job 3: Publish releases for each changed app
   publish_release:
-    needs: prepare_matrix
-    if: needs.prepare_matrix.outputs.has_changes == 'true'
+    needs: prepare
+    if: needs.prepare.outputs.has_changes == 'true'
     runs-on: ${{ inputs.runner }}
     environment:
       name: create_release
@@ -89,33 +93,29 @@ jobs:
       max-parallel: 1
       fail-fast: false
       matrix:
-        app: ${{ fromJson(needs.prepare_matrix.outputs.matrix) }}
+        app: ${{ fromJson(needs.prepare.outputs.matrix) }}
 
     outputs:
       gpg_fingerprint: ${{ steps.import_gpg.outputs.fingerprint }}
 
     steps:
-      # Generate GitHub App token for authentication
       - uses: actions/create-github-app-token@v1
         id: app-token
         with:
           app-id: ${{ secrets.lerian_studio_push_bot_app_id }}
           private-key: ${{ secrets.lerian_studio_push_bot_private_key }}
 
-      # Checkout repository with full history
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
           token: ${{ steps.app-token.outputs.token }}
 
-      # Sync with remote branch
       - name: Sync with remote branch
         run: |
           git fetch origin ${{ github.ref_name }}
           git reset --hard origin/${{ github.ref_name }}
 
-      # Import GPG key for signing commits
       - name: Import GPG key
         uses: crazy-max/ghaction-import-gpg@v6
         id: import_gpg
@@ -128,12 +128,10 @@ jobs:
           git_user_signingkey: true
           git_commit_gpgsign: true
 
-      # Initialize package.json if it doesn't exist
       - name: Init package.json
         working-directory: ${{ matrix.app.working_dir }}
         run: npm init -y
 
-      # Install semantic-release plugins
       - name: Install semantic-release plugins
         working-directory: ${{ matrix.app.working_dir }}
         run: |
@@ -141,7 +139,6 @@ jobs:
             @semantic-release/exec \
             @semantic-release/changelog
 
-      # Run semantic release to create version tags based on conventional commits
       - name: Semantic Release
         working-directory: ${{ matrix.app.working_dir }}
         uses: cycjimmy/semantic-release-action@v4

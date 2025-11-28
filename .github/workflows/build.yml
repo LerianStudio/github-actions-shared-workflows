@@ -4,7 +4,7 @@ name: "Build and Push Docker Images"
 # Supports both DockerHub and GHCR (GitHub Container Registry)
 #
 # Features:
-# - Monorepo support with optional change detection via filter_paths
+# - Monorepo support with optional change detection via changed-paths.yml
 # - Multi-registry support (DockerHub and/or GHCR)
 # - Platform strategy: beta/rc builds amd64 only, release builds amd64+arm64
 # - Semantic versioning tags
@@ -17,9 +17,14 @@ on:
         type: string
         default: 'firmino-lxc-runners'
       filter_paths:
-        description: 'Paths to monitor for changes. If not provided, builds all apps.'
+        description: 'JSON array of path prefixes to filter (e.g., ["apps/agent", "apps/control-plane"]). If not provided, builds from root.'
         type: string
         required: false
+        default: ''
+      path_level:
+        description: 'Limits the path to the first N segments (e.g., 2 -> "apps/agent")'
+        type: number
+        default: 2
       enable_dockerhub:
         description: 'Enable pushing to DockerHub'
         type: boolean
@@ -64,51 +69,43 @@ permissions:
   packages: write
 
 jobs:
-  prepare_matrix:
+  # Job 1: Detect changed paths using the shared workflow
+  detect_changes:
+    if: inputs.filter_paths != ''
+    uses: ./.github/workflows/changed-paths.yml
+    with:
+      filter_paths: ${{ inputs.filter_paths }}
+      path_level: ${{ inputs.path_level }}
+      get_app_name: true
+      app_name_prefix: ${{ inputs.app_name_prefix }}
+      runner_type: ${{ inputs.runner }}
+
+  # Job 2: Prepare matrix and platforms (handles both monorepo and single-app modes)
+  prepare:
     runs-on: ${{ inputs.runner }}
+    needs: [detect_changes]
+    if: always()
     outputs:
       matrix: ${{ steps.set-matrix.outputs.matrix }}
       has_builds: ${{ steps.set-matrix.outputs.has_builds }}
       platforms: ${{ steps.set-platforms.outputs.platforms }}
       is_release: ${{ steps.set-platforms.outputs.is_release }}
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Get changed paths (monorepo)
-        if: inputs.filter_paths != ''
-        id: changed-paths
-        uses: dorny/paths-filter@v3
-        with:
-          base: ${{ github.ref }}
-          filters: ${{ inputs.filter_paths }}
-
       - name: Set matrix
         id: set-matrix
         run: |
-          PREFIX="${{ inputs.app_name_prefix }}"
-          
           if [ -z "${{ inputs.filter_paths }}" ]; then
             # Single app mode - build from root
             APP_NAME="${{ github.event.repository.name }}"
             echo "matrix=[{\"name\": \"${APP_NAME}\", \"working_dir\": \".\"}]" >> $GITHUB_OUTPUT
             echo "has_builds=true" >> $GITHUB_OUTPUT
           else
-            # Monorepo mode - build matrix from changed paths
-            CHANGED='${{ steps.changed-paths.outputs.changes }}'
-            
-            if [ "$CHANGED" == "[]" ] || [ -z "$CHANGED" ]; then
+            MATRIX='${{ needs.detect_changes.outputs.matrix }}'
+            HAS_CHANGES='${{ needs.detect_changes.outputs.has_changes }}'
+            if [ "$MATRIX" == "[]" ] || [ -z "$MATRIX" ] || [ "$HAS_CHANGES" != "true" ]; then
               echo "matrix=[]" >> $GITHUB_OUTPUT
               echo "has_builds=false" >> $GITHUB_OUTPUT
             else
-              # Convert changed filters to matrix format with optional prefix
-              if [ -n "$PREFIX" ]; then
-                MATRIX=$(echo "$CHANGED" | jq -c --arg prefix "$PREFIX" '[.[] | {name: ($prefix + "-" + (. | split("/") | .[-1])), working_dir: .}]')
-              else
-                MATRIX=$(echo "$CHANGED" | jq -c '[.[] | {name: (. | split("/") | .[-1]), working_dir: .}]')
-              fi
               echo "matrix=$MATRIX" >> $GITHUB_OUTPUT
               echo "has_builds=true" >> $GITHUB_OUTPUT
             fi
@@ -119,7 +116,6 @@ jobs:
         run: |
           TAG="${GITHUB_REF#refs/tags/}"
           
-          # Check if this is a beta or rc tag
           if [[ "$TAG" == *"-beta"* ]] || [[ "$TAG" == *"-rc"* ]]; then
             echo "platforms=linux/amd64" >> $GITHUB_OUTPUT
             echo "is_release=false" >> $GITHUB_OUTPUT
@@ -130,23 +126,24 @@ jobs:
             echo "Building for amd64 and arm64 (release tag)"
           fi
 
+  # Job 3: Build and push Docker images
   build:
-    needs: prepare_matrix
-    if: needs.prepare_matrix.outputs.has_builds == 'true'
+    needs: prepare
+    if: needs.prepare.outputs.has_builds == 'true'
     runs-on: ${{ inputs.runner }}
     name: Build ${{ matrix.app.name }}
     strategy:
       max-parallel: 2
       fail-fast: false
       matrix:
-        app: ${{ fromJson(needs.prepare_matrix.outputs.matrix) }}
+        app: ${{ fromJson(needs.prepare.outputs.matrix) }}
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
       - name: Set up QEMU
-        if: needs.prepare_matrix.outputs.is_release == 'true'
+        if: needs.prepare.outputs.is_release == 'true'
         uses: docker/setup-qemu-action@v3
 
       - name: Set up Docker Buildx
@@ -198,14 +195,14 @@ jobs:
           tags: |
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
-            type=semver,pattern={{major}},enable=${{ needs.prepare_matrix.outputs.is_release }}
+            type=semver,pattern={{major}},enable=${{ needs.prepare.outputs.is_release }}
 
       - name: Build and push Docker image
         uses: docker/build-push-action@v6
         with:
           context: ${{ inputs.build_context }}
           file: ${{ matrix.app.working_dir }}/${{ inputs.dockerfile_name }}
-          platforms: ${{ needs.prepare_matrix.outputs.platforms }}
+          platforms: ${{ needs.prepare.outputs.platforms }}
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
