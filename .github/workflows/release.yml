@@ -27,6 +27,10 @@ on:
         description: 'Runner to use for the workflow'
         type: string
         default: 'ubuntu-24.04'
+      working_directory:
+        description: 'Working directory for monorepo apps (e.g., apps/agent). Defaults to repository root.'
+        type: string
+        default: '.'
 
 jobs:
   publish_release:
@@ -79,11 +83,16 @@ jobs:
 
       # Initialize package.json if it doesn't exist
       - name: Init package.json
+        working-directory: ${{ inputs.working_directory }}
         run: npm init -y
 
       # Install semantic-release plugins
-      - name: Install missing plugin @semantic-release/exec
-        run: npm install --save-dev @semantic-release/exec
+      - name: Install semantic-release plugins
+        working-directory: ${{ inputs.working_directory }}
+        run: |
+          npm install --save-dev \
+            @semantic-release/exec \
+            @semantic-release/changelog
 
       # Dynamically sets the semantic-release config file path based on the branch type.
       # If the branch is a hotfix (refs/heads/hotfix/*), use `.releaserc.hotfix`;
@@ -92,19 +101,19 @@ jobs:
         id: releaserc
         run: |
           if [[ "${GITHUB_REF}" == refs/heads/hotfix/* ]]; then
-            echo "path=.releaserc.hotfix" >> $GITHUB_OUTPUT
+            echo "path=${{ inputs.working_directory }}/.releaserc.hotfix" >> $GITHUB_OUTPUT
           else
-            echo "path=.releaserc" >> $GITHUB_OUTPUT
+            echo "path=${{ inputs.working_directory }}/.releaserc.yml" >> $GITHUB_OUTPUT
           fi
 
       # Run semantic release to create version tags based on conventional commits
       - name: Semantic Release
+        working-directory: ${{ inputs.working_directory }}
         uses: cycjimmy/semantic-release-action@v4
         id: semantic
         with:
           ci: false
           semantic_version: ${{ inputs.semantic_version }}
-          config_file: ${{ steps.releaserc.outputs.path }}
           extra_plugins: |
             conventional-changelog-conventionalcommits@v7.0.2
             @saithodev/semantic-release-backmerge
