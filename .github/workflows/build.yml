@@ -162,7 +162,12 @@ jobs:
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
-          password: ${{ secrets.ghcr_token || github.token }}
+          password: ${{ secrets.ghcr_token }}
+
+      - name: Normalize repository owner to lowercase
+        id: normalize
+        run: |
+          echo "owner_lower=$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')" >> $GITHUB_OUTPUT
 
       - name: Set image names
         id: image-names
@@ -170,7 +175,9 @@ jobs:
           IMAGES=""
           GHCR_ORG="${{ inputs.ghcr_org }}"
           if [ -z "$GHCR_ORG" ]; then
-            GHCR_ORG="${{ github.repository_owner }}"
+            GHCR_ORG="${{ steps.normalize.outputs.owner_lower }}"
+          else
+            GHCR_ORG=$(echo "$GHCR_ORG" | tr '[:upper:]' '[:lower:]')
           fi
           
           if [ "${{ inputs.enable_dockerhub }}" == "true" ]; then
