@@ -15,14 +15,13 @@ on:
         type: string
         default: 'ubuntu-latest'
       filter_paths:
-        description: 'JSON array of path prefixes to filter (e.g., ["apps/agent", "apps/control-plane"]). If not provided, treats as single app repo.'
+        description: 'Paths to monitor for changes (newline separated). If not provided, treats as single app repo'
         type: string
         required: false
-        default: ''
       path_level:
         description: 'Directory depth level to extract app name (only used for monorepo)'
-        type: number
-        default: 2
+        type: string
+        default: '2'
       monorepo_type:
         description: 'Type of monorepo: "type1" (components in folders) or "type2" (backend in root, frontend in folder)'
         type: string
@@ -64,24 +63,10 @@ permissions:
   security-events: write # Required for security scanning
 
 jobs:
-  # Job 1: Detect changed paths using the shared workflow
-  detect_changes:
-    if: inputs.filter_paths != ''
-    uses: ./.github/workflows/changed-paths.yml
-    with:
-      filter_paths: ${{ inputs.filter_paths }}
-      path_level: ${{ inputs.path_level }}
-      get_app_name: true
-      runner_type: ${{ inputs.runner_type }}
-
-  # Job 2: Prepare matrix (handles both monorepo and single-app modes)
   prepare_matrix:
     runs-on: ${{ inputs.runner_type }}
-    needs: [detect_changes]
-    if: always()
     outputs:
       matrix: ${{ steps.set-matrix.outputs.matrix }}
-      has_scans: ${{ steps.set-matrix.outputs.has_scans }}
     steps:
       - name: Login to Docker Registry
         uses: docker/login-action@v3
@@ -90,59 +75,51 @@ jobs:
           username: ${{ secrets.docker_username }}
           password: ${{ secrets.docker_password }}
 
+      - name: Get changed paths (monorepo)
+        if: inputs.filter_paths != ''
+        id: changed-paths
+        uses: LerianStudio/github-actions-changed-paths@main
+        with:
+          filter_paths: |-
+            ${{ inputs.filter_paths }}
+          get_app_name: true
+          path_level: ${{ inputs.path_level }}
+
       - name: Set matrix
         id: set-matrix
         run: |
-          if [ -z "${{ inputs.filter_paths }}" ]; then
+          if [ "${{ inputs.filter_paths }}" = "" ]; then
             # Single app mode
             echo 'matrix=[{"name": "${{ github.event.repository.name }}", "working_dir": "."}]' >> $GITHUB_OUTPUT
-            echo "has_scans=true" >> $GITHUB_OUTPUT
           elif [ "${{ inputs.monorepo_type }}" = "type2" ]; then
             # Type 2 monorepo: backend in root, frontend in folder
-            CHANGED_MATRIX='${{ needs.detect_changes.outputs.matrix }}'
-            HAS_CHANGES='${{ needs.detect_changes.outputs.has_changes }}'
+            CHANGED_MATRIX='${{ steps.changed-paths.outputs.matrix }}'
 
-            if [ "$CHANGED_MATRIX" == "[]" ] || [ -z "$CHANGED_MATRIX" ] || [ "$HAS_CHANGES" != "true" ]; then
-              echo "matrix=[]" >> $GITHUB_OUTPUT
-              echo "has_scans=false" >> $GITHUB_OUTPUT
-            else
-              # Process the matrix to handle Type 2 logic
-              PROCESSED_MATRIX=$(echo "$CHANGED_MATRIX" | jq -c '
-                map(
-                  if .working_dir == "${{ inputs.frontend_folder }}" then
-                    # Frontend changes - keep as is
-                    .
-                  elif (.working_dir == ".github" or .working_dir == ".githooks") then
-                    # Ignore .github and .githooks folders
-                    empty
-                  else
-                    # Backend changes - consolidate to root
-                    {"name": "${{ github.event.repository.name }}", "working_dir": "."}
-                  end
-                ) | unique_by(.working_dir)
-              ')
+            # Process the matrix to handle Type 2 logic
+            PROCESSED_MATRIX=$(echo "$CHANGED_MATRIX" | jq -c '
+              map(
+                if .working_dir == "${{ inputs.frontend_folder }}" then
+                  # Frontend changes - keep as is
+                  .
+                elif (.working_dir == ".github" or .working_dir == ".githooks") then
+                  # Ignore .github and .githooks folders
+                  empty
+                else
+                  # Backend changes - consolidate to root
+                  {"name": "${{ github.event.repository.name }}", "working_dir": "."}
+                end
+              ) | unique_by(.working_dir)
+            ')
 
-              echo "matrix=$PROCESSED_MATRIX" >> $GITHUB_OUTPUT
-              echo "has_scans=true" >> $GITHUB_OUTPUT
-            fi
+            echo "matrix=$PROCESSED_MATRIX" >> $GITHUB_OUTPUT
           else
             # Type 1 monorepo mode (default)
-            MATRIX='${{ needs.detect_changes.outputs.matrix }}'
-            HAS_CHANGES='${{ needs.detect_changes.outputs.has_changes }}'
-
-            if [ "$MATRIX" == "[]" ] || [ -z "$MATRIX" ] || [ "$HAS_CHANGES" != "true" ]; then
-              echo "matrix=[]" >> $GITHUB_OUTPUT
-              echo "has_scans=false" >> $GITHUB_OUTPUT
-            else
-              echo "matrix=$MATRIX" >> $GITHUB_OUTPUT
-              echo "has_scans=true" >> $GITHUB_OUTPUT
-            fi
+            echo 'matrix=${{ steps.changed-paths.outputs.matrix }}' >> $GITHUB_OUTPUT
           fi
 
-  # Job 3: Run security scans
   security_scan:
     needs: prepare_matrix
-    if: needs.prepare_matrix.outputs.has_scans == 'true'
+    if: needs.prepare_matrix.outputs.matrix != '[]'
     runs-on: ${{ inputs.runner_type }}
     strategy:
       max-parallel: 1

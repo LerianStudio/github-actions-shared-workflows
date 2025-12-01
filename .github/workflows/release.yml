@@ -32,35 +32,31 @@ on:
         type: string
         default: 'firmino-lxc-runners'
       filter_paths:
-        description: 'JSON array of path prefixes to filter (e.g., ["apps/agent", "apps/control-plane"]). If not provided, treats as single app repo.'
+        description: 'Newline-separated list of path prefixes to filter. If not provided, treats as single app repo.'
         type: string
         required: false
         default: ''
       path_level:
         description: 'Limits the path to the first N segments (e.g., 2 -> "apps/agent")'
-        type: number
-        default: 2
+        type: string
+        default: '2'
 
 jobs:
-  # Job 1: Detect changed paths using the shared workflow
-  detect_changes:
-    if: inputs.filter_paths != ''
-    uses: ./.github/workflows/changed-paths.yml
-    with:
-      filter_paths: ${{ inputs.filter_paths }}
-      path_level: ${{ inputs.path_level }}
-      get_app_name: true
-      runner_type: ${{ inputs.runner }}
-
-  # Job 2: Prepare matrix (handles both monorepo and single-app modes)
   prepare:
     runs-on: ${{ inputs.runner }}
-    needs: [detect_changes]
-    if: always()
     outputs:
       matrix: ${{ steps.set-matrix.outputs.matrix }}
       has_changes: ${{ steps.set-matrix.outputs.has_changes }}
     steps:
+      - name: Get changed paths (monorepo)
+        if: inputs.filter_paths != ''
+        id: changed-paths
+        uses: LerianStudio/github-actions-changed-paths@main
+        with:
+          filter_paths: ${{ inputs.filter_paths }}
+          path_level: ${{ inputs.path_level }}
+          get_app_name: 'true'
+
       - name: Set matrix
         id: set-matrix
         run: |
@@ -70,9 +66,8 @@ jobs:
             echo "matrix=[{\"name\": \"${APP_NAME}\", \"working_dir\": \".\"}]" >> $GITHUB_OUTPUT
             echo "has_changes=true" >> $GITHUB_OUTPUT
           else
-            MATRIX='${{ needs.detect_changes.outputs.matrix }}'
-            HAS_CHANGES='${{ needs.detect_changes.outputs.has_changes }}'
-            if [ "$MATRIX" == "[]" ] || [ -z "$MATRIX" ] || [ "$HAS_CHANGES" != "true" ]; then
+            MATRIX='${{ steps.changed-paths.outputs.matrix }}'
+            if [ "$MATRIX" == "[]" ] || [ -z "$MATRIX" ]; then
               echo "matrix=[]" >> $GITHUB_OUTPUT
               echo "has_changes=false" >> $GITHUB_OUTPUT
             else
@@ -81,7 +76,6 @@ jobs:
             fi
           fi
 
-  # Job 3: Publish releases for each changed app
   publish_release:
     needs: prepare
     if: needs.prepare.outputs.has_changes == 'true'

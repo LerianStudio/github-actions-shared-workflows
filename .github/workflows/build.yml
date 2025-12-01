@@ -4,7 +4,7 @@ name: "Build and Push Docker Images"
 # Supports both DockerHub and GHCR (GitHub Container Registry)
 #
 # Features:
-# - Monorepo support with optional change detection via changed-paths.yml
+# - Monorepo support with optional change detection via LerianStudio/github-actions-changed-paths
 # - Multi-registry support (DockerHub and/or GHCR)
 # - Platform strategy: beta/rc builds amd64 only, release builds amd64+arm64
 # - Semantic versioning tags
@@ -17,14 +17,14 @@ on:
         type: string
         default: 'firmino-lxc-runners'
       filter_paths:
-        description: 'JSON array of path prefixes to filter (e.g., ["apps/agent", "apps/control-plane"]). If not provided, builds from root.'
+        description: 'Newline-separated list of path prefixes to filter. If not provided, builds from root.'
         type: string
         required: false
         default: ''
       path_level:
         description: 'Limits the path to the first N segments (e.g., 2 -> "apps/agent")'
-        type: number
-        default: 2
+        type: string
+        default: '2'
       enable_dockerhub:
         description: 'Enable pushing to DockerHub'
         type: boolean
@@ -61,7 +61,7 @@ on:
         description: 'DockerHub password/token'
         required: false
       ghcr_token:
-        description: 'GitHub token for GHCR (defaults to GITHUB_TOKEN)'
+        description: 'GitHub token for GHCR'
         required: false
 
 permissions:
@@ -69,28 +69,24 @@ permissions:
   packages: write
 
 jobs:
-  # Job 1: Detect changed paths using the shared workflow
-  detect_changes:
-    if: inputs.filter_paths != ''
-    uses: ./.github/workflows/changed-paths.yml
-    with:
-      filter_paths: ${{ inputs.filter_paths }}
-      path_level: ${{ inputs.path_level }}
-      get_app_name: true
-      app_name_prefix: ${{ inputs.app_name_prefix }}
-      runner_type: ${{ inputs.runner }}
-
-  # Job 2: Prepare matrix and platforms (handles both monorepo and single-app modes)
   prepare:
     runs-on: ${{ inputs.runner }}
-    needs: [detect_changes]
-    if: always()
     outputs:
       matrix: ${{ steps.set-matrix.outputs.matrix }}
       has_builds: ${{ steps.set-matrix.outputs.has_builds }}
       platforms: ${{ steps.set-platforms.outputs.platforms }}
       is_release: ${{ steps.set-platforms.outputs.is_release }}
     steps:
+      - name: Get changed paths (monorepo)
+        if: inputs.filter_paths != ''
+        id: changed-paths
+        uses: LerianStudio/github-actions-changed-paths@main
+        with:
+          filter_paths: ${{ inputs.filter_paths }}
+          path_level: ${{ inputs.path_level }}
+          get_app_name: 'true'
+          app_name_prefix: ${{ inputs.app_name_prefix }}
+
       - name: Set matrix
         id: set-matrix
         run: |
@@ -100,9 +96,8 @@ jobs:
             echo "matrix=[{\"name\": \"${APP_NAME}\", \"working_dir\": \".\"}]" >> $GITHUB_OUTPUT
             echo "has_builds=true" >> $GITHUB_OUTPUT
           else
-            MATRIX='${{ needs.detect_changes.outputs.matrix }}'
-            HAS_CHANGES='${{ needs.detect_changes.outputs.has_changes }}'
-            if [ "$MATRIX" == "[]" ] || [ -z "$MATRIX" ] || [ "$HAS_CHANGES" != "true" ]; then
+            MATRIX='${{ steps.changed-paths.outputs.matrix }}'
+            if [ "$MATRIX" == "[]" ] || [ -z "$MATRIX" ]; then
               echo "matrix=[]" >> $GITHUB_OUTPUT
               echo "has_builds=false" >> $GITHUB_OUTPUT
             else
@@ -126,7 +121,6 @@ jobs:
             echo "Building for amd64 and arm64 (release tag)"
           fi
 
-  # Job 3: Build and push Docker images
   build:
     needs: prepare
     if: needs.prepare.outputs.has_builds == 'true'
