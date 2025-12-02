@@ -134,12 +134,12 @@ jobs:
             @semantic-release/changelog
 
       - name: Semantic Release
-        working-directory: ${{ matrix.app.working_dir }}
         uses: cycjimmy/semantic-release-action@v4
         id: semantic
         with:
           ci: false
           semantic_version: ${{ inputs.semantic_version }}
+          working_directory: ${{ matrix.app.working_dir }}
           extra_plugins: |
             conventional-changelog-conventionalcommits@v7.0.2
             @saithodev/semantic-release-backmerge
