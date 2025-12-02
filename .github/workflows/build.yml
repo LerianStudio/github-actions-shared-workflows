@@ -192,8 +192,10 @@ jobs:
         id: version
         run: |
           TAG="${GITHUB_REF#refs/tags/}"
-          # Strip app prefix (e.g., agent-v1.0.0-beta.1 -> v1.0.0-beta.1)
-          VERSION=$(echo "$TAG" | sed 's/^[^-]*-//')
+          # Strip app prefix by finding -v and extracting from there
+          # e.g., agent-v1.0.0-beta.1 -> v1.0.0-beta.1
+          # e.g., control-plane-v1.0.0-beta.1 -> v1.0.0-beta.1
+          VERSION=$(echo "$TAG" | sed 's/.*-\(v[0-9]\)/\1/')
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "Extracted version: $VERSION from tag: $TAG"
 
