@@ -12,9 +12,10 @@ on:
         type: string
         default: 'ubuntu-24.04'
       filter_paths:
-        description: 'JSON array of paths to monitor for changes (e.g., ["apps/api", "apps/worker"])'
+        description: 'JSON array of paths to monitor for changes (e.g., ["apps/api", "apps/worker"]). If empty, treats repo as single-app and runs against root directory.'
         type: string
-        required: true
+        required: false
+        default: ''
       path_level:
         description: 'Directory depth level to extract app name'
         type: number
@@ -127,6 +128,24 @@ jobs:
             exit 0
           fi
 
+          # Single-app mode: if filter_paths is empty, run against root directory
+          if [[ -z "$FILTER_PATHS" ]] || [[ "$FILTER_PATHS" == "[]" ]] || [[ "$FILTER_PATHS" == "" ]]; then
+            echo "Single-app mode: no filter_paths specified, running against root directory"
+            if [[ -n "$APP_NAME_PREFIX" ]]; then
+              APP_NAME="$APP_NAME_PREFIX"
+            else
+              APP_NAME="app"
+            fi
+            MATRIX="[{\"name\":\"$APP_NAME\",\"working_dir\":\".\"}]"
+            echo "Single app matrix: $MATRIX"
+            echo "matrix=$MATRIX" >> "$GITHUB_OUTPUT"
+            echo "has_changes=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Monorepo mode: filter and build matrix from changed paths
+          echo "Monorepo mode: filtering by paths $FILTER_PATHS"
+
           # Get directory for each file
           DIRS=$(echo "$FILES" | xargs -n1 dirname)
 
@@ -136,20 +155,18 @@ jobs:
           fi
 
           # Filter paths
-          if [[ -n "$FILTER_PATHS" ]] && [[ "$FILTER_PATHS" != "[]" ]]; then
-            FILTER_LIST=$(echo "$FILTER_PATHS" | jq -r '.[]' 2>/dev/null || echo "")
-            if [[ -n "$FILTER_LIST" ]]; then
-              FILTERED=""
-              while read -r DIR; do
-                while read -r FILTER; do
-                  if [[ "$DIR" == "$FILTER"* ]]; then
-                    FILTERED+="$DIR"$'\n'
-                    break
-                  fi
-                done <<< "$FILTER_LIST"
-              done <<< "$DIRS"
-              DIRS="$FILTERED"
-            fi
+          FILTER_LIST=$(echo "$FILTER_PATHS" | jq -r '.[]' 2>/dev/null || echo "")
+          if [[ -n "$FILTER_LIST" ]]; then
+            FILTERED=""
+            while read -r DIR; do
+              while read -r FILTER; do
+                if [[ "$DIR" == "$FILTER"* ]]; then
+                  FILTERED+="$DIR"$'\n'
+                  break
+                fi
+              done <<< "$FILTER_LIST"
+            done <<< "$DIRS"
+            DIRS="$FILTERED"
           fi
 
           # Deduplicate and remove empty lines
