@@ -1,0 +1,200 @@
+name: Detect Changed Apps
+
+on:
+  workflow_call:
+    inputs:
+      config_path:
+        description: "Path to apps-config.yml"
+        required: false
+        default: ".github/apps-config.yml"
+        type: string
+      base_ref:
+        description: "Base ref for comparison (default: PR base or main)"
+        required: false
+        default: ""
+        type: string
+    outputs:
+      changed_apps:
+        description: "JSON array of changed app names"
+        value: ${{ jobs.detect.outputs.changed_apps }}
+      changed_apps_matrix:
+        description: "JSON matrix for changed apps with metadata"
+        value: ${{ jobs.detect.outputs.matrix }}
+      all_apps:
+        description: "JSON array of all enabled apps"
+        value: ${{ jobs.detect.outputs.all_apps }}
+      has_changes:
+        description: "Boolean indicating if any apps changed"
+        value: ${{ jobs.detect.outputs.has_changes }}
+
+jobs:
+  detect:
+    runs-on: ubuntu-latest
+    outputs:
+      changed_apps: ${{ steps.detect.outputs.changed_apps }}
+      matrix: ${{ steps.detect.outputs.matrix }}
+      all_apps: ${{ steps.detect.outputs.all_apps }}
+      has_changes: ${{ steps.detect.outputs.has_changes }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Precisa do histórico completo para git diff
+
+      - name: Install yq
+        run: |
+          sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
+          sudo chmod +x /usr/local/bin/yq
+
+      - name: Detect Changed Apps
+        id: detect
+        run: |
+          set -e
+
+          echo "🔍 Detectando mudanças em apps..."
+          echo ""
+
+          # Determina base ref
+          if [ -n "${{ inputs.base_ref }}" ]; then
+            BASE_REF="${{ inputs.base_ref }}"
+          elif [ "${{ github.event_name }}" = "pull_request" ]; then
+            BASE_REF="${{ github.event.pull_request.base.sha }}"
+          else
+            BASE_REF="HEAD~1"
+          fi
+
+          echo "📊 Comparando contra: $BASE_REF"
+          echo ""
+
+          # Lista de arquivos modificados
+          CHANGED_FILES=$(git diff --name-only $BASE_REF HEAD || echo "")
+
+          if [ -z "$CHANGED_FILES" ]; then
+            echo "⚠️ Nenhum arquivo modificado detectado"
+            echo "changed_apps=[]" >> $GITHUB_OUTPUT
+            echo "matrix={\"include\":[]}" >> $GITHUB_OUTPUT
+            echo "all_apps=[]" >> $GITHUB_OUTPUT
+            echo "has_changes=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          echo "📝 Arquivos modificados:"
+          echo "$CHANGED_FILES" | head -20
+          if [ $(echo "$CHANGED_FILES" | wc -l) -gt 20 ]; then
+            echo "... e mais $(( $(echo "$CHANGED_FILES" | wc -l) - 20 )) arquivos"
+          fi
+          echo ""
+
+          # Lê apps-config.yml
+          CONFIG_FILE="${{ inputs.config_path }}"
+
+          if [ ! -f "$CONFIG_FILE" ]; then
+            echo "❌ Erro: $CONFIG_FILE não encontrado"
+            exit 1
+          fi
+
+          echo "📋 Lendo configuração: $CONFIG_FILE"
+          echo ""
+
+          # Extrai apps habilitados
+          ALL_APPS=$(yq eval '.apps | to_entries | map(select(.value.enabled == true) | .key) | @json' "$CONFIG_FILE")
+          echo "✅ Apps habilitados: $ALL_APPS"
+          echo ""
+
+          # Extrai paths de ignore
+          IGNORE_PATTERNS=$(yq eval '.ignore_paths[]' "$CONFIG_FILE" 2>/dev/null || echo "")
+
+          # Detecta apps com mudanças
+          CHANGED_APPS=()
+          MATRIX_ENTRIES=()
+
+          for app in $(echo "$ALL_APPS" | jq -r '.[]'); do
+            APP_PATH=$(yq eval ".apps.$app.path" "$CONFIG_FILE")
+            APP_TYPE=$(yq eval ".apps.$app.type" "$CONFIG_FILE")
+            HAS_GO=$(yq eval ".apps.$app.stack.go // false" "$CONFIG_FILE")
+            HAS_NODE=$(yq eval ".apps.$app.stack.node // false" "$CONFIG_FILE")
+
+            # Verifica se app foi modificado (direto)
+            DIRECT_CHANGES=$(echo "$CHANGED_FILES" | grep "^$APP_PATH/" || true)
+
+            # Verifica mudanças em shared libs (afeta todos)
+            SHARED_CHANGES=$(echo "$CHANGED_FILES" | grep -E "^pkg/|^.github/workflows/" || true)
+
+            # Filtra por ignore patterns
+            if [ -n "$IGNORE_PATTERNS" ]; then
+              for pattern in $IGNORE_PATTERNS; do
+                # Remove trailing newlines
+                pattern=$(echo "$pattern" | tr -d '\n\r')
+                # Convert glob to regex
+                regex_pattern=$(echo "$pattern" | sed 's/\*\*/\.\*/g' | sed 's/\*/[^\/]*/g')
+
+                if [ -n "$DIRECT_CHANGES" ]; then
+                  DIRECT_CHANGES=$(echo "$DIRECT_CHANGES" | grep -v "$regex_pattern" || true)
+                fi
+              done
+            fi
+
+            # Decide se app foi afetado
+            IS_AFFECTED=false
+
+            if [ -n "$DIRECT_CHANGES" ]; then
+              echo "✅ $app: mudanças diretas detectadas"
+              IS_AFFECTED=true
+            fi
+
+            if [ -n "$SHARED_CHANGES" ]; then
+              echo "⚠️ $app: afetado por mudanças em libs compartilhadas"
+              IS_AFFECTED=true
+            fi
+
+            if [ "$IS_AFFECTED" = true ]; then
+              CHANGED_APPS+=("$app")
+
+              # Monta entrada da matrix
+              MATRIX_ENTRY=$(jq -n \
+                --arg app "$app" \
+                --arg path "$APP_PATH" \
+                --arg type "$APP_TYPE" \
+                --argjson has_go "$HAS_GO" \
+                --argjson has_node "$HAS_NODE" \
+                '{
+                  app: $app,
+                  path: $path,
+                  type: $type,
+                  has_go: $has_go,
+                  has_node: $has_node
+                }')
+
+              MATRIX_ENTRIES+=("$MATRIX_ENTRY")
+            fi
+          done
+
+          echo ""
+          echo "📊 Resumo da detecção:"
+          echo "  Apps modificados: ${#CHANGED_APPS[@]}"
+
+          # Converte arrays para JSON
+          if [ ${#CHANGED_APPS[@]} -eq 0 ]; then
+            CHANGED_APPS_JSON="[]"
+            MATRIX_JSON="{\"include\":[]}"
+            HAS_CHANGES="false"
+          else
+            CHANGED_APPS_JSON=$(printf '%s\n' "${CHANGED_APPS[@]}" | jq -R . | jq -s .)
+            MATRIX_JSON=$(printf '%s\n' "${MATRIX_ENTRIES[@]}" | jq -s .)
+            MATRIX_JSON="{\"include\":$MATRIX_JSON}"
+            HAS_CHANGES="true"
+          fi
+
+          # Outputs
+          echo "changed_apps=$CHANGED_APPS_JSON" >> $GITHUB_OUTPUT
+          echo "matrix=$MATRIX_JSON" >> $GITHUB_OUTPUT
+          echo "all_apps=$ALL_APPS" >> $GITHUB_OUTPUT
+          echo "has_changes=$HAS_CHANGES" >> $GITHUB_OUTPUT
+
+          echo ""
+          echo "✅ Detecção completa!"
+          echo ""
+          echo "📤 Outputs:"
+          echo "  changed_apps: $CHANGED_APPS_JSON"
+          echo "  has_changes: $HAS_CHANGES"

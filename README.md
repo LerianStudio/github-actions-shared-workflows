@@ -4,6 +4,90 @@ Centralized repository for reusable GitHub Actions workflows used across the Ler
 
 ## Available Workflows
 
+### Detect Changes (Monorepo Change Detection)
+
+Intelligent change detection workflow for monorepos. Analyzes git diff to determine which apps were modified, considering direct changes, shared library changes, and ignore patterns defined in `apps-config.yml`.
+
+**Usage:**
+
+```yaml
+name: PR CI/CD
+on:
+  pull_request:
+    branches: [main, develop, release-candidate]
+
+jobs:
+  detect-changes:
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/detect-changes.yml@main
+    with:
+      config_path: ".github/apps-config.yml"
+
+  ci-matrix:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.has_changes == 'true'
+    strategy:
+      matrix: ${{ fromJson(needs.detect-changes.outputs.changed_apps_matrix) }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Run CI for ${{ matrix.app }}
+        run: echo "Running CI for ${{ matrix.app }} at ${{ matrix.path }}"
+```
+
+**Inputs:**
+
+| Input | Description | Required | Default |
+|-------|-------------|----------|---------|
+| `config_path` | Path to apps-config.yml | No | `.github/apps-config.yml` |
+| `base_ref` | Base reference for comparison | No | PR base or `HEAD~1` |
+
+**Outputs:**
+
+| Output | Type | Description |
+|--------|------|-------------|
+| `changed_apps` | JSON array | List of changed app names: `["flowker", "tracer"]` |
+| `changed_apps_matrix` | JSON object | Matrix with app metadata for strategy |
+| `all_apps` | JSON array | All enabled apps from config |
+| `has_changes` | boolean | `true` if any apps changed |
+
+**Features:**
+
+- ✅ Intelligent path-based detection
+- ✅ Shared library awareness (`pkg/**` affects all apps)
+- ✅ CI/CD change awareness (`.github/workflows/**` affects all)
+- ✅ Configurable ignore patterns (`*.md`, `docs/**`, etc.)
+- ✅ Component-level granularity
+- ✅ Matrix output ready for `strategy.matrix`
+- ✅ Detailed logging for debugging
+
+**Example Output:**
+
+```json
+{
+  "changed_apps": ["flowker", "tracer"],
+  "changed_apps_matrix": {
+    "include": [
+      {
+        "app": "flowker",
+        "path": "apps/flowker",
+        "type": "backend",
+        "has_go": true,
+        "has_node": false
+      },
+      {
+        "app": "tracer",
+        "path": "apps/tracer",
+        "type": "backend",
+        "has_go": true,
+        "has_node": false
+      }
+    ]
+  },
+  "has_changes": true
+}
+```
+
+---
+
 ### API Dog E2E Tests
 
 Automated API testing workflow using Apidog CLI that runs test scenarios and generates comprehensive reports. Supports both manual environment specification and automatic environment detection based on git tags (beta/rc).
