@@ -53,6 +53,9 @@ on:
       manage_token:
         description: 'GitHub token for API operations (defaults to GITHUB_TOKEN if not provided)'
         required: false
+      SLACK_WEBHOOK_URL:
+        description: 'Slack webhook URL for notifications'
+        required: false
 
 permissions:
   contents: read
@@ -345,3 +348,16 @@ jobs:
 
             core.summary.addRaw(summary);
             await core.summary.write();
+
+  # Slack notification
+  notify:
+    name: Notify
+    needs: [skip-if-draft, pr-title, pr-size, pr-description, pr-labels, pr-assignee, pr-linked-issues, pr-changelog, pr-checks-summary]
+    if: always() && needs.skip-if-draft.outputs.should_skip != 'true'
+    uses: ./.github/workflows/slack-notify.yml
+    with:
+      status: ${{ (needs.pr-title.result == 'failure' || needs.pr-description.result == 'failure') && 'failure' || 'success' }}
+      workflow_name: "PR Validation"
+      failed_jobs: ${{ needs.pr-title.result == 'failure' && 'PR Title, ' || '' }}${{ needs.pr-description.result == 'failure' && 'PR Description' || '' }}
+    secrets:
+      SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}

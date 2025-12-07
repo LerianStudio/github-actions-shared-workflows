@@ -83,6 +83,9 @@ on:
       goreleaser_key:
         description: 'GoReleaser Pro license key (only needed for goreleaser-pro)'
         required: false
+      SLACK_WEBHOOK_URL:
+        description: 'Slack webhook URL for notifications'
+        required: false
 
 permissions:
   contents: write
@@ -190,21 +193,15 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+  # Slack notification
   notify:
-    name: Notify Release
-    runs-on: ${{ inputs.runner_type }}
+    name: Notify
     needs: [release, homebrew, docker]
-    if: always() && inputs.enable_notifications && startsWith(github.ref, 'refs/tags/v')
-
-    steps:
-      - name: Extract version
-        id: version
-        run: echo "version=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
-
-      - name: Create notification message
-        run: |
-          echo "Release ${{ steps.version.outputs.version }} completed!"
-          echo "Status:"
-          echo "  - Release: ${{ needs.release.result }}"
-          echo "  - Homebrew: ${{ needs.homebrew.result }}"
-          echo "  - Docker: ${{ needs.docker.result }}"
+    if: always()
+    uses: ./.github/workflows/slack-notify.yml
+    with:
+      status: ${{ (needs.release.result == 'failure' || needs.homebrew.result == 'failure' || needs.docker.result == 'failure') && 'failure' || 'success' }}
+      workflow_name: "Go Release"
+      failed_jobs: ${{ needs.release.result == 'failure' && 'Release, ' || '' }}${{ needs.homebrew.result == 'failure' && 'Homebrew, ' || '' }}${{ needs.docker.result == 'failure' && 'Docker' || '' }}
+    secrets:
+      SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}

@@ -105,6 +105,9 @@ on:
       docker_password:
         description: 'Docker Hub password'
         required: true
+      SLACK_WEBHOOK_URL:
+        description: 'Slack webhook URL for notifications'
+        required: false
 
 jobs:
   update_gitops:
@@ -439,3 +442,16 @@ jobs:
           argo-cd-token: ${{ secrets.argocd_ghuser_token }}
           argo-cd-url: ${{ secrets.argocd_url }}
           env-prefix: ${{ env.ENV_PREFIX }}
+
+  # Slack notification
+  notify:
+    name: Notify
+    needs: [update_gitops]
+    if: always()
+    uses: ./.github/workflows/slack-notify.yml
+    with:
+      status: ${{ needs.update_gitops.result }}
+      workflow_name: "GitOps Update"
+      failed_jobs: ${{ needs.update_gitops.result == 'failure' && 'Update GitOps' || '' }}
+    secrets:
+      SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}

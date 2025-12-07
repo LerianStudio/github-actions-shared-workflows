@@ -55,6 +55,9 @@ on:
       npmrc_token:
         description: 'NPM registry token for private packages'
         required: false
+      SLACK_WEBHOOK_URL:
+        description: 'Slack webhook URL for notifications'
+        required: false
 
 permissions:
   id-token: write       # Required for OIDC authentication
@@ -219,3 +222,16 @@ jobs:
       #   continue-on-error: true
       #   with:
       #     sarif_file: 'trivy-vulnerability-scan-docker-${{ env.APP_NAME }}.sarif'
+
+  # Slack notification
+  notify:
+    name: Notify
+    needs: [prepare_matrix, security_scan]
+    if: always() && needs.prepare_matrix.outputs.matrix != '[]'
+    uses: ./.github/workflows/slack-notify.yml
+    with:
+      status: ${{ needs.security_scan.result }}
+      workflow_name: "PR Security Scan"
+      failed_jobs: ${{ needs.security_scan.result == 'failure' && 'Security Scan' || '' }}
+    secrets:
+      SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}

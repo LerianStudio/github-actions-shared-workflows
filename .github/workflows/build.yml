@@ -68,6 +68,9 @@ on:
       ghcr_token:
         description: 'GitHub token for GHCR'
         required: false
+      SLACK_WEBHOOK_URL:
+        description: 'Slack webhook URL for notifications'
+        required: false
 
 permissions:
   contents: read
@@ -244,3 +247,16 @@ jobs:
         with:
           name: gitops-tags-${{ matrix.app.name }}
           path: gitops-tags/
+
+  # Slack notification
+  notify:
+    name: Notify
+    needs: [prepare, build]
+    if: always() && needs.prepare.outputs.has_builds == 'true'
+    uses: ./.github/workflows/slack-notify.yml
+    with:
+      status: ${{ needs.build.result }}
+      workflow_name: "Build & Push Docker Images"
+      failed_jobs: ${{ needs.build.result == 'failure' && 'Build' || '' }}
+    secrets:
+      SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}

@@ -68,6 +68,9 @@ on:
       manage_token:
         description: 'GitHub token for PR comments'
         required: false
+      SLACK_WEBHOOK_URL:
+        description: 'Slack webhook URL for notifications'
+        required: false
 
 permissions:
   contents: read
@@ -542,3 +545,18 @@ jobs:
         run: |
           echo "No Go code changes detected in monitored paths."
           echo "Skipping Go analysis workflows."
+
+  # ============================================
+  # SLACK NOTIFICATION
+  # ============================================
+  notify:
+    name: Notify
+    needs: [detect-changes, lint, security, tests, build]
+    if: always() && needs.detect-changes.outputs.has_changes == 'true'
+    uses: ./.github/workflows/slack-notify.yml
+    with:
+      status: ${{ (needs.lint.result == 'failure' || needs.security.result == 'failure' || needs.tests.result == 'failure' || needs.build.result == 'failure') && 'failure' || 'success' }}
+      workflow_name: "Go PR Analysis"
+      failed_jobs: ${{ needs.lint.result == 'failure' && 'Lint, ' || '' }}${{ needs.security.result == 'failure' && 'Security, ' || '' }}${{ needs.tests.result == 'failure' && 'Tests, ' || '' }}${{ needs.build.result == 'failure' && 'Build' || '' }}
+    secrets:
+      SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}

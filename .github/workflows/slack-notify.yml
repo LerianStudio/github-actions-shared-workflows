@@ -1,0 +1,156 @@
+name: "Slack Notification"
+
+# Reusable workflow for sending Slack notifications
+# Designed to be called from other workflows as a final notification step
+#
+# Features:
+# - Rich formatting with repo, workflow, failed jobs, and author
+# - Gracefully skips if SLACK_WEBHOOK_URL secret is not available
+# - Notifies on both success and failure
+
+on:
+  workflow_call:
+    inputs:
+      status:
+        description: 'Workflow status (success, failure, cancelled)'
+        type: string
+        required: true
+      workflow_name:
+        description: 'Name of the calling workflow'
+        type: string
+        required: true
+      failed_jobs:
+        description: 'Comma-separated list of failed job names (for failure notifications)'
+        type: string
+        required: false
+        default: ''
+      custom_message:
+        description: 'Optional custom message to include'
+        type: string
+        required: false
+        default: ''
+      runner_type:
+        description: 'GitHub runner type to use'
+        type: string
+        default: 'ubuntu-latest'
+    secrets:
+      SLACK_WEBHOOK_URL:
+        description: 'Slack webhook URL for notifications'
+        required: false
+
+jobs:
+  notify:
+    name: Send Notification
+    runs-on: ${{ inputs.runner_type }}
+    steps:
+      - name: Check if Slack webhook is configured
+        id: check_webhook
+        run: |
+          if [ -z "${{ secrets.SLACK_WEBHOOK_URL }}" ]; then
+            echo "skip=true" >> $GITHUB_OUTPUT
+            echo "⚠️ SLACK_WEBHOOK_URL not configured - skipping notification"
+          else
+            echo "skip=false" >> $GITHUB_OUTPUT
+            echo "✅ Slack webhook configured"
+          fi
+
+      - name: Determine notification settings
+        if: steps.check_webhook.outputs.skip != 'true'
+        id: settings
+        run: |
+          STATUS="${{ inputs.status }}"
+          
+          case "$STATUS" in
+            success)
+              COLOR="good"
+              EMOJI="✅"
+              STATUS_TEXT="succeeded"
+              ;;
+            failure)
+              COLOR="danger"
+              EMOJI="❌"
+              STATUS_TEXT="failed"
+              ;;
+            cancelled)
+              COLOR="#808080"
+              EMOJI="⚪"
+              STATUS_TEXT="was cancelled"
+              ;;
+            *)
+              COLOR="warning"
+              EMOJI="⚠️"
+              STATUS_TEXT="completed with status: $STATUS"
+              ;;
+          esac
+          
+          echo "color=$COLOR" >> $GITHUB_OUTPUT
+          echo "emoji=$EMOJI" >> $GITHUB_OUTPUT
+          echo "status_text=$STATUS_TEXT" >> $GITHUB_OUTPUT
+
+      - name: Build notification message
+        if: steps.check_webhook.outputs.skip != 'true'
+        id: message
+        run: |
+          REPO="${{ github.repository }}"
+          REPO_NAME="${REPO##*/}"
+          WORKFLOW="${{ inputs.workflow_name }}"
+          STATUS="${{ inputs.status }}"
+          STATUS_TEXT="${{ steps.settings.outputs.status_text }}"
+          EMOJI="${{ steps.settings.outputs.emoji }}"
+          ACTOR="${{ github.actor }}"
+          RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          COMMIT_SHA="${{ github.sha }}"
+          SHORT_SHA="${COMMIT_SHA:0:7}"
+          
+          # Handle different event types for ref info
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            REF="PR #${{ github.event.pull_request.number }}"
+            BRANCH="${{ github.head_ref }}"
+          else
+            REF="${{ github.ref_name }}"
+            BRANCH="$REF"
+          fi
+          
+          # Build message
+          MESSAGE="$EMOJI *$WORKFLOW* $STATUS_TEXT in *$REPO_NAME*"
+          
+          # Add failed jobs info if failure
+          FAILED_JOBS="${{ inputs.failed_jobs }}"
+          if [ "$STATUS" = "failure" ] && [ -n "$FAILED_JOBS" ]; then
+            MESSAGE="$MESSAGE\n💥 *Failed jobs:* $FAILED_JOBS"
+          fi
+          
+          # Add author
+          MESSAGE="$MESSAGE\n👤 *Author:* $ACTOR"
+          
+          # Add ref and commit info
+          MESSAGE="$MESSAGE\n📌 *Branch:* \`$BRANCH\` | *Commit:* \`$SHORT_SHA\`"
+          
+          # Add custom message if provided
+          if [ -n "${{ inputs.custom_message }}" ]; then
+            MESSAGE="$MESSAGE\n\n${{ inputs.custom_message }}"
+          fi
+          
+          # Add link to workflow run
+          MESSAGE="$MESSAGE\n\n<$RUN_URL|🔗 View Workflow Run>"
+          
+          echo "message<<EOF" >> $GITHUB_OUTPUT
+          echo -e "$MESSAGE" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Send Slack notification
+        if: steps.check_webhook.outputs.skip != 'true'
+        uses: rtCamp/action-slack-notify@v2
+        env:
+          SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK_URL }}
+          SLACK_COLOR: ${{ steps.settings.outputs.color }}
+          SLACK_USERNAME: GitHub Actions
+          SLACK_ICON: https://github.githubassets.com/assets/GitHub-Mark-ea2971cee799.png
+          SLACK_TITLE: ${{ github.repository }}
+          SLACK_MESSAGE: ${{ steps.message.outputs.message }}
+          SLACK_FOOTER: "Workflow: ${{ inputs.workflow_name }}"
+          MSG_MINIMAL: true
+
+      - name: Log notification skipped
+        if: steps.check_webhook.outputs.skip == 'true'
+        run: echo "📭 Notification skipped - SLACK_WEBHOOK_URL not configured"
