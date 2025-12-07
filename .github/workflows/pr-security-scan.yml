@@ -132,25 +132,25 @@ jobs:
         uses: docker/setup-buildx-action@v3
 
       # ----------------- Security Scans -----------------
-      - name: Trivy Secret Scan - Repository (Table Output)
+      - name: Trivy Secret Scan - Component (Table Output)
         uses: aquasecurity/trivy-action@0.33.1
         if: always()
         with:
           scan-type: fs
-          scan-ref: .
+          scan-ref: ${{ matrix.working_dir }}
           format: table
           exit-code: '1'
           hide-progress: true
           skip-dirs: '.git,node_modules,dist,build,.next,coverage,vendor'
 
-      - name: Trivy Secret Scan - Repository (SARIF Output)
+      - name: Trivy Secret Scan - Component (SARIF Output)
         uses: aquasecurity/trivy-action@0.33.1
         if: always()
         with:
           scan-type: fs
-          scan-ref: .
+          scan-ref: ${{ matrix.working_dir }}
           format: sarif
-          output: 'trivy-secret-scan-repo-${{ env.APP_NAME }}.sarif'
+          output: 'trivy-secret-scan-${{ env.APP_NAME }}.sarif'
           exit-code: '0'
           hide-progress: true
           skip-dirs: '.git,node_modules,dist,build,.next,coverage,vendor'
