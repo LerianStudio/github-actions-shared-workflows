@@ -468,7 +468,7 @@ jobs:
               coverageReport = 'Coverage report not available';
             }
 
-            const body = `## 📊 Coverage Report: \`${appName}\`
+            const body = `## 📊 Unit Test Coverage Report: \`${appName}\`
 
             | Metric | Value |
             |--------|-------|
@@ -488,7 +488,7 @@ jobs:
             });
 
             const botComment = comments.find(comment => 
-              comment.body.includes(`Coverage Report: \`${appName}\``)
+              comment.body.includes(`Unit Test Coverage Report: \`${appName}\``)
             );
 
             if (botComment) {
