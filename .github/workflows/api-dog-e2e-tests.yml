@@ -42,9 +42,6 @@ on:
       stg_environment_id:
         description: 'Apidog staging environment ID (for rc tags)'
         required: false
-      SLACK_WEBHOOK_URL:
-        description: 'Slack webhook URL for notifications'
-        required: false
 
 jobs:
   api-dog-e2e-tests:
@@ -115,15 +112,15 @@ jobs:
           npm uninstall -g apidog-cli || true
           rm -rf $(npm root -g)/apidog-cli || true
 
-  # Slack notification
-  notify:
-    name: Notify
-    needs: [api-dog-e2e-tests]
-    if: always()
-    uses: ./.github/workflows/slack-notify.yml
-    with:
-      status: ${{ needs.api-dog-e2e-tests.result }}
-      workflow_name: "API Dog E2E Tests"
-      failed_jobs: ${{ needs.api-dog-e2e-tests.result == 'failure' && 'E2E Tests' || '' }}
-    secrets:
-      SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+  # TODO: Add Slack notification when ready
+  # notify:
+  #   name: Notify
+  #   needs: [api-dog-e2e-tests]
+  #   if: always()
+  #   uses: ./.github/workflows/slack-notify.yml
+  #   with:
+  #     status: ${{ needs.api-dog-e2e-tests.result }}
+  #     workflow_name: "API Dog E2E Tests"
+  #     failed_jobs: ${{ needs.api-dog-e2e-tests.result == 'failure' && 'E2E Tests' || '' }}
+  #   secrets:
+  #     SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}

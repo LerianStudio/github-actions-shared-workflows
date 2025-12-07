@@ -83,31 +83,6 @@ on:
         description: 'JSON object mapping artifact names to configmap keys (e.g., {"pix.tag": ".pix.configmap.VERSION"})'
         type: string
         required: false
-    secrets:
-      manage_token:
-        description: 'GitHub token with access to GitOps repository'
-        required: true
-      ci_cd_user_name:
-        description: 'Git user name for commits'
-        required: true
-      ci_cd_user_email:
-        description: 'Git user email for commits'
-        required: true
-      argocd_ghuser_token:
-        description: 'ArgoCD authentication token (required if enable_argocd_sync is true)'
-        required: false
-      argocd_url:
-        description: 'ArgoCD server URL (required if enable_argocd_sync is true)'
-        required: false
-      docker_username:
-        description: 'Docker Hub username'
-        required: true
-      docker_password:
-        description: 'Docker Hub password'
-        required: true
-      SLACK_WEBHOOK_URL:
-        description: 'Slack webhook URL for notifications'
-        required: false
 
 jobs:
   update_gitops:
@@ -126,14 +101,14 @@ jobs:
         if: ${{ inputs.enable_docker_login }}
         uses: docker/login-action@v3
         with:
-          username: ${{ secrets.docker_username }}
-          password: ${{ secrets.docker_password }}
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
 
       - name: Checkout GitOps Repository
         uses: actions/checkout@v4
         with:
           repository: ${{ inputs.gitops_repository }}
-          token: ${{ secrets.manage_token }}
+          token: ${{ secrets.MANAGE_TOKEN }}
           path: gitops
           fetch-depth: 0
 
@@ -393,8 +368,8 @@ jobs:
         run: |
           set -e
           cd gitops
-          git config user.name "${{ secrets.ci_cd_user_name }}"
-          git config user.email "${{ secrets.ci_cd_user_email }}"
+          git config user.name "${{ secrets.LERIAN_CI_CD_USER_NAME }}"
+          git config user.email "${{ secrets.LERIAN_CI_CD_USER_EMAIL }}"
           # Detect environment for commit message
           if [[ "${{ env.IS_RC }}" == "true" ]]; then
             ENV_LABEL="rc/stg"
@@ -439,8 +414,8 @@ jobs:
         uses: LerianStudio/github-actions-argocd-sync@main
         with:
           app-name: ${{ env.APP_BASE }}
-          argo-cd-token: ${{ secrets.argocd_ghuser_token }}
-          argo-cd-url: ${{ secrets.argocd_url }}
+          argo-cd-token: ${{ secrets.ARGOCD_GHUSER_TOKEN }}
+          argo-cd-url: ${{ secrets.ARGOCD_URL }}
           env-prefix: ${{ env.ENV_PREFIX }}
 
   # Slack notification

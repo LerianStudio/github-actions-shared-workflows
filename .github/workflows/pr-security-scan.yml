@@ -42,22 +42,6 @@ on:
         description: 'Name of the Dockerfile'
         type: string
         default: 'Dockerfile'
-    secrets:
-      manage_token:
-        description: 'GitHub token for accessing private repositories during Docker build'
-        required: false
-      docker_username:
-        description: 'Docker registry username'
-        required: true
-      docker_password:
-        description: 'Docker registry password'
-        required: true
-      npmrc_token:
-        description: 'NPM registry token for private packages'
-        required: false
-      SLACK_WEBHOOK_URL:
-        description: 'Slack webhook URL for notifications'
-        required: false
 
 permissions:
   id-token: write       # Required for OIDC authentication
@@ -75,8 +59,8 @@ jobs:
         uses: docker/login-action@v3
         with:
           registry: ${{ inputs.docker_registry }}
-          username: ${{ secrets.docker_username }}
-          password: ${{ secrets.docker_password }}
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
 
       - name: Get changed paths (monorepo)
         if: inputs.filter_paths != ''
@@ -138,8 +122,8 @@ jobs:
         uses: docker/login-action@v3
         with:
           registry: ${{ inputs.docker_registry }}
-          username: ${{ secrets.docker_username }}
-          password: ${{ secrets.docker_password }}
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
 
       - name: Checkout Repository
         uses: actions/checkout@v5
@@ -182,8 +166,8 @@ jobs:
           push: false
           tags: ${{ env.DOCKERHUB_ORG }}/${{ env.APP_NAME }}:pr-scan-${{ github.sha }}
           secrets: |
-            ${{ secrets.manage_token && format('github_token={0}', secrets.manage_token) || '' }}
-            ${{ secrets.npmrc_token && format('npmrc=//npm.pkg.github.com/:_authToken={0}', secrets.npmrc_token) || '' }}
+            ${{ secrets.MANAGE_TOKEN && format('github_token={0}', secrets.MANAGE_TOKEN) || '' }}
+            ${{ secrets.NPMRC_TOKEN && format('npmrc=//npm.pkg.github.com/:_authToken={0}', secrets.NPMRC_TOKEN) || '' }}
 
       - name: Trivy Vulnerability Scan - Docker Image (Table Output)
         if: always()

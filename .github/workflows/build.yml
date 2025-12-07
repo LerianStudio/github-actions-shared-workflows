@@ -58,19 +58,6 @@ on:
         description: 'Enable GitOps artifacts upload for downstream gitops-update workflow'
         type: boolean
         default: false
-    secrets:
-      docker_username:
-        description: 'DockerHub username'
-        required: false
-      docker_password:
-        description: 'DockerHub password/token'
-        required: false
-      ghcr_token:
-        description: 'GitHub token for GHCR'
-        required: false
-      SLACK_WEBHOOK_URL:
-        description: 'Slack webhook URL for notifications'
-        required: false
 
 permissions:
   contents: read
@@ -155,8 +142,8 @@ jobs:
         if: inputs.enable_dockerhub
         uses: docker/login-action@v3
         with:
-          username: ${{ secrets.docker_username }}
-          password: ${{ secrets.docker_password }}
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
 
       - name: Log in to GHCR
         if: inputs.enable_ghcr
@@ -164,7 +151,7 @@ jobs:
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
-          password: ${{ secrets.ghcr_token }}
+          password: ${{ secrets.MANAGE_TOKEN }}
 
       - name: Normalize repository owner to lowercase
         id: normalize

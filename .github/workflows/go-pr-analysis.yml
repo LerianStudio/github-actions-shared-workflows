@@ -64,13 +64,6 @@ on:
         description: 'Enable build verification'
         type: boolean
         default: true
-    secrets:
-      manage_token:
-        description: 'GitHub token for PR comments'
-        required: false
-      SLACK_WEBHOOK_URL:
-        description: 'Slack webhook URL for notifications'
-        required: false
 
 permissions:
   contents: read
@@ -422,7 +415,7 @@ jobs:
         if: github.event_name == 'pull_request'
         uses: actions/github-script@v7
         with:
-          github-token: ${{ secrets.manage_token || github.token }}
+          github-token: ${{ secrets.MANAGE_TOKEN || github.token }}
           script: |
             const fs = require('fs');
             const coverage = '${{ steps.coverage.outputs.coverage }}';
