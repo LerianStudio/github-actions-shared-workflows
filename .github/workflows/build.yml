@@ -8,6 +8,7 @@ name: "Build and Push Docker Images"
 # - Multi-registry support (DockerHub and/or GHCR)
 # - Platform strategy: beta/rc builds amd64 only, release builds amd64+arm64
 # - Semantic versioning tags
+# - GitOps artifacts upload for downstream gitops-update workflow
 
 on:
   workflow_call:
@@ -53,6 +54,10 @@ on:
         description: 'Docker build context (defaults to repository root for monorepo)'
         type: string
         default: '.'
+      enable_gitops_artifacts:
+        description: 'Enable GitOps artifacts upload for downstream gitops-update workflow'
+        type: boolean
+        default: false
     secrets:
       docker_username:
         description: 'DockerHub username'
@@ -220,3 +225,22 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      # GitOps artifacts for downstream gitops-update workflow
+      - name: Create GitOps tag artifact
+        if: inputs.enable_gitops_artifacts
+        run: |
+          set -euo pipefail
+          mkdir -p gitops-tags
+          # Extract version without leading 'v'
+          VERSION="${{ steps.version.outputs.version }}"
+          VERSION="${VERSION#v}"
+          printf "%s" "$VERSION" > "gitops-tags/${{ matrix.app.name }}.tag"
+          echo "Created artifact: gitops-tags/${{ matrix.app.name }}.tag with version: $VERSION"
+
+      - name: Upload GitOps tag artifact
+        if: inputs.enable_gitops_artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: gitops-tags-${{ matrix.app.name }}
+          path: gitops-tags/
