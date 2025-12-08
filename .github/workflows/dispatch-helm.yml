@@ -1,7 +1,8 @@
 name: "Dispatch to Helm Repository"
 
-# Reusable workflow for dispatching repository_dispatch events to Helm chart repositories
+# Reusable workflow for dispatching workflow_dispatch events to Helm chart repositories
 # Sends a SINGLE dispatch with ALL components to enable single commit updates
+# Uses workflow_dispatch instead of repository_dispatch to allow targeting specific branches
 #
 # Usage:
 #   dispatch-helm:
@@ -9,6 +10,7 @@ name: "Dispatch to Helm Repository"
 #     with:
 #       helm_repository: org/helm-repo
 #       chart: my-app
+#       target_ref: develop
 #       components_json: '[{"name":"backend","is_main":true},{"name":"frontend"}]'
 #     secrets:
 #       helm_repo_token: ${{ secrets.HELM_REPO_TOKEN }}
@@ -20,10 +22,14 @@ on:
         description: 'Helm repository to dispatch to (org/repo format)'
         type: string
         required: true
-      event_type:
-        description: 'Event type for repository_dispatch'
+      target_ref:
+        description: 'Target branch/ref to trigger the workflow on (e.g., develop, main)'
         type: string
-        default: 'update-helm-chart'
+        default: 'develop'
+      workflow_file:
+        description: 'Workflow file name to trigger (e.g., app-sync.yml)'
+        type: string
+        default: 'app-sync.yml'
       chart:
         description: 'Helm chart name'
         type: string
@@ -200,12 +206,15 @@ jobs:
           echo "Dispatching payload:"
           echo "$PAYLOAD" | jq .
 
-          # Send dispatch
+          # Convert payload to compact JSON string for workflow_dispatch input
+          PAYLOAD_STRING=$(echo "$PAYLOAD" | jq -c .)
+
+          # Send workflow_dispatch (allows targeting specific branch)
           curl -X POST \
             -H "Authorization: token ${{ secrets.helm_repo_token }}" \
             -H "Accept: application/vnd.github.v3+json" \
-            "https://api.github.com/repos/${{ inputs.helm_repository }}/dispatches" \
-            -d "{\"event_type\":\"${{ inputs.event_type }}\",\"client_payload\":${PAYLOAD}}"
+            "https://api.github.com/repos/${{ inputs.helm_repository }}/actions/workflows/${{ inputs.workflow_file }}/dispatches" \
+            -d "{\"ref\":\"${{ inputs.target_ref }}\",\"inputs\":{\"payload\":$(echo "$PAYLOAD_STRING" | jq -R .)}}"
 
       - name: Summary
         run: |
