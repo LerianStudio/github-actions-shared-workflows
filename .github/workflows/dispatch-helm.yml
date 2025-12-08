@@ -4,14 +4,33 @@ name: "Dispatch to Helm Repository"
 # Sends a SINGLE dispatch with ALL components to enable single commit updates
 # Uses workflow_dispatch instead of repository_dispatch to allow targeting specific branches
 #
-# Usage:
+# Usage (with path mapping - recommended):
+#   env:
+#     PATH_MAPPING: |
+#       {
+#         "src": {"name": "my-api", "context": "."},
+#         "console": {"name": "my-console", "context": "console"}
+#       }
+#   ...
 #   dispatch-helm:
 #     uses: LerianStudio/github-actions-shared-workflows/.github/workflows/dispatch-helm.yml@main
 #     with:
 #       helm_repository: org/helm-repo
 #       chart: my-app
 #       target_ref: develop
-#       components_json: '[{"name":"backend","is_main":true},{"name":"frontend"}]'
+#       version: ${{ github.ref_name }}
+#       paths_matrix: ${{ needs.detect.outputs.matrix }}
+#       path_mapping: ${{ env.PATH_MAPPING }}
+#     secrets:
+#       helm_repo_token: ${{ secrets.HELM_REPO_TOKEN }}
+#
+# Usage (advanced - with full components_json):
+#   dispatch-helm:
+#     uses: LerianStudio/github-actions-shared-workflows/.github/workflows/dispatch-helm.yml@main
+#     with:
+#       helm_repository: org/helm-repo
+#       chart: my-app
+#       components_json: '[{"name":"backend","version":"1.0.0"},{"name":"frontend","version":"1.0.0"}]'
 #     secrets:
 #       helm_repo_token: ${{ secrets.HELM_REPO_TOKEN }}
 
@@ -34,18 +53,26 @@ on:
         description: 'Helm chart name'
         type: string
         required: true
-      components_json:
-        description: 'JSON array of components: [{"name":"backend","is_main":true},...]'
+      version:
+        description: 'Version to apply to all components (e.g., from git tag). Removes "v" prefix automatically.'
         type: string
         required: true
+      paths_matrix:
+        description: 'Raw paths matrix from changed-paths action (e.g., ["src","console"]). Use with path_mapping.'
+        type: string
+        required: false
+      path_mapping:
+        description: 'JSON mapping of paths to app names (e.g., {"src":"my-api","console":"my-console"})'
+        type: string
+        required: false
+      components_json:
+        description: 'JSON array of components (alternative to paths_matrix): [{"name":"backend","version":"1.0.0"},...]'
+        type: string
+        required: false
       components_base_path:
         description: 'Base path for components (default: components)'
         type: string
         default: 'components'
-      version_file:
-        description: 'Version file name relative to component path (default: VERSION)'
-        type: string
-        default: 'VERSION'
       env_file:
         description: 'Env example file name relative to component path (default: .env.example)'
         type: string
@@ -76,12 +103,40 @@ jobs:
       - name: Process all components
         id: process
         run: |
-          COMPONENTS_JSON='${{ inputs.components_json }}'
           BASE_PATH="${{ inputs.components_base_path }}"
-          VERSION_FILE="${{ inputs.version_file }}"
           ENV_FILE="${{ inputs.env_file }}"
           DETECT_ENV="${{ inputs.detect_env_changes }}"
           BEFORE_SHA="${{ github.event.before }}"
+
+          # Get version from input (remove 'v' prefix if present)
+          INPUT_VERSION="${{ inputs.version }}"
+          INPUT_VERSION="${INPUT_VERSION#v}"
+
+          # Build components JSON from paths_matrix + path_mapping OR use components_json directly
+          if [ -n "${{ inputs.paths_matrix }}" ] && [ -n "${{ inputs.path_mapping }}" ]; then
+            echo "Using paths_matrix + path_mapping mode"
+            PATHS_MATRIX='${{ inputs.paths_matrix }}'
+            PATH_MAPPING='${{ inputs.path_mapping }}'
+
+            # Build components_json from paths and mapping
+            # Supports both simple format: {"src": "app-name"}
+            # and extended format: {"src": {"name": "app-name", "context": "."}}
+            COMPONENTS_JSON=$(echo "$PATHS_MATRIX" | jq -c --argjson mapping "$PATH_MAPPING" '
+              [.[] | . as $path | $mapping[$path] |
+                if type == "object" then
+                  {name: .name, path: $path}
+                elif type == "string" then
+                  {name: ., path: $path}
+                else
+                  {name: $path, path: $path}
+                end
+              ]
+            ')
+            echo "Built components from paths: $COMPONENTS_JSON"
+          else
+            echo "Using components_json mode"
+            COMPONENTS_JSON='${{ inputs.components_json }}'
+          fi
 
           echo "Processing components: $COMPONENTS_JSON"
 
@@ -93,9 +148,13 @@ jobs:
           # Process each component
           for row in $(echo "$COMPONENTS_JSON" | jq -c '.[]'); do
             COMP_NAME=$(echo "$row" | jq -r '.name')
-            COMP_IS_MAIN=$(echo "$row" | jq -r '.is_main // false')
             COMP_PATH=$(echo "$row" | jq -r '.path // empty')
             COMP_VERSION=$(echo "$row" | jq -r '.version // empty')
+
+            # Use input version if provided and component doesn't have its own
+            if [ -z "$COMP_VERSION" ] && [ -n "$INPUT_VERSION" ]; then
+              COMP_VERSION="$INPUT_VERSION"
+            fi
 
             # Determine component path
             if [ -z "$COMP_PATH" ]; then
@@ -104,19 +163,9 @@ jobs:
 
             echo "Processing component: $COMP_NAME (path: $COMP_PATH)"
 
-            # Get version
-            if [ -n "$COMP_VERSION" ]; then
-              VERSION="$COMP_VERSION"
-              echo "  Using provided version: $VERSION"
-            elif [ -f "${COMP_PATH}/${VERSION_FILE}" ]; then
-              VERSION=$(cat "${COMP_PATH}/${VERSION_FILE}" | tr -d '[:space:]')
-              echo "  Version from file: $VERSION"
-            else
-              COMMIT_COUNT=$(git rev-list --count HEAD -- "${COMP_PATH}")
-              SHORT_SHA=$(git rev-parse --short HEAD)
-              VERSION="1.0.${COMMIT_COUNT}-${SHORT_SHA}"
-              echo "  Generated version: $VERSION"
-            fi
+            # Use component version or input version
+            VERSION="$COMP_VERSION"
+            echo "  Version: $VERSION"
 
             # Detect new env vars
             ENV_VARS_JSON="{}"
@@ -162,7 +211,7 @@ jobs:
             fi
 
             # Build component object
-            COMP_OBJ="{\"name\":\"${COMP_NAME}\",\"version\":\"${VERSION}\",\"is_main\":${COMP_IS_MAIN},\"env_vars\":${ENV_VARS_JSON}}"
+            COMP_OBJ="{\"name\":\"${COMP_NAME}\",\"version\":\"${VERSION}\",\"env_vars\":${ENV_VARS_JSON}}"
 
             if [ "$FIRST" = "true" ]; then
               PROCESSED_COMPONENTS="${PROCESSED_COMPONENTS}${COMP_OBJ}"
@@ -227,7 +276,7 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Components:**" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "| Component | Version | Is Main | New Env Vars |" >> $GITHUB_STEP_SUMMARY
-          echo "|-----------|---------|---------|--------------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Component | Version | New Env Vars |" >> $GITHUB_STEP_SUMMARY
+          echo "|-----------|---------|--------------|" >> $GITHUB_STEP_SUMMARY
 
-          echo "$COMPONENTS" | jq -r '.[] | "| \(.name) | \(.version) | \(.is_main) | \(.env_vars | if . == {} then "-" else (. | keys | join(", ")) end) |"' >> $GITHUB_STEP_SUMMARY
+          echo "$COMPONENTS" | jq -r '.[] | "| \(.name) | \(.version) | \(.env_vars | if . == {} then "-" else (. | keys | join(", ")) end) |"' >> $GITHUB_STEP_SUMMARY
