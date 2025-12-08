@@ -1,0 +1,243 @@
+name: "Dispatch to Helm Repository"
+
+# Reusable workflow for dispatching repository_dispatch events to Helm chart repositories
+# Supports dynamic component detection, version extraction, and env vars detection
+#
+# Usage with dynamic matrix:
+#   dispatch-helm:
+#     uses: LerianStudio/github-actions-shared-workflows/.github/workflows/dispatch-helm.yml@main
+#     with:
+#       helm_repository: org/helm-repo
+#       chart: my-app
+#       components_json: '[{"name":"backend","path":"components/backend","is_main":true},{"name":"frontend","path":"components/frontend","is_main":false}]'
+#       main_component: backend  # Optional: component that updates appVersion
+#     secrets:
+#       helm_repo_token: ${{ secrets.HELM_REPO_TOKEN }}
+
+on:
+  workflow_call:
+    inputs:
+      helm_repository:
+        description: 'Helm repository to dispatch to (org/repo format)'
+        type: string
+        required: true
+      event_type:
+        description: 'Event type for repository_dispatch'
+        type: string
+        default: 'update-helm-chart'
+      chart:
+        description: 'Helm chart name'
+        type: string
+        required: true
+      components_json:
+        description: 'JSON array of components: [{"name":"backend","path":"components/backend"},...]'
+        type: string
+        required: true
+      main_component:
+        description: 'Name of main component (updates appVersion). If not set, first component is main.'
+        type: string
+        required: false
+      components_base_path:
+        description: 'Base path for components (default: components)'
+        type: string
+        default: 'components'
+      version_file:
+        description: 'Version file name relative to component path (default: VERSION)'
+        type: string
+        default: 'VERSION'
+      env_file:
+        description: 'Env example file name relative to component path (default: .env.example)'
+        type: string
+        default: '.env.example'
+      detect_env_changes:
+        description: 'Whether to detect new environment variables'
+        type: boolean
+        default: true
+      runner_type:
+        description: 'GitHub runner type to use'
+        type: string
+        default: 'ubuntu-latest'
+    secrets:
+      helm_repo_token:
+        description: 'GitHub token with access to Helm repository (needs repo scope)'
+        required: true
+
+jobs:
+  dispatch:
+    name: Dispatch ${{ matrix.component.name }}
+    runs-on: ${{ inputs.runner_type }}
+    strategy:
+      fail-fast: false
+      matrix:
+        component: ${{ fromJson(inputs.components_json) }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Determine component path
+        id: paths
+        run: |
+          COMPONENT_NAME="${{ matrix.component.name }}"
+
+          # Use path from matrix if provided, otherwise build from base_path + name
+          if [[ -n "${{ matrix.component.path }}" ]]; then
+            COMPONENT_PATH="${{ matrix.component.path }}"
+          else
+            COMPONENT_PATH="${{ inputs.components_base_path }}/${COMPONENT_NAME}"
+          fi
+
+          echo "component_path=$COMPONENT_PATH" >> $GITHUB_OUTPUT
+          echo "Component: $COMPONENT_NAME"
+          echo "Path: $COMPONENT_PATH"
+
+      - name: Determine if main component
+        id: main_check
+        run: |
+          COMPONENT_NAME="${{ matrix.component.name }}"
+          MAIN_COMPONENT="${{ inputs.main_component }}"
+          MATRIX_IS_MAIN="${{ matrix.component.is_main }}"
+
+          # Priority: matrix.component.is_main > inputs.main_component > first in list
+          if [[ "$MATRIX_IS_MAIN" == "true" ]]; then
+            IS_MAIN="true"
+          elif [[ -n "$MAIN_COMPONENT" && "$COMPONENT_NAME" == "$MAIN_COMPONENT" ]]; then
+            IS_MAIN="true"
+          elif [[ -z "$MAIN_COMPONENT" && -z "$MATRIX_IS_MAIN" ]]; then
+            # Check if this is the first component in the array
+            FIRST_COMPONENT=$(echo '${{ inputs.components_json }}' | jq -r '.[0].name')
+            if [[ "$COMPONENT_NAME" == "$FIRST_COMPONENT" ]]; then
+              IS_MAIN="true"
+            else
+              IS_MAIN="false"
+            fi
+          else
+            IS_MAIN="false"
+          fi
+
+          echo "is_main=$IS_MAIN" >> $GITHUB_OUTPUT
+          echo "Is main component: $IS_MAIN"
+
+      - name: Get version
+        id: version
+        run: |
+          COMPONENT_PATH="${{ steps.paths.outputs.component_path }}"
+          VERSION_FILE="${COMPONENT_PATH}/${{ inputs.version_file }}"
+
+          # Check if version provided in matrix
+          if [[ -n "${{ matrix.component.version }}" ]]; then
+            VERSION="${{ matrix.component.version }}"
+            echo "Using version from matrix: $VERSION"
+          elif [[ -f "$VERSION_FILE" ]]; then
+            VERSION=$(cat "$VERSION_FILE" | tr -d '[:space:]')
+            echo "Version from file ($VERSION_FILE): $VERSION"
+          else
+            # Generate semantic version based on commit count and short SHA
+            COMMIT_COUNT=$(git rev-list --count HEAD -- "${COMPONENT_PATH}")
+            SHORT_SHA=$(git rev-parse --short HEAD)
+            VERSION="1.0.${COMMIT_COUNT}-${SHORT_SHA}"
+            echo "Generated version: $VERSION"
+          fi
+
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Detect new environment variables
+        id: env_vars
+        if: ${{ inputs.detect_env_changes }}
+        run: |
+          COMPONENT_PATH="${{ steps.paths.outputs.component_path }}"
+          ENV_FILE="${COMPONENT_PATH}/${{ inputs.env_file }}"
+
+          # Get current .env.example content
+          if [[ -f "$ENV_FILE" ]]; then
+            CURRENT_VARS=$(grep -E "^[A-Z_][A-Z0-9_]*=" "$ENV_FILE" | cut -d'=' -f1 | sort || echo "")
+          else
+            CURRENT_VARS=""
+            echo "No env file found at $ENV_FILE"
+          fi
+
+          # Get previous .env.example content (from before this push)
+          BEFORE_SHA="${{ github.event.before }}"
+          if [[ -n "$BEFORE_SHA" && "$BEFORE_SHA" != "0000000000000000000000000000000000000000" ]]; then
+            PREVIOUS_VARS=$(git show "${BEFORE_SHA}:${ENV_FILE}" 2>/dev/null | grep -E "^[A-Z_][A-Z0-9_]*=" | cut -d'=' -f1 | sort || echo "")
+          else
+            PREVIOUS_VARS=""
+            echo "No previous commit to compare (initial push or force push)"
+          fi
+
+          # Find new variables (in current but not in previous)
+          NEW_VARS=""
+          if [[ -n "$CURRENT_VARS" ]]; then
+            while IFS= read -r var; do
+              if [[ -n "$var" ]] && ! echo "$PREVIOUS_VARS" | grep -q "^${var}$"; then
+                if [[ -n "$NEW_VARS" ]]; then
+                  NEW_VARS="${NEW_VARS} ${var}"
+                else
+                  NEW_VARS="${var}"
+                fi
+              fi
+            done <<< "$CURRENT_VARS"
+          fi
+
+          # Build JSON object with new variables and their default values
+          ENV_JSON="{}"
+          if [[ -n "$NEW_VARS" ]]; then
+            ENV_JSON="{"
+            FIRST=true
+            for var in $NEW_VARS; do
+              DEFAULT_VALUE=$(grep "^${var}=" "$ENV_FILE" | cut -d'=' -f2- || echo "")
+              # Escape quotes in value
+              DEFAULT_VALUE=$(echo "$DEFAULT_VALUE" | sed 's/"/\\"/g')
+              if [[ "$FIRST" == "true" ]]; then
+                ENV_JSON="${ENV_JSON}\"${var}\":\"${DEFAULT_VALUE}\""
+                FIRST=false
+              else
+                ENV_JSON="${ENV_JSON},\"${var}\":\"${DEFAULT_VALUE}\""
+              fi
+            done
+            ENV_JSON="${ENV_JSON}}"
+            echo "New env vars detected: $NEW_VARS"
+          else
+            echo "No new env vars detected"
+          fi
+
+          echo "env_vars=$ENV_JSON" >> $GITHUB_OUTPUT
+
+      - name: Skip env detection
+        id: skip_env
+        if: ${{ !inputs.detect_env_changes }}
+        run: |
+          echo "env_vars={}" >> $GITHUB_OUTPUT
+
+      - name: Dispatch to Helm repository
+        uses: peter-evans/repository-dispatch@v3
+        with:
+          token: ${{ secrets.helm_repo_token }}
+          repository: ${{ inputs.helm_repository }}
+          event-type: ${{ inputs.event_type }}
+          client-payload: |
+            {
+              "chart": "${{ inputs.chart }}",
+              "component": "${{ matrix.component.name }}",
+              "version": "${{ steps.version.outputs.version }}",
+              "is_main": ${{ steps.main_check.outputs.is_main }},
+              "env_vars": ${{ steps.env_vars.outputs.env_vars || steps.skip_env.outputs.env_vars }},
+              "source_repo": "${{ github.repository }}",
+              "source_sha": "${{ github.sha }}",
+              "source_ref": "${{ github.ref_name }}",
+              "source_actor": "${{ github.actor }}"
+            }
+
+      - name: Summary
+        run: |
+          echo "### Dispatch Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Field | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|-------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Repository | \`${{ inputs.helm_repository }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Chart | \`${{ inputs.chart }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Component | \`${{ matrix.component.name }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Version | \`${{ steps.version.outputs.version }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Is Main | \`${{ steps.main_check.outputs.is_main }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Env Vars | \`${{ steps.env_vars.outputs.env_vars || steps.skip_env.outputs.env_vars }}\` |" >> $GITHUB_STEP_SUMMARY
