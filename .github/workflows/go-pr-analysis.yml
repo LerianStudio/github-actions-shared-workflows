@@ -323,7 +323,9 @@ jobs:
 
       - name: Run tests
         working-directory: ${{ matrix.app.working_dir }}
-        run: go test -v -coverprofile=coverage.txt -covermode=atomic ./...
+        env:
+          CGO_ENABLED: 1
+        run: go test -v -race -coverprofile=coverage.txt -covermode=atomic ./...
 
       - name: Upload coverage artifact
         uses: actions/upload-artifact@v4
