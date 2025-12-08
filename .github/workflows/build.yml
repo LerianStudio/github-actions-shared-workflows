@@ -13,7 +13,7 @@ name: "Build and Push Docker Images"
 on:
   workflow_call:
     inputs:
-      runner:
+      runner_type:
         description: 'Runner to use for the workflow'
         type: string
         default: 'firmino-lxc-runners'
@@ -65,7 +65,7 @@ permissions:
 
 jobs:
   prepare:
-    runs-on: ${{ inputs.runner }}
+    runs-on: ${{ inputs.runner_type }}
     outputs:
       matrix: ${{ steps.set-matrix.outputs.matrix }}
       has_builds: ${{ steps.set-matrix.outputs.has_builds }}
@@ -119,7 +119,7 @@ jobs:
   build:
     needs: prepare
     if: needs.prepare.outputs.has_builds == 'true'
-    runs-on: ${{ inputs.runner }}
+    runs-on: ${{ inputs.runner_type }}
     name: Build ${{ matrix.app.name }}
     strategy:
       max-parallel: 2

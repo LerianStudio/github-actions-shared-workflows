@@ -27,7 +27,7 @@ on:
         description: 'GitHub runner type'
         required: false
         type: string
-        default: 'ubuntu-latest'
+        default: 'firmino-lxc-runners'
 
     outputs:
       matrix:

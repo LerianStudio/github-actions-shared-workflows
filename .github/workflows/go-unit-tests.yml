@@ -18,7 +18,7 @@ on:
       runner_type:
         description: 'GitHub runner type for single-platform runs'
         type: string
-        default: 'ubuntu-latest'
+        default: 'firmino-lxc-runners'
       test_cmd:
         description: 'Test command to execute'
         type: string

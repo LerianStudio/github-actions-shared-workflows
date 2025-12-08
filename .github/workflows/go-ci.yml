@@ -18,7 +18,7 @@ on:
       runner_type:
         description: 'GitHub runner type for jobs that do not use matrix'
         type: string
-        default: 'ubuntu-latest'
+        default: 'firmino-lxc-runners'
       go_version_lint:
         description: 'Go version for linting and other non-matrix jobs'
         type: string

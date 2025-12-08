@@ -32,7 +32,7 @@ on:
       runner_type:
         description: 'GitHub runner type to use'
         type: string
-        default: 'ubuntu-latest'
+        default: 'firmino-lxc-runners'
     secrets:
       SLACK_WEBHOOK_URL:
         description: 'Slack webhook URL for notifications'

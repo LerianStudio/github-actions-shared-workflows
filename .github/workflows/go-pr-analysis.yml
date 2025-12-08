@@ -10,7 +10,7 @@ on:
       runner_type:
         description: 'GitHub runner type'
         type: string
-        default: 'ubuntu-24.04'
+        default: 'firmino-lxc-runners'
       filter_paths:
         description: 'JSON array of paths to monitor for changes (e.g., ["apps/api", "apps/worker"]). If empty, treats repo as single-app and runs against root directory.'
         type: string

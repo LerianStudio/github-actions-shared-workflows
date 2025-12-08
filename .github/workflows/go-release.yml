@@ -10,7 +10,7 @@ on:
       runner_type:
         description: 'GitHub runner type to use'
         type: string
-        default: 'ubuntu-latest'
+        default: 'firmino-lxc-runners'
       go_version:
         description: 'Go version to use for release builds'
         type: string
