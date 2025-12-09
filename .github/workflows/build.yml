@@ -1,0 +1,249 @@
+name: "Build and Push Docker Images"
+
+# This reusable workflow handles Docker image builds and pushes to registries
+# Supports both DockerHub and GHCR (GitHub Container Registry)
+#
+# Features:
+# - Monorepo support with optional change detection via LerianStudio/github-actions-changed-paths
+# - Multi-registry support (DockerHub and/or GHCR)
+# - Platform strategy: beta/rc builds amd64 only, release builds amd64+arm64
+# - Semantic versioning tags
+# - GitOps artifacts upload for downstream gitops-update workflow
+
+on:
+  workflow_call:
+    inputs:
+      runner_type:
+        description: 'Runner to use for the workflow'
+        type: string
+        default: 'firmino-lxc-runners'
+      filter_paths:
+        description: 'Newline-separated list of path prefixes to filter. If not provided, builds from root.'
+        type: string
+        required: false
+        default: ''
+      path_level:
+        description: 'Limits the path to the first N segments (e.g., 2 -> "apps/agent")'
+        type: string
+        default: '2'
+      enable_dockerhub:
+        description: 'Enable pushing to DockerHub'
+        type: boolean
+        default: true
+      enable_ghcr:
+        description: 'Enable pushing to GitHub Container Registry'
+        type: boolean
+        default: false
+      dockerhub_org:
+        description: 'DockerHub organization name'
+        type: string
+        default: 'lerianstudio'
+      ghcr_org:
+        description: 'GHCR organization name (defaults to repository owner)'
+        type: string
+        default: ''
+      dockerfile_name:
+        description: 'Name of the Dockerfile'
+        type: string
+        default: 'Dockerfile'
+      app_name_prefix:
+        description: 'Prefix for app names in monorepo (e.g., "midaz" results in "midaz-agent")'
+        type: string
+        default: ''
+      build_context:
+        description: 'Docker build context (defaults to repository root for monorepo)'
+        type: string
+        default: '.'
+      enable_gitops_artifacts:
+        description: 'Enable GitOps artifacts upload for downstream gitops-update workflow'
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  prepare:
+    runs-on: ${{ inputs.runner_type }}
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+      has_builds: ${{ steps.set-matrix.outputs.has_builds }}
+      platforms: ${{ steps.set-platforms.outputs.platforms }}
+      is_release: ${{ steps.set-platforms.outputs.is_release }}
+    steps:
+      - name: Get changed paths (monorepo)
+        if: inputs.filter_paths != ''
+        id: changed-paths
+        uses: LerianStudio/github-actions-changed-paths@main
+        with:
+          filter_paths: ${{ inputs.filter_paths }}
+          path_level: ${{ inputs.path_level }}
+          get_app_name: 'true'
+          app_name_prefix: ${{ inputs.app_name_prefix }}
+
+      - name: Set matrix
+        id: set-matrix
+        run: |
+          if [ -z "${{ inputs.filter_paths }}" ]; then
+            # Single app mode - build from root
+            APP_NAME="${{ github.event.repository.name }}"
+            echo "matrix=[{\"name\": \"${APP_NAME}\", \"working_dir\": \".\"}]" >> $GITHUB_OUTPUT
+            echo "has_builds=true" >> $GITHUB_OUTPUT
+          else
+            MATRIX='${{ steps.changed-paths.outputs.matrix }}'
+            if [ "$MATRIX" == "[]" ] || [ -z "$MATRIX" ]; then
+              echo "matrix=[]" >> $GITHUB_OUTPUT
+              echo "has_builds=false" >> $GITHUB_OUTPUT
+            else
+              echo "matrix=$MATRIX" >> $GITHUB_OUTPUT
+              echo "has_builds=true" >> $GITHUB_OUTPUT
+            fi
+          fi
+
+      - name: Set platforms based on tag type
+        id: set-platforms
+        run: |
+          TAG="${GITHUB_REF#refs/tags/}"
+          
+          if [[ "$TAG" == *"-beta"* ]] || [[ "$TAG" == *"-rc"* ]]; then
+            echo "platforms=linux/amd64" >> $GITHUB_OUTPUT
+            echo "is_release=false" >> $GITHUB_OUTPUT
+            echo "Building for amd64 only (beta/rc tag)"
+          else
+            echo "platforms=linux/amd64,linux/arm64" >> $GITHUB_OUTPUT
+            echo "is_release=true" >> $GITHUB_OUTPUT
+            echo "Building for amd64 and arm64 (release tag)"
+          fi
+
+  build:
+    needs: prepare
+    if: needs.prepare.outputs.has_builds == 'true'
+    runs-on: ${{ inputs.runner_type }}
+    name: Build ${{ matrix.app.name }}
+    strategy:
+      max-parallel: 2
+      fail-fast: false
+      matrix:
+        app: ${{ fromJson(needs.prepare.outputs.matrix) }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        if: needs.prepare.outputs.is_release == 'true'
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to DockerHub
+        if: inputs.enable_dockerhub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Log in to GHCR
+        if: inputs.enable_ghcr
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.MANAGE_TOKEN }}
+
+      - name: Normalize repository owner to lowercase
+        id: normalize
+        run: |
+          echo "owner_lower=$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')" >> $GITHUB_OUTPUT
+
+      - name: Set image names
+        id: image-names
+        run: |
+          IMAGES=""
+          GHCR_ORG="${{ inputs.ghcr_org }}"
+          if [ -z "$GHCR_ORG" ]; then
+            GHCR_ORG="${{ steps.normalize.outputs.owner_lower }}"
+          else
+            GHCR_ORG=$(echo "$GHCR_ORG" | tr '[:upper:]' '[:lower:]')
+          fi
+          
+          if [ "${{ inputs.enable_dockerhub }}" == "true" ]; then
+            IMAGES="${{ inputs.dockerhub_org }}/${{ matrix.app.name }}"
+          fi
+          
+          if [ "${{ inputs.enable_ghcr }}" == "true" ]; then
+            if [ -n "$IMAGES" ]; then
+              IMAGES="${IMAGES},ghcr.io/${GHCR_ORG}/${{ matrix.app.name }}"
+            else
+              IMAGES="ghcr.io/${GHCR_ORG}/${{ matrix.app.name }}"
+            fi
+          fi
+          
+          echo "images=$IMAGES" >> $GITHUB_OUTPUT
+
+      - name: Extract version from tag
+        id: version
+        run: |
+          TAG="${GITHUB_REF#refs/tags/}"
+          # Strip app prefix by finding -v and extracting from there
+          # e.g., agent-v1.0.0-beta.1 -> v1.0.0-beta.1
+          # e.g., control-plane-v1.0.0-beta.1 -> v1.0.0-beta.1
+          VERSION=$(echo "$TAG" | sed 's/.*-\(v[0-9]\)/\1/')
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Extracted version: $VERSION from tag: $TAG"
+
+      - name: Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ steps.image-names.outputs.images }}
+          tags: |
+            type=semver,pattern={{version}},value=${{ steps.version.outputs.version }}
+            type=semver,pattern={{major}}.{{minor}},value=${{ steps.version.outputs.version }}
+            type=semver,pattern={{major}},value=${{ steps.version.outputs.version }},enable=${{ needs.prepare.outputs.is_release }}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ inputs.build_context }}
+          file: ${{ matrix.app.working_dir }}/${{ inputs.dockerfile_name }}
+          platforms: ${{ needs.prepare.outputs.platforms }}
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # GitOps artifacts for downstream gitops-update workflow
+      - name: Create GitOps tag artifact
+        if: inputs.enable_gitops_artifacts
+        run: |
+          set -euo pipefail
+          mkdir -p gitops-tags
+          # Extract version without leading 'v'
+          VERSION="${{ steps.version.outputs.version }}"
+          VERSION="${VERSION#v}"
+          printf "%s" "$VERSION" > "gitops-tags/${{ matrix.app.name }}.tag"
+          echo "Created artifact: gitops-tags/${{ matrix.app.name }}.tag with version: $VERSION"
+
+      - name: Upload GitOps tag artifact
+        if: inputs.enable_gitops_artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: gitops-tags-${{ matrix.app.name }}
+          path: gitops-tags/
+
+  # Slack notification
+  notify:
+    name: Notify
+    needs: [prepare, build]
+    if: always() && needs.prepare.outputs.has_builds == 'true'
+    uses: ./.github/workflows/slack-notify.yml
+    with:
+      status: ${{ needs.build.result }}
+      workflow_name: "Build & Push Docker Images"
+      failed_jobs: ${{ needs.build.result == 'failure' && 'Build' || '' }}
+    secrets:
+      SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}

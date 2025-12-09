@@ -1,0 +1,432 @@
+name: "GitOps Update"
+
+# Reusable workflow for updating GitOps repository with new image tags
+# Supports multiple environments: dev (beta), stg (rc), prd (production), sandbox
+# Handles single or multiple components with flexible YAML key mapping
+
+on:
+  workflow_call:
+    inputs:
+      gitops_repository:
+        description: 'GitOps repository to update (org/repo format)'
+        type: string
+        default: 'LerianStudio/midaz-firmino-gitops'
+      gitops_server:
+        description: 'Server name for GitOps path (e.g., firmino)'
+        type: string
+        default: 'firmino'
+      app_name:
+        description: 'Application name (defaults to repository name if not provided)'
+        type: string
+        required: false
+      gitops_file_dev:
+        description: 'Path to dev environment values.yaml (auto-generated if not provided)'
+        type: string
+        required: false
+      gitops_file_stg:
+        description: 'Path to stg environment values.yaml (auto-generated if not provided)'
+        type: string
+        required: false
+      gitops_file_prd:
+        description: 'Path to prd environment values.yaml (auto-generated if not provided)'
+        type: string
+        required: false
+      gitops_file_sandbox:
+        description: 'Path to sandbox environment values.yaml (auto-generated if not provided)'
+        type: string
+        required: false
+      artifact_pattern:
+        description: 'Pattern to download artifacts (defaults to "gitops-tags-<repo-name>-*" if not provided)'
+        type: string
+        required: false
+      yaml_key_mappings:
+        description: 'JSON object mapping artifact names to YAML keys (e.g., {"backend.tag": ".auth.image.tag", "frontend.tag": ".frontend.image.tag"})'
+        type: string
+        required: true
+      commit_message_prefix:
+        description: 'Prefix for commit message (defaults to repository name if not provided)'
+        type: string
+        required: false
+      runner_type:
+        description: 'GitHub runner type to use'
+        type: string
+        default: 'firmino-lxc-runners'
+      enable_argocd_sync:
+        description: 'Enable ArgoCD sync after GitOps update'
+        type: boolean
+        default: true
+      argocd_app_name:
+        description: 'ArgoCD application name (auto-generated as <server>-<app> if not provided)'
+        type: string
+        required: false
+      use_dynamic_mapping:
+        description: 'Use dynamic mapping for multiple components (like midaz)'
+        type: boolean
+        default: false
+      yq_version:
+        description: 'Version of yq to install'
+        type: string
+        default: 'v4.44.3'
+      environment_detection:
+        description: 'Environment detection strategy: tag_suffix (beta/rc/prd) or manual'
+        type: string
+        default: 'tag_suffix'
+      manual_environment:
+        description: 'Manually specify environment (dev/stg/prd/sandbox) - only used if environment_detection is manual'
+        type: string
+        required: false
+      enable_docker_login:
+        description: 'Enable Docker Hub login to avoid rate limits'
+        type: boolean
+        default: true
+      configmap_updates:
+        description: 'JSON object mapping artifact names to configmap keys (e.g., {"pix.tag": ".pix.configmap.VERSION"})'
+        type: string
+        required: false
+
+jobs:
+  update_gitops:
+    runs-on: ${{ inputs.runner_type }}
+    env:
+      IS_RC: ${{ contains(github.ref, '-rc.') }}
+      IS_BETA: ${{ contains(github.ref, '-beta.') }}
+      IS_SANDBOX: ${{ contains(github.ref, '-sandbox.') }}
+      IS_PRODUCTION: ${{ !contains(github.ref, '-rc.') && !contains(github.ref, '-beta.') && !contains(github.ref, '-sandbox.') && startsWith(github.ref, 'refs/tags/') }}
+      GITOPS_FILE_STG: ${{ inputs.gitops_file_stg }}
+      GITOPS_FILE_DEV: ${{ inputs.gitops_file_dev }}
+      GITOPS_FILE_PRD: ${{ inputs.gitops_file_prd }}
+      GITOPS_FILE_SANDBOX: ${{ inputs.gitops_file_sandbox }}
+    steps:
+      - name: Log in to Docker Hub
+        if: ${{ inputs.enable_docker_login }}
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Checkout GitOps Repository
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ inputs.gitops_repository }}
+          token: ${{ secrets.MANAGE_TOKEN }}
+          path: gitops
+          fetch-depth: 0
+
+      - name: Setup application name and paths
+        id: setup
+        shell: bash
+        run: |
+          # Extract app name from repository if not provided
+          if [[ -z "${{ inputs.app_name }}" ]]; then
+            APP_NAME="${GITHUB_REPOSITORY##*/}"
+          else
+            APP_NAME="${{ inputs.app_name }}"
+          fi
+          echo "app_name=$APP_NAME" >> "$GITHUB_OUTPUT"
+          echo "Application name: $APP_NAME"
+
+          # Generate GitOps file paths if not provided
+          SERVER="${{ inputs.gitops_server }}"
+          BASE_PATH="gitops/environments/${SERVER}/helmfile/applications"
+
+          if [[ -z "${{ inputs.gitops_file_dev }}" ]]; then
+            DEV_FILE="${BASE_PATH}/dev/${APP_NAME}/values.yaml"
+          else
+            DEV_FILE="${{ inputs.gitops_file_dev }}"
+          fi
+
+          if [[ -z "${{ inputs.gitops_file_stg }}" ]]; then
+            STG_FILE="${BASE_PATH}/stg/${APP_NAME}/values.yaml"
+          else
+            STG_FILE="${{ inputs.gitops_file_stg }}"
+          fi
+
+          if [[ -z "${{ inputs.gitops_file_prd }}" ]]; then
+            PRD_FILE="${BASE_PATH}/prd/${APP_NAME}/values.yaml"
+          else
+            PRD_FILE="${{ inputs.gitops_file_prd }}"
+          fi
+
+          if [[ -z "${{ inputs.gitops_file_sandbox }}" ]]; then
+            SANDBOX_FILE="${BASE_PATH}/sandbox/${APP_NAME}/values.yaml"
+          else
+            SANDBOX_FILE="${{ inputs.gitops_file_sandbox }}"
+          fi
+
+          echo "gitops_file_dev=$DEV_FILE" >> "$GITHUB_OUTPUT"
+          echo "gitops_file_stg=$STG_FILE" >> "$GITHUB_OUTPUT"
+          echo "gitops_file_prd=$PRD_FILE" >> "$GITHUB_OUTPUT"
+          echo "gitops_file_sandbox=$SANDBOX_FILE" >> "$GITHUB_OUTPUT"
+
+          # Generate ArgoCD app name base if not provided (without environment suffix)
+          if [[ -z "${{ inputs.argocd_app_name }}" ]]; then
+            ARGOCD_APP_BASE="${SERVER}-${APP_NAME}"
+          else
+            ARGOCD_APP_BASE="${{ inputs.argocd_app_name }}"
+          fi
+          echo "argocd_app_base=$ARGOCD_APP_BASE" >> "$GITHUB_OUTPUT"
+          echo "ArgoCD app base name: $ARGOCD_APP_BASE"
+
+          # Generate commit message prefix if not provided
+          if [[ -z "${{ inputs.commit_message_prefix }}" ]]; then
+            COMMIT_PREFIX="$APP_NAME"
+          else
+            COMMIT_PREFIX="${{ inputs.commit_message_prefix }}"
+          fi
+          echo "commit_prefix=$COMMIT_PREFIX" >> "$GITHUB_OUTPUT"
+          echo "Commit message prefix: $COMMIT_PREFIX"
+
+          # Generate artifact pattern if not provided
+          if [[ -z "${{ inputs.artifact_pattern }}" ]]; then
+            ARTIFACT_PATTERN="gitops-tags-${APP_NAME}-*"
+          else
+            ARTIFACT_PATTERN="${{ inputs.artifact_pattern }}"
+          fi
+          echo "artifact_pattern=$ARTIFACT_PATTERN" >> "$GITHUB_OUTPUT"
+          echo "Artifact pattern: $ARTIFACT_PATTERN"
+
+      - name: Detect environment from tag
+        if: ${{ inputs.environment_detection == 'tag_suffix' }}
+        id: detect_env
+        shell: bash
+        run: |
+          TAG_REF="${GITHUB_REF}"
+          echo "Processing ref: $TAG_REF"
+
+          if [[ "$TAG_REF" == *"-beta"* ]]; then
+            echo "environment=dev" >> "$GITHUB_OUTPUT"
+            echo "env_label=beta/dev" >> "$GITHUB_OUTPUT"
+            echo "Detected beta tag → dev environment"
+          elif [[ "$TAG_REF" == *"-rc"* ]]; then
+            echo "environment=stg" >> "$GITHUB_OUTPUT"
+            echo "env_label=rc/stg" >> "$GITHUB_OUTPUT"
+            echo "Detected rc tag → stg environment"
+          elif [[ "$TAG_REF" == refs/tags/* ]] && [[ ! "$TAG_REF" =~ -(beta|rc) ]]; then
+            echo "environment=prd" >> "$GITHUB_OUTPUT"
+            echo "env_label=production" >> "$GITHUB_OUTPUT"
+            echo "Detected production tag → prd environment (will update prd + sandbox)"
+          else
+            echo "❌ Unable to detect environment from ref: $TAG_REF"
+            exit 1
+          fi
+
+      - name: Set manual environment
+        if: ${{ inputs.environment_detection == 'manual' }}
+        id: manual_env
+        shell: bash
+        run: |
+          ENV="${{ inputs.manual_environment }}"
+          if [[ -z "$ENV" ]]; then
+            echo "❌ manual_environment input is required when environment_detection is 'manual'"
+            exit 1
+          fi
+          echo "environment=$ENV" >> "$GITHUB_OUTPUT"
+          echo "env_label=$ENV" >> "$GITHUB_OUTPUT"
+          echo "Using manual environment: $ENV"
+
+      - name: Select target values.yaml file
+        id: select_file
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          ENV="${{ steps.detect_env.outputs.environment || steps.manual_env.outputs.environment }}"
+
+          case "$ENV" in
+            dev)
+              FILES="${{ steps.setup.outputs.gitops_file_dev }}"
+              ;;
+            stg)
+              FILES="${{ steps.setup.outputs.gitops_file_stg }}"
+              ;;
+            prd)
+              # Production releases update both prd and sandbox
+              PRD_FILE="${{ steps.setup.outputs.gitops_file_prd }}"
+              SANDBOX_FILE="${{ steps.setup.outputs.gitops_file_sandbox }}"
+              if [[ -n "$PRD_FILE" && -n "$SANDBOX_FILE" ]]; then
+                FILES="${PRD_FILE}|${SANDBOX_FILE}"
+              elif [[ -n "$PRD_FILE" ]]; then
+                FILES="${PRD_FILE}"
+              elif [[ -n "$SANDBOX_FILE" ]]; then
+                FILES="${SANDBOX_FILE}"
+              else
+                FILES=""
+              fi
+              ;;
+            *)
+              echo "❌ Unknown environment: $ENV"
+              exit 1
+              ;;
+          esac
+
+          if [[ -z "$FILES" ]]; then
+            echo "❌ No GitOps file configured for environment: $ENV"
+            echo "Please provide gitops_file_${ENV} input"
+            exit 1
+          fi
+
+          echo "files=$FILES" >> "$GITHUB_OUTPUT"
+          echo "Using values files: $FILES for environment: $ENV"
+
+      - name: Install yq
+        shell: bash
+        run: |
+          set -euo pipefail
+          YQ_VERSION="${{ inputs.yq_version }}"
+          YQ_BIN="yq_linux_amd64"
+          YQ_URL="https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}/${YQ_BIN}"
+
+          sudo curl -L "$YQ_URL" -o /usr/local/bin/yq
+          sudo chmod +x /usr/local/bin/yq
+          yq --version
+
+      - name: Git pull before update
+        shell: bash
+        run: |
+          set -e
+          cd gitops
+          git pull origin main
+
+      - name: Download GitOps tag artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: gitops-tags
+          path: .gitops-tags
+
+      - name: Apply tags to values.yaml
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          # Detect environment and select appropriate file
+          if [[ "${{ env.IS_RC }}" == "true" ]]; then
+            FILE="${{ env.GITOPS_FILE_STG }}"
+            ENV_NAME="stg"
+          elif [[ "${{ env.IS_BETA }}" == "true" ]]; then
+            FILE="${{ env.GITOPS_FILE_DEV }}"
+            ENV_NAME="dev"
+          elif [[ "${{ env.IS_SANDBOX }}" == "true" ]]; then
+            FILE="${{ env.GITOPS_FILE_SANDBOX }}"
+            ENV_NAME="sandbox"
+          elif [[ "${{ env.IS_PRODUCTION }}" == "true" ]]; then
+            FILE="${{ env.GITOPS_FILE_PRD }}"
+            ENV_NAME="prd"
+          else
+            echo "❌ Unable to detect environment from tag: ${{ github.ref }}"
+            exit 1
+          fi
+          echo "Detected environment: $ENV_NAME"
+          echo "Using values file: $FILE"
+
+          upd() {
+            local key="$1" file="$2"
+            [[ -f "$file" ]] || return 0
+            local TAG
+            TAG="$(cut -d= -f2 < "$file" | tr -d '[:space:]')"
+            [[ -n "$TAG" ]] || return 0
+            TAG="$TAG" yq e -i "$key = strenv(TAG)" "$FILE"
+            echo "Set $key → $TAG"
+          }
+
+          # Apply mappings from inputs
+          MAPPINGS='${{ inputs.yaml_key_mappings }}'
+          echo "$MAPPINGS" | jq -r 'to_entries[] | "\(.key)|\(.value)"' | while IFS='|' read -r artifact_key yaml_key; do
+            upd "$yaml_key" ".gitops-tags/${artifact_key}"
+          done
+
+          # Apply configmap updates if configured
+          if [[ -n "${{ inputs.configmap_updates }}" ]]; then
+            CONFIGMAP_MAPPINGS='${{ inputs.configmap_updates }}'
+            echo "$CONFIGMAP_MAPPINGS" | jq -r 'to_entries[] | "\(.key)|\(.value)"' | while IFS='|' read -r artifact_key configmap_key; do
+              upd "$configmap_key" ".gitops-tags/${artifact_key}"
+            done
+          fi
+
+      - name: Show git diff
+        shell: bash
+        run: |
+          cd gitops
+          echo "Changes to be committed:"
+          # Detect environment and select appropriate file (same logic as apply step)
+          if [[ "${{ env.IS_RC }}" == "true" ]]; then
+            FILE="${{ env.GITOPS_FILE_STG }}"
+            ENV_NAME="stg"
+          elif [[ "${{ env.IS_BETA }}" == "true" ]]; then
+            FILE="${{ env.GITOPS_FILE_DEV }}"
+            ENV_NAME="dev"
+          elif [[ "${{ env.IS_SANDBOX }}" == "true" ]]; then
+            FILE="${{ env.GITOPS_FILE_SANDBOX }}"
+            ENV_NAME="sandbox"
+          elif [[ "${{ env.IS_PRODUCTION }}" == "true" ]]; then
+            FILE="${{ env.GITOPS_FILE_PRD }}"
+            ENV_NAME="prd"
+          fi
+          echo "--- Changes in $FILE ($ENV_NAME) ---"
+          git diff -- "$FILE" || true
+
+      - name: Commit & push (GitOps)
+        run: |
+          set -e
+          cd gitops
+          git config user.name "${{ secrets.LERIAN_CI_CD_USER_NAME }}"
+          git config user.email "${{ secrets.LERIAN_CI_CD_USER_EMAIL }}"
+          # Detect environment for commit message
+          if [[ "${{ env.IS_RC }}" == "true" ]]; then
+            ENV_LABEL="rc/stg"
+          elif [[ "${{ env.IS_BETA }}" == "true" ]]; then
+            ENV_LABEL="beta/dev"
+          elif [[ "${{ env.IS_SANDBOX }}" == "true" ]]; then
+            ENV_LABEL="sandbox"
+          elif [[ "${{ env.IS_PRODUCTION }}" == "true" ]]; then
+            ENV_LABEL="production"
+          else
+            ENV_LABEL="unknown"
+          fi
+          git commit -am "ci(${{ steps.setup.outputs.commit_prefix }}): update image tags ($ENV_LABEL)" || echo "No changes to commit"
+          git push origin main
+
+      - name: ArgoCD Sync
+        if: ${{ inputs.enable_argocd_sync }}
+        shell: bash
+        run: |
+          # Detect environment for ArgoCD sync
+          if [[ "${{ env.IS_RC }}" == "true" ]]; then
+            ENV_SUFFIX="stg"
+          elif [[ "${{ env.IS_BETA }}" == "true" ]]; then
+            ENV_SUFFIX="dev"
+          elif [[ "${{ env.IS_SANDBOX }}" == "true" ]]; then
+            ENV_SUFFIX="sandbox"
+          elif [[ "${{ env.IS_PRODUCTION }}" == "true" ]]; then
+            ENV_SUFFIX="prd"
+          else
+            echo "❌ Unable to detect environment for ArgoCD sync"
+            exit 1
+          fi
+          APP_BASE="${{ steps.setup.outputs.argocd_app_base }}"
+          echo "Syncing ArgoCD app: ${APP_BASE}-${ENV_SUFFIX} (base: $APP_BASE, env: $ENV_SUFFIX)"
+
+          # Call ArgoCD sync action with base name and env prefix
+          echo "APP_BASE=$APP_BASE" >> "$GITHUB_ENV"
+          echo "ENV_PREFIX=$ENV_SUFFIX" >> "$GITHUB_ENV"
+
+      - name: Execute ArgoCD Sync
+        if: ${{ inputs.enable_argocd_sync }}
+        uses: LerianStudio/github-actions-argocd-sync@main
+        with:
+          app-name: ${{ env.APP_BASE }}
+          argo-cd-token: ${{ secrets.ARGOCD_GHUSER_TOKEN }}
+          argo-cd-url: ${{ secrets.ARGOCD_URL }}
+          env-prefix: ${{ env.ENV_PREFIX }}
+
+  # Slack notification
+  notify:
+    name: Notify
+    needs: [update_gitops]
+    if: always()
+    uses: ./.github/workflows/slack-notify.yml
+    with:
+      status: ${{ needs.update_gitops.result }}
+      workflow_name: "GitOps Update"
+      failed_jobs: ${{ needs.update_gitops.result == 'failure' && 'Update GitOps' || '' }}
+    secrets:
+      SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}

@@ -1,0 +1,167 @@
+name: Changed Paths
+
+on:
+  workflow_call:
+    inputs:
+      filter_paths:
+        description: 'JSON array of path prefixes to filter results (e.g., ["components/mdz", "components/transaction"])'
+        required: false
+        type: string
+        default: ''
+      path_level:
+        description: 'Limits the path to the first N segments (e.g., 2 -> "components/transactions")'
+        required: false
+        type: number
+        default: 0
+      get_app_name:
+        description: 'If true, outputs a matrix of objects with app name and working directory'
+        required: false
+        type: boolean
+        default: false
+      app_name_prefix:
+        description: 'Prefix to add to each app name when get_app_name is true'
+        required: false
+        type: string
+        default: ''
+      runner_type:
+        description: 'GitHub runner type'
+        required: false
+        type: string
+        default: 'firmino-lxc-runners'
+
+    outputs:
+      matrix:
+        description: 'JSON array of changed directories'
+        value: ${{ jobs.get-changed-paths.outputs.matrix }}
+      has_changes:
+        description: 'Boolean indicating if there are any changes'
+        value: ${{ jobs.get-changed-paths.outputs.has_changes }}
+
+jobs:
+  get-changed-paths:
+    name: Get Changed Paths
+    runs-on: ${{ inputs.runner_type }}
+    outputs:
+      matrix: ${{ steps.dirs.outputs.matrix }}
+      has_changes: ${{ steps.dirs.outputs.has_changes }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get changed files
+        id: changed
+        shell: bash
+        run: |
+          if [[ "${{ github.event.before }}" == "0000000000000000000000000000000000000000" ]] || [[ -z "${{ github.event.before }}" ]]; then
+            # For tags or when before is not available, compare with the previous commit
+            PREV_COMMIT=$(git rev-parse HEAD^)
+            if [[ $? -eq 0 ]]; then
+              FILES=$(git diff --name-only $PREV_COMMIT HEAD)
+            else
+              # Fallback for first commit
+              FILES=$(git ls-tree -r --name-only HEAD)
+            fi
+          else
+            # Normal case - diff between commits
+            FILES=$(git diff --name-only ${{ github.event.before }} ${{ github.sha }})
+          fi
+          printf "files<<EOF\n%s\nEOF\n" "$FILES" >> "$GITHUB_OUTPUT"
+
+      - name: Extract changed directories
+        id: dirs
+        shell: bash
+        run: |
+          FILES="${{ steps.changed.outputs.files }}"
+          FILTER_PATHS='${{ inputs.filter_paths }}'
+          PATH_LEVEL="${{ inputs.path_level }}"
+          GET_APP_NAME="${{ inputs.get_app_name }}"
+          APP_NAME_PREFIX="${{ inputs.app_name_prefix }}"
+
+          if [[ -z "$FILES" ]]; then
+            echo "No files changed."
+            printf "matrix=[]\n" >> "$GITHUB_OUTPUT"
+            printf "has_changes=false\n" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Get directory for each file
+          DIRS=$(echo "$FILES" | xargs -n1 dirname)
+
+          # Trim to first N path segments if specified
+          if [[ -n "$PATH_LEVEL" ]] && [[ "$PATH_LEVEL" -gt 0 ]]; then
+            echo "Trimming paths to first $PATH_LEVEL segments"
+            DIRS=$(echo "$DIRS" | cut -d'/' -f-"$PATH_LEVEL")
+          fi
+
+          # Filter paths if filter_paths is provided (JSON array format)
+          if [[ -n "$FILTER_PATHS" ]] && [[ "$FILTER_PATHS" != "[]" ]] && [[ "$FILTER_PATHS" != "" ]]; then
+            echo "Filtering directories using list:"
+            echo "$FILTER_PATHS"
+
+            # Parse JSON array into newline-separated values
+            FILTER_LIST=$(echo "$FILTER_PATHS" | jq -r '.[]' 2>/dev/null || echo "")
+
+            if [[ -n "$FILTER_LIST" ]]; then
+              FILTERED=""
+              while read -r DIR; do
+                while read -r FILTER; do
+                  if [[ "$DIR" == "$FILTER"* ]]; then
+                    FILTERED+="$DIR"$'\n'
+                    break
+                  fi
+                done <<< "$FILTER_LIST"
+              done <<< "$DIRS"
+
+              # If nothing matched, exit
+              if [[ -z "$FILTERED" ]]; then
+                echo "No matching directories found after filtering."
+                printf "matrix=[]\n" >> "$GITHUB_OUTPUT"
+                printf "has_changes=false\n" >> "$GITHUB_OUTPUT"
+                exit 0
+              fi
+
+              DIRS="$FILTERED"
+            fi
+          fi
+
+          # Deduplicate and remove empty lines
+          DIRS=$(echo "$DIRS" | grep -v '^$' | sort -u)
+
+          # Check if we have any directories
+          if [[ -z "$DIRS" ]]; then
+            echo "No directories found."
+            printf "matrix=[]\n" >> "$GITHUB_OUTPUT"
+            printf "has_changes=false\n" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if [[ "$GET_APP_NAME" == "true" ]]; then
+            echo "Generating object matrix with app names"
+            MATRIX="["
+            FIRST=true
+            while read -r DIR; do
+              if [[ -n "$APP_NAME_PREFIX" ]]; then
+                APP_NAME="${APP_NAME_PREFIX}-$(echo "$DIR" | cut -d'/' -f2)"
+              else
+                APP_NAME="$(echo "$DIR" | cut -d'/' -f2)"
+              fi
+              ENTRY="{\"name\":\"$APP_NAME\",\"working_dir\":\"$DIR\"}"
+              if $FIRST; then
+                MATRIX+="$ENTRY"
+                FIRST=false
+              else
+                MATRIX+=",$ENTRY"
+              fi
+            done <<< "$DIRS"
+            MATRIX+="]"
+          else
+            # Default: return just an array of paths
+            MATRIX=$(echo "$DIRS" | jq -Rc . | jq -sc .)
+          fi
+
+          echo "Changed directories matrix: $MATRIX"
+          printf "matrix=%s\n" "$MATRIX" >> "$GITHUB_OUTPUT"
+          printf "has_changes=true\n" >> "$GITHUB_OUTPUT"
