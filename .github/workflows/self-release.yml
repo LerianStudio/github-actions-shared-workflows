@@ -27,5 +27,5 @@ jobs:
   publish-release:
     uses: ./.github/workflows/release.yml
     with:
-      runner_type: firmino-lxc-runners
+      runner_type: ubuntu-latest
     secrets: inherit
