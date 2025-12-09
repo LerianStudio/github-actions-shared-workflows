@@ -536,21 +536,7 @@ jobs:
             SLACK_PAYLOAD=$(echo "$SLACK_PAYLOAD" | jq '.blocks = .blocks[0:5] + [{"type": "section", "text": {"type": "mrkdwn", "text": ":warning: *New environment variables detected* - Review required before merging"}}] + .blocks[5:]')
           fi
 
-          # Build Severino instruction for Jira ticket creation (only if bot ID is configured)
-          BOT_MENTION="${{ inputs.slack_bot_mention }}"
-          if [ -n "$BOT_MENTION" ]; then
-            SEVERINO_TEXT="<@${BOT_MENTION}> helm chart PR review | ${PR_URL} | Chart: ${CHART}"
-
-            # Add Severino block before actions
-            SLACK_PAYLOAD=$(echo "$SLACK_PAYLOAD" | jq --arg severino "$SEVERINO_TEXT" '
-              .blocks = .blocks[0:-3] + [
-                {type: "divider"},
-                {type: "section", text: {type: "mrkdwn", text: $severino}}
-              ] + .blocks[-3:]
-            ')
-          fi
-
-          # Send to Slack via Bot API
+          # Send main notification to Slack via Bot API
           SLACK_RESPONSE=$(curl -s -X POST \
             -H "Authorization: Bearer ${{ secrets.SLACK_BOT_TOKEN }}" \
             -H "Content-type: application/json; charset=utf-8" \
@@ -563,4 +549,23 @@ jobs:
           else
             echo "::warning::Failed to send Slack notification"
             echo "$SLACK_RESPONSE" | jq .
+          fi
+
+          # Send separate message for Severino bot (Jira ticket creation)
+          BOT_MENTION="${{ inputs.slack_bot_mention }}"
+          if [ -n "$BOT_MENTION" ]; then
+            SEVERINO_TEXT="<@${BOT_MENTION}> helm chart PR review | ${PR_URL} | Chart: ${CHART}"
+
+            SEVERINO_RESPONSE=$(curl -s -X POST \
+              -H "Authorization: Bearer ${{ secrets.SLACK_BOT_TOKEN }}" \
+              -H "Content-type: application/json; charset=utf-8" \
+              --data "{\"channel\":\"${{ inputs.slack_channel }}\",\"text\":\"${SEVERINO_TEXT}\"}" \
+              "https://slack.com/api/chat.postMessage")
+
+            if echo "$SEVERINO_RESPONSE" | jq -e '.ok == true' > /dev/null; then
+              echo "Severino message sent successfully"
+            else
+              echo "::warning::Failed to send Severino message"
+              echo "$SEVERINO_RESPONSE" | jq .
+            fi
           fi
