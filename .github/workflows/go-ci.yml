@@ -1,0 +1,272 @@
+name: "Go CI"
+
+# Reusable workflow for Go continuous integration
+# Runs tests, builds binaries, lints code, and verifies formatting
+# Supports multi-version Go testing across multiple operating systems
+
+on:
+  workflow_call:
+    inputs:
+      go_versions:
+        description: 'JSON array of Go versions to test (e.g., ["1.21", "1.22", "1.23"])'
+        type: string
+        default: '["1.21", "1.22", "1.23"]'
+      operating_systems:
+        description: 'JSON array of operating systems to test on (e.g., ["ubuntu-latest", "macos-latest", "windows-latest"])'
+        type: string
+        default: '["ubuntu-latest", "macos-latest", "windows-latest"]'
+      runner_type:
+        description: 'GitHub runner type for jobs that do not use matrix'
+        type: string
+        default: 'firmino-lxc-runners'
+      go_version_lint:
+        description: 'Go version for linting and other non-matrix jobs'
+        type: string
+        default: '1.23'
+      build_cmd:
+        description: 'Build command to execute (default: go build -v ./...)'
+        type: string
+        default: 'go build -v ./...'
+      test_cmd:
+        description: 'Test command to execute (default: go test -v -race -coverprofile=coverage.txt -covermode=atomic ./...)'
+        type: string
+        default: 'go test -v -race -coverprofile=coverage.txt -covermode=atomic ./...'
+      enable_coverage_comment:
+        description: 'Enable Go coverage comment in PR'
+        type: boolean
+        default: true
+      golangci_lint_version:
+        description: 'golangci-lint version to use (default: latest)'
+        type: string
+        default: 'latest'
+      golangci_lint_args:
+        description: 'Additional arguments for golangci-lint'
+        type: string
+        default: '--timeout=5m'
+      check_docs:
+        description: 'Enable documentation completeness checks'
+        type: boolean
+        default: true
+      check_module_tidy:
+        description: 'Enable go.mod/go.sum tidiness check'
+        type: boolean
+        default: true
+      enable_cross_platform_build:
+        description: 'Enable cross-platform binary builds'
+        type: boolean
+        default: false
+      build_targets:
+        description: 'JSON array of build targets (e.g., [{"os": "linux", "arch": "amd64"}, {"os": "darwin", "arch": "arm64"}])'
+        type: string
+        default: '[]'
+      build_path:
+        description: 'Path to main package for cross-platform builds (e.g., ./cmd/myapp)'
+        type: string
+        default: './cmd'
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  test:
+    name: Test
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: ${{ fromJson(inputs.operating_systems) }}
+        go: ${{ fromJson(inputs.go_versions) }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ matrix.go }}
+          cache: true
+
+      - name: Download dependencies
+        run: go mod download
+
+      - name: Verify dependencies
+        run: go mod verify
+
+      - name: Build
+        run: ${{ inputs.build_cmd }}
+
+      - name: Run tests
+        run: ${{ inputs.test_cmd }}
+
+      - name: Upload coverage artifact
+        if: inputs.enable_coverage_comment && matrix.os == 'ubuntu-latest' && matrix.go == inputs.go_version_lint
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: coverage.txt
+          retention-days: 7
+
+  coverage-report:
+    name: Coverage Report
+    runs-on: ${{ inputs.runner_type }}
+    needs: test
+    if: inputs.enable_coverage_comment && github.event_name == 'pull_request'
+    permissions:
+      contents: read
+      pull-requests: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download coverage artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: coverage-report
+
+      - name: Go Coverage Comment
+        uses: fgrosse/go-coverage-report@v1.2.0
+        with:
+          coverage-artifact-name: coverage-report
+          coverage-file-name: coverage.txt
+
+  lint:
+    name: Lint
+    runs-on: ${{ inputs.runner_type }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ inputs.go_version_lint }}
+          cache: true
+
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v4
+        with:
+          version: ${{ inputs.golangci_lint_version }}
+          args: ${{ inputs.golangci_lint_args }}
+
+  build:
+    name: Build Binary
+    runs-on: ${{ inputs.runner_type }}
+    needs: [test, lint]
+    if: inputs.enable_cross_platform_build
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ inputs.go_version_lint }}
+          cache: true
+
+      - name: Build cross-platform binaries
+        run: |
+          targets='${{ inputs.build_targets }}'
+          if [ "$targets" = "[]" ] || [ -z "$targets" ]; then
+            echo "No build targets specified, using defaults"
+            targets='[
+              {"os": "linux", "arch": "amd64"},
+              {"os": "linux", "arch": "arm64"},
+              {"os": "darwin", "arch": "amd64"},
+              {"os": "darwin", "arch": "arm64"},
+              {"os": "windows", "arch": "amd64"}
+            ]'
+          fi
+
+          echo "$targets" | jq -c '.[]' | while read target; do
+            os=$(echo $target | jq -r '.os')
+            arch=$(echo $target | jq -r '.arch')
+            binary_name="${{ github.event.repository.name }}-${os}-${arch}"
+
+            if [ "$os" = "windows" ]; then
+              binary_name="${binary_name}.exe"
+            fi
+
+            echo "Building for $os/$arch..."
+            GOOS=$os GOARCH=$arch go build -o build/$binary_name ${{ inputs.build_path }}
+          done
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: binaries
+          path: build/
+          retention-days: 7
+
+  verify-module:
+    name: Verify Module
+    runs-on: ${{ inputs.runner_type }}
+    if: inputs.check_module_tidy
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ inputs.go_version_lint }}
+          cache: true
+
+      - name: Verify module
+        run: |
+          go mod tidy
+          git diff --exit-code go.mod go.sum
+
+  check-format:
+    name: Check Formatting
+    runs-on: ${{ inputs.runner_type }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ inputs.go_version_lint }}
+          cache: true
+
+      - name: Check gofmt
+        run: |
+          if [ "$(gofmt -s -l . | wc -l)" -gt 0 ]; then
+            echo "The following files need formatting:"
+            gofmt -s -l .
+            exit 1
+          fi
+
+      - name: Check go vet
+        run: go vet ./...
+
+  check-docs:
+    name: Check Documentation
+    runs-on: ${{ inputs.runner_type }}
+    if: inputs.check_docs
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Check required files
+        run: |
+          test -f README.md
+          test -f CONTRIBUTING.md
+          test -f CODE_OF_CONDUCT.md
+          test -f SECURITY.md
+          test -f CHANGELOG.md
+          test -f LICENSE
+
+      - name: Validate Markdown links
+        uses: gaurav-nelson/github-action-markdown-link-check@v1
+        with:
+          use-quiet-mode: 'yes'
+          config-file: '.github/markdown-link-check-config.json'
+        continue-on-error: true

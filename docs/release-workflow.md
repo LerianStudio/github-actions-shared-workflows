@@ -42,7 +42,7 @@ jobs:
 release:
   uses: LerianStudio/github-actions-shared-workflows/.github/workflows/release.yml@main
   with:
-    runner: "firmino-lxc-runners"
+    runner_type: "firmino-lxc-runners"
     semantic_version: "23.0.8"
   secrets:
     lerian_studio_push_bot_app_id: ${{ secrets.LERIAN_STUDIO_MIDAZ_PUSH_BOT_APP_ID }}
@@ -98,7 +98,7 @@ jobs:
 | Input | Type | Default | Description |
 |-------|------|---------|-------------|
 | `semantic_version` | string | `23.0.8` | Semantic release version to use |
-| `runner` | string | `ubuntu-24.04` | GitHub runner type |
+| `runner_type` | string | `firmino-lxc-runners` | GitHub runner type |
 
 ## Secrets
 
@@ -411,7 +411,7 @@ jobs:
 name: Release
 on:
   push:
-    branches: [main, develop, release-candidate]
+    branches: [develop, release-candidate, main]
 
 jobs:
   release:
@@ -431,7 +431,7 @@ jobs:
 name: Release Pipeline
 on:
   push:
-    branches: [main, develop, release-candidate]
+    branches: [develop, release-candidate, main]
 
 jobs:
   test:

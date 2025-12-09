@@ -55,3 +55,5 @@ branches:
   - name: main
   - name: develop
     prerelease: beta
+  - name: release-candidate
+    prerelease: rc

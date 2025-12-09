@@ -13,7 +13,7 @@ on:
       runner_type:
         description: 'GitHub runner type to use'
         type: string
-        default: 'ubuntu-latest'
+        default: 'firmino-lxc-runners'
       filter_paths:
         description: 'Paths to monitor for changes (newline separated). If not provided, treats as single app repo'
         type: string
@@ -42,19 +42,6 @@ on:
         description: 'Name of the Dockerfile'
         type: string
         default: 'Dockerfile'
-    secrets:
-      manage_token:
-        description: 'GitHub token for accessing private repositories during Docker build'
-        required: false
-      docker_username:
-        description: 'Docker registry username'
-        required: true
-      docker_password:
-        description: 'Docker registry password'
-        required: true
-      npmrc_token:
-        description: 'NPM registry token for private packages'
-        required: false
 
 permissions:
   id-token: write       # Required for OIDC authentication
@@ -72,16 +59,15 @@ jobs:
         uses: docker/login-action@v3
         with:
           registry: ${{ inputs.docker_registry }}
-          username: ${{ secrets.docker_username }}
-          password: ${{ secrets.docker_password }}
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
 
       - name: Get changed paths (monorepo)
         if: inputs.filter_paths != ''
         id: changed-paths
         uses: LerianStudio/github-actions-changed-paths@main
         with:
-          filter_paths: |-
-            ${{ inputs.filter_paths }}
+          filter_paths: ${{ inputs.filter_paths }}
           get_app_name: true
           path_level: ${{ inputs.path_level }}
 
@@ -136,8 +122,8 @@ jobs:
         uses: docker/login-action@v3
         with:
           registry: ${{ inputs.docker_registry }}
-          username: ${{ secrets.docker_username }}
-          password: ${{ secrets.docker_password }}
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
 
       - name: Checkout Repository
         uses: actions/checkout@v5
@@ -146,25 +132,25 @@ jobs:
         uses: docker/setup-buildx-action@v3
 
       # ----------------- Security Scans -----------------
-      - name: Trivy Secret Scan - Repository (Table Output)
+      - name: Trivy Secret Scan - Component (Table Output)
         uses: aquasecurity/trivy-action@0.33.1
         if: always()
         with:
           scan-type: fs
-          scan-ref: .
+          scan-ref: ${{ matrix.working_dir }}
           format: table
           exit-code: '1'
           hide-progress: true
           skip-dirs: '.git,node_modules,dist,build,.next,coverage,vendor'
 
-      - name: Trivy Secret Scan - Repository (SARIF Output)
+      - name: Trivy Secret Scan - Component (SARIF Output)
         uses: aquasecurity/trivy-action@0.33.1
         if: always()
         with:
           scan-type: fs
-          scan-ref: .
+          scan-ref: ${{ matrix.working_dir }}
           format: sarif
-          output: 'trivy-secret-scan-repo-${{ env.APP_NAME }}.sarif'
+          output: 'trivy-secret-scan-${{ env.APP_NAME }}.sarif'
           exit-code: '0'
           hide-progress: true
           skip-dirs: '.git,node_modules,dist,build,.next,coverage,vendor'
@@ -180,8 +166,8 @@ jobs:
           push: false
           tags: ${{ env.DOCKERHUB_ORG }}/${{ env.APP_NAME }}:pr-scan-${{ github.sha }}
           secrets: |
-            ${{ secrets.manage_token && format('github_token={0}', secrets.manage_token) || '' }}
-            ${{ secrets.npmrc_token && format('npmrc=//npm.pkg.github.com/:_authToken={0}', secrets.npmrc_token) || '' }}
+            ${{ secrets.MANAGE_TOKEN && format('github_token={0}', secrets.MANAGE_TOKEN) || '' }}
+            ${{ secrets.NPMRC_TOKEN && format('npmrc=//npm.pkg.github.com/:_authToken={0}', secrets.NPMRC_TOKEN) || '' }}
 
       - name: Trivy Vulnerability Scan - Docker Image (Table Output)
         if: always()
@@ -220,3 +206,16 @@ jobs:
       #   continue-on-error: true
       #   with:
       #     sarif_file: 'trivy-vulnerability-scan-docker-${{ env.APP_NAME }}.sarif'
+
+  # Slack notification
+  notify:
+    name: Notify
+    needs: [prepare_matrix, security_scan]
+    if: always() && needs.prepare_matrix.outputs.matrix != '[]'
+    uses: ./.github/workflows/slack-notify.yml
+    with:
+      status: ${{ needs.security_scan.result }}
+      workflow_name: "PR Security Scan"
+      failed_jobs: ${{ needs.security_scan.result == 'failure' && 'Security Scan' || '' }}
+    secrets:
+      SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
