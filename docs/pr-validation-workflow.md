@@ -13,6 +13,7 @@ Comprehensive pull request validation workflow that enforces best practices, cod
 - **Changelog tracking** - Reminds to update CHANGELOG.md
 - **Draft PR support** - Skips validations for draft PRs
 - **Summary report** - Aggregated validation status
+- **Source branch validation** - Enforce PRs to protected branches come from specific source branches
 
 ## Usage
 
@@ -100,7 +101,7 @@ jobs:
 
 | Input | Type | Default | Description |
 |-------|------|---------|-------------|
-| `runner_type` | string | `ubuntu-latest` | GitHub runner type |
+| `runner_type` | string | `firmino-lxc-runners` | GitHub runner type |
 | `pr_title_types` | string | (see below) | Allowed commit types (pipe-separated) |
 | `pr_title_scopes` | string | `''` | Allowed scopes (pipe-separated, empty = any) |
 | `require_scope` | boolean | `false` | Require scope in PR title |
@@ -108,6 +109,9 @@ jobs:
 | `check_changelog` | boolean | `true` | Check if CHANGELOG.md is updated |
 | `enable_auto_labeler` | boolean | `true` | Enable automatic labeling |
 | `labeler_config_path` | string | `.github/labeler.yml` | Path to labeler config |
+| `enforce_source_branches` | boolean | `false` | Enforce PRs to protected branches come from specific source branches |
+| `allowed_source_branches` | string | `develop\|release-candidate\|hotfix/*` | Allowed source branches (pipe-separated, supports `*` wildcard) |
+| `target_branches_for_source_check` | string | `main` | Target branches that require source branch validation |
 
 ### Default PR Title Types
 
@@ -137,6 +141,11 @@ revert
 
 ### skip-if-draft
 Determines if PR is draft and sets flag to skip other jobs.
+
+### pr-source-branch
+Validates that PRs to protected branches (e.g., `main`) come from allowed source branches. Supports:
+- Exact branch names: `develop`, `release-candidate`
+- Prefix patterns: `hotfix/*` matches `hotfix/fix-login`
 
 ### pr-title
 Validates PR title follows semantic commit format.
@@ -279,6 +288,21 @@ jobs:
       enable_auto_labeler: false
 ```
 
+### With Source Branch Validation
+
+Enforce that PRs to `main` only come from `develop`, `release-candidate`, or `hotfix/*` branches:
+
+```yaml
+jobs:
+  validate:
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/pr-validation.yml@main
+    with:
+      enforce_source_branches: true
+      allowed_source_branches: 'develop|release-candidate|hotfix/*'
+      target_branches_for_source_check: 'main'
+    secrets: inherit
+```
+
 ### Custom Types Only
 
 ```yaml
@@ -341,5 +365,5 @@ jobs:
 
 ---
 
-**Last Updated:** 2025-11-22
-**Version:** 1.0.0
+**Last Updated:** 2025-12-09
+**Version:** 1.1.0

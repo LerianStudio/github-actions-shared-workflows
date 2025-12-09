@@ -32,32 +32,37 @@ Automated API testing using Apidog CLI with comprehensive reporting.
 ### 6. [PR Validation](docs/pr-validation-workflow.md)
 Comprehensive pull request validation enforcing best practices and coding standards.
 
-**Key Features**: Semantic PR titles, size tracking, auto-labeling, changelog checks
+**Key Features**: Semantic PR titles, size tracking, auto-labeling, changelog checks, source branch validation
 
-### 7. [Go Unit Tests](docs/go-unit-tests-workflow.md)
-Fast unit test execution with support for multiple Go versions and platforms.
-
-**Key Features**: Multi-version testing, race detection, cross-platform support, parallel execution
-
-### 8. [Go Coverage Check](docs/go-coverage-check-workflow.md)
-Code coverage validation with threshold enforcement and detailed reporting.
-
-**Key Features**: Coverage thresholds, PR comments, HTML reports, package-level breakdown
-
-### 9. [PR Security Scan](docs/pr-security-scan-workflow.md)
+### 7. [PR Security Scan](docs/pr-security-scan-workflow.md)
 Comprehensive security scanning for pull requests with Trivy.
 
-**Key Features**: Secret scanning, vulnerability scanning, monorepo support
+**Key Features**: Secret scanning, vulnerability scanning, monorepo support, component-scoped scanning
 
-### 10. [Release Workflow](docs/release-workflow.md)
+### 8. [Release Workflow](docs/release-workflow.md)
 Semantic versioning and automated release management with GPG signing.
 
 **Key Features**: Semantic versioning, GPG signing, hotfix support
 
-### 11. [Changed Paths](docs/changed-paths-workflow.md)
+### 9. [Changed Paths](docs/changed-paths-workflow.md)
 Detect changed paths between commits for monorepo CI/CD optimization.
 
 **Key Features**: Path filtering, path level trimming, app name generation, matrix strategy support
+
+### 10. [Go PR Analysis](docs/go-pr-analysis-workflow.md)
+Comprehensive Go PR analysis for monorepos with change detection, linting, security, testing, and coverage. Replaces standalone go-coverage-check and go-unit-tests workflows.
+
+**Key Features**: Change detection, matrix execution, GolangCI-Lint, GoSec, coverage checks, private module support
+
+### 11. [Build](docs/build-workflow.md)
+Build and push Docker images with monorepo support and multi-platform builds.
+
+**Key Features**: Monorepo support, multi-registry (DockerHub/GHCR), smart platform builds, GitOps artifacts
+
+### 12. [Slack Notify](docs/slack-notify-workflow.md)
+Send Slack notifications from workflows with rich formatting and status-based colors.
+
+**Key Features**: Rich formatting, status colors, graceful degradation, PR support
 
 ## Documentation
 

@@ -2,6 +2,8 @@
 
 Reusable workflow for comprehensive Go PR analysis in monorepos. Handles change detection, linting, security scanning, testing, coverage checks, and build verification - all per changed app using a matrix strategy.
 
+> **Note**: This workflow replaces the standalone `go-coverage-check.yml` and `go-unit-tests.yml` workflows, consolidating all Go PR analysis into a single, unified workflow.
+
 ## Features
 
 - **Change Detection**: Automatically detects which apps changed in the PR
@@ -15,7 +17,21 @@ Reusable workflow for comprehensive Go PR analysis in monorepos. Handles change 
 
 ## Usage
 
-### Basic Usage
+### Single App Repository
+
+```yaml
+name: Go Analysis
+on:
+  pull_request:
+    branches: [develop, release-candidate, main]
+
+jobs:
+  analysis:
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/go-pr-analysis.yml@main
+    secrets: inherit
+```
+
+### Monorepo with Multiple Apps
 
 ```yaml
 name: Go Analysis
@@ -28,8 +44,7 @@ jobs:
     uses: LerianStudio/github-actions-shared-workflows/.github/workflows/go-pr-analysis.yml@main
     with:
       filter_paths: '["apps/api", "apps/worker", "apps/gateway"]'
-    secrets:
-      manage_token: ${{ secrets.GITHUB_TOKEN }}
+    secrets: inherit
 ```
 
 ### Full Configuration
@@ -78,8 +93,8 @@ jobs:
 
 | Input | Description | Required | Default |
 |-------|-------------|----------|---------|
-| `runner_type` | GitHub runner type | No | `ubuntu-24.04` |
-| `filter_paths` | JSON array of paths to monitor for changes | **Yes** | - |
+| `runner_type` | GitHub runner type | No | `firmino-lxc-runners` |
+| `filter_paths` | JSON array of paths to monitor for changes. If empty, treats repo as single-app. | No | `''` |
 | `path_level` | Directory depth level to extract app name | No | `2` |
 | `app_name_prefix` | Prefix for app names in matrix output | No | `''` |
 | `go_version` | Go version to use | No | `1.23` |
@@ -92,12 +107,28 @@ jobs:
 | `enable_tests` | Enable unit tests | No | `true` |
 | `enable_coverage` | Enable coverage check with PR comment | No | `true` |
 | `enable_build` | Enable build verification | No | `true` |
+| `go_private_modules` | GOPRIVATE pattern for private Go modules (e.g., `github.com/LerianStudio/*`) | No | `''` |
+
+### With Private Go Modules
+
+```yaml
+jobs:
+  analysis:
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/go-pr-analysis.yml@main
+    with:
+      filter_paths: '["components/api"]'
+      go_private_modules: "github.com/MyOrg/*"
+    secrets: inherit
+```
 
 ## Secrets
 
-| Secret | Description | Required |
-|--------|-------------|----------|
-| `manage_token` | GitHub token for PR comments | No (uses `github.token` if not provided) |
+Uses `secrets: inherit` pattern. Required secrets:
+
+| Secret | Description | Required When |
+|--------|-------------|---------------|
+| `MANAGE_TOKEN` | GitHub token for PR comments and private module access | Private modules or PR comments |
+| `SLACK_WEBHOOK_URL` | Slack webhook for notifications | Optional |
 
 ## Jobs
 
@@ -114,9 +145,10 @@ Runs security scanners per changed app:
 
 ### tests
 Runs unit tests per changed app with:
-- Race detection (`-race`)
+- Race detection (`-race`) with `CGO_ENABLED=1`
 - Coverage profiling
 - Uploads coverage artifacts
+- Supports private Go modules via `go_private_modules` input
 
 ### coverage
 Calculates coverage and posts PR comment per changed app:
@@ -168,7 +200,7 @@ With `app_name_prefix: "myapp"`:
 Coverage reports are posted as PR comments in this format:
 
 ```markdown
-## 📊 Coverage Report: `platform-api`
+## 📊 Unit Test Coverage Report: `platform-api`
 
 | Metric | Value |
 |--------|-------|
@@ -196,12 +228,13 @@ The workflow requires these permissions:
 
 ## Related Workflows
 
-- [Go CI](./go-ci-workflow.md) - Full CI pipeline for single-app repos
-- [Go Security](./go-security-workflow.md) - Comprehensive security scanning
-- [Go Coverage Check](./go-coverage-check-workflow.md) - Standalone coverage checking
+- [Go CI](./go-ci-workflow.md) - Multi-version/multi-OS CI pipeline
+- [Go Security](./go-security-workflow.md) - Comprehensive security scanning (8 tools)
 - [Changed Paths](./changed-paths-workflow.md) - Standalone change detection
+- [Build](./build-workflow.md) - Docker image builds
+- [Slack Notify](./slack-notify-workflow.md) - Workflow notifications
 
 ---
 
-**Last Updated:** 2025-11-27
-**Version:** 1.0.0
+**Last Updated:** 2025-12-09
+**Version:** 1.1.0

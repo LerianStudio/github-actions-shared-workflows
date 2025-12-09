@@ -4,13 +4,15 @@ Reusable workflow for comprehensive security scanning on pull requests. Supports
 
 ## Features
 
-- **Secret scanning**: Trivy filesystem scan for exposed secrets
+- **Secret scanning**: Trivy filesystem scan for exposed secrets (scans only changed component folder)
 - **Vulnerability scanning**: Docker image vulnerability detection
 - **Monorepo support**: Automatic detection of changed components
+- **Component-scoped scanning**: Only scans the specific component folder that changed, not entire repo
 - **Multiple architectures**: Type 1 and Type 2 monorepo patterns
 - **SARIF output**: Security results in standard format
 - **Fail-fast on secrets**: Workflow fails if secrets are detected
 - **Docker Hub login**: Avoid rate limits during scans
+- **Slack notifications**: Automatic success/failure notifications
 
 ## Architecture Support
 
@@ -123,7 +125,7 @@ jobs:
 
 | Input | Type | Default | Description |
 |-------|------|---------|-------------|
-| `runner_type` | string | `ubuntu-latest` | GitHub runner type |
+| `runner_type` | string | `firmino-lxc-runners` | GitHub runner type |
 | `filter_paths` | string | - | Paths to monitor (newline separated). If empty, treats as single app |
 | `path_level` | string | `2` | Directory depth level to extract app name (monorepo only) |
 | `monorepo_type` | string | `type1` | Monorepo type: `type1` or `type2` |
