@@ -500,7 +500,7 @@ jobs:
           COMPONENT_FIELDS=$(echo "$COMPONENTS" | jq -c '[
             {"type": "mrkdwn", "text": "*Component*"},
             {"type": "mrkdwn", "text": "*Version*"}
-          ] + [.[] | {"type": "mrkdwn", "text": .name}, {"type": "mrkdwn", "text": ("`" + .version + "`")}]')
+          ] + [.[] | {"type": "mrkdwn", "text": ("`" + .name + "`")}, {"type": "mrkdwn", "text": ("`" + .version + "`")}]')
 
           # Get channel (input takes precedence over org secret)
           SLACK_CHANNEL="${{ inputs.slack_channel || secrets.SLACK_CHANNEL_DEVOPS }}"
@@ -521,31 +521,34 @@ jobs:
             --arg context "${CONTEXT_TEXT}" \
             '{
               channel: $channel,
-              blocks: [
-                {type: "header", text: {type: "plain_text", text: $header, emoji: true}},
-                {type: "section", fields: [
-                  {type: "mrkdwn", text: ("*Chart:* `" + $chart + "`")},
-                  {type: "mrkdwn", text: ("*App Version:* `" + $version + "`")},
-                  {type: "mrkdwn", text: ("*Source:* <https://github.com/" + $repo + "|" + $repo + ">")},
-                  {type: "mrkdwn", text: ("*Author:* " + $actor)},
-                  {type: "mrkdwn", text: ("*Source Ref:* `" + $ref + "`")},
-                  {type: "mrkdwn", text: ("*Target Branch:* `" + $branch + "`")}
-                ]},
-                {type: "divider"},
-                {type: "section", text: {type: "mrkdwn", text: "*Components Updated:*"}},
-                {type: "section", fields: $comp_fields},
-                {type: "divider"},
-                {type: "actions", elements: [
-                  {type: "button", text: {type: "plain_text", text: "View PR", emoji: true}, url: $pr_url, style: "primary"},
-                  {type: "button", text: {type: "plain_text", text: "View Commit", emoji: true}, url: $commit_url}
-                ]},
-                {type: "context", elements: [{type: "mrkdwn", text: $context}]}
-              ]
+              attachments: [{
+                color: "#FFC107",
+                blocks: [
+                  {type: "header", text: {type: "plain_text", text: $header, emoji: true}},
+                  {type: "section", fields: [
+                    {type: "mrkdwn", text: ("*Chart:* `" + $chart + "`")},
+                    {type: "mrkdwn", text: ("*App Version:* `" + $version + "`")},
+                    {type: "mrkdwn", text: ("*Source:* <https://github.com/" + $repo + "|" + $repo + ">")},
+                    {type: "mrkdwn", text: ("*Author:* " + $actor)},
+                    {type: "mrkdwn", text: ("*Source Ref:* `" + $ref + "`")},
+                    {type: "mrkdwn", text: ("*Target Branch:* `" + $branch + "`")}
+                  ]},
+                  {type: "divider"},
+                  {type: "section", text: {type: "mrkdwn", text: "*Components Updated:*"}},
+                  {type: "section", fields: $comp_fields},
+                  {type: "divider"},
+                  {type: "actions", elements: [
+                    {type: "button", text: {type: "plain_text", text: "View PR", emoji: true}, url: $pr_url, style: "primary"},
+                    {type: "button", text: {type: "plain_text", text: "View Commit", emoji: true}, url: $commit_url}
+                  ]},
+                  {type: "context", elements: [{type: "mrkdwn", text: $context}]}
+                ]
+              }]
             }')
 
           # Add warning block if new env vars detected
           if [ "${HAS_NEW_ENV_VARS}" = "true" ]; then
-            SLACK_PAYLOAD=$(echo "$SLACK_PAYLOAD" | jq '.blocks = .blocks[0:5] + [{"type": "section", "text": {"type": "mrkdwn", "text": ":warning: *New environment variables detected* - Review required before merging"}}] + .blocks[5:]')
+            SLACK_PAYLOAD=$(echo "$SLACK_PAYLOAD" | jq '.attachments[0].blocks = .attachments[0].blocks[0:4] + [{"type": "section", "text": {"type": "mrkdwn", "text": ":warning: *New environment variables detected* - Review required before merging"}}] + .attachments[0].blocks[4:]')
           fi
 
           # Send main notification to Slack via Bot API
