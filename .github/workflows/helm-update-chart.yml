@@ -462,7 +462,7 @@ jobs:
           fi
 
           # Build components list for Slack
-          COMPONENTS_LIST=$(echo "$COMPONENTS" | jq -r '.[] | "• *\(.name)* → \`\(.version)\`\(.env_vars | if . == {} then "" else " :new: _env vars: \(. | keys | join(", "))_" end)"')
+          COMPONENTS_LIST=$(echo "$COMPONENTS" | jq -r '.[] | "• *\(.name)* → `\(.version)`\(.env_vars | if . == {} then "" else " :new: _env vars: \(. | keys | join(", "))_" end)"')
 
           # Build Slack message
           SLACK_MESSAGE=$(cat << SLACKEOF
