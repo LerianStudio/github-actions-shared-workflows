@@ -364,7 +364,7 @@ jobs:
           GOPRIVATE: ${{ inputs.go_private_modules }}
 
       - name: Download coverage artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v6
         with:
           name: coverage-${{ matrix.app.name }}
           path: ${{ matrix.app.working_dir }}
