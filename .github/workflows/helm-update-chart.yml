@@ -54,9 +54,9 @@ on:
         type: string
         required: false
       slack_mention_group:
-        description: 'Slack user group ID to mention (e.g., S0614TZR7 for @devops-sre). Optional.'
+        description: 'Slack user group ID to mention (e.g., S0614TZR7 for @devops-sre)'
         type: string
-        required: false
+        default: 'S06RDMH1WCF'
     secrets:
       APP_ID:
         description: 'GitHub App ID for token generation'
@@ -531,6 +531,23 @@ jobs:
           if [ "${HAS_NEW_ENV_VARS}" = "true" ]; then
             SLACK_PAYLOAD=$(echo "$SLACK_PAYLOAD" | jq '.blocks = .blocks[0:5] + [{"type": "section", "text": {"type": "mrkdwn", "text": ":warning: *New environment variables detected* - Review required before merging"}}] + .blocks[5:]')
           fi
+
+          # Build Severino instruction for Jira ticket creation
+          COMPONENTS_LIST=$(echo "$COMPONENTS" | jq -r '[.[].name] | join(", ")')
+          SEVERINO_TEXT="@Severino helm chart PR review
+*PR:* ${PR_URL}
+*Chart:* ${CHART}
+*Components:* ${COMPONENTS_LIST}
+*Version:* ${APP_VERSION}
+*Source:* ${SOURCE_REPO}@${SOURCE_REF}"
+
+          # Add Severino block before actions
+          SLACK_PAYLOAD=$(echo "$SLACK_PAYLOAD" | jq --arg severino "$SEVERINO_TEXT" '
+            .blocks = .blocks[0:-3] + [
+              {type: "divider"},
+              {type: "section", text: {type: "mrkdwn", text: (":ticket: *Create Jira ticket:*\n```" + $severino + "```")}}
+            ] + .blocks[-3:]
+          ')
 
           # Send to Slack via Bot API
           SLACK_RESPONSE=$(curl -s -X POST \
