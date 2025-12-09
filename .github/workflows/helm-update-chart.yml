@@ -461,8 +461,8 @@ jobs:
             ENV_WARNING=""
           fi
 
-          # Build components list for Slack
-          COMPONENTS_LIST=$(echo "$COMPONENTS" | jq -r '.[] | "• *\(.name)* → `\(.version)`\(.env_vars | if . == {} then "" else " :new: _env vars: \(. | keys | join(", "))_" end)"')
+          # Build components list for Slack (avoiding backticks that cause jq escaping issues)
+          COMPONENTS_LIST=$(echo "$COMPONENTS" | jq -r '.[] | "• *\(.name)* → *\(.version)*\(.env_vars | if . == {} then "" else " :new: _env vars: \(. | keys | join(", "))_" end)"')
 
           # Build Slack message
           SLACK_MESSAGE=$(cat << SLACKEOF
