@@ -452,7 +452,6 @@ jobs:
           SOURCE_REPO="${{ steps.payload.outputs.source_repo }}"
           SOURCE_ACTOR="${{ steps.payload.outputs.source_actor }}"
           SOURCE_SHA="${{ steps.payload.outputs.source_sha }}"
-          UPDATED_COMPONENTS="${{ steps.process.outputs.updated_components }}"
           PR_URL="${{ steps.push-pr.outputs.pr_url }}"
           COMPONENTS=$(cat /tmp/components.json)
 
@@ -463,28 +462,34 @@ jobs:
           if [ "${HAS_NEW_ENV_VARS}" = "true" ]; then
             COMMIT_TYPE="feat"
             TYPE_EMOJI=":sparkles:"
-            ENV_WARNING="\n:warning: *New environment variables detected* - Review required"
           else
             COMMIT_TYPE="fix"
             TYPE_EMOJI=":rocket:"
-            ENV_WARNING=""
           fi
 
-          # Build components list for Slack
-          COMPONENTS_LIST=$(echo "$COMPONENTS" | jq -r '[.[] | "• *\(.name)* → *\(.version)*\(.env_vars | if . == {} then "" else " :new: _env vars: \(. | keys | join(", "))_" end)"] | join("\n")')
+          # Build components table for Slack (monospace format)
+          # Header
+          TABLE_HEADER="Component        Version    New Env Vars"
+          TABLE_DIVIDER="───────────────  ─────────  ────────────────────"
 
-          # Build components text with warning if needed
-          COMPONENTS_TEXT="*Components Updated:*\n${COMPONENTS_LIST}"
-          if [ -n "${ENV_WARNING}" ]; then
-            COMPONENTS_TEXT="${COMPONENTS_TEXT}\n\n:warning: *New environment variables detected* - Review required"
-          fi
+          # Build table rows
+          TABLE_ROWS=$(echo "$COMPONENTS" | jq -r '.[] |
+            .name as $name |
+            .version as $ver |
+            (.env_vars | if . == {} or . == null then "-" else (keys | join(", ")) end) as $env |
+            # Pad name to 15 chars, version to 9 chars
+            ($name + "                "[0:(15 - ($name | length))]) + "  " +
+            ($ver + "          "[0:(9 - ($ver | length))]) + "  " +
+            $env
+          ')
 
-          # Build Slack message using jq for proper JSON escaping
+          # Build metadata
           TIMESTAMP=$(date -u '+%Y-%m-%d %H:%M:%S UTC')
           WORKFLOW_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
           WORKFLOW_NUM="${{ github.run_number }}"
           BASE_BRANCH="${{ inputs.base_branch }}"
 
+          # Build Slack payload with jq - using proper newlines
           SLACK_PAYLOAD=$(jq -n \
             --arg channel "${{ inputs.slack_channel }}" \
             --arg header_text "${TYPE_EMOJI} Helm Chart Update - ${COMMIT_TYPE}" \
@@ -494,7 +499,10 @@ jobs:
             --arg source_actor "${SOURCE_ACTOR}" \
             --arg source_ref "${SOURCE_REF}" \
             --arg base_branch "${BASE_BRANCH}" \
-            --arg components_text "${COMPONENTS_TEXT}" \
+            --arg table_header "${TABLE_HEADER}" \
+            --arg table_divider "${TABLE_DIVIDER}" \
+            --arg table_rows "${TABLE_ROWS}" \
+            --arg has_new_env "${HAS_NEW_ENV_VARS}" \
             --arg pr_url "${PR_URL}" \
             --arg commit_url "https://github.com/${SOURCE_REPO}/commit/${SOURCE_SHA}" \
             --arg context_text ":clock1: ${TIMESTAMP} | Workflow: <${WORKFLOW_URL}|#${WORKFLOW_NUM}>" \
@@ -503,50 +511,60 @@ jobs:
               blocks: [
                 {
                   type: "header",
-                  text: {
-                    type: "plain_text",
-                    text: $header_text,
-                    emoji: true
-                  }
+                  text: { type: "plain_text", text: $header_text, emoji: true }
                 },
                 {
                   type: "section",
                   fields: [
-                    { type: "mrkdwn", text: ("*Chart:*\n" + $chart) },
-                    { type: "mrkdwn", text: ("*App Version:*\n" + $app_version) },
-                    { type: "mrkdwn", text: ("*Source:*\n<https://github.com/" + $source_repo + "|" + $source_repo + ">") },
-                    { type: "mrkdwn", text: ("*Author:*\n@" + $source_actor) },
-                    { type: "mrkdwn", text: ("*Source Ref:*\n" + $source_ref) },
-                    { type: "mrkdwn", text: ("*Target Branch:*\n" + $base_branch) }
+                    { type: "mrkdwn", text: ("*Chart:* " + $chart) },
+                    { type: "mrkdwn", text: ("*App Version:* " + $app_version) },
+                    { type: "mrkdwn", text: ("*Source:* <https://github.com/" + $source_repo + "|" + $source_repo + ">") },
+                    { type: "mrkdwn", text: ("*Author:* @" + $source_actor) },
+                    { type: "mrkdwn", text: ("*Source Ref:* " + $source_ref) },
+                    { type: "mrkdwn", text: ("*Target Branch:* " + $base_branch) }
                   ]
                 },
                 { type: "divider" },
                 {
                   type: "section",
-                  text: { type: "mrkdwn", text: $components_text }
+                  text: { type: "mrkdwn", text: "*Components Updated:*" }
                 },
+                {
+                  type: "section",
+                  text: {
+                    type: "mrkdwn",
+                    text: ("```\n" + $table_header + "\n" + $table_divider + "\n" + $table_rows + "\n```")
+                  }
+                }
+              ] + (
+                if $has_new_env == "true" then
+                  [{
+                    type: "section",
+                    text: { type: "mrkdwn", text: ":warning: *New environment variables detected* - Review required before merging" }
+                  }]
+                else []
+                end
+              ) + [
                 { type: "divider" },
                 {
                   type: "actions",
                   elements: [
                     {
                       type: "button",
-                      text: { type: "plain_text", text: ":github: View PR", emoji: true },
+                      text: { type: "plain_text", text: "View PR", emoji: true },
                       url: $pr_url,
                       style: "primary"
                     },
                     {
                       type: "button",
-                      text: { type: "plain_text", text: ":mag: View Commit", emoji: true },
+                      text: { type: "plain_text", text: "View Commit", emoji: true },
                       url: $commit_url
                     }
                   ]
                 },
                 {
                   type: "context",
-                  elements: [
-                    { type: "mrkdwn", text: $context_text }
-                  ]
+                  elements: [{ type: "mrkdwn", text: $context_text }]
                 }
               ]
             }')
