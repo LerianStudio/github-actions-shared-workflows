@@ -90,26 +90,38 @@ jobs:
 
       - name: Extract payload
         id: payload
+        env:
+          PAYLOAD_INPUT: ${{ inputs.payload }}
         run: |
           echo "Received payload:"
-          PAYLOAD='${{ inputs.payload }}'
-          echo "$PAYLOAD" | jq .
+          # Write payload to file using env var to avoid quote escaping issues
+          echo "${PAYLOAD_INPUT}" > /tmp/payload.json
 
-          CHART=$(echo "$PAYLOAD" | jq -r '.chart')
-          HAS_NEW_ENV_VARS=$(echo "$PAYLOAD" | jq -r '.has_new_env_vars')
-          SOURCE_REF=$(echo "$PAYLOAD" | jq -r '.source_ref // "unknown"')
+          # Pretty print
+          jq . /tmp/payload.json
 
-          echo "chart=${CHART}" >> $GITHUB_OUTPUT
-          echo "has_new_env_vars=${HAS_NEW_ENV_VARS}" >> $GITHUB_OUTPUT
-          echo "source_ref=${SOURCE_REF}" >> $GITHUB_OUTPUT
+          # Extract all fields
+          CHART=$(jq -r '.chart' /tmp/payload.json)
+          HAS_NEW_ENV_VARS=$(jq -r '.has_new_env_vars' /tmp/payload.json)
+          SOURCE_REF=$(jq -r '.source_ref // "unknown"' /tmp/payload.json)
+          SOURCE_REPO=$(jq -r '.source_repo // "unknown"' /tmp/payload.json)
+          SOURCE_ACTOR=$(jq -r '.source_actor // "unknown"' /tmp/payload.json)
+          SOURCE_SHA=$(jq -r '.source_sha // "unknown"' /tmp/payload.json)
 
           # Generate branch name
           TIMESTAMP=$(date +%Y%m%d%H%M%S)
           BRANCH_NAME="update/${CHART}/${SOURCE_REF}-${TIMESTAMP}"
+
+          echo "chart=${CHART}" >> $GITHUB_OUTPUT
+          echo "has_new_env_vars=${HAS_NEW_ENV_VARS}" >> $GITHUB_OUTPUT
+          echo "source_ref=${SOURCE_REF}" >> $GITHUB_OUTPUT
+          echo "source_repo=${SOURCE_REPO}" >> $GITHUB_OUTPUT
+          echo "source_actor=${SOURCE_ACTOR}" >> $GITHUB_OUTPUT
+          echo "source_sha=${SOURCE_SHA}" >> $GITHUB_OUTPUT
           echo "branch_name=${BRANCH_NAME}" >> $GITHUB_OUTPUT
 
           # Save components array to file for processing
-          echo "$PAYLOAD" | jq -c '.components' > /tmp/components.json
+          jq -c '.components' /tmp/payload.json > /tmp/components.json
 
       - name: Checkout
         uses: actions/checkout@v4
@@ -434,18 +446,15 @@ jobs:
       - name: Send Slack notification
         if: ${{ inputs.slack_notification && steps.commit.outputs.has_changes == 'true' }}
         run: |
-          PAYLOAD='${{ inputs.payload }}'
           CHART="${{ steps.payload.outputs.chart }}"
           HAS_NEW_ENV_VARS="${{ steps.payload.outputs.has_new_env_vars }}"
           SOURCE_REF="${{ steps.payload.outputs.source_ref }}"
+          SOURCE_REPO="${{ steps.payload.outputs.source_repo }}"
+          SOURCE_ACTOR="${{ steps.payload.outputs.source_actor }}"
+          SOURCE_SHA="${{ steps.payload.outputs.source_sha }}"
           UPDATED_COMPONENTS="${{ steps.process.outputs.updated_components }}"
           PR_URL="${{ steps.push-pr.outputs.pr_url }}"
           COMPONENTS=$(cat /tmp/components.json)
-
-          # Extract source info from payload
-          SOURCE_REPO=$(echo "$PAYLOAD" | jq -r '.source_repo // "unknown"')
-          SOURCE_ACTOR=$(echo "$PAYLOAD" | jq -r '.source_actor // "unknown"')
-          SOURCE_SHA=$(echo "$PAYLOAD" | jq -r '.source_sha // "unknown"')
 
           # Get appVersion (highest version)
           APP_VERSION=$(echo "$COMPONENTS" | jq -r '[.[].version] | sort | last')
@@ -461,103 +470,86 @@ jobs:
             ENV_WARNING=""
           fi
 
-          # Build components list for Slack (avoiding backticks that cause jq escaping issues)
-          COMPONENTS_LIST=$(echo "$COMPONENTS" | jq -r '.[] | "• *\(.name)* → *\(.version)*\(.env_vars | if . == {} then "" else " :new: _env vars: \(. | keys | join(", "))_" end)"')
+          # Build components list for Slack
+          COMPONENTS_LIST=$(echo "$COMPONENTS" | jq -r '[.[] | "• *\(.name)* → *\(.version)*\(.env_vars | if . == {} then "" else " :new: _env vars: \(. | keys | join(", "))_" end)"] | join("\n")')
 
-          # Build Slack message
-          SLACK_MESSAGE=$(cat << SLACKEOF
-          {
-            "blocks": [
-              {
-                "type": "header",
-                "text": {
-                  "type": "plain_text",
-                  "text": "${TYPE_EMOJI} Helm Chart Update - ${COMMIT_TYPE}",
-                  "emoji": true
-                }
-              },
-              {
-                "type": "section",
-                "fields": [
-                  {
-                    "type": "mrkdwn",
-                    "text": "*Chart:*\n\`${CHART}\`"
-                  },
-                  {
-                    "type": "mrkdwn",
-                    "text": "*App Version:*\n\`${APP_VERSION}\`"
-                  },
-                  {
-                    "type": "mrkdwn",
-                    "text": "*Source:*\n<https://github.com/${SOURCE_REPO}|${SOURCE_REPO}>"
-                  },
-                  {
-                    "type": "mrkdwn",
-                    "text": "*Author:*\n@${SOURCE_ACTOR}"
-                  },
-                  {
-                    "type": "mrkdwn",
-                    "text": "*Source Ref:*\n\`${SOURCE_REF}\`"
-                  },
-                  {
-                    "type": "mrkdwn",
-                    "text": "*Target Branch:*\n\`${{ inputs.base_branch }}\`"
-                  }
-                ]
-              },
-              {
-                "type": "divider"
-              },
-              {
-                "type": "section",
-                "text": {
-                  "type": "mrkdwn",
-                  "text": "*Components Updated:*\n${COMPONENTS_LIST}${ENV_WARNING}"
-                }
-              },
-              {
-                "type": "divider"
-              },
-              {
-                "type": "actions",
-                "elements": [
-                  {
-                    "type": "button",
-                    "text": {
-                      "type": "plain_text",
-                      "text": ":github: View PR",
-                      "emoji": true
-                    },
-                    "url": "${PR_URL}",
-                    "style": "primary"
-                  },
-                  {
-                    "type": "button",
-                    "text": {
-                      "type": "plain_text",
-                      "text": ":mag: View Commit",
-                      "emoji": true
-                    },
-                    "url": "https://github.com/${SOURCE_REPO}/commit/${SOURCE_SHA}"
-                  }
-                ]
-              },
-              {
-                "type": "context",
-                "elements": [
-                  {
-                    "type": "mrkdwn",
-                    "text": ":clock1: $(date -u '+%Y-%m-%d %H:%M:%S UTC') | Workflow: <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|#${{ github.run_number }}>"
-                  }
-                ]
-              }
-            ]
-          }
-          SLACKEOF
-          )
+          # Build components text with warning if needed
+          COMPONENTS_TEXT="*Components Updated:*\n${COMPONENTS_LIST}"
+          if [ -n "${ENV_WARNING}" ]; then
+            COMPONENTS_TEXT="${COMPONENTS_TEXT}\n\n:warning: *New environment variables detected* - Review required"
+          fi
 
-          # Add channel to payload
-          SLACK_PAYLOAD=$(echo "${SLACK_MESSAGE}" | jq --arg channel "${{ inputs.slack_channel }}" '. + {channel: $channel}')
+          # Build Slack message using jq for proper JSON escaping
+          TIMESTAMP=$(date -u '+%Y-%m-%d %H:%M:%S UTC')
+          WORKFLOW_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          WORKFLOW_NUM="${{ github.run_number }}"
+          BASE_BRANCH="${{ inputs.base_branch }}"
+
+          SLACK_PAYLOAD=$(jq -n \
+            --arg channel "${{ inputs.slack_channel }}" \
+            --arg header_text "${TYPE_EMOJI} Helm Chart Update - ${COMMIT_TYPE}" \
+            --arg chart "${CHART}" \
+            --arg app_version "${APP_VERSION}" \
+            --arg source_repo "${SOURCE_REPO}" \
+            --arg source_actor "${SOURCE_ACTOR}" \
+            --arg source_ref "${SOURCE_REF}" \
+            --arg base_branch "${BASE_BRANCH}" \
+            --arg components_text "${COMPONENTS_TEXT}" \
+            --arg pr_url "${PR_URL}" \
+            --arg commit_url "https://github.com/${SOURCE_REPO}/commit/${SOURCE_SHA}" \
+            --arg context_text ":clock1: ${TIMESTAMP} | Workflow: <${WORKFLOW_URL}|#${WORKFLOW_NUM}>" \
+            '{
+              channel: $channel,
+              blocks: [
+                {
+                  type: "header",
+                  text: {
+                    type: "plain_text",
+                    text: $header_text,
+                    emoji: true
+                  }
+                },
+                {
+                  type: "section",
+                  fields: [
+                    { type: "mrkdwn", text: ("*Chart:*\n" + $chart) },
+                    { type: "mrkdwn", text: ("*App Version:*\n" + $app_version) },
+                    { type: "mrkdwn", text: ("*Source:*\n<https://github.com/" + $source_repo + "|" + $source_repo + ">") },
+                    { type: "mrkdwn", text: ("*Author:*\n@" + $source_actor) },
+                    { type: "mrkdwn", text: ("*Source Ref:*\n" + $source_ref) },
+                    { type: "mrkdwn", text: ("*Target Branch:*\n" + $base_branch) }
+                  ]
+                },
+                { type: "divider" },
+                {
+                  type: "section",
+                  text: { type: "mrkdwn", text: $components_text }
+                },
+                { type: "divider" },
+                {
+                  type: "actions",
+                  elements: [
+                    {
+                      type: "button",
+                      text: { type: "plain_text", text: ":github: View PR", emoji: true },
+                      url: $pr_url,
+                      style: "primary"
+                    },
+                    {
+                      type: "button",
+                      text: { type: "plain_text", text: ":mag: View Commit", emoji: true },
+                      url: $commit_url
+                    }
+                  ]
+                },
+                {
+                  type: "context",
+                  elements: [
+                    { type: "mrkdwn", text: $context_text }
+                  ]
+                }
+              ]
+            }')
 
           # Send to Slack via Bot API
           SLACK_RESPONSE=$(curl -s -X POST \
