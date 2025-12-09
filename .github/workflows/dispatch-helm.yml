@@ -135,7 +135,13 @@ jobs:
             echo "Built components from paths: $COMPONENTS_JSON"
           else
             echo "Using components_json mode"
-            COMPONENTS_JSON='${{ inputs.components_json }}'
+            # Normalize components_json: handle both 'path' and 'working_dir' fields
+            RAW_COMPONENTS='${{ inputs.components_json }}'
+            echo "Raw components_json: $RAW_COMPONENTS"
+
+            # Normalize to use 'path' field (convert working_dir to path if needed)
+            COMPONENTS_JSON=$(echo "$RAW_COMPONENTS" | jq -c '[.[] | {name: .name, path: (.path // .working_dir // empty), version: .version}]')
+            echo "Normalized components: $COMPONENTS_JSON"
           fi
 
           echo "Processing components: $COMPONENTS_JSON"
