@@ -45,6 +45,14 @@ on:
         description: 'Whether to sign commits with GPG (default: true)'
         type: boolean
         default: true
+      slack_notification:
+        description: 'Whether to send Slack notification (default: false)'
+        type: boolean
+        default: false
+      slack_channel:
+        description: 'Slack channel ID to send notifications (e.g., C1234567890)'
+        type: string
+        required: false
     secrets:
       APP_ID:
         description: 'GitHub App ID for token generation'
@@ -64,6 +72,9 @@ on:
       GIT_USER_EMAIL:
         description: 'Git committer email'
         required: true
+      SLACK_BOT_TOKEN:
+        description: 'Slack Bot OAuth Token (xoxb-...) for notifications'
+        required: false
 
 jobs:
   update-chart:
@@ -330,6 +341,7 @@ jobs:
           git commit -m "${COMMIT_MSG}"
 
       - name: Push branch and create PR
+        id: push-pr
         if: steps.commit.outputs.has_changes == 'true'
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
@@ -418,3 +430,146 @@ jobs:
           echo "|-----------|---------|--------------|" >> $GITHUB_STEP_SUMMARY
 
           echo "$COMPONENTS" | jq -r '.[] | "| \(.name) | \(.version) | \(.env_vars | if . == {} then "-" else (. | keys | join(", ")) end) |"' >> $GITHUB_STEP_SUMMARY
+
+      - name: Send Slack notification
+        if: ${{ inputs.slack_notification && steps.commit.outputs.has_changes == 'true' }}
+        run: |
+          PAYLOAD='${{ inputs.payload }}'
+          CHART="${{ steps.payload.outputs.chart }}"
+          HAS_NEW_ENV_VARS="${{ steps.payload.outputs.has_new_env_vars }}"
+          SOURCE_REF="${{ steps.payload.outputs.source_ref }}"
+          UPDATED_COMPONENTS="${{ steps.process.outputs.updated_components }}"
+          PR_URL="${{ steps.push-pr.outputs.pr_url }}"
+          COMPONENTS=$(cat /tmp/components.json)
+
+          # Extract source info from payload
+          SOURCE_REPO=$(echo "$PAYLOAD" | jq -r '.source_repo // "unknown"')
+          SOURCE_ACTOR=$(echo "$PAYLOAD" | jq -r '.source_actor // "unknown"')
+          SOURCE_SHA=$(echo "$PAYLOAD" | jq -r '.source_sha // "unknown"')
+
+          # Get appVersion (highest version)
+          APP_VERSION=$(echo "$COMPONENTS" | jq -r '[.[].version] | sort | last')
+
+          # Determine commit type and emoji
+          if [ "${HAS_NEW_ENV_VARS}" = "true" ]; then
+            COMMIT_TYPE="feat"
+            TYPE_EMOJI=":sparkles:"
+            ENV_WARNING="\n:warning: *New environment variables detected* - Review required"
+          else
+            COMMIT_TYPE="fix"
+            TYPE_EMOJI=":rocket:"
+            ENV_WARNING=""
+          fi
+
+          # Build components list for Slack
+          COMPONENTS_LIST=$(echo "$COMPONENTS" | jq -r '.[] | "• *\(.name)* → \`\(.version)\`\(.env_vars | if . == {} then "" else " :new: _env vars: \(. | keys | join(", "))_" end)"')
+
+          # Build Slack message
+          SLACK_MESSAGE=$(cat << SLACKEOF
+          {
+            "blocks": [
+              {
+                "type": "header",
+                "text": {
+                  "type": "plain_text",
+                  "text": "${TYPE_EMOJI} Helm Chart Update - ${COMMIT_TYPE}",
+                  "emoji": true
+                }
+              },
+              {
+                "type": "section",
+                "fields": [
+                  {
+                    "type": "mrkdwn",
+                    "text": "*Chart:*\n\`${CHART}\`"
+                  },
+                  {
+                    "type": "mrkdwn",
+                    "text": "*App Version:*\n\`${APP_VERSION}\`"
+                  },
+                  {
+                    "type": "mrkdwn",
+                    "text": "*Source:*\n<https://github.com/${SOURCE_REPO}|${SOURCE_REPO}>"
+                  },
+                  {
+                    "type": "mrkdwn",
+                    "text": "*Author:*\n@${SOURCE_ACTOR}"
+                  },
+                  {
+                    "type": "mrkdwn",
+                    "text": "*Source Ref:*\n\`${SOURCE_REF}\`"
+                  },
+                  {
+                    "type": "mrkdwn",
+                    "text": "*Target Branch:*\n\`${{ inputs.base_branch }}\`"
+                  }
+                ]
+              },
+              {
+                "type": "divider"
+              },
+              {
+                "type": "section",
+                "text": {
+                  "type": "mrkdwn",
+                  "text": "*Components Updated:*\n${COMPONENTS_LIST}${ENV_WARNING}"
+                }
+              },
+              {
+                "type": "divider"
+              },
+              {
+                "type": "actions",
+                "elements": [
+                  {
+                    "type": "button",
+                    "text": {
+                      "type": "plain_text",
+                      "text": ":github: View PR",
+                      "emoji": true
+                    },
+                    "url": "${PR_URL}",
+                    "style": "primary"
+                  },
+                  {
+                    "type": "button",
+                    "text": {
+                      "type": "plain_text",
+                      "text": ":mag: View Commit",
+                      "emoji": true
+                    },
+                    "url": "https://github.com/${SOURCE_REPO}/commit/${SOURCE_SHA}"
+                  }
+                ]
+              },
+              {
+                "type": "context",
+                "elements": [
+                  {
+                    "type": "mrkdwn",
+                    "text": ":clock1: $(date -u '+%Y-%m-%d %H:%M:%S UTC') | Workflow: <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|#${{ github.run_number }}>"
+                  }
+                ]
+              }
+            ]
+          }
+          SLACKEOF
+          )
+
+          # Add channel to payload
+          SLACK_PAYLOAD=$(echo "${SLACK_MESSAGE}" | jq --arg channel "${{ inputs.slack_channel }}" '. + {channel: $channel}')
+
+          # Send to Slack via Bot API
+          SLACK_RESPONSE=$(curl -s -X POST \
+            -H "Authorization: Bearer ${{ secrets.SLACK_BOT_TOKEN }}" \
+            -H "Content-type: application/json; charset=utf-8" \
+            --data "${SLACK_PAYLOAD}" \
+            "https://slack.com/api/chat.postMessage")
+
+          # Check response
+          if echo "$SLACK_RESPONSE" | jq -e '.ok == true' > /dev/null; then
+            echo "Slack notification sent successfully"
+          else
+            echo "::warning::Failed to send Slack notification"
+            echo "$SLACK_RESPONSE" | jq .
+          fi
