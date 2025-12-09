@@ -533,14 +533,13 @@ jobs:
           fi
 
           # Build Severino instruction for Jira ticket creation
-          COMPONENTS_LIST=$(echo "$COMPONENTS" | jq -r '[.[].name] | join(", ")')
-          SEVERINO_TEXT=$(printf '@Severino helm chart PR review\n*PR:* %s\n*Chart:* %s\n*Components:* %s\n*Version:* %s\n*Source:* %s@%s' "$PR_URL" "$CHART" "$COMPONENTS_LIST" "$APP_VERSION" "$SOURCE_REPO" "$SOURCE_REF")
+          SEVERINO_TEXT="@Severino helm chart PR review | ${PR_URL} | Chart: ${CHART}"
 
           # Add Severino block before actions
           SLACK_PAYLOAD=$(echo "$SLACK_PAYLOAD" | jq --arg severino "$SEVERINO_TEXT" '
             .blocks = .blocks[0:-3] + [
               {type: "divider"},
-              {type: "section", text: {type: "mrkdwn", text: (":ticket: *Create Jira ticket:*\n```" + $severino + "```")}}
+              {type: "section", text: {type: "mrkdwn", text: $severino}}
             ] + .blocks[-3:]
           ')
 
