@@ -259,11 +259,24 @@ jobs:
           PAYLOAD_STRING=$(echo "$PAYLOAD" | jq -c .)
 
           # Send workflow_dispatch (allows targeting specific branch)
-          curl -X POST \
+          HTTP_RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
             -H "Authorization: token ${{ secrets.helm_repo_token }}" \
             -H "Accept: application/vnd.github.v3+json" \
             "https://api.github.com/repos/${{ inputs.helm_repository }}/actions/workflows/${{ inputs.workflow_file }}/dispatches" \
-            -d "{\"ref\":\"${{ inputs.target_ref }}\",\"inputs\":{\"payload\":$(echo "$PAYLOAD_STRING" | jq -R .)}}"
+            -d "{\"ref\":\"${{ inputs.target_ref }}\",\"inputs\":{\"payload\":$(echo "$PAYLOAD_STRING" | jq -R .)}}")
+
+          HTTP_BODY=$(echo "$HTTP_RESPONSE" | sed '$d')
+          HTTP_CODE=$(echo "$HTTP_RESPONSE" | tail -n1)
+
+          echo "HTTP Status: $HTTP_CODE"
+
+          if [ "$HTTP_CODE" != "204" ]; then
+            echo "::error::Failed to dispatch workflow. HTTP $HTTP_CODE"
+            echo "$HTTP_BODY" | jq . 2>/dev/null || echo "$HTTP_BODY"
+            exit 1
+          fi
+
+          echo "Workflow dispatched successfully"
 
       - name: Summary
         run: |

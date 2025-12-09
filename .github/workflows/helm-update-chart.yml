@@ -1,0 +1,317 @@
+name: "Update Helm Chart"
+
+# Reusable workflow for updating Helm charts from dispatch payload
+# Receives a JSON payload with chart name, components, versions, and env vars
+# Updates values.yaml, Chart.yaml (appVersion), and optionally configmap/secret templates
+#
+# Usage:
+#   jobs:
+#     update:
+#       uses: LerianStudio/github-actions-shared-workflows/.github/workflows/helm-update-chart.yml@main
+#       with:
+#         payload: ${{ inputs.payload }}
+#       secrets: inherit
+
+on:
+  workflow_call:
+    inputs:
+      payload:
+        description: 'JSON payload with chart, components, and metadata'
+        type: string
+        required: true
+      scripts_path:
+        description: 'Path to scripts directory (default: .github/scripts)'
+        type: string
+        default: '.github/scripts'
+      charts_path:
+        description: 'Path to charts directory (default: charts)'
+        type: string
+        default: 'charts'
+      update_readme:
+        description: 'Whether to update README matrix (default: true)'
+        type: boolean
+        default: true
+      runner_type:
+        description: 'GitHub runner type to use'
+        type: string
+        default: 'ubuntu-latest'
+    secrets:
+      APP_ID:
+        description: 'GitHub App ID for token generation'
+        required: true
+      APP_PRIVATE_KEY:
+        description: 'GitHub App private key'
+        required: true
+      GPG_KEY:
+        description: 'GPG private key for signing commits'
+        required: false
+      GPG_KEY_PASSWORD:
+        description: 'GPG key passphrase'
+        required: false
+      GIT_USER_NAME:
+        description: 'Git committer name'
+        required: true
+      GIT_USER_EMAIL:
+        description: 'Git committer email'
+        required: true
+
+jobs:
+  update-chart:
+    name: Update Chart
+    runs-on: ${{ inputs.runner_type }}
+    steps:
+      - name: Generate GitHub App Token
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+
+      - name: Extract payload
+        id: payload
+        run: |
+          echo "Received payload:"
+          PAYLOAD='${{ inputs.payload }}'
+          echo "$PAYLOAD" | jq .
+
+          echo "chart=$(echo "$PAYLOAD" | jq -r '.chart')" >> $GITHUB_OUTPUT
+          echo "has_new_env_vars=$(echo "$PAYLOAD" | jq -r '.has_new_env_vars')" >> $GITHUB_OUTPUT
+
+          # Save components array to file for processing
+          echo "$PAYLOAD" | jq -c '.components' > /tmp/components.json
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+          fetch-depth: 0
+
+      - name: Import GPG key
+        if: ${{ secrets.GPG_KEY != '' }}
+        uses: crazy-max/ghaction-import-gpg@v6
+        with:
+          gpg_private_key: ${{ secrets.GPG_KEY }}
+          passphrase: ${{ secrets.GPG_KEY_PASSWORD }}
+          git_committer_name: ${{ secrets.GIT_USER_NAME }}
+          git_committer_email: ${{ secrets.GIT_USER_EMAIL }}
+          git_config_global: true
+          git_user_signingkey: true
+          git_commit_gpgsign: true
+
+      - name: Configure git (without GPG)
+        if: ${{ secrets.GPG_KEY == '' }}
+        run: |
+          git config user.name "${{ secrets.GIT_USER_NAME }}"
+          git config user.email "${{ secrets.GIT_USER_EMAIL }}"
+
+      - name: Setup Go
+        if: ${{ inputs.update_readme }}
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.21'
+          cache-dependency-path: ${{ inputs.scripts_path }}/go.mod
+
+      - name: Build scripts
+        if: ${{ inputs.update_readme }}
+        run: |
+          cd ${{ inputs.scripts_path }}
+          go build -o update-readme-matrix update-readme-matrix.go
+          go build -o update-chart-version-readme update-chart-version-readme.go
+
+      - name: Setup yq
+        uses: mikefarah/yq@v4
+
+      - name: Process all components
+        id: process
+        run: |
+          CHART="${{ steps.payload.outputs.chart }}"
+          CHARTS_PATH="${{ inputs.charts_path }}"
+          VALUES_FILE="${CHARTS_PATH}/${CHART}/values.yaml"
+          CHART_FILE="${CHARTS_PATH}/${CHART}/Chart.yaml"
+          TEMPLATES_BASE="${CHARTS_PATH}/${CHART}/templates"
+
+          COMPONENTS=$(cat /tmp/components.json)
+          UPDATED_COMPONENTS=""
+
+          # Function to check if a variable is sensitive (should go to secrets)
+          is_sensitive_var() {
+            local var_name="$1"
+            # Match patterns: *_KEY, *_SECRET, *_PASSWORD, *_TOKEN, *_CREDENTIAL, *_PRIVATE*, *_API_KEY
+            if [[ "$var_name" =~ _(KEY|SECRET|PASSWORD|TOKEN|CREDENTIAL|PRIVATE)$ ]] || \
+               [[ "$var_name" =~ ^(API_KEY|SECRET_|PRIVATE_|PASSWORD_|TOKEN_) ]] || \
+               [[ "$var_name" =~ _API_KEY$ ]]; then
+              return 0  # true - is sensitive
+            fi
+            return 1  # false - not sensitive
+          }
+
+          # Track highest version for appVersion
+          HIGHEST_VERSION=""
+
+          # Get chart name from Chart.yaml for template references
+          CHART_TEMPLATE_NAME=$(yq '.name' "${CHART_FILE}")
+
+          # Function to create secret template if it doesn't exist
+          create_secret_template() {
+            local comp_name="$1"
+            local secret_file="${TEMPLATES_BASE}/${comp_name}/secret.yaml"
+
+            if [ ! -f "$secret_file" ]; then
+              echo "  Creating secret template: $secret_file"
+              mkdir -p "${TEMPLATES_BASE}/${comp_name}"
+              printf '%s\n' \
+                "apiVersion: v1" \
+                "kind: Secret" \
+                "metadata:" \
+                "  name: {{ include \"${CHART_TEMPLATE_NAME}.fullname\" . }}-${comp_name}" \
+                "  labels:" \
+                "    {{- include \"${CHART_TEMPLATE_NAME}.labels\" . | nindent 4 }}" \
+                "    app.kubernetes.io/component: ${comp_name}" \
+                "type: Opaque" \
+                "data:" \
+                "  # Extra Secret Vars" \
+                "  {{- if .Values.${comp_name}.extraSecretVars }}" \
+                "  {{- toYaml .Values.${comp_name}.extraSecretVars | nindent 2 }}" \
+                "  {{- end }}" > "$secret_file"
+            fi
+          }
+
+          echo "Processing components for chart: $CHART"
+
+          # Process each component
+          for row in $(echo "$COMPONENTS" | jq -c '.[]'); do
+            COMP_NAME=$(echo "$row" | jq -r '.name')
+            COMP_VERSION=$(echo "$row" | jq -r '.version')
+            COMP_ENV_VARS=$(echo "$row" | jq -c '.env_vars // {}')
+
+            echo ""
+            echo "=== Processing: $COMP_NAME ==="
+            echo "  Version: $COMP_VERSION"
+            echo "  Env Vars: $COMP_ENV_VARS"
+
+            # Update image tag in values.yaml
+            echo "  Updating ${COMP_NAME}.image.tag to ${COMP_VERSION}"
+            yq -i ".${COMP_NAME}.image.tag = \"${COMP_VERSION}\"" "${VALUES_FILE}"
+
+            # Track highest version for appVersion (using sort -V for version comparison)
+            if [ -z "$HIGHEST_VERSION" ]; then
+              HIGHEST_VERSION="$COMP_VERSION"
+            else
+              HIGHEST_VERSION=$(printf '%s\n%s' "$HIGHEST_VERSION" "$COMP_VERSION" | sort -V | tail -n1)
+            fi
+
+            # Add new environment variables if any
+            if [ "$COMP_ENV_VARS" != "{}" ] && [ "$COMP_ENV_VARS" != "null" ]; then
+              CONFIGMAP_FILE="${TEMPLATES_BASE}/${COMP_NAME}/configmap.yaml"
+              SECRET_FILE="${TEMPLATES_BASE}/${COMP_NAME}/secret.yaml"
+
+              echo "$COMP_ENV_VARS" | jq -r 'to_entries[] | "\(.key)=\(.value)"' | while IFS='=' read -r key value; do
+                if [ -n "$key" ]; then
+                  # Check if variable is sensitive
+                  if is_sensitive_var "$key"; then
+                    echo "  Adding SECRET var: ${key}=***"
+
+                    # Create secret template if needed
+                    create_secret_template "$COMP_NAME"
+
+                    # Add to secret template (using 2 spaces indentation for data section)
+                    if [ -f "${SECRET_FILE}" ] && grep -q "# Extra Secret Vars" "${SECRET_FILE}"; then
+                      sed -i "/# Extra Secret Vars/i\\  ${key}: {{ .Values.${COMP_NAME}.secrets.${key} | default \"${value}\" | b64enc | quote }}" "${SECRET_FILE}"
+                    fi
+                  else
+                    echo "  Adding configmap var: ${key}=${value}"
+
+                    # Add to configmap template if it exists (using 2 spaces indentation)
+                    if [ -f "${CONFIGMAP_FILE}" ] && grep -q "# Extra Env Vars" "${CONFIGMAP_FILE}"; then
+                      sed -i "/# Extra Env Vars/i\\  ${key}: {{ .Values.${COMP_NAME}.configmap.${key} | default \"${value}\" | quote }}" "${CONFIGMAP_FILE}"
+                    fi
+                  fi
+                fi
+              done
+            fi
+
+            # Build updated components list for commit message
+            if [ -n "$UPDATED_COMPONENTS" ]; then
+              UPDATED_COMPONENTS="${UPDATED_COMPONENTS}, ${COMP_NAME}@${COMP_VERSION}"
+            else
+              UPDATED_COMPONENTS="${COMP_NAME}@${COMP_VERSION}"
+            fi
+          done
+
+          # Update appVersion with highest version among all components
+          if [ -n "$HIGHEST_VERSION" ]; then
+            echo ""
+            echo "Updating appVersion to ${HIGHEST_VERSION} (highest version)"
+            yq -i ".appVersion = \"${HIGHEST_VERSION}\"" "${CHART_FILE}"
+          fi
+
+          echo ""
+          echo "updated_components=$UPDATED_COMPONENTS" >> $GITHUB_OUTPUT
+
+      - name: Update README matrix
+        if: ${{ inputs.update_readme }}
+        run: |
+          CHART="${{ steps.payload.outputs.chart }}"
+          CHARTS_PATH="${{ inputs.charts_path }}"
+          SCRIPTS_PATH="${{ inputs.scripts_path }}"
+          COMPONENTS=$(cat /tmp/components.json)
+
+          # Get current appVersion from Chart.yaml
+          APP_VERSION=$(yq '.appVersion' "${CHARTS_PATH}/${CHART}/Chart.yaml")
+
+          # Update README for each component
+          for row in $(echo "$COMPONENTS" | jq -c '.[]'); do
+            COMP_NAME=$(echo "$row" | jq -r '.name')
+            COMP_VERSION=$(echo "$row" | jq -r '.version')
+
+            echo "Updating README matrix for ${COMP_NAME}@${COMP_VERSION}"
+
+            ./${SCRIPTS_PATH}/update-readme-matrix \
+              --chart "${CHART}" \
+              --component "${COMP_NAME}" \
+              --version "${COMP_VERSION}" \
+              --app-version "${APP_VERSION}"
+          done
+
+      - name: Commit and push changes
+        run: |
+          CHART="${{ steps.payload.outputs.chart }}"
+          UPDATED_COMPONENTS="${{ steps.process.outputs.updated_components }}"
+          HAS_NEW_ENV_VARS="${{ steps.payload.outputs.has_new_env_vars }}"
+
+          git add -A
+
+          # Check if there are changes to commit
+          if git diff --staged --quiet; then
+            echo "No changes to commit"
+            exit 0
+          fi
+
+          # Determine commit message based on env_vars
+          # feat: when new environment variables are added (requires attention)
+          # fix: when it's just a version bump (routine update)
+          if [ "${HAS_NEW_ENV_VARS}" = "true" ]; then
+            COMMIT_MSG="feat(${CHART}): update ${UPDATED_COMPONENTS} - new env vars"
+          else
+            COMMIT_MSG="fix(${CHART}): update ${UPDATED_COMPONENTS}"
+          fi
+
+          echo "Committing with message: ${COMMIT_MSG}"
+          git commit -m "${COMMIT_MSG}"
+          git push
+
+      - name: Summary
+        run: |
+          COMPONENTS=$(cat /tmp/components.json)
+          CHART="${{ steps.payload.outputs.chart }}"
+
+          echo "### Helm Chart Update Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Chart:** \`${CHART}\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Components:**" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Component | Version | New Env Vars |" >> $GITHUB_STEP_SUMMARY
+          echo "|-----------|---------|--------------|" >> $GITHUB_STEP_SUMMARY
+
+          echo "$COMPONENTS" | jq -r '.[] | "| \(.name) | \(.version) | \(.env_vars | if . == {} then "-" else (. | keys | join(", ")) end) |"' >> $GITHUB_STEP_SUMMARY
