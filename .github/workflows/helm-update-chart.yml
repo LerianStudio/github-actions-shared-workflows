@@ -487,9 +487,7 @@ jobs:
 
           # Add warning if new env vars
           if [ -n "$ENV_WARNING" ]; then
-            COMPONENTS_SECTION="${TABLE_TEXT}
-
-${ENV_WARNING}"
+            COMPONENTS_SECTION=$(printf '%s\n\n%s' "$TABLE_TEXT" "$ENV_WARNING")
           else
             COMPONENTS_SECTION="${TABLE_TEXT}"
           fi
