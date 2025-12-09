@@ -3,6 +3,7 @@ name: "Update Helm Chart"
 # Reusable workflow for updating Helm charts from dispatch payload
 # Receives a JSON payload with chart name, components, versions, and env vars
 # Updates values.yaml, Chart.yaml (appVersion), and optionally configmap/secret templates
+# Creates a PR for review instead of pushing directly to the target branch
 #
 # Usage:
 #   jobs:
@@ -10,6 +11,7 @@ name: "Update Helm Chart"
 #       uses: LerianStudio/github-actions-shared-workflows/.github/workflows/helm-update-chart.yml@main
 #       with:
 #         payload: ${{ inputs.payload }}
+#         base_branch: develop
 #       secrets: inherit
 
 on:
@@ -19,6 +21,10 @@ on:
         description: 'JSON payload with chart, components, and metadata'
         type: string
         required: true
+      base_branch:
+        description: 'Target branch for the PR (default: develop)'
+        type: string
+        default: 'main'
       scripts_path:
         description: 'Path to scripts directory (default: .github/scripts)'
         type: string
@@ -74,8 +80,18 @@ jobs:
           PAYLOAD='${{ inputs.payload }}'
           echo "$PAYLOAD" | jq .
 
-          echo "chart=$(echo "$PAYLOAD" | jq -r '.chart')" >> $GITHUB_OUTPUT
-          echo "has_new_env_vars=$(echo "$PAYLOAD" | jq -r '.has_new_env_vars')" >> $GITHUB_OUTPUT
+          CHART=$(echo "$PAYLOAD" | jq -r '.chart')
+          HAS_NEW_ENV_VARS=$(echo "$PAYLOAD" | jq -r '.has_new_env_vars')
+          SOURCE_REF=$(echo "$PAYLOAD" | jq -r '.source_ref // "unknown"')
+
+          echo "chart=${CHART}" >> $GITHUB_OUTPUT
+          echo "has_new_env_vars=${HAS_NEW_ENV_VARS}" >> $GITHUB_OUTPUT
+          echo "source_ref=${SOURCE_REF}" >> $GITHUB_OUTPUT
+
+          # Generate branch name
+          TIMESTAMP=$(date +%Y%m%d%H%M%S)
+          BRANCH_NAME="update/${CHART}/${SOURCE_REF}-${TIMESTAMP}"
+          echo "branch_name=${BRANCH_NAME}" >> $GITHUB_OUTPUT
 
           # Save components array to file for processing
           echo "$PAYLOAD" | jq -c '.components' > /tmp/components.json
@@ -84,6 +100,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           token: ${{ steps.app-token.outputs.token }}
+          ref: ${{ inputs.base_branch }}
           fetch-depth: 0
 
       - name: Import GPG key
@@ -103,6 +120,10 @@ jobs:
         run: |
           git config user.name "${{ secrets.GIT_USER_NAME }}"
           git config user.email "${{ secrets.GIT_USER_EMAIL }}"
+
+      - name: Create feature branch
+        run: |
+          git checkout -b "${{ steps.payload.outputs.branch_name }}"
 
       - name: Setup Go
         if: ${{ inputs.update_readme }}
@@ -273,7 +294,8 @@ jobs:
               --app-version "${APP_VERSION}"
           done
 
-      - name: Commit and push changes
+      - name: Commit changes
+        id: commit
         run: |
           CHART="${{ steps.payload.outputs.chart }}"
           UPDATED_COMPONENTS="${{ steps.process.outputs.updated_components }}"
@@ -284,8 +306,11 @@ jobs:
           # Check if there are changes to commit
           if git diff --staged --quiet; then
             echo "No changes to commit"
+            echo "has_changes=false" >> $GITHUB_OUTPUT
             exit 0
           fi
+
+          echo "has_changes=true" >> $GITHUB_OUTPUT
 
           # Determine commit message based on env_vars
           # feat: when new environment variables are added (requires attention)
@@ -296,18 +321,88 @@ jobs:
             COMMIT_MSG="fix(${CHART}): update ${UPDATED_COMPONENTS}"
           fi
 
+          echo "commit_msg=${COMMIT_MSG}" >> $GITHUB_OUTPUT
           echo "Committing with message: ${COMMIT_MSG}"
           git commit -m "${COMMIT_MSG}"
-          git push
+
+      - name: Push branch and create PR
+        if: steps.commit.outputs.has_changes == 'true'
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          CHART="${{ steps.payload.outputs.chart }}"
+          BRANCH_NAME="${{ steps.payload.outputs.branch_name }}"
+          BASE_BRANCH="${{ inputs.base_branch }}"
+          COMMIT_MSG="${{ steps.commit.outputs.commit_msg }}"
+          HAS_NEW_ENV_VARS="${{ steps.payload.outputs.has_new_env_vars }}"
+          UPDATED_COMPONENTS="${{ steps.process.outputs.updated_components }}"
+
+          # Push the branch
+          git push -u origin "${BRANCH_NAME}"
+
+          # Build PR body
+          COMPONENTS=$(cat /tmp/components.json)
+
+          # Determine PR title prefix
+          if [ "${HAS_NEW_ENV_VARS}" = "true" ]; then
+            PR_TITLE="feat(${CHART}): update ${UPDATED_COMPONENTS}"
+            ATTENTION_NOTE="> ⚠️ **Attention:** This PR includes new environment variables that may require configuration."
+          else
+            PR_TITLE="fix(${CHART}): update ${UPDATED_COMPONENTS}"
+            ATTENTION_NOTE=""
+          fi
+
+          # Build components table
+          COMPONENTS_TABLE=$(echo "$COMPONENTS" | jq -r '
+            ["| Component | Version | New Env Vars |", "|-----------|---------|--------------|"] +
+            [.[] | "| \(.name) | \(.version) | \(.env_vars | if . == {} then "-" else (. | keys | join(", ")) end) |"]
+            | .[]
+          ')
+
+          # Create PR
+          PR_URL=$(gh pr create \
+            --base "${BASE_BRANCH}" \
+            --head "${BRANCH_NAME}" \
+            --title "${PR_TITLE}" \
+            --body "$(cat <<EOF
+## Summary
+
+Automated update of Helm chart \`${CHART}\` components.
+
+${ATTENTION_NOTE}
+
+## Components Updated
+
+${COMPONENTS_TABLE}
+
+---
+*This PR was automatically generated by the CI/CD pipeline.*
+EOF
+)")
+
+          echo "PR created: ${PR_URL}"
+          echo "pr_url=${PR_URL}" >> $GITHUB_OUTPUT
 
       - name: Summary
         run: |
           COMPONENTS=$(cat /tmp/components.json)
           CHART="${{ steps.payload.outputs.chart }}"
+          BRANCH_NAME="${{ steps.payload.outputs.branch_name }}"
+          HAS_CHANGES="${{ steps.commit.outputs.has_changes }}"
 
           echo "### Helm Chart Update Summary" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Chart:** \`${CHART}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Branch:** \`${BRANCH_NAME}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Base:** \`${{ inputs.base_branch }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          if [ "${HAS_CHANGES}" = "true" ]; then
+            echo "✅ **PR created successfully**" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "ℹ️ **No changes detected**" >> $GITHUB_STEP_SUMMARY
+          fi
+
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Components:**" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
