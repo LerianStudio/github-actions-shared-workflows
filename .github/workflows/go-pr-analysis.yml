@@ -232,7 +232,7 @@ jobs:
           GOPRIVATE: ${{ inputs.go_private_modules }}
 
       - name: Run GolangCI-Lint
-        uses: golangci/golangci-lint-action@v7
+        uses: golangci/golangci-lint-action@v9
         with:
           version: ${{ inputs.golangci_lint_version }}
           working-directory: ${{ matrix.app.working_dir }}
