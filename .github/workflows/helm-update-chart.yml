@@ -529,7 +529,7 @@ jobs:
                     {type: "mrkdwn", text: ("*Chart:* `" + $chart + "`")},
                     {type: "mrkdwn", text: ("*App Version:* `" + $version + "`")},
                     {type: "mrkdwn", text: ("*Source:* <https://github.com/" + $repo + "|" + $repo + ">")},
-                    {type: "mrkdwn", text: ("*Author:* " + $actor)},
+                    {type: "mrkdwn", text: ("*Author:* <https://github.com/" + $actor + "|@" + $actor + ">")},
                     {type: "mrkdwn", text: ("*Source Ref:* `" + $ref + "`")},
                     {type: "mrkdwn", text: ("*Target Branch:* `" + $branch + "`")}
                   ]},

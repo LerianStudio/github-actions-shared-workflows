@@ -140,7 +140,7 @@ jobs:
             echo "Raw components_json: $RAW_COMPONENTS"
 
             # Normalize to use 'path' field (convert working_dir to path if needed)
-            COMPONENTS_JSON=$(echo "$RAW_COMPONENTS" | jq -c '[.[] | {name: .name, path: (.path // .working_dir // empty), version: .version}]')
+            COMPONENTS_JSON=$(echo "$RAW_COMPONENTS" | jq -c '[.[] | {name: .name, path: (.path // .working_dir // null), version: (.version // null)}]')
             echo "Normalized components: $COMPONENTS_JSON"
           fi
 
