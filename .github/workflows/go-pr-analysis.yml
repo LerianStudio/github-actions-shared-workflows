@@ -86,7 +86,7 @@ jobs:
       has_changes: ${{ steps.set-matrix.outputs.has_changes }}
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
@@ -216,7 +216,7 @@ jobs:
         app: ${{ fromJson(needs.detect-changes.outputs.matrix) }}
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup Go
         uses: actions/setup-go@v5
@@ -232,7 +232,7 @@ jobs:
           GOPRIVATE: ${{ inputs.go_private_modules }}
 
       - name: Run GolangCI-Lint
-        uses: golangci/golangci-lint-action@v7
+        uses: golangci/golangci-lint-action@v9
         with:
           version: ${{ inputs.golangci_lint_version }}
           working-directory: ${{ matrix.app.working_dir }}
@@ -252,7 +252,7 @@ jobs:
         app: ${{ fromJson(needs.detect-changes.outputs.matrix) }}
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup Go
         uses: actions/setup-go@v5
@@ -268,7 +268,7 @@ jobs:
           GOPRIVATE: ${{ inputs.go_private_modules }}
 
       - name: Run Gosec
-        uses: securego/gosec@v2.21.4
+        uses: securego/gosec@v2.22.10
         with:
           args: -no-fail -fmt sarif -out gosec-${{ matrix.app.name }}.sarif ./${{ matrix.app.working_dir }}/...
 
@@ -302,7 +302,7 @@ jobs:
         app: ${{ fromJson(needs.detect-changes.outputs.matrix) }}
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup Go
         uses: actions/setup-go@v5
@@ -348,7 +348,7 @@ jobs:
         app: ${{ fromJson(needs.detect-changes.outputs.matrix) }}
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup Go
         uses: actions/setup-go@v5
@@ -364,7 +364,7 @@ jobs:
           GOPRIVATE: ${{ inputs.go_private_modules }}
 
       - name: Download coverage artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v6
         with:
           name: coverage-${{ matrix.app.name }}
           path: ${{ matrix.app.working_dir }}
@@ -447,7 +447,7 @@ jobs:
 
       - name: Post coverage comment
         if: github.event_name == 'pull_request'
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         with:
           github-token: ${{ secrets.MANAGE_TOKEN || github.token }}
           script: |
@@ -543,7 +543,7 @@ jobs:
         app: ${{ fromJson(needs.detect-changes.outputs.matrix) }}
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup Go
         uses: actions/setup-go@v5
