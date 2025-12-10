@@ -114,6 +114,13 @@ jobs:
           # Write payload to file using env var to avoid quote escaping issues
           echo "${PAYLOAD_INPUT}" > /tmp/payload.json
 
+          # Debug: show raw content
+          echo "DEBUG: Raw payload file content:"
+          cat /tmp/payload.json
+          echo ""
+          echo "DEBUG: Hex dump of first 200 bytes:"
+          head -c 200 /tmp/payload.json | xxd || true
+
           # Pretty print
           jq . /tmp/payload.json
 
@@ -194,6 +201,11 @@ jobs:
           VALUES_FILE="${CHARTS_PATH}/${CHART}/values.yaml"
           CHART_FILE="${CHARTS_PATH}/${CHART}/Chart.yaml"
           TEMPLATES_BASE="${CHARTS_PATH}/${CHART}/templates"
+
+          # Debug: show components file content
+          echo "DEBUG: Components file content:"
+          cat /tmp/components.json
+          echo ""
 
           COMPONENTS=$(cat /tmp/components.json)
           UPDATED_COMPONENTS=""

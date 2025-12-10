@@ -106,7 +106,23 @@ jobs:
           BASE_PATH="${{ inputs.components_base_path }}"
           ENV_FILE="${{ inputs.env_file }}"
           DETECT_ENV="${{ inputs.detect_env_changes }}"
+
+          # Determine BEFORE_SHA for comparison
+          # For tags, github.event.before is 0000..., so we need to find the previous tag
           BEFORE_SHA="${{ github.event.before }}"
+          if [ "$BEFORE_SHA" = "0000000000000000000000000000000000000000" ] || [ -z "$BEFORE_SHA" ]; then
+            # For tags, get the previous tag to compare against
+            CURRENT_TAG="${{ github.ref_name }}"
+            # Get list of tags sorted by version, find the one before current
+            PREVIOUS_TAG=$(git tag --sort=-v:refname | grep -A1 "^${CURRENT_TAG}$" | tail -1)
+            if [ -n "$PREVIOUS_TAG" ] && [ "$PREVIOUS_TAG" != "$CURRENT_TAG" ]; then
+              BEFORE_SHA=$(git rev-parse "${PREVIOUS_TAG}^{}" 2>/dev/null || echo "")
+              echo "Using previous tag for comparison: $PREVIOUS_TAG ($BEFORE_SHA)"
+            else
+              echo "No previous tag found, will treat all env vars as new"
+              BEFORE_SHA=""
+            fi
+          fi
 
           # Get version from input (remove 'v' prefix if present)
           INPUT_VERSION="${{ inputs.version }}"
@@ -202,7 +218,8 @@ jobs:
                   ENV_VARS_JSON="{"
                   FIRST_VAR=true
                   for var in $NEW_VARS; do
-                    DEFAULT_VALUE=$(grep "^${var}=" "$FULL_ENV_FILE" | cut -d'=' -f2- | sed 's/"/\\"/g' || echo "")
+                    # Extract value, remove surrounding quotes, then escape internal quotes
+                    DEFAULT_VALUE=$(grep "^${var}=" "$FULL_ENV_FILE" | cut -d'=' -f2- | sed 's/^"//;s/"$//' | sed 's/"/\\"/g' || echo "")
                     if [ "$FIRST_VAR" = "true" ]; then
                       ENV_VARS_JSON="${ENV_VARS_JSON}\"${var}\":\"${DEFAULT_VALUE}\""
                       FIRST_VAR=false
