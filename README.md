@@ -94,9 +94,12 @@ See [documentation](docs/README.md) for complete examples and configuration opti
 
 This repository uses [Semantic Versioning](https://semver.org/) with automated releases via [semantic-release](https://github.com/semantic-release/semantic-release).
 
+**Branches:**
+- `develop` - Development branch for new features and fixes
+- `main` - Production branch for stable releases
+
 **Release Process:**
 - Commits to `develop` → Beta releases (`v1.2.3-beta.1`)
-- Commits to `release-candidate` → RC releases (`v1.2.3-rc.1`)
 - Commits to `main` → Production releases (`v1.2.3`)
 
 **Commit Message Format:**
@@ -115,3 +118,4 @@ Please read [CONTRIBUTING.md](CONTRIBUTING.md) for details on our code of conduc
 ## License
 
 This project is licensed under the Apache License 2.0 - see the [LICENSE](LICENSE) file for details.
+
