@@ -21,7 +21,7 @@ on:
       runner_type:
         description: 'GitHub runner type to use'
         type: string
-        default: 'firmino-lxc-runners'
+        default: 'blacksmith-4vcpu-ubuntu-2404'
       auto_detect_environment:
         description: 'Enable automatic environment detection from tag (beta/rc)'
         type: boolean
