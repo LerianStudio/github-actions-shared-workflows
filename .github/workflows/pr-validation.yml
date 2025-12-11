@@ -9,7 +9,7 @@ on:
       runner_type:
         description: 'GitHub runner type to use'
         type: string
-        default: 'firmino-lxc-runners'
+        default: 'blacksmith-4vcpu-ubuntu-2404'
       pr_title_types:
         description: 'Allowed commit types (pipe-separated)'
         type: string
