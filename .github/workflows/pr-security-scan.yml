@@ -13,7 +13,7 @@ on:
       runner_type:
         description: 'GitHub runner type to use'
         type: string
-        default: 'firmino-lxc-runners'
+        default: 'blacksmith-4vcpu-ubuntu-2404'
       filter_paths:
         description: 'Paths to monitor for changes (newline separated). If not provided, treats as single app repo'
         type: string

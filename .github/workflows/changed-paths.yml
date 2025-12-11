@@ -27,7 +27,7 @@ on:
         description: 'GitHub runner type'
         required: false
         type: string
-        default: 'firmino-lxc-runners'
+        default: 'blacksmith-4vcpu-ubuntu-2404'
 
     outputs:
       matrix:

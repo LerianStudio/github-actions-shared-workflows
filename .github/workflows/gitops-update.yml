@@ -50,7 +50,7 @@ on:
       runner_type:
         description: 'GitHub runner type to use'
         type: string
-        default: 'firmino-lxc-runners'
+        default: 'blacksmith-4vcpu-ubuntu-2404'
       enable_argocd_sync:
         description: 'Enable ArgoCD sync after GitOps update'
         type: boolean
