@@ -17,7 +17,7 @@ on:
       runner_type:
         description: 'Runner to use for the workflow'
         type: string
-        default: 'firmino-lxc-runners'
+        default: 'blacksmith-4vcpu-ubuntu-2404'
       filter_paths:
         description: 'Newline-separated list of path prefixes to filter. If not provided, treats as single app repo.'
         type: string
