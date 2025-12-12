@@ -1,0 +1,429 @@
+name: "GPT Changelog"
+
+# This reusable workflow generates a consolidated CHANGELOG.md and RELEASE_NOTES.md using GPTChangelog
+# It uses OpenAI GPT-4o to analyze commits and generate human-readable changelogs
+#
+# Monorepo Support:
+# - If filter_paths is provided: detects changes and generates changelog sections for each changed app
+# - If filter_paths is empty: generates changelog for the entire repository (single app mode)
+# - All apps are consolidated into ONE CHANGELOG.md file (no overwrites)
+#
+# Features:
+# - Generates consolidated CHANGELOG.md with sections per app
+# - Generates RELEASE_NOTES.md and updates GitHub Release
+# - Creates PR with changelog update using GPG-signed commits
+# - Handles tag-based versioning (between tags, first tag, no tags scenarios)
+
+on:
+  workflow_call:
+    inputs:
+      runner_type:
+        description: 'Runner to use for the workflow'
+        type: string
+        default: 'blacksmith'
+      filter_paths:
+        description: 'Newline-separated list of path prefixes to filter. If not provided, treats as single app repo.'
+        type: string
+        required: false
+        default: ''
+      path_level:
+        description: 'Limits the path to the first N segments (e.g., 2 -> "charts/agent")'
+        type: string
+        default: '2'
+      openai_model:
+        description: 'OpenAI model to use for changelog generation'
+        type: string
+        default: 'gpt-4o'
+      max_context_tokens:
+        description: 'Maximum context tokens for OpenAI API'
+        type: string
+        default: '80000'
+      python_version:
+        description: 'Python version to use'
+        type: string
+        default: '3.10'
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  prepare:
+    runs-on: ${{ inputs.runner_type }}
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+      has_changes: ${{ steps.set-matrix.outputs.has_changes }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get changed paths (monorepo)
+        if: inputs.filter_paths != ''
+        id: changed-paths
+        uses: LerianStudio/github-actions-changed-paths@main
+        with:
+          filter_paths: ${{ inputs.filter_paths }}
+          path_level: ${{ inputs.path_level }}
+          get_app_name: 'true'
+
+      - name: Set matrix
+        id: set-matrix
+        run: |
+          if [ -z "${{ inputs.filter_paths }}" ]; then
+            # Single app mode - generate changelog from root
+            APP_NAME="${{ github.event.repository.name }}"
+            echo "matrix=[{\"name\": \"${APP_NAME}\", \"working_dir\": \".\"}]" >> $GITHUB_OUTPUT
+            echo "has_changes=true" >> $GITHUB_OUTPUT
+            echo "📦 Single app mode: ${APP_NAME}"
+          else
+            MATRIX='${{ steps.changed-paths.outputs.matrix }}'
+            if [ "$MATRIX" == "[]" ] || [ -z "$MATRIX" ]; then
+              echo "matrix=[]" >> $GITHUB_OUTPUT
+              echo "has_changes=false" >> $GITHUB_OUTPUT
+              echo "⚠️ No changes detected in filter_paths"
+            else
+              echo "matrix=$MATRIX" >> $GITHUB_OUTPUT
+              echo "has_changes=true" >> $GITHUB_OUTPUT
+              echo "📦 Monorepo mode - detected changes: $MATRIX"
+            fi
+          fi
+
+  generate_changelog:
+    needs: prepare
+    if: needs.prepare.outputs.has_changes == 'true'
+    runs-on: ${{ inputs.runner_type }}
+    name: Generate Consolidated Changelog
+
+    steps:
+      - name: Create GitHub App Token
+        uses: actions/create-github-app-token@v1
+        id: app-token
+        with:
+          app-id: ${{ secrets.LERIAN_STUDIO_MIDAZ_PUSH_BOT_APP_ID }}
+          private-key: ${{ secrets.LERIAN_STUDIO_MIDAZ_PUSH_BOT_PRIVATE_KEY }}
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ steps.app-token.outputs.token }}
+
+      - name: Sync with remote branch
+        run: |
+          git fetch origin ${{ github.ref_name }}
+          git reset --hard origin/${{ github.ref_name }}
+
+      - name: Import GPG key
+        uses: crazy-max/ghaction-import-gpg@v6
+        id: import_gpg
+        with:
+          gpg_private_key: ${{ secrets.LERIAN_CI_CD_USER_GPG_KEY }}
+          passphrase: ${{ secrets.LERIAN_CI_CD_USER_GPG_KEY_PASSWORD }}
+          git_committer_name: ${{ secrets.LERIAN_CI_CD_USER_NAME }}
+          git_committer_email: ${{ secrets.LERIAN_CI_CD_USER_EMAIL }}
+          git_config_global: true
+          git_user_signingkey: true
+          git_commit_gpgsign: true
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ inputs.python_version }}
+
+      - name: Install gptchangelog
+        run: |
+          python -m pip install --upgrade pip
+          pip install gptchangelog
+          echo "✅ gptchangelog installed successfully"
+
+      - name: Create gptchangelog config
+        run: |
+          mkdir -p .gptchangelog
+          cat > .gptchangelog/config.ini << EOF
+          [gptchangelog]
+          openai = true
+
+          [openai]
+          api_key = ${OPENAI_API_KEY}
+          model = ${{ inputs.openai_model }}
+          max_context_tokens = ${{ inputs.max_context_tokens }}
+          EOF
+          echo "✅ gptchangelog config created"
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+
+      - name: Create changelog prompt template
+        run: |
+          mkdir -p .gptchangelog/templates
+          cat > .gptchangelog/templates/changelog_prompt.txt << 'EOF'
+          ## Release $next_version (Released on $current_date)
+
+          ### What's New
+          $commit_messages
+
+          ### ✨ Features
+          - Highlight new features added in this release.
+
+          ### 🛠 Fixes
+          - List bug fixes and improvements.
+
+          ### 📚 Documentation
+          - Summarize updates to documentation.
+
+          ### 🚀 Improvements
+          - Highlight performance or backend optimizations.
+
+          ### ⚠️ Breaking Changes
+          - List any breaking changes here.
+
+          ### 🙌 Contributors
+          - Acknowledge contributors for this release.
+          EOF
+          echo "✅ Changelog prompt template created"
+
+      - name: Generate consolidated changelog for all apps
+        id: generate
+        run: |
+          echo "OPENAI_API_KEY=${OPENAI_API_KEY}" > .env
+          git fetch --tags
+          
+          MATRIX='${{ needs.prepare.outputs.matrix }}'
+          CURRENT_DATE=$(date +%Y-%m-%d)
+          
+          echo "📦 Processing apps from matrix: $MATRIX"
+          
+          # Initialize files
+          > /tmp/consolidated_changelog.md
+          > /tmp/consolidated_release_notes.md
+          > /tmp/apps_updated.txt
+          
+          # Parse the matrix JSON and iterate through each app
+          echo "$MATRIX" | jq -c '.[]' | while read -r APP; do
+            APP_NAME=$(echo "$APP" | jq -r '.name')
+            WORKING_DIR=$(echo "$APP" | jq -r '.working_dir')
+            
+            echo ""
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            echo "📝 Processing: $APP_NAME (dir: $WORKING_DIR)"
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            
+            # Determine tag pattern based on app type
+            if [ "$WORKING_DIR" != "." ]; then
+              TAG_PATTERN="${APP_NAME}-v*"
+            else
+              TAG_PATTERN="v*"
+            fi
+            
+            echo "🔍 Looking for tags matching: $TAG_PATTERN"
+            
+            # Determine version range
+            if git describe --tags --abbrev=0 --match "$TAG_PATTERN" HEAD >/dev/null 2>&1; then
+              LAST_TAG=$(git describe --tags --abbrev=0 --match "$TAG_PATTERN" HEAD)
+              
+              if git describe --tags --abbrev=0 --match "$TAG_PATTERN" HEAD^ >/dev/null 2>&1; then
+                PENULT_TAG=$(git describe --tags --abbrev=0 --match "$TAG_PATTERN" HEAD^)
+                SINCE="$PENULT_TAG"
+                TO="$LAST_TAG"
+                echo "🟢 Range: $PENULT_TAG → $LAST_TAG"
+              else
+                FIRST_COMMIT=$(git rev-list --max-parents=0 HEAD)
+                SINCE="$FIRST_COMMIT"
+                TO="$LAST_TAG"
+                echo "🟡 First tag - Range: $FIRST_COMMIT → $LAST_TAG"
+              fi
+            else
+              FIRST_COMMIT=$(git rev-list --max-parents=0 HEAD)
+              SINCE="$FIRST_COMMIT"
+              TO="HEAD"
+              LAST_TAG="HEAD"
+              echo "🔴 No tags - Range: $FIRST_COMMIT → HEAD"
+            fi
+            
+            # Extract version from tag
+            VERSION=$(echo "$LAST_TAG" | sed 's/.*-v/v/' | sed 's/^v//')
+            
+            # Generate changelog for this app
+            TEMP_CHANGELOG=$(mktemp)
+            
+            pushd "$WORKING_DIR" >/dev/null 2>&1 || pushd . >/dev/null
+            
+            if gptchangelog generate --since "$SINCE" --to "$TO" --output "$TEMP_CHANGELOG"; then
+              # Clean up markdown blocks
+              sed -i '' '/^```/d' "$TEMP_CHANGELOG" 2>/dev/null || sed -i '/^```/d' "$TEMP_CHANGELOG"
+              
+              # Extract content (skip the header line if present)
+              CONTENT=$(cat "$TEMP_CHANGELOG" | tail -n +2)
+              
+              # Build app section for consolidated changelog
+              echo "### ${APP_NAME} v${VERSION}" >> /tmp/consolidated_changelog.md
+              echo "" >> /tmp/consolidated_changelog.md
+              echo "$CONTENT" >> /tmp/consolidated_changelog.md
+              echo "" >> /tmp/consolidated_changelog.md
+              
+              # Also add to release notes
+              echo "### ${APP_NAME} v${VERSION}" >> /tmp/consolidated_release_notes.md
+              echo "" >> /tmp/consolidated_release_notes.md
+              echo "$CONTENT" >> /tmp/consolidated_release_notes.md
+              echo "" >> /tmp/consolidated_release_notes.md
+              
+              # Track which apps were updated
+              echo "${APP_NAME}:v${VERSION}" >> /tmp/apps_updated.txt
+              
+              # Update GitHub Release for this app's tag (if not HEAD)
+              if [ "$LAST_TAG" != "HEAD" ]; then
+                echo "### ${APP_NAME} v${VERSION}" > /tmp/app_release_notes.md
+                echo "" >> /tmp/app_release_notes.md
+                echo "$CONTENT" >> /tmp/app_release_notes.md
+                gh release edit "$LAST_TAG" --notes-file /tmp/app_release_notes.md || \
+                  echo "⚠️ Could not update release for $LAST_TAG"
+              fi
+              
+              echo "✅ Processed $APP_NAME"
+            else
+              echo "⚠️ Failed to generate changelog for $APP_NAME"
+            fi
+            
+            popd >/dev/null 2>&1 || true
+            rm -f "$TEMP_CHANGELOG"
+          done
+          
+          # Create final consolidated CHANGELOG.md
+          if [ -s /tmp/consolidated_changelog.md ]; then
+            APPS_LIST=$(cat /tmp/apps_updated.txt 2>/dev/null | tr '\n' ', ' | sed 's/,$//')
+            
+            # Prepare the new changelog entry
+            cat > /tmp/new_entry.md << ENTRY_EOF
+          ## [$CURRENT_DATE]
+
+          $(cat /tmp/consolidated_changelog.md)
+          ---
+
+          ENTRY_EOF
+            
+            # Prepend to existing CHANGELOG.md or create new one
+            if [ -f CHANGELOG.md ]; then
+              # Insert after the title line
+              if grep -q "^# " CHANGELOG.md; then
+                TITLE=$(head -n 1 CHANGELOG.md)
+                EXISTING=$(tail -n +2 CHANGELOG.md)
+                echo "$TITLE" > CHANGELOG.md
+                echo "" >> CHANGELOG.md
+                cat /tmp/new_entry.md >> CHANGELOG.md
+                echo "$EXISTING" >> CHANGELOG.md
+              else
+                cat /tmp/new_entry.md > /tmp/new_changelog.md
+                cat CHANGELOG.md >> /tmp/new_changelog.md
+                mv /tmp/new_changelog.md CHANGELOG.md
+              fi
+            else
+              echo "# Changelog" > CHANGELOG.md
+              echo "" >> CHANGELOG.md
+              cat /tmp/new_entry.md >> CHANGELOG.md
+            fi
+            
+            # Create RELEASE_NOTES.md
+            echo "# Release Notes - $CURRENT_DATE" > RELEASE_NOTES.md
+            echo "" >> RELEASE_NOTES.md
+            cat /tmp/consolidated_release_notes.md >> RELEASE_NOTES.md
+            
+            echo "apps_updated=$APPS_LIST" >> $GITHUB_OUTPUT
+            echo "✅ Consolidated changelog created with apps: $APPS_LIST"
+          else
+            echo "⚠️ No changelog content generated"
+            echo "apps_updated=" >> $GITHUB_OUTPUT
+          fi
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+
+      - name: Show generated changelog
+        run: |
+          echo "📄 Generated CHANGELOG.md:"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          head -100 CHANGELOG.md
+          echo ""
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+      - name: Create changelog PR
+        if: steps.generate.outputs.apps_updated != ''
+        run: |
+          BASE_BRANCH="${GITHUB_REF##*/}"
+          CURRENT_DATE=$(date +%Y-%m-%d)
+          BRANCH_NAME="release/update-changelog-${CURRENT_DATE}"
+          APPS_UPDATED="${{ steps.generate.outputs.apps_updated }}"
+          
+          echo "📌 Creating branch: $BRANCH_NAME"
+          git checkout -b "$BRANCH_NAME"
+          
+          # Add and commit CHANGELOG
+          git add CHANGELOG.md
+          if ! git diff --cached --quiet; then
+            git commit -S -m "chore(release): Update CHANGELOG for ${APPS_UPDATED}"
+            echo "✅ CHANGELOG committed"
+          else
+            echo "⚠️ No changes to CHANGELOG"
+            exit 0
+          fi
+          
+          # Merge base branch to resolve conflicts
+          git fetch origin "$BASE_BRANCH"
+          git merge -X ours origin/"$BASE_BRANCH" --no-ff -m "Merge $BASE_BRANCH into ${BRANCH_NAME}" || {
+            git checkout --ours CHANGELOG.md
+            git add CHANGELOG.md
+            git commit -m "resolve conflict using ours strategy"
+          }
+          
+          # Push and create PR
+          git push --force-with-lease origin "$BRANCH_NAME"
+          
+          if ! gh pr view "$BRANCH_NAME" --base "$BASE_BRANCH" > /dev/null 2>&1; then
+            gh pr create \
+              --title "chore(release): Update CHANGELOG - ${CURRENT_DATE}" \
+              --body "## Automatic Changelog Update
+
+          **Date:** ${CURRENT_DATE}
+          **Apps Updated:** ${APPS_UPDATED}
+
+          ### Changes
+          - Updated CHANGELOG.md with consolidated release notes
+          - Each app section generated by GPTChangelog using OpenAI GPT-4o
+
+          ### Apps Included
+          $(echo "$APPS_UPDATED" | tr ',' '\n' | sed 's/^/- /')
+
+          ---
+          *This PR was automatically generated by the GPTChangelog workflow.*" \
+              --base "$BASE_BRANCH" \
+              --head "$BRANCH_NAME"
+            echo "✅ PR created"
+          else
+            echo "⚠️ PR already exists"
+          fi
+          
+          # Auto-merge if possible
+          gh pr merge --merge --delete-branch || echo "⚠️ Could not auto-merge PR"
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+
+      - name: Cleanup sensitive files
+        if: always()
+        run: |
+          rm -f .env
+          rm -rf .gptchangelog
+          rm -f /tmp/consolidated_changelog.md /tmp/consolidated_release_notes.md /tmp/apps_updated.txt /tmp/app_release_notes.md /tmp/new_entry.md
+          echo "🧹 Cleaned up sensitive files"
+
+  # Slack notification
+  notify:
+    name: Notify
+    needs: [prepare, generate_changelog]
+    if: always() && needs.prepare.outputs.has_changes == 'true'
+    uses: ./.github/workflows/slack-notify.yml
+    with:
+      status: ${{ needs.generate_changelog.result }}
+      workflow_name: "GPT Changelog"
+      failed_jobs: ${{ needs.generate_changelog.result == 'failure' && 'Generate Changelog' || '' }}
+    secrets:
+      SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}

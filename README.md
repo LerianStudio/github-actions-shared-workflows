@@ -64,6 +64,11 @@ Send Slack notifications from workflows with rich formatting and status-based co
 
 **Key Features**: Rich formatting, status colors, graceful degradation, PR support
 
+### 13. [GPT Changelog](docs/gptchangelog-workflow.md)
+AI-powered changelog generation using GPTChangelog and OpenAI GPT-4o with consolidated output.
+
+**Key Features**: AI commit analysis, consolidated changelog, monorepo support, GitHub Release integration, GPG signing
+
 ## Documentation
 
 **[Complete Documentation →](docs/README.md)**
