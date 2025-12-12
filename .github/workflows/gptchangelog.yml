@@ -357,7 +357,16 @@ jobs:
       - name: Create changelog PR
         if: steps.generate.outputs.apps_updated != ''
         run: |
-          BASE_BRANCH="${GITHUB_REF##*/}"
+          # Determine base branch - use default branch for tag triggers
+          if [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            # For tags, get the default branch from the repo
+            BASE_BRANCH=$(gh repo view --json defaultBranchRef -q '.defaultBranchRef.name')
+            echo "📌 Triggered by tag, using default branch: $BASE_BRANCH"
+          else
+            BASE_BRANCH="${GITHUB_REF##*/}"
+            echo "📌 Triggered by branch: $BASE_BRANCH"
+          fi
+          
           CURRENT_DATE=$(date +%Y-%m-%d)
           BRANCH_NAME="release/update-changelog-${CURRENT_DATE}"
           APPS_UPDATED="${{ steps.generate.outputs.apps_updated }}"
