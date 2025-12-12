@@ -115,8 +115,8 @@ jobs:
           # Handle both branch and tag triggers
           if [[ "${{ github.ref }}" == refs/tags/* ]]; then
             echo "📌 Triggered by tag: ${{ github.ref_name }}"
-            # For tags, we're already on the correct commit after checkout
-            git fetch --tags
+            # For tags, checkout already positioned us at the correct commit
+            echo "✅ Already at tag commit"
           else
             echo "📌 Triggered by branch: ${{ github.ref_name }}"
             git fetch origin ${{ github.ref_name }}
@@ -195,7 +195,7 @@ jobs:
         id: generate
         run: |
           echo "OPENAI_API_KEY=${OPENAI_API_KEY}" > .env
-          git fetch --tags
+          git fetch --tags --force
           
           MATRIX='${{ needs.prepare.outputs.matrix }}'
           CURRENT_DATE=$(date +%Y-%m-%d)
