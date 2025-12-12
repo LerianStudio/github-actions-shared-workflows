@@ -149,7 +149,7 @@ jobs:
       - name: Create gptchangelog config
         run: |
           # Initialize config first (creates proper structure)
-          gptchangelog config init --non-interactive || true
+          # Note: gptchangelog config init may prompt for input, so we skip it and create config manually
           
           # Create project-specific config
           mkdir -p .gptchangelog
@@ -264,7 +264,7 @@ jobs:
             # Generate changelog for this app (run from repo root, gptchangelog needs git access)
             TEMP_CHANGELOG=$(mktemp)
             
-            if gptchangelog generate --since "$SINCE" --to "$TO" --output "$TEMP_CHANGELOG" --ui plain; then
+            if gptchangelog generate --since "$SINCE" --to "$TO" --output "$TEMP_CHANGELOG"; then
               # Clean up markdown blocks
               sed -i '' '/^```/d' "$TEMP_CHANGELOG" 2>/dev/null || sed -i '/^```/d' "$TEMP_CHANGELOG"
               
