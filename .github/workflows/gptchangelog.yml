@@ -148,17 +148,26 @@ jobs:
 
       - name: Create gptchangelog config
         run: |
+          # Initialize config first (creates proper structure)
+          gptchangelog config init --non-interactive || true
+          
+          # Create project-specific config
           mkdir -p .gptchangelog
-          cat > .gptchangelog/config.ini << EOF
-          [gptchangelog]
-          openai = true
-
-          [openai]
-          api_key = ${OPENAI_API_KEY}
-          model = ${{ inputs.openai_model }}
-          max_context_tokens = ${{ inputs.max_context_tokens }}
-          EOF
+          echo "[gptchangelog]" > .gptchangelog/config.ini
+          echo "openai = true" >> .gptchangelog/config.ini
+          echo "" >> .gptchangelog/config.ini
+          echo "[openai]" >> .gptchangelog/config.ini
+          echo "api_key = ${OPENAI_API_KEY}" >> .gptchangelog/config.ini
+          echo "model = ${{ inputs.openai_model }}" >> .gptchangelog/config.ini
+          echo "max_context_tokens = ${{ inputs.max_context_tokens }}" >> .gptchangelog/config.ini
+          
+          # Also create global config as fallback
+          mkdir -p ~/.config/gptchangelog
+          cp .gptchangelog/config.ini ~/.config/gptchangelog/config.ini
+          
           echo "✅ gptchangelog config created"
+          echo "📄 Config contents:"
+          cat .gptchangelog/config.ini | grep -v api_key
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
 
