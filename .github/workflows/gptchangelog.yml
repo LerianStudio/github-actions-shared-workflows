@@ -110,10 +110,18 @@ jobs:
           fetch-depth: 0
           token: ${{ steps.app-token.outputs.token }}
 
-      - name: Sync with remote branch
+      - name: Sync with remote ref
         run: |
-          git fetch origin ${{ github.ref_name }}
-          git reset --hard origin/${{ github.ref_name }}
+          # Handle both branch and tag triggers
+          if [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            echo "📌 Triggered by tag: ${{ github.ref_name }}"
+            # For tags, we're already on the correct commit after checkout
+            git fetch --tags
+          else
+            echo "📌 Triggered by branch: ${{ github.ref_name }}"
+            git fetch origin ${{ github.ref_name }}
+            git reset --hard origin/${{ github.ref_name }}
+          fi
 
       - name: Import GPG key
         uses: crazy-max/ghaction-import-gpg@v6
