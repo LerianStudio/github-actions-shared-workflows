@@ -261,12 +261,10 @@ jobs:
             # Extract version from tag
             VERSION=$(echo "$LAST_TAG" | sed 's/.*-v/v/' | sed 's/^v//')
             
-            # Generate changelog for this app
+            # Generate changelog for this app (run from repo root, gptchangelog needs git access)
             TEMP_CHANGELOG=$(mktemp)
             
-            pushd "$WORKING_DIR" >/dev/null 2>&1 || pushd . >/dev/null
-            
-            if gptchangelog generate --since "$SINCE" --to "$TO" --output "$TEMP_CHANGELOG"; then
+            if gptchangelog generate --since "$SINCE" --to "$TO" --output "$TEMP_CHANGELOG" --ui plain; then
               # Clean up markdown blocks
               sed -i '' '/^```/d' "$TEMP_CHANGELOG" 2>/dev/null || sed -i '/^```/d' "$TEMP_CHANGELOG"
               
@@ -302,7 +300,6 @@ jobs:
               echo "⚠️ Failed to generate changelog for $APP_NAME"
             fi
             
-            popd >/dev/null 2>&1 || true
             rm -f "$TEMP_CHANGELOG"
           done
           
