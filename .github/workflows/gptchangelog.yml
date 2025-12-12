@@ -1,18 +1,19 @@
 name: "GPT Changelog"
 
-# This reusable workflow generates a consolidated CHANGELOG.md and RELEASE_NOTES.md using GPTChangelog
+# This reusable workflow generates CHANGELOG.md files using GPTChangelog
 # It uses OpenAI GPT-4o to analyze commits and generate human-readable changelogs
 #
 # Monorepo Support:
-# - If filter_paths is provided: detects changes and generates changelog sections for each changed app
+# - If filter_paths is provided: detects changes and generates changelog for each changed app
 # - If filter_paths is empty: generates changelog for the entire repository (single app mode)
-# - All apps are consolidated into ONE CHANGELOG.md file (no overwrites)
+# - Each app gets its own CHANGELOG.md in its folder (best practice for monorepos)
 #
 # Features:
-# - Generates consolidated CHANGELOG.md with sections per app
-# - Generates RELEASE_NOTES.md and updates GitHub Release
-# - Creates PR with changelog update using GPG-signed commits
+# - Generates per-app CHANGELOG.md files in each app's folder
+# - Updates GitHub Release notes
+# - Creates PR with changelog updates using GPG-signed commits
 # - Handles tag-based versioning (between tags, first tag, no tags scenarios)
+# - Supports stable-only mode (skips beta/rc/alpha tags)
 
 on:
   workflow_call:
@@ -30,6 +31,10 @@ on:
         description: 'Limits the path to the first N segments (e.g., 2 -> "charts/agent")'
         type: string
         default: '2'
+      stable_releases_only:
+        description: 'Only generate changelogs for stable releases (skip beta/rc/alpha tags)'
+        type: boolean
+        default: true
       openai_model:
         description: 'OpenAI model to use for changelog generation'
         type: string
@@ -53,14 +58,34 @@ jobs:
     outputs:
       matrix: ${{ steps.set-matrix.outputs.matrix }}
       has_changes: ${{ steps.set-matrix.outputs.has_changes }}
+      is_stable: ${{ steps.check-tag.outputs.is_stable }}
     steps:
+      - name: Check if tag is stable release
+        id: check-tag
+        run: |
+          TAG_NAME="${GITHUB_REF##*/}"
+          echo "📌 Checking tag: $TAG_NAME"
+          
+          # Check if this is a prerelease tag (beta, rc, alpha)
+          if [[ "$TAG_NAME" =~ -(beta|rc|alpha|dev|snapshot) ]]; then
+            echo "is_stable=false" >> $GITHUB_OUTPUT
+            echo "⚠️ Prerelease tag detected: $TAG_NAME"
+            if [ "${{ inputs.stable_releases_only }}" == "true" ]; then
+              echo "🛑 stable_releases_only=true, skipping changelog generation"
+            fi
+          else
+            echo "is_stable=true" >> $GITHUB_OUTPUT
+            echo "✅ Stable release tag: $TAG_NAME"
+          fi
+
       - name: Checkout repository
+        if: steps.check-tag.outputs.is_stable == 'true' || inputs.stable_releases_only == false
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
       - name: Get changed paths (monorepo)
-        if: inputs.filter_paths != ''
+        if: (steps.check-tag.outputs.is_stable == 'true' || inputs.stable_releases_only == false) && inputs.filter_paths != ''
         id: changed-paths
         uses: LerianStudio/github-actions-changed-paths@main
         with:
@@ -71,6 +96,14 @@ jobs:
       - name: Set matrix
         id: set-matrix
         run: |
+          # Skip if stable_releases_only is enabled and tag is not stable
+          if [ "${{ inputs.stable_releases_only }}" == "true" ] && [ "${{ steps.check-tag.outputs.is_stable }}" != "true" ]; then
+            echo "matrix=[]" >> $GITHUB_OUTPUT
+            echo "has_changes=false" >> $GITHUB_OUTPUT
+            echo "🛑 Skipping: prerelease tag with stable_releases_only=true"
+            exit 0
+          fi
+          
           if [ -z "${{ inputs.filter_paths }}" ]; then
             # Single app mode - generate changelog from root
             APP_NAME="${{ github.event.repository.name }}"
@@ -271,24 +304,51 @@ jobs:
               # Extract content (skip the header line if present)
               CONTENT=$(cat "$TEMP_CHANGELOG" | tail -n +2)
               
-              # Build app section for consolidated changelog
-              echo "### ${APP_NAME} v${VERSION}" >> /tmp/consolidated_changelog.md
-              echo "" >> /tmp/consolidated_changelog.md
-              echo "$CONTENT" >> /tmp/consolidated_changelog.md
-              echo "" >> /tmp/consolidated_changelog.md
+              # Determine the changelog path (per-app folder or root)
+              if [ "$WORKING_DIR" != "." ]; then
+                CHANGELOG_PATH="${WORKING_DIR}/CHANGELOG.md"
+              else
+                CHANGELOG_PATH="CHANGELOG.md"
+              fi
               
-              # Also add to release notes
-              echo "### ${APP_NAME} v${VERSION}" >> /tmp/consolidated_release_notes.md
-              echo "" >> /tmp/consolidated_release_notes.md
-              echo "$CONTENT" >> /tmp/consolidated_release_notes.md
-              echo "" >> /tmp/consolidated_release_notes.md
+              # Prepare the new changelog entry for this app
+              cat > /tmp/new_entry.md << ENTRY_EOF
+          ## [${VERSION}] - ${CURRENT_DATE}
+
+          ${CONTENT}
+          ---
+
+          ENTRY_EOF
               
-              # Track which apps were updated
-              echo "${APP_NAME}:v${VERSION}" >> /tmp/apps_updated.txt
+              # Update or create per-app CHANGELOG.md
+              if [ -f "$CHANGELOG_PATH" ]; then
+                # Insert after the title line
+                if grep -q "^# " "$CHANGELOG_PATH"; then
+                  TITLE=$(head -n 1 "$CHANGELOG_PATH")
+                  EXISTING=$(tail -n +2 "$CHANGELOG_PATH")
+                  echo "$TITLE" > "$CHANGELOG_PATH"
+                  echo "" >> "$CHANGELOG_PATH"
+                  cat /tmp/new_entry.md >> "$CHANGELOG_PATH"
+                  echo "$EXISTING" >> "$CHANGELOG_PATH"
+                else
+                  cat /tmp/new_entry.md > /tmp/new_changelog.md
+                  cat "$CHANGELOG_PATH" >> /tmp/new_changelog.md
+                  mv /tmp/new_changelog.md "$CHANGELOG_PATH"
+                fi
+              else
+                echo "# ${APP_NAME} Changelog" > "$CHANGELOG_PATH"
+                echo "" >> "$CHANGELOG_PATH"
+                cat /tmp/new_entry.md >> "$CHANGELOG_PATH"
+              fi
+              
+              echo "📄 Updated: $CHANGELOG_PATH"
+              
+              # Track which apps were updated (with their paths)
+              echo "${APP_NAME}:v${VERSION}:${WORKING_DIR}" >> /tmp/apps_updated.txt
               
               # Update GitHub Release for this app's tag (if not HEAD)
               if [ "$LAST_TAG" != "HEAD" ]; then
-                echo "### ${APP_NAME} v${VERSION}" > /tmp/app_release_notes.md
+                echo "## ${APP_NAME} v${VERSION}" > /tmp/app_release_notes.md
                 echo "" >> /tmp/app_release_notes.md
                 echo "$CONTENT" >> /tmp/app_release_notes.md
                 gh release edit "$LAST_TAG" --notes-file /tmp/app_release_notes.md || \
@@ -303,47 +363,11 @@ jobs:
             rm -f "$TEMP_CHANGELOG"
           done
           
-          # Create final consolidated CHANGELOG.md
-          if [ -s /tmp/consolidated_changelog.md ]; then
-            APPS_LIST=$(cat /tmp/apps_updated.txt 2>/dev/null | tr '\n' ', ' | sed 's/,$//')
-            
-            # Prepare the new changelog entry
-            cat > /tmp/new_entry.md << ENTRY_EOF
-          ## [$CURRENT_DATE]
-
-          $(cat /tmp/consolidated_changelog.md)
-          ---
-
-          ENTRY_EOF
-            
-            # Prepend to existing CHANGELOG.md or create new one
-            if [ -f CHANGELOG.md ]; then
-              # Insert after the title line
-              if grep -q "^# " CHANGELOG.md; then
-                TITLE=$(head -n 1 CHANGELOG.md)
-                EXISTING=$(tail -n +2 CHANGELOG.md)
-                echo "$TITLE" > CHANGELOG.md
-                echo "" >> CHANGELOG.md
-                cat /tmp/new_entry.md >> CHANGELOG.md
-                echo "$EXISTING" >> CHANGELOG.md
-              else
-                cat /tmp/new_entry.md > /tmp/new_changelog.md
-                cat CHANGELOG.md >> /tmp/new_changelog.md
-                mv /tmp/new_changelog.md CHANGELOG.md
-              fi
-            else
-              echo "# Changelog" > CHANGELOG.md
-              echo "" >> CHANGELOG.md
-              cat /tmp/new_entry.md >> CHANGELOG.md
-            fi
-            
-            # Create RELEASE_NOTES.md
-            echo "# Release Notes - $CURRENT_DATE" > RELEASE_NOTES.md
-            echo "" >> RELEASE_NOTES.md
-            cat /tmp/consolidated_release_notes.md >> RELEASE_NOTES.md
-            
+          # Output results
+          if [ -s /tmp/apps_updated.txt ]; then
+            APPS_LIST=$(cat /tmp/apps_updated.txt 2>/dev/null | cut -d: -f1,2 | tr '\n' ', ' | sed 's/,$//')
             echo "apps_updated=$APPS_LIST" >> $GITHUB_OUTPUT
-            echo "✅ Consolidated changelog created with apps: $APPS_LIST"
+            echo "✅ Per-app changelogs created for: $APPS_LIST"
           else
             echo "⚠️ No changelog content generated"
             echo "apps_updated=" >> $GITHUB_OUTPUT
@@ -352,12 +376,24 @@ jobs:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
 
-      - name: Show generated changelog
+      - name: Show generated changelogs
         run: |
-          echo "📄 Generated CHANGELOG.md:"
+          echo "📄 Generated per-app CHANGELOGs:"
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-          head -100 CHANGELOG.md
-          echo ""
+          if [ -f /tmp/apps_updated.txt ]; then
+            while IFS=: read -r APP_NAME VERSION WORKING_DIR; do
+              if [ "$WORKING_DIR" != "." ]; then
+                CHANGELOG_PATH="${WORKING_DIR}/CHANGELOG.md"
+              else
+                CHANGELOG_PATH="CHANGELOG.md"
+              fi
+              echo ""
+              echo "📦 ${APP_NAME} (${CHANGELOG_PATH}):"
+              echo "---"
+              head -50 "$CHANGELOG_PATH" 2>/dev/null || echo "File not found"
+              echo ""
+            done < /tmp/apps_updated.txt
+          fi
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
       - name: Create changelog PR
@@ -380,22 +416,43 @@ jobs:
           echo "📌 Creating branch: $BRANCH_NAME"
           git checkout -b "$BRANCH_NAME"
           
-          # Add and commit CHANGELOG
-          git add CHANGELOG.md
+          # Add all per-app CHANGELOG files
+          if [ -f /tmp/apps_updated.txt ]; then
+            while IFS=: read -r APP_NAME VERSION WORKING_DIR; do
+              if [ "$WORKING_DIR" != "." ]; then
+                CHANGELOG_PATH="${WORKING_DIR}/CHANGELOG.md"
+              else
+                CHANGELOG_PATH="CHANGELOG.md"
+              fi
+              git add "$CHANGELOG_PATH" 2>/dev/null || true
+              echo "📄 Added: $CHANGELOG_PATH"
+            done < /tmp/apps_updated.txt
+          fi
+          
           if ! git diff --cached --quiet; then
-            git commit -S -m "chore(release): Update CHANGELOG for ${APPS_UPDATED}"
-            echo "✅ CHANGELOG committed"
+            git commit -S -m "chore(release): Update CHANGELOGs for ${APPS_UPDATED}"
+            echo "✅ CHANGELOGs committed"
           else
-            echo "⚠️ No changes to CHANGELOG"
+            echo "⚠️ No changes to commit"
             exit 0
           fi
           
           # Merge base branch to resolve conflicts
           git fetch origin "$BASE_BRANCH"
           git merge -X ours origin/"$BASE_BRANCH" --no-ff -m "Merge $BASE_BRANCH into ${BRANCH_NAME}" || {
-            git checkout --ours CHANGELOG.md
-            git add CHANGELOG.md
-            git commit -m "resolve conflict using ours strategy"
+            # Re-add changelog files after conflict resolution
+            if [ -f /tmp/apps_updated.txt ]; then
+              while IFS=: read -r APP_NAME VERSION WORKING_DIR; do
+                if [ "$WORKING_DIR" != "." ]; then
+                  CHANGELOG_PATH="${WORKING_DIR}/CHANGELOG.md"
+                else
+                  CHANGELOG_PATH="CHANGELOG.md"
+                fi
+                git checkout --ours "$CHANGELOG_PATH" 2>/dev/null || true
+                git add "$CHANGELOG_PATH" 2>/dev/null || true
+              done < /tmp/apps_updated.txt
+            fi
+            git commit -m "resolve conflict using ours strategy" || true
           }
           
           # Push and create PR
@@ -403,15 +460,15 @@ jobs:
           
           if ! gh pr view "$BRANCH_NAME" --base "$BASE_BRANCH" > /dev/null 2>&1; then
             gh pr create \
-              --title "chore(release): Update CHANGELOG - ${CURRENT_DATE}" \
+              --title "chore(release): Update CHANGELOGs - ${CURRENT_DATE}" \
               --body "## Automatic Changelog Update
 
           **Date:** ${CURRENT_DATE}
           **Apps Updated:** ${APPS_UPDATED}
 
           ### Changes
-          - Updated CHANGELOG.md with consolidated release notes
-          - Each app section generated by GPTChangelog using OpenAI GPT-4o
+          - Updated per-app CHANGELOG.md files
+          - Each changelog generated by GPTChangelog using OpenAI GPT-4o
 
           ### Apps Included
           $(echo "$APPS_UPDATED" | tr ',' '\n' | sed 's/^/- /')
