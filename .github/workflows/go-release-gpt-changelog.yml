@@ -1,0 +1,89 @@
+name: "Go Release with GPT Changelog"
+
+# Reusable workflow for publishing releases with AI-generated changelogs
+# Combines semantic-release publishing with GPT-powered changelog generation
+
+on:
+  workflow_call:
+    inputs:
+      runner_type:
+        description: 'GitHub runner type'
+        type: string
+        default: 'ubuntu-22.04'
+      paths_ignore:
+        description: 'Newline-separated list of paths to ignore for triggering'
+        type: string
+        default: |
+          .gitignore
+          **/*.env
+          *.env
+          **/*.md
+          *.md
+          **/*.txt
+          *.txt
+    secrets:
+      lerian_studio_push_bot_app_id:
+        description: 'GitHub App ID for push bot'
+        required: true
+      lerian_studio_push_bot_private_key:
+        description: 'GitHub App private key for push bot'
+        required: true
+      lerian_ci_cd_user_gpg_key:
+        description: 'GPG key for signing commits'
+        required: true
+      lerian_ci_cd_user_gpg_key_password:
+        description: 'GPG key password'
+        required: true
+      lerian_ci_cd_user_name:
+        description: 'CI/CD user name for commits'
+        required: true
+      lerian_ci_cd_user_email:
+        description: 'CI/CD user email for commits'
+        required: true
+      openai_api_key:
+        description: 'OpenAI API key for changelog generation'
+        required: true
+
+permissions:
+  id-token: write
+  contents: write
+  pull-requests: write
+  packages: read
+
+jobs:
+  # Publish release using semantic-release
+  publish-release:
+    uses: LerianStudio/github-actions-go-pipeline-template/.github/workflows/release.yml@main
+    secrets:
+      lerian_studio_push_bot_app_id: ${{ secrets.lerian_studio_push_bot_app_id }}
+      lerian_studio_push_bot_private_key: ${{ secrets.lerian_studio_push_bot_private_key }}
+      lerian_ci_cd_user_gpg_key: ${{ secrets.lerian_ci_cd_user_gpg_key }}
+      lerian_ci_cd_user_gpg_key_password: ${{ secrets.lerian_ci_cd_user_gpg_key_password }}
+      lerian_ci_cd_user_name: ${{ secrets.lerian_ci_cd_user_name }}
+      lerian_ci_cd_user_email: ${{ secrets.lerian_ci_cd_user_email }}
+
+  # Generate AI-powered changelog
+  generate_changelog:
+    name: Generate AI-powered Changelog
+    runs-on: ${{ inputs.runner_type }}
+    needs: publish-release
+    steps:
+      - name: Create GitHub App Token
+        uses: actions/create-github-app-token@v1
+        id: app-token
+        with:
+          app-id: ${{ secrets.lerian_studio_push_bot_app_id }}
+          private-key: ${{ secrets.lerian_studio_push_bot_private_key }}
+
+      - name: Generate Changelog with GPT
+        uses: LerianStudio/github-actions-gptchangelog@main
+        with:
+          OPENAI_API_KEY: ${{ secrets.openai_api_key }}
+          GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
+          GH_TOKEN: ${{ github.token }}
+          LERIAN_CI_CD_USER_GPG_KEY: ${{ secrets.lerian_ci_cd_user_gpg_key }}
+          LERIAN_CI_CD_USER_GPG_KEY_PASSWORD: ${{ secrets.lerian_ci_cd_user_gpg_key_password }}
+          LERIAN_CI_CD_USER_NAME: ${{ secrets.lerian_ci_cd_user_name }}
+          LERIAN_CI_CD_USER_EMAIL: ${{ secrets.lerian_ci_cd_user_email }}
+          LERIAN_STUDIO_MIDAZ_PUSH_BOT_APP_ID: ${{ secrets.lerian_studio_push_bot_app_id }}
+          LERIAN_STUDIO_MIDAZ_PUSH_BOT_PRIVATE_KEY: ${{ secrets.lerian_studio_push_bot_private_key }}
