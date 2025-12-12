@@ -430,7 +430,7 @@ jobs:
           fi
           
           if ! git diff --cached --quiet; then
-            git commit -S -m "chore(release): Update CHANGELOGs for ${APPS_UPDATED}"
+            git commit -S -m "chore(release): Update CHANGELOGs for ${APPS_UPDATED} [skip ci]"
             echo "✅ CHANGELOGs committed"
           else
             echo "⚠️ No changes to commit"
@@ -439,7 +439,7 @@ jobs:
           
           # Merge base branch to resolve conflicts
           git fetch origin "$BASE_BRANCH"
-          git merge -X ours origin/"$BASE_BRANCH" --no-ff -m "Merge $BASE_BRANCH into ${BRANCH_NAME}" || {
+          git merge -X ours origin/"$BASE_BRANCH" --no-ff -m "Merge $BASE_BRANCH into ${BRANCH_NAME} [skip ci]" || {
             # Re-add changelog files after conflict resolution
             if [ -f /tmp/apps_updated.txt ]; then
               while IFS=: read -r APP_NAME VERSION WORKING_DIR; do
@@ -452,7 +452,7 @@ jobs:
                 git add "$CHANGELOG_PATH" 2>/dev/null || true
               done < /tmp/apps_updated.txt
             fi
-            git commit -m "resolve conflict using ours strategy" || true
+            git commit -m "resolve conflict using ours strategy [skip ci]" || true
           }
           
           # Push and create PR
