@@ -495,13 +495,24 @@ jobs:
           DEFAULT_BRANCH=$(gh repo view --json defaultBranchRef -q '.defaultBranchRef.name')
           SYNC_PRS=""
           
-          # List of branches to sync to (develop + any RC branches)
-          SYNC_TARGETS="develop"
+          # List of branches to sync to
+          SYNC_TARGETS=""
           
-          # Find RC branches (release candidate pattern: rc/*, release/*, release-*)
-          RC_BRANCHES=$(git ls-remote --heads origin | grep -E 'refs/heads/(rc/|release/|release-)' | sed 's/.*refs\/heads\///' || true)
-          if [ -n "$RC_BRANCHES" ]; then
-            SYNC_TARGETS="$SYNC_TARGETS $RC_BRANCHES"
+          # Check if develop branch exists
+          if git ls-remote --heads origin develop | grep -q develop; then
+            SYNC_TARGETS="develop"
+            echo "✅ Found develop branch"
+          fi
+          
+          # Check if release-candidate branch exists
+          if git ls-remote --heads origin release-candidate | grep -q release-candidate; then
+            SYNC_TARGETS="$SYNC_TARGETS release-candidate"
+            echo "✅ Found release-candidate branch"
+          fi
+          
+          if [ -z "$SYNC_TARGETS" ]; then
+            echo "⚠️ No sync target branches found (develop, release-candidate)"
+            exit 0
           fi
           
           echo "📌 Will sync $DEFAULT_BRANCH to: $SYNC_TARGETS"
@@ -511,12 +522,6 @@ jobs:
             echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
             echo "📌 Syncing $DEFAULT_BRANCH → $TARGET_BRANCH"
             echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-            
-            # Check if target branch exists
-            if ! git ls-remote --heads origin "$TARGET_BRANCH" | grep -q "$TARGET_BRANCH"; then
-              echo "⚠️ Branch $TARGET_BRANCH does not exist, skipping"
-              continue
-            fi
             
             # Check if PR already exists from main to this target
             EXISTING_PR=$(gh pr list --base "$TARGET_BRANCH" --head "$DEFAULT_BRANCH" --json number -q '.[0].number' 2>/dev/null || true)
