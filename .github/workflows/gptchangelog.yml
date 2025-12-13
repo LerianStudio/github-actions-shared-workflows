@@ -60,11 +60,37 @@ jobs:
       has_changes: ${{ steps.set-matrix.outputs.has_changes }}
       is_stable: ${{ steps.check-tag.outputs.is_stable }}
     steps:
-      - name: Check if tag is stable release
+      - name: Checkout for branch check
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check if tag is stable release on main
         id: check-tag
         run: |
           TAG_NAME="${GITHUB_REF##*/}"
           echo "📌 Checking tag: $TAG_NAME"
+          
+          # Get the commit SHA for this tag
+          TAG_COMMIT=$(git rev-list -n 1 "$TAG_NAME" 2>/dev/null || echo "")
+          if [ -z "$TAG_COMMIT" ]; then
+            echo "❌ Could not find commit for tag: $TAG_NAME"
+            echo "is_stable=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+          echo "📌 Tag commit: $TAG_COMMIT"
+          
+          # Check if this commit is on main branch
+          DEFAULT_BRANCH=$(gh repo view --json defaultBranchRef -q '.defaultBranchRef.name')
+          echo "📌 Default branch: $DEFAULT_BRANCH"
+          
+          if git merge-base --is-ancestor "$TAG_COMMIT" "origin/$DEFAULT_BRANCH" 2>/dev/null; then
+            echo "✅ Tag commit is on $DEFAULT_BRANCH branch"
+          else
+            echo "❌ Tag commit is NOT on $DEFAULT_BRANCH branch - skipping changelog"
+            echo "is_stable=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
           
           # Check if this is a prerelease tag (beta, rc, alpha)
           if [[ "$TAG_NAME" =~ -(beta|rc|alpha|dev|snapshot) ]]; then
@@ -75,8 +101,10 @@ jobs:
             fi
           else
             echo "is_stable=true" >> $GITHUB_OUTPUT
-            echo "✅ Stable release tag: $TAG_NAME"
+            echo "✅ Stable release tag on $DEFAULT_BRANCH: $TAG_NAME"
           fi
+        env:
+          GH_TOKEN: ${{ github.token }}
 
       - name: Checkout repository
         if: steps.check-tag.outputs.is_stable == 'true' || inputs.stable_releases_only == false
