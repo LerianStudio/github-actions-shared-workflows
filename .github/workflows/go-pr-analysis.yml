@@ -268,7 +268,7 @@ jobs:
           GOPRIVATE: ${{ inputs.go_private_modules }}
 
       - name: Run Gosec
-        uses: securego/gosec@v2.22.10
+        uses: securego/gosec@v2.22.11
         with:
           args: -no-fail -fmt sarif -out gosec-${{ matrix.app.name }}.sarif ./${{ matrix.app.working_dir }}/...
 
