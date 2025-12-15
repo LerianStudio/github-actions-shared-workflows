@@ -100,7 +100,7 @@ jobs:
 
       - name: Upload Test Reports
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: apidog-e2e-test-reports-${{ env.TAG_TYPE }}
           path: ./apidog-reports

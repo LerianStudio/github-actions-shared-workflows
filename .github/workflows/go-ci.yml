@@ -101,7 +101,7 @@ jobs:
 
       - name: Upload coverage artifact
         if: inputs.enable_coverage_comment && matrix.os == 'ubuntu-latest' && matrix.go == inputs.go_version_lint
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: coverage-report
           path: coverage.txt
@@ -195,7 +195,7 @@ jobs:
           done
 
       - name: Upload build artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: binaries
           path: build/
