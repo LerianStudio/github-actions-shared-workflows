@@ -164,7 +164,7 @@ jobs:
           tags: ${{ inputs.docker_tags }}
 
       - name: Build and push
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v6
         with:
           context: .
           platforms: ${{ inputs.docker_platforms }}
