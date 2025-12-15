@@ -97,7 +97,7 @@ jobs:
         run: ${{ inputs.test_cmd }}
 
       - name: Run GoReleaser
-        uses: goreleaser/goreleaser-action@v5
+        uses: goreleaser/goreleaser-action@v6
         with:
           distribution: ${{ inputs.goreleaser_distribution }}
           version: ${{ inputs.goreleaser_version }}
