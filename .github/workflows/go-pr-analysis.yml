@@ -274,7 +274,7 @@ jobs:
 
       - name: Upload Gosec SARIF
         if: always()
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: gosec-${{ matrix.app.name }}.sarif
           category: gosec-${{ matrix.app.name }}
