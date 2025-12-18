@@ -87,7 +87,7 @@ jobs:
         run: git fetch --force --tags
 
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
           go-version: ${{ inputs.go_version }}
           cache: true
@@ -97,7 +97,7 @@ jobs:
         run: ${{ inputs.test_cmd }}
 
       - name: Run GoReleaser
-        uses: goreleaser/goreleaser-action@v5
+        uses: goreleaser/goreleaser-action@v6
         with:
           distribution: ${{ inputs.goreleaser_distribution }}
           version: ${{ inputs.goreleaser_version }}
@@ -164,7 +164,7 @@ jobs:
           tags: ${{ inputs.docker_tags }}
 
       - name: Build and push
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v6
         with:
           context: .
           platforms: ${{ inputs.docker_platforms }}
