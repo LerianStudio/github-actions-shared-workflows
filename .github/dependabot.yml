@@ -18,12 +18,13 @@ updates:
     # Add reviewers who should review dependency updates
     reviewers:
       - "LerianStudio/devops-team"
-    # Group all minor and patch updates together
+    # Group all updates together in a single PR
     groups:
       github-actions:
         patterns:
           - "*"
         update-types:
+          - "major"
           - "minor"
           - "patch"
 
@@ -45,11 +46,12 @@ updates:
     # Add reviewers
     reviewers:
       - "LerianStudio/devops-team"
-    # Group all minor and patch updates together
+    # Group all updates together in a single PR
     groups:
       go-dependencies:
         patterns:
           - "*"
         update-types:
+          - "major"
           - "minor"
           - "patch"
