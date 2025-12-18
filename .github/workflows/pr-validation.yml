@@ -293,7 +293,7 @@ jobs:
           fetch-depth: 0
 
       - name: Auto-label based on files
-        uses: actions/labeler@v5
+        uses: actions/labeler@v6
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
           configuration-path: ${{ inputs.labeler_config_path }}
