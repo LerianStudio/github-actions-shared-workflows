@@ -18,38 +18,14 @@ updates:
     # Add reviewers who should review dependency updates
     reviewers:
       - "LerianStudio/devops-team"
-    # Group all minor and patch updates together
+    # Group all updates together in a single PR
     groups:
       github-actions:
         patterns:
           - "*"
         update-types:
+          - "major"
           - "minor"
           - "patch"
 
-  # Also check for Go dependencies in case there are Go modules in the template
-  - package-ecosystem: "gomod"
-    directory: "/"
-    schedule:
-      interval: "weekly"
-      day: "wednesday"
-    target-branch: "develop"
-    labels:
-      - "dependencies"
-      - "go"
-    commit-message:
-      prefix: "build"
-      include: "scope"
-    # Limit the number of open PRs
-    open-pull-requests-limit: 5
-    # Add reviewers
-    reviewers:
-      - "LerianStudio/devops-team"
-    # Group all minor and patch updates together
-    groups:
-      go-dependencies:
-        patterns:
-          - "*"
-        update-types:
-          - "minor"
-          - "patch"
+
