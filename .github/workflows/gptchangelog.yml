@@ -453,8 +453,8 @@ ENTRY_EOF
             echo "📌 Triggered by branch: $BASE_BRANCH"
           fi
           
-          CURRENT_DATE=$(date +%Y-%m-%d)
-          BRANCH_NAME="release/update-changelog-${CURRENT_DATE}"
+          TIMESTAMP=$(date +%Y%m%d%H%M%S)
+          BRANCH_NAME="release/update-changelog-${TIMESTAMP}"
           APPS_UPDATED="${{ steps.generate.outputs.apps_updated }}"
           
           echo "📌 Creating branch: $BRANCH_NAME"
@@ -504,10 +504,9 @@ ENTRY_EOF
           
           if ! gh pr view "$BRANCH_NAME" --base "$BASE_BRANCH" > /dev/null 2>&1; then
             gh pr create \
-              --title "chore(release): Update CHANGELOGs - ${CURRENT_DATE}" \
+              --title "chore(release): Update CHANGELOGs [skip ci]" \
               --body "## Automatic Changelog Update
 
-          **Date:** ${CURRENT_DATE}
           **Apps Updated:** ${APPS_UPDATED}
 
           ### Changes
