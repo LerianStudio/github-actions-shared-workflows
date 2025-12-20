@@ -68,8 +68,38 @@ jobs:
       - name: Check if tag is stable release on main
         id: check-tag
         run: |
-          TAG_NAME="${GITHUB_REF##*/}"
-          echo "📌 Checking tag: $TAG_NAME"
+          # Detect trigger type: workflow_run or push:tags
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            # Triggered by tag push
+            TAG_NAME="${GITHUB_REF##*/}"
+            echo "📌 Triggered by tag push: $TAG_NAME"
+          else
+            # Triggered by workflow_run - find latest stable tags
+            echo "📌 Triggered by workflow_run, finding latest stable tags..."
+            git fetch --tags
+            
+            # Get tags created in the last hour (recent release)
+            LATEST_TAGS=$(git tag --sort=-creatordate | head -20)
+            echo "📌 Recent tags: $LATEST_TAGS"
+            
+            # Find first stable tag (no beta/rc/alpha)
+            TAG_NAME=""
+            for tag in $LATEST_TAGS; do
+              if [[ ! "$tag" =~ -(beta|rc|alpha|dev|snapshot) ]]; then
+                TAG_NAME="$tag"
+                echo "📌 Found stable tag: $TAG_NAME"
+                break
+              fi
+            done
+            
+            if [ -z "$TAG_NAME" ]; then
+              echo "⚠️ No stable tags found"
+              echo "is_stable=false" >> $GITHUB_OUTPUT
+              exit 0
+            fi
+          fi
+          
+          echo "📌 Processing tag: $TAG_NAME"
           
           # Get the commit SHA for this tag
           TAG_COMMIT=$(git rev-list -n 1 "$TAG_NAME" 2>/dev/null || echo "")
@@ -132,22 +162,78 @@ jobs:
             exit 0
           fi
           
-          if [ -z "${{ inputs.filter_paths }}" ]; then
-            # Single app mode - generate changelog from root
-            APP_NAME="${{ github.event.repository.name }}"
-            echo "matrix=[{\"name\": \"${APP_NAME}\", \"working_dir\": \".\"}]" >> $GITHUB_OUTPUT
-            echo "has_changes=true" >> $GITHUB_OUTPUT
-            echo "📦 Single app mode: ${APP_NAME}"
-          else
-            MATRIX='${{ steps.changed-paths.outputs.matrix }}'
-            if [ "$MATRIX" == "[]" ] || [ -z "$MATRIX" ]; then
-              echo "matrix=[]" >> $GITHUB_OUTPUT
-              echo "has_changes=false" >> $GITHUB_OUTPUT
-              echo "⚠️ No changes detected in filter_paths"
-            else
-              echo "matrix=$MATRIX" >> $GITHUB_OUTPUT
+          # Detect trigger type: workflow_run or push:tags
+          if [[ "$GITHUB_REF" != refs/tags/* ]]; then
+            # Triggered by workflow_run - find apps from recent stable tags
+            echo "📌 Triggered by workflow_run, finding apps from recent stable tags..."
+            git fetch --tags
+            
+            # Get filter_paths as array
+            FILTER_PATHS="${{ inputs.filter_paths }}"
+            
+            if [ -z "$FILTER_PATHS" ]; then
+              # Single app mode
+              APP_NAME="${{ github.event.repository.name }}"
+              echo "matrix=[{\"name\": \"${APP_NAME}\", \"working_dir\": \".\"}]" >> $GITHUB_OUTPUT
               echo "has_changes=true" >> $GITHUB_OUTPUT
-              echo "📦 Monorepo mode - detected changes: $MATRIX"
+              echo "📦 Single app mode: ${APP_NAME}"
+            else
+              # Monorepo mode - find apps with recent stable tags
+              MATRIX="["
+              FIRST=true
+              
+              # Parse filter_paths to get app names
+              while IFS= read -r path; do
+                [ -z "$path" ] && continue
+                APP_NAME=$(basename "$path")
+                
+                # Check if this app has a recent stable tag
+                LATEST_TAG=$(git tag --sort=-creatordate | grep "^${APP_NAME}-v" | grep -v -E "-(beta|rc|alpha|dev|snapshot)" | head -1)
+                
+                if [ -n "$LATEST_TAG" ]; then
+                  echo "📦 Found stable tag for $APP_NAME: $LATEST_TAG"
+                  if [ "$FIRST" = true ]; then
+                    FIRST=false
+                  else
+                    MATRIX="$MATRIX,"
+                  fi
+                  MATRIX="$MATRIX{\"name\": \"${APP_NAME}\", \"working_dir\": \"${path}\"}"
+                else
+                  echo "⚠️ No stable tag found for $APP_NAME"
+                fi
+              done <<< "$FILTER_PATHS"
+              
+              MATRIX="$MATRIX]"
+              
+              if [ "$MATRIX" = "[]" ]; then
+                echo "matrix=[]" >> $GITHUB_OUTPUT
+                echo "has_changes=false" >> $GITHUB_OUTPUT
+                echo "⚠️ No apps with stable tags found"
+              else
+                echo "matrix=$MATRIX" >> $GITHUB_OUTPUT
+                echo "has_changes=true" >> $GITHUB_OUTPUT
+                echo "📦 Monorepo mode - found apps: $MATRIX"
+              fi
+            fi
+          else
+            # Triggered by tag push - use changed-paths
+            if [ -z "${{ inputs.filter_paths }}" ]; then
+              # Single app mode - generate changelog from root
+              APP_NAME="${{ github.event.repository.name }}"
+              echo "matrix=[{\"name\": \"${APP_NAME}\", \"working_dir\": \".\"}]" >> $GITHUB_OUTPUT
+              echo "has_changes=true" >> $GITHUB_OUTPUT
+              echo "📦 Single app mode: ${APP_NAME}"
+            else
+              MATRIX='${{ steps.changed-paths.outputs.matrix }}'
+              if [ "$MATRIX" == "[]" ] || [ -z "$MATRIX" ]; then
+                echo "matrix=[]" >> $GITHUB_OUTPUT
+                echo "has_changes=false" >> $GITHUB_OUTPUT
+                echo "⚠️ No changes detected in filter_paths"
+              else
+                echo "matrix=$MATRIX" >> $GITHUB_OUTPUT
+                echo "has_changes=true" >> $GITHUB_OUTPUT
+                echo "📦 Monorepo mode - detected changes: $MATRIX"
+              fi
             fi
           fi
 
