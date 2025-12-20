@@ -238,7 +238,7 @@ jobs:
         run: |
           mkdir -p .gptchangelog/templates
           cat > .gptchangelog/templates/changelog_prompt.txt << 'EOF'
-          ## Release $next_version (Released on $current_date)
+          ## Release $next_version
 
           ### What's New
           $commit_messages
@@ -270,7 +270,6 @@ jobs:
           git fetch --tags --force
           
           MATRIX='${{ needs.prepare.outputs.matrix }}'
-          CURRENT_DATE=$(date +%Y-%m-%d)
           
           echo "📦 Processing apps from matrix: $MATRIX"
           
