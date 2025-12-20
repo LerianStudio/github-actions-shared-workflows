@@ -356,12 +356,11 @@ jobs:
           git fetch --tags --force
           
           MATRIX='${{ needs.prepare.outputs.matrix }}'
+          REPO_URL="https://github.com/${{ github.repository }}"
           
           echo "📦 Processing apps from matrix: $MATRIX"
           
           # Initialize files
-          > /tmp/consolidated_changelog.md
-          > /tmp/consolidated_release_notes.md
           > /tmp/apps_updated.txt
           
           # Parse the matrix JSON and iterate through each app
@@ -383,114 +382,122 @@ jobs:
             
             echo "🔍 Looking for tags matching: $TAG_PATTERN"
             
-            # Determine version range
-            if git describe --tags --abbrev=0 --match "$TAG_PATTERN" HEAD >/dev/null 2>&1; then
-              LAST_TAG=$(git describe --tags --abbrev=0 --match "$TAG_PATTERN" HEAD)
-              
-              if git describe --tags --abbrev=0 --match "$TAG_PATTERN" HEAD^ >/dev/null 2>&1; then
-                PENULT_TAG=$(git describe --tags --abbrev=0 --match "$TAG_PATTERN" HEAD^)
-                SINCE="$PENULT_TAG"
-                TO="$LAST_TAG"
-                echo "🟢 Range: $PENULT_TAG → $LAST_TAG"
-              else
-                FIRST_COMMIT=$(git rev-list --max-parents=0 HEAD)
-                SINCE="$FIRST_COMMIT"
-                TO="$LAST_TAG"
-                echo "🟡 First tag - Range: $FIRST_COMMIT → $LAST_TAG"
-              fi
+            # Find the latest STABLE tag for this app (exclude beta/rc/alpha)
+            LAST_TAG=$(git tag --sort=-version:refname | grep "^${APP_NAME}-v" | grep -v -e "-beta" -e "-rc" -e "-alpha" -e "-dev" -e "-snapshot" | head -1)
+            
+            if [ -z "$LAST_TAG" ]; then
+              echo "⚠️ No stable tag found for $APP_NAME - skipping"
+              continue
+            fi
+            
+            echo "📌 Latest stable tag: $LAST_TAG"
+            
+            # Verify tag exists
+            if ! git rev-parse "$LAST_TAG" >/dev/null 2>&1; then
+              echo "❌ Tag $LAST_TAG does not exist - skipping"
+              continue
+            fi
+            
+            # Find previous stable tag for compare link
+            PREV_TAG=$(git tag --sort=-version:refname | grep "^${APP_NAME}-v" | grep -v -e "-beta" -e "-rc" -e "-alpha" -e "-dev" -e "-snapshot" | sed -n '2p')
+            
+            if [ -n "$PREV_TAG" ]; then
+              SINCE="$PREV_TAG"
+              echo "🟢 Range: $PREV_TAG → $LAST_TAG"
             else
-              FIRST_COMMIT=$(git rev-list --max-parents=0 HEAD)
-              SINCE="$FIRST_COMMIT"
-              TO="HEAD"
-              LAST_TAG="HEAD"
-              echo "🔴 No tags - Range: $FIRST_COMMIT → HEAD"
+              # First stable release - use first commit
+              SINCE=$(git rev-list --max-parents=0 HEAD)
+              echo "🟡 First stable release - Range: first commit → $LAST_TAG"
             fi
             
             # Extract version from tag
-            VERSION=$(echo "$LAST_TAG" | sed 's/.*-v/v/' | sed 's/^v//')
+            VERSION=$(echo "$LAST_TAG" | sed 's/.*-v//')
             
-            # Extract previous version for compare link
-            if [ -n "$PENULT_TAG" ]; then
-              PREV_VERSION=$(echo "$PENULT_TAG" | sed 's/.*-v/v/' | sed 's/^v//')
+            # Generate changelog using gptchangelog with path filter
+            TEMP_CHANGELOG=$(mktemp)
+            TEMP_COMMITS=$(mktemp)
+            
+            # Get commits that touched this app's path (filtered by path)
+            if [ "$WORKING_DIR" != "." ]; then
+              git log --oneline "$SINCE".."$LAST_TAG" -- "$WORKING_DIR" > "$TEMP_COMMITS" 2>/dev/null || true
             else
-              PREV_VERSION="initial"
+              git log --oneline "$SINCE".."$LAST_TAG" > "$TEMP_COMMITS" 2>/dev/null || true
             fi
             
-            # Generate changelog for this app (run from repo root, gptchangelog needs git access)
-            TEMP_CHANGELOG=$(mktemp)
+            COMMIT_COUNT=$(wc -l < "$TEMP_COMMITS" | tr -d ' ')
+            echo "📊 Found $COMMIT_COUNT commits for $APP_NAME"
             
-            if gptchangelog generate --since "$SINCE" --to "$TO" --output "$TEMP_CHANGELOG"; then
+            if [ "$COMMIT_COUNT" -eq 0 ]; then
+              echo "⚠️ No commits found for $APP_NAME in range - skipping"
+              rm -f "$TEMP_CHANGELOG" "$TEMP_COMMITS"
+              continue
+            fi
+            
+            # Generate changelog (gptchangelog will use the commit range)
+            if gptchangelog generate --since "$SINCE" --to "$LAST_TAG" --output "$TEMP_CHANGELOG"; then
               # Clean up markdown blocks
               sed -i '' '/^```/d' "$TEMP_CHANGELOG" 2>/dev/null || sed -i '/^```/d' "$TEMP_CHANGELOG"
               
-              # Extract content (skip the header line if present)
-              CONTENT=$(cat "$TEMP_CHANGELOG" | tail -n +2)
+              # Extract content (skip any header lines)
+              CONTENT=$(cat "$TEMP_CHANGELOG" | grep -v "^#" | sed '/^$/N;/^\n$/d')
               
-              # Determine the changelog path (per-app folder or root)
+              if [ -z "$CONTENT" ]; then
+                echo "⚠️ No content generated for $APP_NAME"
+                rm -f "$TEMP_CHANGELOG" "$TEMP_COMMITS"
+                continue
+              fi
+              
+              # Determine the changelog path
               if [ "$WORKING_DIR" != "." ]; then
                 CHANGELOG_PATH="${WORKING_DIR}/CHANGELOG.md"
               else
                 CHANGELOG_PATH="CHANGELOG.md"
               fi
               
-              # Prepare the new changelog entry for this app
-              # Get repo URL for links
-              REPO_URL="https://github.com/${{ github.repository }}"
-              TAG_NAME="${APP_NAME}-v${VERSION}"
+              # Build compare link
+              if [ -n "$PREV_TAG" ]; then
+                COMPARE_LINK="[Compare changes](${REPO_URL}/compare/${PREV_TAG}...${LAST_TAG})"
+              else
+                COMPARE_LINK="[View all changes](${REPO_URL}/commits/${LAST_TAG})"
+              fi
               
-              # Create new entry using echo (heredoc has issues in while loop)
+              # Create fresh changelog with proper format
               {
+                echo "# ${APP_NAME^} Changelog"
+                echo ""
                 echo "---"
                 echo ""
-                echo "## [${VERSION}](${REPO_URL}/releases/tag/${TAG_NAME})"
+                echo "## [${VERSION}](${REPO_URL}/releases/tag/${LAST_TAG})"
                 echo ""
-                echo "${CONTENT}"
+                echo "$CONTENT"
                 echo ""
-                echo "[Compare changes](${REPO_URL}/compare/${APP_NAME}-v${PREV_VERSION}...${TAG_NAME})"
+                echo "$COMPARE_LINK"
                 echo ""
-              } > /tmp/new_entry.md
+              } > "$CHANGELOG_PATH"
               
-              # Update or create per-app CHANGELOG.md
-              if [ -f "$CHANGELOG_PATH" ]; then
-                # Insert after the title line
-                if grep -q "^# " "$CHANGELOG_PATH"; then
-                  TITLE=$(head -n 1 "$CHANGELOG_PATH")
-                  EXISTING=$(tail -n +2 "$CHANGELOG_PATH")
-                  echo "$TITLE" > "$CHANGELOG_PATH"
-                  echo "" >> "$CHANGELOG_PATH"
-                  cat /tmp/new_entry.md >> "$CHANGELOG_PATH"
-                  echo "$EXISTING" >> "$CHANGELOG_PATH"
-                else
-                  cat /tmp/new_entry.md > /tmp/new_changelog.md
-                  cat "$CHANGELOG_PATH" >> /tmp/new_changelog.md
-                  mv /tmp/new_changelog.md "$CHANGELOG_PATH"
-                fi
-              else
-                echo "# ${APP_NAME} Changelog" > "$CHANGELOG_PATH"
-                echo "" >> "$CHANGELOG_PATH"
-                cat /tmp/new_entry.md >> "$CHANGELOG_PATH"
-              fi
+              echo "📄 Created: $CHANGELOG_PATH"
               
-              echo "📄 Updated: $CHANGELOG_PATH"
-              
-              # Track which apps were updated (with their paths)
+              # Track which apps were updated
               echo "${APP_NAME}:v${VERSION}:${WORKING_DIR}" >> /tmp/apps_updated.txt
               
-              # Update GitHub Release for this app's tag (if not HEAD)
-              if [ "$LAST_TAG" != "HEAD" ]; then
-                echo "## ${APP_NAME} v${VERSION}" > /tmp/app_release_notes.md
-                echo "" >> /tmp/app_release_notes.md
-                echo "$CONTENT" >> /tmp/app_release_notes.md
-                gh release edit "$LAST_TAG" --notes-file /tmp/app_release_notes.md || \
-                  echo "⚠️ Could not update release for $LAST_TAG"
-              fi
+              # Update GitHub Release notes
+              {
+                echo "## ${APP_NAME^} v${VERSION}"
+                echo ""
+                echo "$CONTENT"
+                echo ""
+                echo "$COMPARE_LINK"
+              } > /tmp/app_release_notes.md
+              
+              gh release edit "$LAST_TAG" --notes-file /tmp/app_release_notes.md || \
+                echo "⚠️ Could not update release for $LAST_TAG"
               
               echo "✅ Processed $APP_NAME"
             else
               echo "⚠️ Failed to generate changelog for $APP_NAME"
             fi
             
-            rm -f "$TEMP_CHANGELOG"
+            rm -f "$TEMP_CHANGELOG" "$TEMP_COMMITS"
           done
           
           # Output results
