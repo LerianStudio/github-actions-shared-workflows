@@ -188,7 +188,7 @@ jobs:
                 APP_NAME=$(basename "$path")
                 
                 # Check if this app has a recent stable tag
-                LATEST_TAG=$(git tag --sort=-creatordate | grep "^${APP_NAME}-v" | grep -v -E "-(beta|rc|alpha|dev|snapshot)" | head -1)
+                LATEST_TAG=$(git tag --sort=-creatordate | grep "^${APP_NAME}-v" | grep -v -e "-beta" -e "-rc" -e "-alpha" -e "-dev" -e "-snapshot" | head -1)
                 
                 if [ -n "$LATEST_TAG" ]; then
                   echo "📦 Found stable tag for $APP_NAME: $LATEST_TAG"
