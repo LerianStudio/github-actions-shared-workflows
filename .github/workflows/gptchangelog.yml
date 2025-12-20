@@ -324,6 +324,13 @@ jobs:
             # Extract version from tag
             VERSION=$(echo "$LAST_TAG" | sed 's/.*-v/v/' | sed 's/^v//')
             
+            # Extract previous version for compare link
+            if [ -n "$PENULT_TAG" ]; then
+              PREV_VERSION=$(echo "$PENULT_TAG" | sed 's/.*-v/v/' | sed 's/^v//')
+            else
+              PREV_VERSION="initial"
+            fi
+            
             # Generate changelog for this app (run from repo root, gptchangelog needs git access)
             TEMP_CHANGELOG=$(mktemp)
             
@@ -342,12 +349,20 @@ jobs:
               fi
               
               # Prepare the new changelog entry for this app
+              # Get repo URL for links
+              REPO_URL="https://github.com/${{ github.repository }}"
+              TAG_NAME="${APP_NAME}-v${VERSION}"
+              
               cat > /tmp/new_entry.md << ENTRY_EOF
-          ## [${VERSION}]
+---
 
-          ${CONTENT}
+## [${VERSION}](${REPO_URL}/releases/tag/${TAG_NAME})
 
-          ENTRY_EOF
+${CONTENT}
+
+[Compare changes](${REPO_URL}/compare/${APP_NAME}-v${PREV_VERSION}...${TAG_NAME})
+
+ENTRY_EOF
               
               # Update or create per-app CHANGELOG.md
               if [ -f "$CHANGELOG_PATH" ]; then
