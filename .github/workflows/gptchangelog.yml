@@ -438,16 +438,17 @@ jobs:
               REPO_URL="https://github.com/${{ github.repository }}"
               TAG_NAME="${APP_NAME}-v${VERSION}"
               
-              cat > /tmp/new_entry.md << ENTRY_EOF
----
-
-## [${VERSION}](${REPO_URL}/releases/tag/${TAG_NAME})
-
-${CONTENT}
-
-[Compare changes](${REPO_URL}/compare/${APP_NAME}-v${PREV_VERSION}...${TAG_NAME})
-
-ENTRY_EOF
+              # Create new entry using echo (heredoc has issues in while loop)
+              {
+                echo "---"
+                echo ""
+                echo "## [${VERSION}](${REPO_URL}/releases/tag/${TAG_NAME})"
+                echo ""
+                echo "${CONTENT}"
+                echo ""
+                echo "[Compare changes](${REPO_URL}/compare/${APP_NAME}-v${PREV_VERSION}...${TAG_NAME})"
+                echo ""
+              } > /tmp/new_entry.md
               
               # Update or create per-app CHANGELOG.md
               if [ -f "$CHANGELOG_PATH" ]; then
