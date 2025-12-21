@@ -393,7 +393,9 @@ jobs:
             echo "👥 Contributors: $CONTRIBUTORS"
             
             # Call OpenAI directly with filtered commits (gptchangelog doesn't support path filtering)
-            PROMPT="Generate a concise changelog for the ${APP_NAME} component based on these commits:
+            # Build prompt using heredoc to avoid YAML parsing issues
+            PROMPT=$(cat <<PROMPT_EOF
+Generate a concise changelog for the ${APP_NAME} component based on these commits:
 
 ${COMMITS_TEXT}
 
@@ -407,7 +409,9 @@ Requirements:
 - Start directly with bullet points
 - Keep it concise - max 5-6 bullet points
 - At the END, add a Contributors section with: ${CONTRIBUTORS}
-- Format contributors as GitHub mentions (@username) if possible"
+- Format contributors as GitHub mentions (@username) if possible
+PROMPT_EOF
+)
 
             # Escape the prompt for JSON
             ESCAPED_PROMPT=$(echo "$PROMPT" | jq -Rs .)
