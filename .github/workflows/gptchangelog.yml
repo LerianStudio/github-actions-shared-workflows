@@ -43,10 +43,6 @@ on:
         description: 'Maximum context tokens for OpenAI API'
         type: string
         default: '80000'
-      python_version:
-        description: 'Python version to use'
-        type: string
-        default: '3.10'
 
 permissions:
   contents: write
@@ -284,72 +280,7 @@ jobs:
           git_user_signingkey: true
           git_commit_gpgsign: true
 
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: ${{ inputs.python_version }}
-
-      - name: Install gptchangelog
-        run: |
-          python -m pip install --upgrade pip
-          pip install gptchangelog
-          echo "✅ gptchangelog installed successfully"
-
-      - name: Create gptchangelog config
-        run: |
-          # Initialize config first (creates proper structure)
-          # Note: gptchangelog config init may prompt for input, so we skip it and create config manually
-          
-          # Create project-specific config
-          mkdir -p .gptchangelog
-          echo "[gptchangelog]" > .gptchangelog/config.ini
-          echo "openai = true" >> .gptchangelog/config.ini
-          echo "" >> .gptchangelog/config.ini
-          echo "[openai]" >> .gptchangelog/config.ini
-          echo "api_key = ${OPENAI_API_KEY}" >> .gptchangelog/config.ini
-          echo "model = ${{ inputs.openai_model }}" >> .gptchangelog/config.ini
-          echo "max_context_tokens = ${{ inputs.max_context_tokens }}" >> .gptchangelog/config.ini
-          
-          # Also create global config as fallback
-          mkdir -p ~/.config/gptchangelog
-          cp .gptchangelog/config.ini ~/.config/gptchangelog/config.ini
-          
-          echo "✅ gptchangelog config created"
-          echo "📄 Config contents:"
-          cat .gptchangelog/config.ini | grep -v api_key
-        env:
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-
-      - name: Create changelog prompt template
-        run: |
-          mkdir -p .gptchangelog/templates
-          cat > .gptchangelog/templates/changelog_prompt.txt << 'EOF'
-          ## Release $next_version
-
-          ### What's New
-          $commit_messages
-
-          ### ✨ Features
-          - Highlight new features added in this release.
-
-          ### 🛠 Fixes
-          - List bug fixes and improvements.
-
-          ### 📚 Documentation
-          - Summarize updates to documentation.
-
-          ### 🚀 Improvements
-          - Highlight performance or backend optimizations.
-
-          ### ⚠️ Breaking Changes
-          - List any breaking changes here.
-
-          ### 🙌 Contributors
-          - Acknowledge contributors for this release.
-          EOF
-          echo "✅ Changelog prompt template created"
-
-      - name: Generate consolidated changelog for all apps
+      - name: Generate changelog for all apps
         id: generate
         run: |
           echo "OPENAI_API_KEY=${OPENAI_API_KEY}" > .env
@@ -433,70 +364,97 @@ jobs:
               continue
             fi
             
-            # Generate changelog (gptchangelog will use the commit range)
-            if gptchangelog generate --since "$SINCE" --to "$LAST_TAG" --output "$TEMP_CHANGELOG"; then
-              # Clean up markdown blocks
-              sed -i '' '/^```/d' "$TEMP_CHANGELOG" 2>/dev/null || sed -i '/^```/d' "$TEMP_CHANGELOG"
-              
-              # Extract content (skip any header lines)
-              CONTENT=$(cat "$TEMP_CHANGELOG" | grep -v "^#" | sed '/^$/N;/^\n$/d')
-              
-              if [ -z "$CONTENT" ]; then
-                echo "⚠️ No content generated for $APP_NAME"
-                rm -f "$TEMP_CHANGELOG" "$TEMP_COMMITS"
-                continue
-              fi
-              
-              # Determine the changelog path
-              if [ "$WORKING_DIR" != "." ]; then
-                CHANGELOG_PATH="${WORKING_DIR}/CHANGELOG.md"
-              else
-                CHANGELOG_PATH="CHANGELOG.md"
-              fi
-              
-              # Build compare link
-              if [ -n "$PREV_TAG" ]; then
-                COMPARE_LINK="[Compare changes](${REPO_URL}/compare/${PREV_TAG}...${LAST_TAG})"
-              else
-                COMPARE_LINK="[View all changes](${REPO_URL}/commits/${LAST_TAG})"
-              fi
-              
-              # Create fresh changelog with proper format
-              {
-                echo "# ${APP_NAME^} Changelog"
-                echo ""
-                echo "---"
-                echo ""
-                echo "## [${VERSION}](${REPO_URL}/releases/tag/${LAST_TAG})"
-                echo ""
-                echo "$CONTENT"
-                echo ""
-                echo "$COMPARE_LINK"
-                echo ""
-              } > "$CHANGELOG_PATH"
-              
-              echo "📄 Created: $CHANGELOG_PATH"
-              
-              # Track which apps were updated
-              echo "${APP_NAME}:v${VERSION}:${WORKING_DIR}" >> /tmp/apps_updated.txt
-              
-              # Update GitHub Release notes
-              {
-                echo "## ${APP_NAME^} v${VERSION}"
-                echo ""
-                echo "$CONTENT"
-                echo ""
-                echo "$COMPARE_LINK"
-              } > /tmp/app_release_notes.md
-              
-              gh release edit "$LAST_TAG" --notes-file /tmp/app_release_notes.md || \
-                echo "⚠️ Could not update release for $LAST_TAG"
-              
-              echo "✅ Processed $APP_NAME"
-            else
-              echo "⚠️ Failed to generate changelog for $APP_NAME"
+            # Get detailed commit messages for this app only
+            COMMITS_TEXT=$(cat "$TEMP_COMMITS")
+            echo "📝 Commits for $APP_NAME:"
+            echo "$COMMITS_TEXT"
+            
+            # Call OpenAI directly with filtered commits (gptchangelog doesn't support path filtering)
+            PROMPT="Generate a concise changelog for the ${APP_NAME} component based on these commits:
+
+${COMMITS_TEXT}
+
+Requirements:
+- Focus ONLY on changes to ${APP_NAME} - do not mention other components
+- Use bullet points with brief descriptions
+- Group by: Features, Fixes, Improvements (skip empty sections)
+- Be specific about what changed in ${APP_NAME}
+- Do not use generic descriptions like 'backend' or 'frontend'
+- Do not include markdown headers (no ## or ###)
+- Start directly with bullet points
+- Keep it concise - max 5-6 bullet points"
+
+            # Escape the prompt for JSON
+            ESCAPED_PROMPT=$(echo "$PROMPT" | jq -Rs .)
+            
+            # Call OpenAI API directly
+            RESPONSE=$(curl -s https://api.openai.com/v1/chat/completions \
+              -H "Content-Type: application/json" \
+              -H "Authorization: Bearer $OPENAI_API_KEY" \
+              -d "{
+                \"model\": \"${{ inputs.openai_model }}\",
+                \"messages\": [{\"role\": \"user\", \"content\": $ESCAPED_PROMPT}],
+                \"temperature\": 0.3,
+                \"max_tokens\": 1000
+              }")
+            
+            # Extract content from response
+            CONTENT=$(echo "$RESPONSE" | jq -r '.choices[0].message.content // empty')
+            
+            if [ -z "$CONTENT" ]; then
+              echo "⚠️ No content generated for $APP_NAME"
+              echo "API Response: $RESPONSE"
+              rm -f "$TEMP_CHANGELOG" "$TEMP_COMMITS"
+              continue
             fi
             
+            # Clean up any markdown code blocks
+            CONTENT=$(echo "$CONTENT" | sed '/^```/d')
+            
+            # Determine the changelog path
+            if [ "$WORKING_DIR" != "." ]; then
+              CHANGELOG_PATH="${WORKING_DIR}/CHANGELOG.md"
+            else
+              CHANGELOG_PATH="CHANGELOG.md"
+            fi
+            
+            # Build compare link
+            if [ -n "$PREV_TAG" ]; then
+              COMPARE_LINK="[Compare changes](${REPO_URL}/compare/${PREV_TAG}...${LAST_TAG})"
+            else
+              COMPARE_LINK="[View all changes](${REPO_URL}/commits/${LAST_TAG})"
+            fi
+            
+            # Create fresh changelog with proper format (no extra --- at top)
+            {
+              echo "# ${APP_NAME^} Changelog"
+              echo ""
+              echo "## [${VERSION}](${REPO_URL}/releases/tag/${LAST_TAG})"
+              echo ""
+              echo "$CONTENT"
+              echo ""
+              echo "$COMPARE_LINK"
+              echo ""
+            } > "$CHANGELOG_PATH"
+            
+            echo "📄 Created: $CHANGELOG_PATH"
+            
+            # Track which apps were updated
+            echo "${APP_NAME}:v${VERSION}:${WORKING_DIR}" >> /tmp/apps_updated.txt
+            
+            # Update GitHub Release notes
+            {
+              echo "## ${APP_NAME^} v${VERSION}"
+              echo ""
+              echo "$CONTENT"
+              echo ""
+              echo "$COMPARE_LINK"
+            } > /tmp/app_release_notes.md
+            
+            gh release edit "$LAST_TAG" --notes-file /tmp/app_release_notes.md || \
+              echo "⚠️ Could not update release for $LAST_TAG"
+            
+            echo "✅ Processed $APP_NAME"
             rm -f "$TEMP_CHANGELOG" "$TEMP_COMMITS"
           done
           
@@ -678,8 +636,7 @@ jobs:
         if: always()
         run: |
           rm -f .env
-          rm -rf .gptchangelog
-          rm -f /tmp/consolidated_changelog.md /tmp/consolidated_release_notes.md /tmp/apps_updated.txt /tmp/app_release_notes.md /tmp/new_entry.md
+          rm -f /tmp/apps_updated.txt /tmp/app_release_notes.md
           echo "🧹 Cleaned up sensitive files"
 
   # Slack notification for workflow status
