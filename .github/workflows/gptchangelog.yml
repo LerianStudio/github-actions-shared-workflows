@@ -369,6 +369,29 @@ jobs:
             echo "📝 Commits for $APP_NAME:"
             echo "$COMMITS_TEXT"
             
+            # Get unique contributors (GitHub usernames) for this app
+            # Try to extract GitHub username from email (format: user@users.noreply.github.com or username+id@users.noreply.github.com)
+            if [ "$WORKING_DIR" != "." ]; then
+              RAW_EMAILS=$(git log "$SINCE".."$LAST_TAG" --format='%ae' -- "$WORKING_DIR" 2>/dev/null | sort -u)
+            else
+              RAW_EMAILS=$(git log "$SINCE".."$LAST_TAG" --format='%ae' 2>/dev/null | sort -u)
+            fi
+            
+            CONTRIBUTORS=""
+            for EMAIL in $RAW_EMAILS; do
+              if [[ "$EMAIL" == *"@users.noreply.github.com" ]]; then
+                # Extract username from GitHub noreply email
+                USERNAME=$(echo "$EMAIL" | sed 's/@users.noreply.github.com//' | sed 's/.*+//')
+                CONTRIBUTORS="${CONTRIBUTORS}@${USERNAME}, "
+              else
+                # Use email prefix as fallback
+                USERNAME=$(echo "$EMAIL" | cut -d@ -f1)
+                CONTRIBUTORS="${CONTRIBUTORS}@${USERNAME}, "
+              fi
+            done
+            CONTRIBUTORS=$(echo "$CONTRIBUTORS" | sed 's/, $//')
+            echo "👥 Contributors: $CONTRIBUTORS"
+            
             # Call OpenAI directly with filtered commits (gptchangelog doesn't support path filtering)
             PROMPT="Generate a concise changelog for the ${APP_NAME} component based on these commits:
 
@@ -382,7 +405,9 @@ Requirements:
 - Do not use generic descriptions like 'backend' or 'frontend'
 - Do not include markdown headers (no ## or ###)
 - Start directly with bullet points
-- Keep it concise - max 5-6 bullet points"
+- Keep it concise - max 5-6 bullet points
+- At the END, add a Contributors section with: ${CONTRIBUTORS}
+- Format contributors as GitHub mentions (@username) if possible"
 
             # Escape the prompt for JSON
             ESCAPED_PROMPT=$(echo "$PROMPT" | jq -Rs .)
