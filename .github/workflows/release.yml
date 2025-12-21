@@ -141,8 +141,7 @@ jobs:
         working-directory: ${{ matrix.app.working_dir }}
         run: |
           npm install --save-dev \
-            @semantic-release/exec \
-            @semantic-release/changelog
+            @semantic-release/exec
 
       - name: Semantic Release
         uses: cycjimmy/semantic-release-action@v6
