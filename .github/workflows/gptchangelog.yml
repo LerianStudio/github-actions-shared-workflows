@@ -435,7 +435,17 @@ jobs:
               COMPARE_LINK="[View all changes](${REPO_URL}/commits/${LAST_TAG})"
             fi
             
-            # Create fresh changelog with proper format (no extra --- at top)
+            # Append new version to changelog (keep existing entries)
+            if [ -f "$CHANGELOG_PATH" ]; then
+              # Extract existing content after the header line
+              EXISTING_CONTENT=$(sed '1,/^# /d' "$CHANGELOG_PATH" | sed '/^$/d' | head -c -1)
+              echo "📜 Found existing changelog with content"
+            else
+              EXISTING_CONTENT=""
+              echo "📜 Creating new changelog"
+            fi
+            
+            # Build changelog with new entry at top, existing entries below
             {
               echo "# ${APP_NAME^} Changelog"
               echo ""
@@ -444,10 +454,16 @@ jobs:
               echo "$CONTENT"
               echo ""
               echo "$COMPARE_LINK"
+              if [ -n "$EXISTING_CONTENT" ]; then
+                echo ""
+                echo "---"
+                echo ""
+                echo "$EXISTING_CONTENT"
+              fi
               echo ""
             } > "$CHANGELOG_PATH"
             
-            echo "📄 Created: $CHANGELOG_PATH"
+            echo "📄 Updated: $CHANGELOG_PATH"
             
             # Track which apps were updated
             echo "${APP_NAME}:v${VERSION}:${WORKING_DIR}" >> /tmp/apps_updated.txt
