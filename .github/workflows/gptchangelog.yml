@@ -379,6 +379,10 @@ jobs:
             
             CONTRIBUTORS=""
             for EMAIL in $RAW_EMAILS; do
+              # Skip service accounts used for automated commits
+              if [[ "$EMAIL" == *"srv.iam"* ]] || [[ "$EMAIL" == *"noreply"* && "$EMAIL" != *"users.noreply.github.com" ]]; then
+                continue
+              fi
               if [[ "$EMAIL" == *"@users.noreply.github.com" ]]; then
                 # Extract username from GitHub noreply email
                 USERNAME=$(echo "$EMAIL" | sed 's/@users.noreply.github.com//' | sed 's/.*+//')
