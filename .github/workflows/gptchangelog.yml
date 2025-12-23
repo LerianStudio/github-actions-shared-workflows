@@ -397,8 +397,8 @@ jobs:
             echo "👥 Contributors: $CONTRIBUTORS"
             
             # Call OpenRouter API with filtered commits
-            # Build prompt and escape for JSON
-            PROMPT="Generate a concise changelog for the ${APP_NAME} component based on these commits: ${COMMITS_TEXT} --- Requirements: Focus ONLY on changes to ${APP_NAME}. Use bullet points. Group by Features, Fixes, Improvements (skip empty). Be specific. No markdown headers. Keep concise (max 5-6 points). At the END add Contributors: ${CONTRIBUTORS} as @username mentions."
+            # Build prompt and escape for JSON - be very strict about component name
+            PROMPT="Generate a changelog for ${APP_NAME} ONLY. Commits: ${COMMITS_TEXT} --- STRICT RULES: 1) NEVER mention other components - only ${APP_NAME}. 2) Use bullet points. 3) Group by Features, Fixes, Improvements (skip empty sections). 4) No markdown headers. 5) Max 5 bullet points. 6) End with Contributors: ${CONTRIBUTORS}"
             ESCAPED_PROMPT=$(echo "$PROMPT" | jq -Rs .)
             
             # Call OpenRouter API (OpenAI-compatible)
@@ -443,9 +443,13 @@ jobs:
             
             # Append new version to changelog (keep existing entries)
             if [ -f "$CHANGELOG_PATH" ]; then
-              # Extract existing content after the header line
-              EXISTING_CONTENT=$(sed '1,/^# /d' "$CHANGELOG_PATH" | sed '/^$/d' | head -c -1)
-              echo "📜 Found existing changelog with content"
+              # Extract existing entries (everything after first ## header, excluding the title)
+              EXISTING_CONTENT=$(awk '/^## \[/{found=1} found{print}' "$CHANGELOG_PATH")
+              if [ -n "$EXISTING_CONTENT" ]; then
+                echo "📜 Found existing changelog entries"
+              else
+                echo "📜 Changelog exists but no version entries found"
+              fi
             else
               EXISTING_CONTENT=""
               echo "📜 Creating new changelog"
