@@ -435,16 +435,6 @@ jobs:
             ${{ matrix.app.working_dir }}/coverage-report.md
           retention-days: 30
 
-      - name: Check coverage threshold
-        if: inputs.fail_on_coverage_threshold
-        run: |
-          COVERAGE=${{ steps.coverage.outputs.coverage }}
-          THRESHOLD=${{ inputs.coverage_threshold }}
-          if (( $(echo "$COVERAGE < $THRESHOLD" | bc -l) )); then
-            echo "::error::Coverage $COVERAGE% is below threshold $THRESHOLD%"
-            exit 1
-          fi
-
       - name: Post coverage comment
         if: github.event_name == 'pull_request'
         uses: actions/github-script@v8
@@ -512,6 +502,16 @@ jobs:
               });
               console.log('Comment created successfully');
             }
+
+      - name: Check coverage threshold
+        if: inputs.fail_on_coverage_threshold
+        run: |
+          COVERAGE=${{ steps.coverage.outputs.coverage }}
+          THRESHOLD=${{ inputs.coverage_threshold }}
+          if (( $(echo "$COVERAGE < $THRESHOLD" | bc -l) )); then
+            echo "::error::Coverage $COVERAGE% is below threshold $THRESHOLD%"
+            exit 1
+          fi
 
       - name: Coverage summary
         working-directory: ${{ matrix.app.working_dir }}
