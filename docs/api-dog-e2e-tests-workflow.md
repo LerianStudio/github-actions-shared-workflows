@@ -233,13 +233,11 @@ with:
 
 **Error**: Environment ID not set
 
-**Solution**: When using `auto_detect_environment: true`, ensure both secrets are provided:
+**Solution**: When using `auto_detect_environment: true`, ensure both environment secrets are configured at the repository or organization level:
+- `APIDOG_DEV_ENVIRONMENT_ID`
+- `APIDOG_STG_ENVIRONMENT_ID`
 
-```yaml
-secrets:
-  dev_environment_id: ${{ secrets.APIDOG_DEV_ENVIRONMENT_ID }}
-  stg_environment_id: ${{ secrets.APIDOG_STG_ENVIRONMENT_ID }}
-```
+Then use `secrets: inherit` in your workflow call.
 
 ### CLI Installation Issues
 
