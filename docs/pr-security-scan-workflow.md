@@ -58,12 +58,9 @@ jobs:
   security-scan:
     uses: LerianStudio/github-actions-shared-workflows/.github/workflows/pr-security-scan.yml@main
     with:
-      runner_type: "firmino-lxc-runners"
+      runner_type: "blacksmith-4vcpu-ubuntu-2404"
       dockerhub_org: "lerianstudio"
-    secrets:
-      manage_token: ${{ secrets.MANAGE_TOKEN }}
-      docker_username: ${{ secrets.DOCKER_USERNAME }}
-      docker_password: ${{ secrets.DOCKER_PASSWORD }}
+    secrets: inherit
 ```
 
 ### Monorepo Type 1
@@ -78,17 +75,14 @@ jobs:
   security-scan:
     uses: LerianStudio/github-actions-shared-workflows/.github/workflows/pr-security-scan.yml@main
     with:
-      runner_type: "firmino-lxc-runners"
+      runner_type: "blacksmith-4vcpu-ubuntu-2404"
       filter_paths: |-
         components/onboarding
         components/transaction
         components/console
       path_level: "2"
       dockerhub_org: "lerianstudio"
-    secrets:
-      manage_token: ${{ secrets.MANAGE_TOKEN }}
-      docker_username: ${{ secrets.DOCKER_USERNAME }}
-      docker_password: ${{ secrets.DOCKER_PASSWORD }}
+    secrets: inherit
 ```
 
 ### Monorepo Type 2
@@ -103,7 +97,7 @@ jobs:
   security-scan:
     uses: LerianStudio/github-actions-shared-workflows/.github/workflows/pr-security-scan.yml@main
     with:
-      runner_type: "firmino-lxc-runners"
+      runner_type: "blacksmith-4vcpu-ubuntu-2404"
       filter_paths: |-
         frontend
         cmd
@@ -115,23 +109,46 @@ jobs:
       monorepo_type: "type2"
       frontend_folder: "frontend"
       dockerhub_org: "lerianstudio"
-    secrets:
-      manage_token: ${{ secrets.MANAGE_TOKEN }}
-      docker_username: ${{ secrets.DOCKER_USERNAME }}
-      docker_password: ${{ secrets.DOCKER_PASSWORD }}
+    secrets: inherit
 ```
+
+### CLI / Non-Docker Projects
+
+For projects without a Dockerfile (e.g., CLI tools), disable Docker scanning to only run filesystem secret scanning:
+
+```yaml
+name: PR Security Scan
+on:
+  pull_request:
+    branches: [develop, release-candidate, main]
+
+jobs:
+  security-scan:
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/pr-security-scan.yml@main
+    with:
+      runner_type: "blacksmith-4vcpu-ubuntu-2404"
+      enable_docker_scan: false
+    secrets: inherit
+```
+
+This will:
+- ✅ Run Trivy filesystem secret scanning
+- ❌ Skip Docker image build
+- ❌ Skip Docker vulnerability scanning
 
 ## Inputs
 
 | Input | Type | Default | Description |
 |-------|------|---------|-------------|
-| `runner_type` | string | `firmino-lxc-runners` | GitHub runner type |
+| `runner_type` | string | `blacksmith-4vcpu-ubuntu-2404` | GitHub runner type |
 | `filter_paths` | string | - | Paths to monitor (newline separated). If empty, treats as single app |
 | `path_level` | string | `2` | Directory depth level to extract app name (monorepo only) |
 | `monorepo_type` | string | `type1` | Monorepo type: `type1` or `type2` |
 | `frontend_folder` | string | `frontend` | Frontend folder name for type2 monorepos |
 | `dockerhub_org` | string | `lerianstudio` | DockerHub organization name |
 | `docker_registry` | string | `docker.io` | Docker registry URL |
+| `dockerfile_name` | string | `Dockerfile` | Name of the Dockerfile |
+| `enable_docker_scan` | boolean | `true` | Enable Docker image build and vulnerability scanning. Set to `false` for projects without Dockerfile (e.g., CLI tools) |
 
 ## Secrets
 
