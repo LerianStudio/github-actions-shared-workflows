@@ -304,17 +304,21 @@ jobs:
             echo "📝 Processing: $APP_NAME (dir: $WORKING_DIR)"
             echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
             
-            # Determine tag pattern based on app type
+            # Determine tag pattern based on app type (monorepo vs single-app)
             if [ "$WORKING_DIR" != "." ]; then
+              # Monorepo: tags are prefixed with app name (e.g., auth-v1.0.0)
               TAG_PATTERN="${APP_NAME}-v*"
+              TAG_GREP_PATTERN="^${APP_NAME}-v"
             else
+              # Single-app repo: tags are just version (e.g., v1.0.0)
               TAG_PATTERN="v*"
+              TAG_GREP_PATTERN="^v"
             fi
             
             echo "🔍 Looking for tags matching: $TAG_PATTERN"
             
             # Find the latest STABLE tag for this app (exclude beta/rc/alpha)
-            LAST_TAG=$(git tag --sort=-version:refname | grep "^${APP_NAME}-v" | grep -v -e "-beta" -e "-rc" -e "-alpha" -e "-dev" -e "-snapshot" | head -1)
+            LAST_TAG=$(git tag --sort=-version:refname | grep "$TAG_GREP_PATTERN" | grep -v -e "-beta" -e "-rc" -e "-alpha" -e "-dev" -e "-snapshot" | head -1)
             
             if [ -z "$LAST_TAG" ]; then
               echo "⚠️ No stable tag found for $APP_NAME - skipping"
@@ -330,7 +334,7 @@ jobs:
             fi
             
             # Find previous stable tag for compare link
-            PREV_TAG=$(git tag --sort=-version:refname | grep "^${APP_NAME}-v" | grep -v -e "-beta" -e "-rc" -e "-alpha" -e "-dev" -e "-snapshot" | sed -n '2p')
+            PREV_TAG=$(git tag --sort=-version:refname | grep "$TAG_GREP_PATTERN" | grep -v -e "-beta" -e "-rc" -e "-alpha" -e "-dev" -e "-snapshot" | sed -n '2p')
             
             if [ -n "$PREV_TAG" ]; then
               SINCE="$PREV_TAG"
@@ -341,8 +345,14 @@ jobs:
               echo "🟡 First stable release - Range: first commit → $LAST_TAG"
             fi
             
-            # Extract version from tag
-            VERSION=$(echo "$LAST_TAG" | sed 's/.*-v//')
+            # Extract version from tag (handles both monorepo and single-app formats)
+            if [ "$WORKING_DIR" != "." ]; then
+              # Monorepo: auth-v1.0.0 -> 1.0.0
+              VERSION=$(echo "$LAST_TAG" | sed 's/.*-v//')
+            else
+              # Single-app: v1.0.0 -> 1.0.0
+              VERSION=$(echo "$LAST_TAG" | sed 's/^v//')
+            fi
             
             # Generate changelog using gptchangelog with path filter
             TEMP_CHANGELOG=$(mktemp)
