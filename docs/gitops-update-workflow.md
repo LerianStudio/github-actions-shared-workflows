@@ -24,15 +24,10 @@ update_gitops:
   uses: LerianStudio/github-actions-shared-workflows/.github/workflows/gitops-update.yml@main
   with:
     yaml_key_mappings: '{"backend.tag": ".auth.image.tag"}'
-  secrets:
-    manage_token: ${{ secrets.MANAGE_TOKEN }}
-    ci_cd_user_name: ${{ secrets.LERIAN_CI_CD_USER_NAME }}
-    ci_cd_user_email: ${{ secrets.LERIAN_CI_CD_USER_EMAIL }}
-    argocd_token: ${{ secrets.ARGOCD_GHUSER_TOKEN }}
-    argocd_url: ${{ secrets.ARGOCD_URL }}
-    docker_username: ${{ secrets.DOCKER_USERNAME }}
-    docker_password: ${{ secrets.DOCKER_PASSWORD }}
+  secrets: inherit
 ```
+
+> **Required Secrets**: `MANAGE_TOKEN`, `LERIAN_CI_CD_USER_NAME`, `LERIAN_CI_CD_USER_EMAIL`, `ARGOCD_GHUSER_TOKEN`, `ARGOCD_URL`, `DOCKER_USERNAME`, `DOCKER_PASSWORD`
 
 **Auto-generated values** (for repo `my-backend-service`):
 - App name: `my-backend-service`
@@ -50,14 +45,7 @@ update_gitops:
   uses: LerianStudio/github-actions-shared-workflows/.github/workflows/gitops-update.yml@main
   with:
     yaml_key_mappings: '{"backend.tag": ".crm.image.tag", "frontend.tag": ".frontend.image.tag"}'
-  secrets:
-    manage_token: ${{ secrets.MANAGE_TOKEN }}
-    ci_cd_user_name: ${{ secrets.LERIAN_CI_CD_USER_NAME }}
-    ci_cd_user_email: ${{ secrets.LERIAN_CI_CD_USER_EMAIL }}
-    argocd_token: ${{ secrets.ARGOCD_GHUSER_TOKEN }}
-    argocd_url: ${{ secrets.ARGOCD_URL }}
-    docker_username: ${{ secrets.DOCKER_USERNAME }}
-    docker_password: ${{ secrets.DOCKER_PASSWORD }}
+  secrets: inherit
 ```
 
 ### Dynamic Mapping Example (Multiple Components like Midaz)
@@ -70,14 +58,7 @@ update_gitops:
   with:
     use_dynamic_mapping: true
     yaml_key_mappings: '{"prefix": "midaz-"}'
-  secrets:
-    manage_token: ${{ secrets.MANAGE_TOKEN }}
-    ci_cd_user_name: ${{ secrets.LERIAN_CI_CD_USER_NAME }}
-    ci_cd_user_email: ${{ secrets.LERIAN_CI_CD_USER_EMAIL }}
-    argocd_token: ${{ secrets.ARGOCD_GHUSER_TOKEN }}
-    argocd_url: ${{ secrets.ARGOCD_URL }}
-    docker_username: ${{ secrets.DOCKER_USERNAME }}
-    docker_password: ${{ secrets.DOCKER_PASSWORD }}
+  secrets: inherit
 ```
 
 ### Manual Environment Selection
@@ -97,10 +78,7 @@ update_gitops:
       }
     commit_message_prefix: 'my-backend-service'
     enable_argocd_sync: false
-  secrets:
-    manage_token: ${{ secrets.MANAGE_TOKEN }}
-    ci_cd_user_name: ${{ secrets.LERIAN_CI_CD_USER_NAME }}
-    ci_cd_user_email: ${{ secrets.LERIAN_CI_CD_USER_EMAIL }}
+  secrets: inherit
 ```
 
 ## Inputs
@@ -282,12 +260,7 @@ update_gitops_backend:
     yaml_key_mappings: '{"backend.tag": ".auth.image.tag"}'
     commit_message_prefix: 'my-backend-service'
     argocd_app_name: 'firmino-my-backend-service'
-  secrets:
-    manage_token: ${{ secrets.MANAGE_TOKEN }}
-    ci_cd_user_name: ${{ secrets.LERIAN_CI_CD_USER_NAME }}
-    ci_cd_user_email: ${{ secrets.LERIAN_CI_CD_USER_EMAIL }}
-    argocd_token: ${{ secrets.ARGOCD_GHUSER_TOKEN }}
-    argocd_url: ${{ secrets.ARGOCD_URL }}
+  secrets: inherit
 ```
 
 ### From Multi-Component App
@@ -322,12 +295,7 @@ update_gitops:
     commit_message_prefix: 'my-fullstack-app'
     argocd_app_name: 'firmino-my-fullstack-app'
     runner_type: 'ubuntu-latest'
-  secrets:
-    manage_token: ${{ secrets.MANAGE_TOKEN }}
-    ci_cd_user_name: ${{ secrets.LERIAN_CI_CD_USER_NAME }}
-    ci_cd_user_email: ${{ secrets.LERIAN_CI_CD_USER_EMAIL }}
-    argocd_token: ${{ secrets.ARGOCD_GHUSER_TOKEN }}
-    argocd_url: ${{ secrets.ARGOCD_URL }}
+  secrets: inherit
 ```
 
 ### From Monorepo with Dynamic Mapping
@@ -356,12 +324,7 @@ update_gitops:
     yaml_key_mappings: '{"prefix": "myapp-"}'
     commit_message_prefix: 'my-platform'
     argocd_app_name: 'firmino-my-platform'
-  secrets:
-    manage_token: ${{ secrets.MANAGE_TOKEN }}
-    ci_cd_user_name: ${{ secrets.LERIAN_CI_CD_USER_NAME }}
-    ci_cd_user_email: ${{ secrets.LERIAN_CI_CD_USER_EMAIL }}
-    argocd_token: ${{ secrets.ARGOCD_GHUSER_TOKEN }}
-    argocd_url: ${{ secrets.ARGOCD_URL }}
+  secrets: inherit
 ```
 
 ## Troubleshooting

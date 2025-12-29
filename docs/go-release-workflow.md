@@ -45,10 +45,10 @@ jobs:
       enable_docker: true
       docker_registry: 'ghcr.io'
       docker_platforms: 'linux/amd64,linux/arm64'
-    secrets:
-      docker_username: ${{ secrets.DOCKER_USERNAME }}
-      docker_password: ${{ secrets.DOCKER_PASSWORD }}
+    secrets: inherit
 ```
+
+> **Note**: Requires `DOCKER_USERNAME` and `DOCKER_PASSWORD` secrets in repository.
 
 ### With Homebrew Formula
 
@@ -65,9 +65,10 @@ jobs:
     with:
       enable_homebrew: true
       homebrew_tap_repo: 'myorg/homebrew-tap'
-    secrets:
-      tap_github_token: ${{ secrets.TAP_GITHUB_TOKEN }}
+    secrets: inherit
 ```
+
+> **Note**: Requires `TAP_GITHUB_TOKEN` secret with write access to tap repository.
 
 ### Full Configuration
 
@@ -92,10 +93,7 @@ jobs:
       enable_homebrew: true
       homebrew_tap_repo: 'myorg/homebrew-tap'
       enable_notifications: true
-    secrets:
-      tap_github_token: ${{ secrets.TAP_GITHUB_TOKEN }}
-      docker_username: ${{ secrets.DOCKER_USERNAME }}
-      docker_password: ${{ secrets.DOCKER_PASSWORD }}
+    secrets: inherit
 ```
 
 ## Inputs
@@ -159,9 +157,10 @@ jobs:
     uses: LerianStudio/github-actions-shared-workflows/.github/workflows/go-release.yml@main
     with:
       goreleaser_distribution: 'goreleaser-pro'
-    secrets:
-      goreleaser_key: ${{ secrets.GORELEASER_KEY }}
+    secrets: inherit
 ```
+
+> **Note**: Requires `GORELEASER_KEY` secret with your GoReleaser Pro license.
 
 ### Skip Tests (Fast Release)
 
