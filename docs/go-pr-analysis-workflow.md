@@ -72,8 +72,7 @@ jobs:
       enable_tests: true
       enable_coverage: true
       enable_build: true
-    secrets:
-      manage_token: ${{ secrets.GITHUB_TOKEN }}
+    secrets: inherit
 ```
 
 ### Minimal (Only Tests and Lint)

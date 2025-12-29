@@ -27,14 +27,10 @@ on:
 jobs:
   release:
     uses: LerianStudio/github-actions-shared-workflows/.github/workflows/release.yml@main
-    secrets:
-      lerian_studio_push_bot_app_id: ${{ secrets.GITHUB_APP_ID }}
-      lerian_studio_push_bot_private_key: ${{ secrets.GITHUB_APP_PRIVATE_KEY }}
-      lerian_ci_cd_user_gpg_key: ${{ secrets.GPG_PRIVATE_KEY }}
-      lerian_ci_cd_user_gpg_key_password: ${{ secrets.GPG_KEY_PASSWORD }}
-      lerian_ci_cd_user_name: ${{ secrets.CI_USER_NAME }}
-      lerian_ci_cd_user_email: ${{ secrets.CI_USER_EMAIL }}
+    secrets: inherit
 ```
+
+> **Required Secrets**: `LERIAN_STUDIO_MIDAZ_PUSH_BOT_APP_ID`, `LERIAN_STUDIO_MIDAZ_PUSH_BOT_PRIVATE_KEY`, `LERIAN_CI_CD_USER_GPG_KEY`, `LERIAN_CI_CD_USER_GPG_KEY_PASSWORD`, `LERIAN_CI_CD_USER_NAME`, `LERIAN_CI_CD_USER_EMAIL`
 
 ### With Custom Runner
 
@@ -42,15 +38,9 @@ jobs:
 release:
   uses: LerianStudio/github-actions-shared-workflows/.github/workflows/release.yml@main
   with:
-    runner_type: "firmino-lxc-runners"
+    runner_type: "blacksmith-4vcpu-ubuntu-2404"
     semantic_version: "23.0.8"
-  secrets:
-    lerian_studio_push_bot_app_id: ${{ secrets.LERIAN_STUDIO_MIDAZ_PUSH_BOT_APP_ID }}
-    lerian_studio_push_bot_private_key: ${{ secrets.LERIAN_STUDIO_MIDAZ_PUSH_BOT_PRIVATE_KEY }}
-    lerian_ci_cd_user_gpg_key: ${{ secrets.LERIAN_CI_CD_USER_GPG_KEY }}
-    lerian_ci_cd_user_gpg_key_password: ${{ secrets.LERIAN_CI_CD_USER_GPG_KEY_PASSWORD }}
-    lerian_ci_cd_user_name: ${{ secrets.LERIAN_CI_CD_USER_NAME }}
-    lerian_ci_cd_user_email: ${{ secrets.LERIAN_CI_CD_USER_EMAIL }}
+  secrets: inherit
 ```
 
 ### Complete Release Pipeline
@@ -84,13 +74,7 @@ jobs:
   release:
     needs: tests
     uses: LerianStudio/github-actions-shared-workflows/.github/workflows/release.yml@main
-    secrets:
-      lerian_studio_push_bot_app_id: ${{ secrets.GITHUB_APP_ID }}
-      lerian_studio_push_bot_private_key: ${{ secrets.GITHUB_APP_PRIVATE_KEY }}
-      lerian_ci_cd_user_gpg_key: ${{ secrets.GPG_PRIVATE_KEY }}
-      lerian_ci_cd_user_gpg_key_password: ${{ secrets.GPG_KEY_PASSWORD }}
-      lerian_ci_cd_user_name: ${{ secrets.CI_USER_NAME }}
-      lerian_ci_cd_user_email: ${{ secrets.CI_USER_EMAIL }}
+    secrets: inherit
 ```
 
 ## Inputs
@@ -416,13 +400,7 @@ on:
 jobs:
   release:
     uses: LerianStudio/github-actions-shared-workflows/.github/workflows/release.yml@main
-    secrets:
-      lerian_studio_push_bot_app_id: ${{ secrets.APP_ID }}
-      lerian_studio_push_bot_private_key: ${{ secrets.APP_PRIVATE_KEY }}
-      lerian_ci_cd_user_gpg_key: ${{ secrets.GPG_KEY }}
-      lerian_ci_cd_user_gpg_key_password: ${{ secrets.GPG_PASSWORD }}
-      lerian_ci_cd_user_name: ${{ secrets.USER_NAME }}
-      lerian_ci_cd_user_email: ${{ secrets.USER_EMAIL }}
+    secrets: inherit
 ```
 
 ### Release with Build Pipeline
@@ -443,13 +421,7 @@ jobs:
   release:
     needs: test
     uses: LerianStudio/github-actions-shared-workflows/.github/workflows/release.yml@main
-    secrets:
-      lerian_studio_push_bot_app_id: ${{ secrets.APP_ID }}
-      lerian_studio_push_bot_private_key: ${{ secrets.APP_PRIVATE_KEY }}
-      lerian_ci_cd_user_gpg_key: ${{ secrets.GPG_KEY }}
-      lerian_ci_cd_user_gpg_key_password: ${{ secrets.GPG_PASSWORD }}
-      lerian_ci_cd_user_name: ${{ secrets.USER_NAME }}
-      lerian_ci_cd_user_email: ${{ secrets.USER_EMAIL }}
+    secrets: inherit
 
   build:
     needs: release
@@ -472,13 +444,7 @@ on:
 jobs:
   release:
     uses: LerianStudio/github-actions-shared-workflows/.github/workflows/release.yml@main
-    secrets:
-      lerian_studio_push_bot_app_id: ${{ secrets.APP_ID }}
-      lerian_studio_push_bot_private_key: ${{ secrets.APP_PRIVATE_KEY }}
-      lerian_ci_cd_user_gpg_key: ${{ secrets.GPG_KEY }}
-      lerian_ci_cd_user_gpg_key_password: ${{ secrets.GPG_PASSWORD }}
-      lerian_ci_cd_user_name: ${{ secrets.USER_NAME }}
-      lerian_ci_cd_user_email: ${{ secrets.USER_EMAIL }}
+    secrets: inherit
 ```
 
 ## Semantic Release Plugins
