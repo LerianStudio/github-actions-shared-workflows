@@ -24,10 +24,7 @@ api-tests:
     output_formats: "html,cli"
     node_version: "20"
     runner_type: "firmino-lxc-runners"
-  secrets:
-    test_scenario_id: ${{ secrets.APIDOG_TEST_SCENARIO_ID }}
-    apidog_access_token: ${{ secrets.APIDOG_ACCESS_TOKEN }}
-    environment_id: ${{ secrets.APIDOG_ENVIRONMENT_ID }}
+    secrets: inherit
 ```
 
 ### Auto-detect Environment from Tag
@@ -37,11 +34,7 @@ api-tests:
   uses: LerianStudio/github-actions-shared-workflows/.github/workflows/api-dog-e2e-tests.yml@main
   with:
     auto_detect_environment: true
-  secrets:
-    test_scenario_id: ${{ secrets.APIDOG_TEST_SCENARIO_ID }}
-    apidog_access_token: ${{ secrets.APIDOG_ACCESS_TOKEN }}
-    dev_environment_id: ${{ secrets.APIDOG_DEV_ENVIRONMENT_ID }}
-    stg_environment_id: ${{ secrets.APIDOG_STG_ENVIRONMENT_ID }}
+    secrets: inherit
 ```
 
 ### Complete Example with GitOps Integration
@@ -74,11 +67,7 @@ jobs:
       auto_detect_environment: true
       test_iterations: "3"
       output_formats: "html,cli,json"
-    secrets:
-      test_scenario_id: ${{ secrets.APIDOG_TEST_SCENARIO_ID }}
-      apidog_access_token: ${{ secrets.APIDOG_ACCESS_TOKEN }}
-      dev_environment_id: ${{ secrets.APIDOG_DEV_ENVIRONMENT_ID }}
-      stg_environment_id: ${{ secrets.APIDOG_STG_ENVIRONMENT_ID }}
+    secrets: inherit
 ```
 
 ## Inputs
@@ -294,10 +283,7 @@ on:
 jobs:
   api-tests:
     uses: LerianStudio/github-actions-shared-workflows/.github/workflows/api-dog-e2e-tests.yml@main
-    secrets:
-      test_scenario_id: ${{ secrets.APIDOG_TEST_SCENARIO_ID }}
-      apidog_access_token: ${{ secrets.APIDOG_ACCESS_TOKEN }}
-      environment_id: ${{ secrets.APIDOG_ENVIRONMENT_ID }}
+    secrets: inherit
 ```
 
 ### Release Pipeline with E2E
@@ -324,11 +310,7 @@ jobs:
       test_iterations: "3"
       output_formats: "html,cli,json"
       runner_type: "firmino-lxc-runners"
-    secrets:
-      test_scenario_id: ${{ secrets.APIDOG_TEST_SCENARIO_ID }}
-      apidog_access_token: ${{ secrets.APIDOG_ACCESS_TOKEN }}
-      dev_environment_id: ${{ secrets.APIDOG_DEV_ENVIRONMENT_ID }}
-      stg_environment_id: ${{ secrets.APIDOG_STG_ENVIRONMENT_ID }}
+    secrets: inherit
 ```
 
 ### Scheduled E2E Tests
@@ -344,19 +326,13 @@ jobs:
     uses: LerianStudio/github-actions-shared-workflows/.github/workflows/api-dog-e2e-tests.yml@main
     with:
       test_iterations: "2"
-    secrets:
-      test_scenario_id: ${{ secrets.APIDOG_TEST_SCENARIO_ID }}
-      apidog_access_token: ${{ secrets.APIDOG_ACCESS_TOKEN }}
-      environment_id: ${{ secrets.APIDOG_DEV_ENVIRONMENT_ID }}
+    secrets: inherit
 
   test_stg:
     uses: LerianStudio/github-actions-shared-workflows/.github/workflows/api-dog-e2e-tests.yml@main
     with:
       test_iterations: "2"
-    secrets:
-      test_scenario_id: ${{ secrets.APIDOG_TEST_SCENARIO_ID }}
-      apidog_access_token: ${{ secrets.APIDOG_ACCESS_TOKEN }}
-      environment_id: ${{ secrets.APIDOG_STG_ENVIRONMENT_ID }}
+    secrets: inherit
 ```
 
 ## Related Workflows

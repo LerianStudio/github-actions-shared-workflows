@@ -363,10 +363,10 @@ security-scan:
   with:
     dockerhub_org: "mycompany"
     docker_registry: "ghcr.io"
-  secrets:
-    docker_username: ${{ github.actor }}
-    docker_password: ${{ secrets.GITHUB_TOKEN }}
+  secrets: inherit
 ```
+
+> **Note**: For GitHub Container Registry (ghcr.io), ensure `DOCKER_USERNAME` and `DOCKER_PASSWORD` secrets are configured appropriately.
 
 ### Monorepo Type 1 with Multiple Components
 

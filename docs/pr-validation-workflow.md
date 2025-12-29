@@ -72,8 +72,7 @@ jobs:
       min_description_length: 100
       check_changelog: true
       enable_auto_labeler: true
-    secrets:
-      github_token: ${{ secrets.GITHUB_TOKEN }}
+    secrets: inherit
 ```
 
 ### With Custom Scopes
