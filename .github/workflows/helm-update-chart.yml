@@ -168,9 +168,12 @@ jobs:
 
       - name: Configure git (without GPG)
         if: ${{ !inputs.gpg_sign_commits }}
+        env:
+          GIT_USER_NAME: ${{ secrets.GIT_USER_NAME }}
+          GIT_USER_EMAIL: ${{ secrets.GIT_USER_EMAIL }}
         run: |
-          git config user.name "${{ secrets.GIT_USER_NAME }}"
-          git config user.email "${{ secrets.GIT_USER_EMAIL }}"
+          git config user.name "${GIT_USER_NAME}"
+          git config user.email "${GIT_USER_EMAIL}"
 
       - name: Create feature branch
         run: |
@@ -220,6 +223,13 @@ jobs:
               return 0  # true - is sensitive
             fi
             return 1  # false - not sensitive
+          }
+
+          # Function to escape sed special characters
+          escape_sed() {
+            local str="$1"
+            # Escape: \ & / and newlines
+            printf '%s' "$str" | sed -e 's/[\/&\\]/\\&/g' | tr -d '\n'
           }
 
           # Track highest version for appVersion
@@ -284,6 +294,9 @@ jobs:
 
               echo "$COMP_ENV_VARS" | jq -r 'to_entries[] | "\(.key)=\(.value)"' | while IFS='=' read -r key value; do
                 if [ -n "$key" ]; then
+                  # Escape values for safe sed insertion
+                  escaped_value=$(escape_sed "$value")
+
                   # Check if variable is sensitive
                   if is_sensitive_var "$key"; then
                     echo "  Adding SECRET var: ${key}=***"
@@ -293,14 +306,14 @@ jobs:
 
                     # Add to secret template (using 2 spaces indentation for data section)
                     if [ -f "${SECRET_FILE}" ] && grep -q "# Extra Secret Vars" "${SECRET_FILE}"; then
-                      sed -i "/# Extra Secret Vars/i\\  ${key}: {{ .Values.${COMP_NAME}.secrets.${key} | default \"${value}\" | b64enc | quote }}" "${SECRET_FILE}"
+                      sed -i "/# Extra Secret Vars/i\\  ${key}: {{ .Values.${COMP_NAME}.secrets.${key} | default \"${escaped_value}\" | b64enc | quote }}" "${SECRET_FILE}"
                     fi
                   else
                     echo "  Adding configmap var: ${key}=${value}"
 
                     # Add to configmap template if it exists (using 2 spaces indentation)
                     if [ -f "${CONFIGMAP_FILE}" ] && grep -q "# Extra Env Vars" "${CONFIGMAP_FILE}"; then
-                      sed -i "/# Extra Env Vars/i\\  ${key}: {{ .Values.${COMP_NAME}.configmap.${key} | default \"${value}\" | quote }}" "${CONFIGMAP_FILE}"
+                      sed -i "/# Extra Env Vars/i\\  ${key}: {{ .Values.${COMP_NAME}.configmap.${key} | default \"${escaped_value}\" | quote }}" "${CONFIGMAP_FILE}"
                     fi
                   fi
                 fi
@@ -485,7 +498,7 @@ jobs:
           COMPONENTS=$(cat /tmp/components.json)
 
           # Get appVersion (highest version)
-          APP_VERSION=$(echo "$COMPONENTS" | jq -r '[.[].version] | sort | last')
+          APP_VERSION=$(echo "$COMPONENTS" | jq -r '.[].version' | sort -V | tail -n1)
 
           # Determine emoji based on env vars
           if [ "${HAS_NEW_ENV_VARS}" = "true" ]; then
