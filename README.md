@@ -69,6 +69,11 @@ Comprehensive Frontend/Node.js PR analysis for monorepos with change detection, 
 
 **Key Features**: Change detection, matrix execution, ESLint, TypeScript, npm audit, coverage checks, npm/yarn/pnpm support
 
+### 14. [GPT Changelog](docs/gptchangelog-workflow.md)
+AI-powered changelog generation using OpenRouter API (GPT-4o) with consolidated output.
+
+**Key Features**: AI commit analysis, consolidated changelog, monorepo support, GitHub Release integration, GPG signing
+
 ## Documentation
 
 **[Complete Documentation →](docs/README.md)**
