@@ -283,7 +283,6 @@ jobs:
       - name: Generate changelog for all apps
         id: generate
         run: |
-          echo "OPENROUTER_API_KEY=${OPENROUTER_API_KEY}" > .env
           git fetch --tags --force
           
           MATRIX='${{ needs.prepare.outputs.matrix }}'
@@ -680,12 +679,11 @@ jobs:
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
 
-      - name: Cleanup sensitive files
+      - name: Cleanup temporary files
         if: always()
         run: |
-          rm -f .env
           rm -f /tmp/apps_updated.txt /tmp/app_release_notes.md
-          echo "🧹 Cleaned up sensitive files"
+          echo "🧹 Cleaned up temporary files"
 
   # Slack notification for workflow status
   notify:
