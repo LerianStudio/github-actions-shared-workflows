@@ -294,7 +294,8 @@ jobs:
           > /tmp/apps_updated.txt
           
           # Parse the matrix JSON and iterate through each app
-          echo "$MATRIX" | jq -c '.[]' | while read -r APP; do
+          # Using process substitution to avoid subshell issues with file writes
+          while read -r APP; do
             APP_NAME=$(echo "$APP" | jq -r '.name')
             WORKING_DIR=$(echo "$APP" | jq -r '.working_dir')
             
@@ -412,8 +413,9 @@ jobs:
             PROMPT="Generate a changelog for ${APP_NAME} ONLY. Commits: ${COMMITS_TEXT} --- STRICT RULES: 1) NEVER mention other components - only ${APP_NAME}. 2) Use bullet points. 3) Group by Features, Fixes, Improvements (skip empty sections). 4) No markdown headers. 5) Max 5 bullet points. 6) End with Contributors: ${CONTRIBUTORS}"
             ESCAPED_PROMPT=$(echo "$PROMPT" | jq -Rs .)
             
-            # Call OpenRouter API (OpenAI-compatible)
-            RESPONSE=$(curl -s https://openrouter.ai/api/v1/chat/completions \
+            # Call OpenRouter API (OpenAI-compatible) with timeout and error handling
+            HTTP_CODE=$(curl -s -w "%{http_code}" --max-time 60 --connect-timeout 10 -o /tmp/api_response.json \
+              https://openrouter.ai/api/v1/chat/completions \
               -H "Content-Type: application/json" \
               -H "Authorization: Bearer $OPENROUTER_API_KEY" \
               -H "HTTP-Referer: https://github.com/${{ github.repository }}" \
@@ -424,6 +426,17 @@ jobs:
                 \"temperature\": 0.3,
                 \"max_tokens\": 1000
               }")
+            
+            # Check for HTTP errors
+            if [ "$HTTP_CODE" -ge 400 ]; then
+              echo "⚠️ API returned HTTP $HTTP_CODE for $APP_NAME - skipping"
+              cat /tmp/api_response.json 2>/dev/null || true
+              rm -f "$TEMP_CHANGELOG" "$TEMP_COMMITS" /tmp/api_response.json
+              continue
+            fi
+            
+            RESPONSE=$(cat /tmp/api_response.json)
+            rm -f /tmp/api_response.json
             
             # Extract content from response
             CONTENT=$(echo "$RESPONSE" | jq -r '.choices[0].message.content // empty')
@@ -503,7 +516,7 @@ jobs:
             
             echo "✅ Processed $APP_NAME"
             rm -f "$TEMP_CHANGELOG" "$TEMP_COMMITS"
-          done
+          done < <(echo "$MATRIX" | jq -c '.[]')
           
           # Output results
           if [ -s /tmp/apps_updated.txt ]; then
@@ -594,7 +607,7 @@ jobs:
                 git add "$CHANGELOG_PATH" 2>/dev/null || true
               done < /tmp/apps_updated.txt
             fi
-            git commit -m "resolve conflict using ours strategy [skip ci]" || true
+            git commit -S -m "resolve conflict using ours strategy [skip ci]" || true
           }
           
           # Push and create PR
@@ -682,7 +695,7 @@ jobs:
       - name: Cleanup temporary files
         if: always()
         run: |
-          rm -f /tmp/apps_updated.txt /tmp/app_release_notes.md
+          rm -f /tmp/apps_updated.txt /tmp/app_release_notes.md /tmp/api_response.json
           echo "🧹 Cleaned up temporary files"
 
   # Slack notification for workflow status
