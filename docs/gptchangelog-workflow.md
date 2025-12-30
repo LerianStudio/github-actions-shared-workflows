@@ -13,6 +13,25 @@ Reusable workflow for generating CHANGELOG.md using AI. Uses OpenRouter API (GPT
 - **Automatic PR creation**: Creates and optionally auto-merges changelog PRs
 - **Slack notifications**: Automatic success/failure notifications
 
+## Prerequisites
+
+### Disable semantic-release changelog plugin
+
+When using GPT Changelog, you **must disable** the `@semantic-release/changelog` plugin in your `.releaserc.yml` to avoid conflicts:
+
+```yaml
+# .releaserc.yml
+plugins:
+  - "@semantic-release/commit-analyzer"
+  - "@semantic-release/release-notes-generator"
+  # Changelog disabled - using GPT Changelog instead
+  # - "@semantic-release/changelog"
+  - - "@semantic-release/github"
+    - successComment: "🎉 This PR is included in version ${nextRelease.gitTag}"
+```
+
+If both are enabled, you'll get duplicate or conflicting changelog entries.
+
 ## Usage
 
 ### Single App Repository (Recommended - After Release)
