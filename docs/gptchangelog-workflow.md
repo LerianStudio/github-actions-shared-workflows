@@ -17,7 +17,10 @@ Reusable workflow for generating CHANGELOG.md using AI. Uses OpenRouter API (GPT
 
 ### Single App Repository (Recommended - After Release)
 
-Trigger changelog generation after your Release workflow completes on main:
+Trigger changelog generation after your Release workflow completes on main. This is the **recommended approach** because it:
+- Avoids race conditions (only runs once after release completes)
+- Ensures the release tag exists before generating changelog
+- Prevents duplicate workflow runs
 
 ```yaml
 name: GPT Changelog
@@ -44,6 +47,8 @@ jobs:
 > **Note**: By default, `stable_releases_only: true` means changelog is only generated for stable releases (v1.0.0), not prereleases (v1.0.0-beta.1).
 
 ### Single App Repository (Tag Push Trigger)
+
+> **Warning**: Using `push: tags` can cause race conditions if your release workflow also triggers on tags. Both workflows may run simultaneously, causing duplicate runs or upload conflicts. Prefer `workflow_run` trigger above.
 
 ```yaml
 name: Generate Changelog
