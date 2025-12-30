@@ -9,6 +9,7 @@ name: "Build and Push Docker Images"
 # - Platform strategy: beta/rc builds amd64 only, release builds amd64+arm64
 # - Semantic versioning tags
 # - GitOps artifacts upload for downstream gitops-update workflow
+# - Helm chart dispatch for automatic version updates in Helm repositories
 
 on:
   workflow_call:
@@ -58,6 +59,39 @@ on:
         description: 'Enable GitOps artifacts upload for downstream gitops-update workflow'
         type: boolean
         default: false
+      # Helm dispatch configuration
+      enable_helm_dispatch:
+        description: 'Enable dispatching to Helm repository for chart updates'
+        type: boolean
+        default: false
+      helm_repository:
+        description: 'Helm repository to dispatch to (org/repo format, e.g., LerianStudio/helm)'
+        type: string
+        default: 'LerianStudio/helm'
+      helm_chart:
+        description: 'Helm chart name to update'
+        type: string
+        default: ''
+      helm_target_ref:
+        description: 'Target branch in Helm repository (e.g., develop, main)'
+        type: string
+        default: 'main'
+      helm_path_mapping:
+        description: 'JSON mapping of paths to component names for Helm (e.g., {"components/api": {"name": "api"}})'
+        type: string
+        default: ''
+      helm_components_base_path:
+        description: 'Base path for components in source repo (default: components)'
+        type: string
+        default: 'components'
+      helm_env_file:
+        description: 'Env example file name relative to component path (default: .env.example)'
+        type: string
+        default: '.env.example'
+      helm_detect_env_changes:
+        description: 'Whether to detect new environment variables for Helm'
+        type: boolean
+        default: true
 
 permissions:
   contents: read
@@ -71,6 +105,7 @@ jobs:
       has_builds: ${{ steps.set-matrix.outputs.has_builds }}
       platforms: ${{ steps.set-platforms.outputs.platforms }}
       is_release: ${{ steps.set-platforms.outputs.is_release }}
+      paths_matrix: ${{ steps.set-paths.outputs.paths_matrix }}
     steps:
       - name: Get changed paths (monorepo)
         if: inputs.filter_paths != ''
@@ -105,7 +140,7 @@ jobs:
         id: set-platforms
         run: |
           TAG="${GITHUB_REF#refs/tags/}"
-          
+
           if [[ "$TAG" == *"-beta"* ]] || [[ "$TAG" == *"-rc"* ]]; then
             echo "platforms=linux/amd64" >> $GITHUB_OUTPUT
             echo "is_release=false" >> $GITHUB_OUTPUT
@@ -114,6 +149,18 @@ jobs:
             echo "platforms=linux/amd64,linux/arm64" >> $GITHUB_OUTPUT
             echo "is_release=true" >> $GITHUB_OUTPUT
             echo "Building for amd64 and arm64 (release tag)"
+          fi
+
+      - name: Set paths matrix for Helm dispatch
+        id: set-paths
+        run: |
+          MATRIX='${{ steps.set-matrix.outputs.matrix }}'
+          # Extract working_dir from matrix items for dispatch-helm
+          if [ -n "$MATRIX" ] && [ "$MATRIX" != "[]" ]; then
+            PATHS_MATRIX=$(echo "$MATRIX" | jq -c '[.[].working_dir]')
+            echo "paths_matrix=$PATHS_MATRIX" >> $GITHUB_OUTPUT
+          else
+            echo "paths_matrix=[]" >> $GITHUB_OUTPUT
           fi
 
   build:
@@ -249,3 +296,28 @@ jobs:
       failed_jobs: ${{ needs.build.result == 'failure' && 'Build' || '' }}
     secrets:
       SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+
+  # Dispatch to Helm repository for chart updates
+  dispatch-helm:
+    name: Dispatch Helm Update
+    needs: [prepare, build]
+    if: |
+      inputs.enable_helm_dispatch &&
+      needs.prepare.outputs.has_builds == 'true' &&
+      needs.build.result == 'success' &&
+      inputs.helm_repository != '' &&
+      inputs.helm_chart != ''
+    uses: ./.github/workflows/dispatch-helm.yml
+    with:
+      helm_repository: ${{ inputs.helm_repository }}
+      chart: ${{ inputs.helm_chart }}
+      target_ref: ${{ inputs.helm_target_ref }}
+      version: ${{ github.ref_name }}
+      paths_matrix: ${{ needs.prepare.outputs.paths_matrix }}
+      path_mapping: ${{ inputs.helm_path_mapping }}
+      components_base_path: ${{ inputs.helm_components_base_path }}
+      env_file: ${{ inputs.helm_env_file }}
+      detect_env_changes: ${{ inputs.helm_detect_env_changes }}
+      runner_type: ${{ inputs.runner_type }}
+    secrets:
+      helm_repo_token: ${{ secrets.HELM_REPO_TOKEN }}
