@@ -34,7 +34,24 @@ jobs:
     outputs:
       matrix: ${{ steps.set-matrix.outputs.matrix }}
       has_changes: ${{ steps.set-matrix.outputs.has_changes }}
+      should_skip: ${{ steps.check-skip.outputs.should_skip }}
     steps:
+      - name: Check if should skip (changelog commits)
+        id: check-skip
+        env:
+          COMMIT_MSG: ${{ github.event.head_commit.message }}
+        run: |
+          echo "📌 Checking commit message for skip patterns"
+          
+          # Skip if commit message contains [skip ci] or is a changelog update
+          if echo "$COMMIT_MSG" | grep -qiE '\[skip ci\]|chore\(release\): Update CHANGELOGs'; then
+            echo "🛑 Skipping release - changelog/skip-ci commit detected"
+            echo "should_skip=true" >> $GITHUB_OUTPUT
+          else
+            echo "✅ Proceeding with release"
+            echo "should_skip=false" >> $GITHUB_OUTPUT
+          fi
+
       - name: Get changed paths (monorepo)
         if: inputs.filter_paths != ''
         id: changed-paths
@@ -65,7 +82,7 @@ jobs:
 
   publish_release:
     needs: prepare
-    if: needs.prepare.outputs.has_changes == 'true'
+    if: needs.prepare.outputs.has_changes == 'true' && needs.prepare.outputs.should_skip != 'true'
     runs-on: ${{ inputs.runner_type }}
     environment:
       name: create_release
@@ -122,8 +139,7 @@ jobs:
         working-directory: ${{ matrix.app.working_dir }}
         run: |
           npm install --save-dev \
-            @semantic-release/exec \
-            @semantic-release/changelog
+            @semantic-release/exec
 
       - name: Semantic Release
         uses: cycjimmy/semantic-release-action@v6
