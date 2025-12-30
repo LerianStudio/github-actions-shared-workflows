@@ -288,7 +288,7 @@ Add `SLACK_WEBHOOK_URL` secret for team notifications.
 **Issue**: Workflow runs but no CHANGELOG.md is created
 
 **Solutions**:
-1. Check OpenAI API key is valid
+1. Check OpenRouter API key is valid (`OPENROUTER_API_KEY`)
 2. Verify tag format matches expected pattern
 3. Check if there are commits in the version range
 4. Review workflow logs for gptchangelog errors
