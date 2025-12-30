@@ -184,7 +184,9 @@ jobs:
                 APP_NAME=$(basename "$path")
                 
                 # Check if this app has a recent stable tag
-                LATEST_TAG=$(git tag --sort=-creatordate | grep "^${APP_NAME}-v" | grep -v -e "-beta" -e "-rc" -e "-alpha" -e "-dev" -e "-snapshot" | head -1)
+                # Escape regex metacharacters in app name for grep
+                APP_NAME_ESCAPED=$(echo "$APP_NAME" | sed 's/[.[\*^$()+?{}|\\]/\\&/g')
+                LATEST_TAG=$(git tag --sort=-creatordate | grep "^${APP_NAME_ESCAPED}-v" | grep -v -e "-beta" -e "-rc" -e "-alpha" -e "-dev" -e "-snapshot" | head -1)
                 
                 if [ -n "$LATEST_TAG" ]; then
                   echo "📦 Found stable tag for $APP_NAME: $LATEST_TAG"
@@ -305,10 +307,12 @@ jobs:
             echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
             
             # Determine tag pattern based on app type (monorepo vs single-app)
+            # Escape regex metacharacters in app name for grep patterns
+            APP_NAME_ESCAPED=$(echo "$APP_NAME" | sed 's/[.[\*^$()+?{}|\\]/\\&/g')
             if [ "$WORKING_DIR" != "." ]; then
               # Monorepo: tags are prefixed with app name (e.g., auth-v1.0.0)
               TAG_PATTERN="${APP_NAME}-v*"
-              TAG_GREP_PATTERN="^${APP_NAME}-v"
+              TAG_GREP_PATTERN="^${APP_NAME_ESCAPED}-v"
             else
               # Single-app repo: tags are just version (e.g., v1.0.0)
               TAG_PATTERN="v*"
