@@ -64,8 +64,13 @@ Send Slack notifications from workflows with rich formatting and status-based co
 
 **Key Features**: Rich formatting, status colors, graceful degradation, PR support
 
-### 13. [GPT Changelog](docs/gptchangelog-workflow.md)
-AI-powered changelog generation using GPTChangelog and OpenAI GPT-4o with consolidated output.
+### 13. [Frontend PR Analysis](docs/frontend-pr-analysis-workflow.md)
+Comprehensive Frontend/Node.js PR analysis for monorepos with change detection, linting, type checking, security, testing, and coverage.
+
+**Key Features**: Change detection, matrix execution, ESLint, TypeScript, npm audit, coverage checks, npm/yarn/pnpm support
+
+### 14. [GPT Changelog](docs/gptchangelog-workflow.md)
+AI-powered changelog generation using OpenRouter API (GPT-4o) with consolidated output.
 
 **Key Features**: AI commit analysis, consolidated changelog, monorepo support, GitHub Release integration, GPG signing
 

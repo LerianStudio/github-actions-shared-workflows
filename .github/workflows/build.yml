@@ -215,6 +215,8 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+          secrets: |
+            github_token=${{ secrets.MANAGE_TOKEN }}
 
       # GitOps artifacts for downstream gitops-update workflow
       - name: Create GitOps tag artifact
@@ -230,7 +232,7 @@ jobs:
 
       - name: Upload GitOps tag artifact
         if: inputs.enable_gitops_artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: gitops-tags-${{ matrix.app.name }}
           path: gitops-tags/

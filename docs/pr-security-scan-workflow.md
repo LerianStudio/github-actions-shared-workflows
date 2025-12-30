@@ -5,7 +5,8 @@ Reusable workflow for comprehensive security scanning on pull requests. Supports
 ## Features
 
 - **Secret scanning**: Trivy filesystem scan for exposed secrets (scans only changed component folder)
-- **Vulnerability scanning**: Docker image vulnerability detection
+- **Vulnerability scanning**: Docker image vulnerability detection (optional)
+- **CLI/Non-Docker support**: Skip Docker scanning for projects without Dockerfile via `enable_docker_scan: false`
 - **Monorepo support**: Automatic detection of changed components
 - **Component-scoped scanning**: Only scans the specific component folder that changed, not entire repo
 - **Multiple architectures**: Type 1 and Type 2 monorepo patterns
@@ -58,12 +59,9 @@ jobs:
   security-scan:
     uses: LerianStudio/github-actions-shared-workflows/.github/workflows/pr-security-scan.yml@main
     with:
-      runner_type: "firmino-lxc-runners"
+      runner_type: "blacksmith-4vcpu-ubuntu-2404"
       dockerhub_org: "lerianstudio"
-    secrets:
-      manage_token: ${{ secrets.MANAGE_TOKEN }}
-      docker_username: ${{ secrets.DOCKER_USERNAME }}
-      docker_password: ${{ secrets.DOCKER_PASSWORD }}
+    secrets: inherit
 ```
 
 ### Monorepo Type 1
@@ -78,17 +76,14 @@ jobs:
   security-scan:
     uses: LerianStudio/github-actions-shared-workflows/.github/workflows/pr-security-scan.yml@main
     with:
-      runner_type: "firmino-lxc-runners"
+      runner_type: "blacksmith-4vcpu-ubuntu-2404"
       filter_paths: |-
         components/onboarding
         components/transaction
         components/console
       path_level: "2"
       dockerhub_org: "lerianstudio"
-    secrets:
-      manage_token: ${{ secrets.MANAGE_TOKEN }}
-      docker_username: ${{ secrets.DOCKER_USERNAME }}
-      docker_password: ${{ secrets.DOCKER_PASSWORD }}
+    secrets: inherit
 ```
 
 ### Monorepo Type 2
@@ -103,7 +98,7 @@ jobs:
   security-scan:
     uses: LerianStudio/github-actions-shared-workflows/.github/workflows/pr-security-scan.yml@main
     with:
-      runner_type: "firmino-lxc-runners"
+      runner_type: "blacksmith-4vcpu-ubuntu-2404"
       filter_paths: |-
         frontend
         cmd
@@ -115,23 +110,46 @@ jobs:
       monorepo_type: "type2"
       frontend_folder: "frontend"
       dockerhub_org: "lerianstudio"
-    secrets:
-      manage_token: ${{ secrets.MANAGE_TOKEN }}
-      docker_username: ${{ secrets.DOCKER_USERNAME }}
-      docker_password: ${{ secrets.DOCKER_PASSWORD }}
+    secrets: inherit
 ```
+
+### CLI / Non-Docker Projects
+
+For projects without a Dockerfile (e.g., CLI tools), disable Docker scanning to only run filesystem secret scanning:
+
+```yaml
+name: PR Security Scan
+on:
+  pull_request:
+    branches: [develop, release-candidate, main]
+
+jobs:
+  security-scan:
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/pr-security-scan.yml@main
+    with:
+      runner_type: "blacksmith-4vcpu-ubuntu-2404"
+      enable_docker_scan: false
+    secrets: inherit
+```
+
+This will:
+- ✅ Run Trivy filesystem secret scanning
+- ❌ Skip Docker image build
+- ❌ Skip Docker vulnerability scanning
 
 ## Inputs
 
 | Input | Type | Default | Description |
 |-------|------|---------|-------------|
-| `runner_type` | string | `firmino-lxc-runners` | GitHub runner type |
+| `runner_type` | string | `blacksmith-4vcpu-ubuntu-2404` | GitHub runner type |
 | `filter_paths` | string | - | Paths to monitor (newline separated). If empty, treats as single app |
 | `path_level` | string | `2` | Directory depth level to extract app name (monorepo only) |
 | `monorepo_type` | string | `type1` | Monorepo type: `type1` or `type2` |
 | `frontend_folder` | string | `frontend` | Frontend folder name for type2 monorepos |
 | `dockerhub_org` | string | `lerianstudio` | DockerHub organization name |
 | `docker_registry` | string | `docker.io` | Docker registry URL |
+| `dockerfile_name` | string | `Dockerfile` | Name of the Dockerfile |
+| `enable_docker_scan` | boolean | `true` | Enable Docker image build and vulnerability scanning. Set to `false` for projects without Dockerfile (e.g., CLI tools) |
 
 ## Secrets
 
@@ -170,14 +188,16 @@ permissions:
 
 For each component in the matrix:
 
-1. **Docker Login**: Authenticate to registry
+1. **Docker Login**: Authenticate to registry (avoids rate limits)
 2. **Checkout Repository**: Clone the code
-3. **Setup Docker Buildx**: Enable multi-platform builds
+3. **Setup Docker Buildx**: Enable multi-platform builds *(skipped if `enable_docker_scan: false`)*
 4. **Trivy Secret Scan (Table)**: Scan filesystem for secrets - **fails on detection**
 5. **Trivy Secret Scan (SARIF)**: Generate SARIF report
-6. **Build Docker Image**: Build image for vulnerability scanning
-7. **Trivy Vulnerability Scan (Table)**: Scan image for vulnerabilities
-8. **Trivy Vulnerability Scan (SARIF)**: Generate SARIF report
+6. **Build Docker Image**: Build image for vulnerability scanning *(skipped if `enable_docker_scan: false`)*
+7. **Trivy Vulnerability Scan (Table)**: Scan image for vulnerabilities *(skipped if `enable_docker_scan: false`)*
+8. **Trivy Vulnerability Scan (SARIF)**: Generate SARIF report *(skipped if `enable_docker_scan: false`)*
+
+> **Note**: When `enable_docker_scan: false`, only filesystem secret scanning runs. This is useful for CLI tools and projects without Dockerfiles.
 
 ## Security Scans
 
@@ -248,21 +268,20 @@ on:
     branches: [develop, release-candidate, main]
 ```
 
-### 2. Use Self-hosted Runners for Better Performance
+### 2. Use Blacksmith Runners for Better Performance
 
 ```yaml
 with:
-  runner_type: "firmino-lxc-runners"
+  runner_type: "blacksmith-4vcpu-ubuntu-2404"
 ```
 
-### 3. Provide GitHub Token for Private Dependencies
+### 3. Use secrets: inherit for Simplicity
 
 ```yaml
-secrets:
-  manage_token: ${{ secrets.MANAGE_TOKEN }}
+secrets: inherit
 ```
 
-Required when Dockerfile needs access to private repositories.
+This passes all repository secrets to the workflow automatically.
 
 ### 4. Configure Path Level Correctly
 
@@ -344,10 +363,10 @@ security-scan:
   with:
     dockerhub_org: "mycompany"
     docker_registry: "ghcr.io"
-  secrets:
-    docker_username: ${{ github.actor }}
-    docker_password: ${{ secrets.GITHUB_TOKEN }}
+  secrets: inherit
 ```
+
+> **Note**: For GitHub Container Registry (ghcr.io), ensure `DOCKER_USERNAME` and `DOCKER_PASSWORD` secrets are configured appropriately.
 
 ### Monorepo Type 1 with Multiple Components
 
@@ -355,6 +374,7 @@ security-scan:
 security-scan:
   uses: LerianStudio/github-actions-shared-workflows/.github/workflows/pr-security-scan.yml@main
   with:
+    runner_type: "blacksmith-4vcpu-ubuntu-2404"
     filter_paths: |-
       services/auth
       services/payment
@@ -362,10 +382,7 @@ security-scan:
       services/user
     path_level: "2"
     monorepo_type: "type1"
-  secrets:
-    manage_token: ${{ secrets.MANAGE_TOKEN }}
-    docker_username: ${{ secrets.DOCKER_USERNAME }}
-    docker_password: ${{ secrets.DOCKER_PASSWORD }}
+  secrets: inherit
 ```
 
 ### Monorepo Type 2 with Custom Frontend Folder
@@ -374,6 +391,7 @@ security-scan:
 security-scan:
   uses: LerianStudio/github-actions-shared-workflows/.github/workflows/pr-security-scan.yml@main
   with:
+    runner_type: "blacksmith-4vcpu-ubuntu-2404"
     filter_paths: |-
       web
       api
@@ -383,10 +401,7 @@ security-scan:
     path_level: "1"
     monorepo_type: "type2"
     frontend_folder: "web"
-  secrets:
-    manage_token: ${{ secrets.MANAGE_TOKEN }}
-    docker_username: ${{ secrets.DOCKER_USERNAME }}
-    docker_password: ${{ secrets.DOCKER_PASSWORD }}
+  secrets: inherit
 ```
 
 ### Complete PR Workflow
@@ -421,15 +436,12 @@ jobs:
   security-scan:
     uses: LerianStudio/github-actions-shared-workflows/.github/workflows/pr-security-scan.yml@main
     with:
-      runner_type: "firmino-lxc-runners"
+      runner_type: "blacksmith-4vcpu-ubuntu-2404"
       filter_paths: |-
         components/onboarding
         components/transaction
       path_level: "2"
-    secrets:
-      manage_token: ${{ secrets.MANAGE_TOKEN }}
-      docker_username: ${{ secrets.DOCKER_USERNAME }}
-      docker_password: ${{ secrets.DOCKER_PASSWORD }}
+    secrets: inherit
 ```
 
 ## Scan Results

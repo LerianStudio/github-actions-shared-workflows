@@ -29,8 +29,7 @@ jobs:
     with:
       status: ${{ needs.build.result }}
       workflow_name: "Build Pipeline"
-    secrets:
-      SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+    secrets: inherit
 ```
 
 ### With Failed Jobs Information
@@ -55,8 +54,7 @@ jobs:
       status: ${{ needs.lint.result == 'failure' && 'failure' || needs.test.result }}
       workflow_name: "CI Pipeline"
       failed_jobs: ${{ needs.lint.result == 'failure' && 'Lint' || '' }}${{ needs.test.result == 'failure' && ', Test' || '' }}
-    secrets:
-      SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+    secrets: inherit
 ```
 
 ### With Custom Message
@@ -68,8 +66,7 @@ notify:
     status: "success"
     workflow_name: "Release"
     custom_message: "Version v1.2.3 has been released! 🎉"
-  secrets:
-    SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+    secrets: inherit
 ```
 
 ### Using secrets: inherit

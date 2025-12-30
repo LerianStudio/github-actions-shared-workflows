@@ -1,8 +1,19 @@
-name: "Go PR Analysis"
+name: "Frontend PR Analysis"
 
-# Reusable workflow for Go PR analysis in monorepos
-# Handles change detection, CI, security, and coverage checks per changed app
+# Reusable workflow for Frontend/Node.js PR analysis in monorepos
+# Handles change detection, linting, type checking, security, tests, and coverage
 # All logic is centralized here for easy maintenance
+#
+# Features:
+# - Change detection for monorepo and single-app repositories
+# - ESLint for code quality
+# - TypeScript type checking
+# - npm audit for security vulnerabilities
+# - Jest/Vitest unit tests with coverage
+# - Coverage threshold with PR comments
+# - Build verification
+# - Slack notifications on failure
+# - Support for npm, yarn, and pnpm package managers
 
 on:
   workflow_call:
@@ -12,7 +23,7 @@ on:
         type: string
         default: 'blacksmith-4vcpu-ubuntu-2404'
       filter_paths:
-        description: 'JSON array of paths to monitor for changes (e.g., ["apps/api", "apps/worker"]). If empty, treats repo as single-app and runs against root directory.'
+        description: 'JSON array of paths to monitor for changes (e.g., ["apps/web", "apps/console"]). If empty, treats repo as single-app and runs against root directory.'
         type: string
         required: false
         default: ''
@@ -24,18 +35,22 @@ on:
         description: 'Prefix for app names in matrix output'
         type: string
         default: ''
-      go_version:
-        description: 'Go version to use'
+      node_version:
+        description: 'Node.js version to use'
         type: string
-        default: '1.23'
-      golangci_lint_version:
-        description: 'GolangCI-Lint version'
+        default: '22'
+      package_manager:
+        description: 'Package manager to use (npm, yarn, pnpm)'
         type: string
-        default: 'v1.62.2'
-      golangci_lint_args:
-        description: 'Additional arguments for golangci-lint'
+        default: 'npm'
+      eslint_args:
+        description: 'Additional arguments for ESLint'
         type: string
-        default: '--timeout=5m'
+        default: ''
+      audit_level:
+        description: 'npm audit severity level (low, moderate, high, critical)'
+        type: string
+        default: 'high'
       coverage_threshold:
         description: 'Minimum coverage percentage required (0-100)'
         type: number
@@ -45,11 +60,15 @@ on:
         type: boolean
         default: false
       enable_lint:
-        description: 'Enable GolangCI-Lint'
+        description: 'Enable ESLint'
+        type: boolean
+        default: true
+      enable_typecheck:
+        description: 'Enable TypeScript type checking'
         type: boolean
         default: true
       enable_security:
-        description: 'Enable security scanning (gosec, govulncheck)'
+        description: 'Enable security scanning (npm audit)'
         type: boolean
         default: true
       enable_tests:
@@ -64,10 +83,6 @@ on:
         description: 'Enable build verification'
         type: boolean
         default: true
-      go_private_modules:
-        description: 'GOPRIVATE pattern for private Go modules (e.g., github.com/LerianStudio/*)'
-        type: string
-        default: ''
 
 permissions:
   contents: read
@@ -95,7 +110,6 @@ jobs:
         shell: bash
         run: |
           if [[ "${{ github.event_name }}" == "pull_request" ]]; then
-            # For PRs, compare base and head
             BASE_SHA="${{ github.event.pull_request.base.sha }}"
             HEAD_SHA="${{ github.event.pull_request.head.sha }}"
             git fetch origin $BASE_SHA --depth=1 2>/dev/null || true
@@ -146,15 +160,12 @@ jobs:
           # Monorepo mode: filter and build matrix from changed paths
           echo "Monorepo mode: filtering by paths $FILTER_PATHS"
 
-          # Get directory for each file
           DIRS=$(echo "$FILES" | xargs -n1 dirname)
 
-          # Trim to first N path segments
           if [[ -n "$PATH_LEVEL" ]] && [[ "$PATH_LEVEL" -gt 0 ]]; then
             DIRS=$(echo "$DIRS" | cut -d'/' -f-"$PATH_LEVEL")
           fi
 
-          # Filter paths
           FILTER_LIST=$(echo "$FILTER_PATHS" | jq -r '.[]' 2>/dev/null || echo "")
           if [[ -n "$FILTER_LIST" ]]; then
             FILTERED=""
@@ -169,7 +180,6 @@ jobs:
             DIRS="$FILTERED"
           fi
 
-          # Deduplicate and remove empty lines
           DIRS=$(echo "$DIRS" | grep -v '^$' | sort -u || true)
 
           if [[ -z "$DIRS" ]]; then
@@ -179,7 +189,6 @@ jobs:
             exit 0
           fi
 
-          # Build matrix with app names
           MATRIX="["
           FIRST=true
           while read -r DIR; do
@@ -203,7 +212,7 @@ jobs:
           echo "has_changes=true" >> "$GITHUB_OUTPUT"
 
   # ============================================
-  # GOLANGCI-LINT
+  # ESLINT
   # ============================================
   lint:
     name: Lint (${{ matrix.app.name }})
@@ -218,25 +227,66 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v6
 
-      - name: Setup Go
-        uses: actions/setup-go@v6
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
         with:
-          go-version: ${{ inputs.go_version }}
-          cache: true
+          node-version: ${{ inputs.node_version }}
+          cache: ${{ inputs.package_manager }}
+          cache-dependency-path: ${{ matrix.app.working_dir }}/package-lock.json
 
-      - name: Configure private Go modules
-        if: inputs.go_private_modules != ''
+      - name: Install dependencies
+        working-directory: ${{ matrix.app.working_dir }}
         run: |
-          git config --global url."https://${{ secrets.MANAGE_TOKEN }}@github.com/".insteadOf "https://github.com/"
-        env:
-          GOPRIVATE: ${{ inputs.go_private_modules }}
+          case "${{ inputs.package_manager }}" in
+            yarn) yarn install --frozen-lockfile ;;
+            pnpm) pnpm install --frozen-lockfile ;;
+            *) npm ci ;;
+          esac
 
-      - name: Run GolangCI-Lint
-        uses: golangci/golangci-lint-action@v9
+      - name: Run ESLint
+        working-directory: ${{ matrix.app.working_dir }}
+        run: |
+          case "${{ inputs.package_manager }}" in
+            yarn) yarn eslint . ${{ inputs.eslint_args }} ;;
+            pnpm) pnpm eslint . ${{ inputs.eslint_args }} ;;
+            *) npx eslint . ${{ inputs.eslint_args }} ;;
+          esac
+
+  # ============================================
+  # TYPESCRIPT TYPE CHECK
+  # ============================================
+  typecheck:
+    name: Type Check (${{ matrix.app.name }})
+    needs: detect-changes
+    if: needs.detect-changes.outputs.has_changes == 'true' && inputs.enable_typecheck
+    runs-on: ${{ inputs.runner_type }}
+    strategy:
+      fail-fast: false
+      matrix:
+        app: ${{ fromJson(needs.detect-changes.outputs.matrix) }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
         with:
-          version: ${{ inputs.golangci_lint_version }}
-          working-directory: ${{ matrix.app.working_dir }}
-          args: ${{ inputs.golangci_lint_args }}
+          node-version: ${{ inputs.node_version }}
+          cache: ${{ inputs.package_manager }}
+          cache-dependency-path: ${{ matrix.app.working_dir }}/package-lock.json
+
+      - name: Install dependencies
+        working-directory: ${{ matrix.app.working_dir }}
+        run: |
+          case "${{ inputs.package_manager }}" in
+            yarn) yarn install --frozen-lockfile ;;
+            pnpm) pnpm install --frozen-lockfile ;;
+            *) npm ci ;;
+          esac
+
+      - name: Run TypeScript compiler
+        working-directory: ${{ matrix.app.working_dir }}
+        run: npx tsc --noEmit
 
   # ============================================
   # SECURITY SCANNING
@@ -254,39 +304,30 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v6
 
-      - name: Setup Go
-        uses: actions/setup-go@v6
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
         with:
-          go-version: ${{ inputs.go_version }}
-          cache: true
+          node-version: ${{ inputs.node_version }}
+          cache: ${{ inputs.package_manager }}
+          cache-dependency-path: ${{ matrix.app.working_dir }}/package-lock.json
 
-      - name: Configure private Go modules
-        if: inputs.go_private_modules != ''
-        run: |
-          git config --global url."https://${{ secrets.MANAGE_TOKEN }}@github.com/".insteadOf "https://github.com/"
-        env:
-          GOPRIVATE: ${{ inputs.go_private_modules }}
-
-      - name: Run Gosec
-        uses: securego/gosec@v2.22.11
-        with:
-          args: -no-fail -fmt sarif -out gosec-${{ matrix.app.name }}.sarif ./${{ matrix.app.working_dir }}/...
-
-      - name: Upload Gosec SARIF
-        if: always()
-        uses: github/codeql-action/upload-sarif@v4
-        with:
-          sarif_file: gosec-${{ matrix.app.name }}.sarif
-          category: gosec-${{ matrix.app.name }}
-        continue-on-error: true
-
-      - name: Install govulncheck
-        run: go install golang.org/x/vuln/cmd/govulncheck@latest
-
-      - name: Run govulncheck
+      - name: Install dependencies
         working-directory: ${{ matrix.app.working_dir }}
-        run: govulncheck ./...
-        continue-on-error: true
+        run: |
+          case "${{ inputs.package_manager }}" in
+            yarn) yarn install --frozen-lockfile ;;
+            pnpm) pnpm install --frozen-lockfile ;;
+            *) npm ci ;;
+          esac
+
+      - name: Run npm audit
+        working-directory: ${{ matrix.app.working_dir }}
+        run: |
+          case "${{ inputs.package_manager }}" in
+            yarn) yarn audit --level ${{ inputs.audit_level }} || true ;;
+            pnpm) pnpm audit --audit-level ${{ inputs.audit_level }} || true ;;
+            *) npm audit --omit=dev --audit-level ${{ inputs.audit_level }} ;;
+          esac
 
   # ============================================
   # UNIT TESTS
@@ -304,34 +345,37 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v6
 
-      - name: Setup Go
-        uses: actions/setup-go@v6
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
         with:
-          go-version: ${{ inputs.go_version }}
-          cache: true
+          node-version: ${{ inputs.node_version }}
+          cache: ${{ inputs.package_manager }}
+          cache-dependency-path: ${{ matrix.app.working_dir }}/package-lock.json
 
-      - name: Configure private Go modules
-        if: inputs.go_private_modules != ''
+      - name: Install dependencies
+        working-directory: ${{ matrix.app.working_dir }}
         run: |
-          git config --global url."https://${{ secrets.MANAGE_TOKEN }}@github.com/".insteadOf "https://github.com/"
-        env:
-          GOPRIVATE: ${{ inputs.go_private_modules }}
+          case "${{ inputs.package_manager }}" in
+            yarn) yarn install --frozen-lockfile ;;
+            pnpm) pnpm install --frozen-lockfile ;;
+            *) npm ci ;;
+          esac
 
-      - name: Download dependencies
+      - name: Run tests with coverage
         working-directory: ${{ matrix.app.working_dir }}
-        run: go mod download
-
-      - name: Run tests
-        working-directory: ${{ matrix.app.working_dir }}
-        env:
-          CGO_ENABLED: 1
-        run: go test -v -race -coverprofile=coverage.txt -covermode=atomic ./...
+        run: |
+          case "${{ inputs.package_manager }}" in
+            yarn) yarn test --coverage --coverageReporters=text --coverageReporters=json-summary --coverageReporters=lcov ;;
+            pnpm) pnpm test --coverage --coverageReporters=text --coverageReporters=json-summary --coverageReporters=lcov ;;
+            *) npm test -- --coverage --coverageReporters=text --coverageReporters=json-summary --coverageReporters=lcov ;;
+          esac
 
       - name: Upload coverage artifact
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v4
         with:
           name: coverage-${{ matrix.app.name }}
-          path: ${{ matrix.app.working_dir }}/coverage.txt
+          path: |
+            ${{ matrix.app.working_dir }}/coverage/
           retention-days: 7
 
   # ============================================
@@ -350,157 +394,86 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v6
 
-      - name: Setup Go
-        uses: actions/setup-go@v6
-        with:
-          go-version: ${{ inputs.go_version }}
-          cache: true
-
-      - name: Configure private Go modules
-        if: inputs.go_private_modules != ''
-        run: |
-          git config --global url."https://${{ secrets.MANAGE_TOKEN }}@github.com/".insteadOf "https://github.com/"
-        env:
-          GOPRIVATE: ${{ inputs.go_private_modules }}
-
       - name: Download coverage artifact
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v4
         with:
           name: coverage-${{ matrix.app.name }}
-          path: ${{ matrix.app.working_dir }}
+          path: ${{ matrix.app.working_dir }}/coverage
 
-      - name: Calculate coverage
+      - name: Parse coverage
         id: coverage
         working-directory: ${{ matrix.app.working_dir }}
         run: |
-          if [[ -f coverage.txt ]]; then
-            COVERAGE=$(go tool cover -func=coverage.txt | grep total | awk '{print $3}' | sed 's/%//')
+          if [[ -f coverage/coverage-summary.json ]]; then
+            COVERAGE=$(jq '.total.lines.pct' coverage/coverage-summary.json)
+            STATEMENTS=$(jq '.total.statements.pct' coverage/coverage-summary.json)
+            BRANCHES=$(jq '.total.branches.pct' coverage/coverage-summary.json)
+            FUNCTIONS=$(jq '.total.functions.pct' coverage/coverage-summary.json)
+            
             echo "coverage=$COVERAGE" >> $GITHUB_OUTPUT
-            echo "Total coverage: $COVERAGE%"
-
-            # Generate coverage by package table
-            echo "## Coverage by Package" > coverage-report.md
-            echo "" >> coverage-report.md
-            echo "| Package | Coverage |" >> coverage-report.md
-            echo "|---------|----------|" >> coverage-report.md
-
-            # Aggregate coverage by package
-            go tool cover -func=coverage.txt | grep -v "total:" | awk '
-            {
-              if (NF >= 3) {
-                split($1, parts, ":");
-                filepath = parts[1];
-                split(filepath, pathparts, "/");
-                n = length(pathparts);
-                pkg = "";
-                for (i = 1; i < n; i++) {
-                  if (i > 1) pkg = pkg "/";
-                  pkg = pkg pathparts[i];
-                }
-                cov_str = $NF;
-                gsub(/%/, "", cov_str);
-                cov = cov_str + 0;
-                pkg_lines[pkg] += 1;
-                pkg_coverage[pkg] += cov;
-              }
-            }
-            END {
-              for (p in pkg_coverage) {
-                if (pkg_lines[p] > 0) {
-                  avg = pkg_coverage[p] / pkg_lines[p];
-                  printf "| `%s` | %.1f%% |\n", p, avg;
-                }
-              }
-            }' | sort >> coverage-report.md
+            echo "statements=$STATEMENTS" >> $GITHUB_OUTPUT
+            echo "branches=$BRANCHES" >> $GITHUB_OUTPUT
+            echo "functions=$FUNCTIONS" >> $GITHUB_OUTPUT
+            echo "Total line coverage: $COVERAGE%"
           else
             echo "coverage=0" >> $GITHUB_OUTPUT
+            echo "statements=0" >> $GITHUB_OUTPUT
+            echo "branches=0" >> $GITHUB_OUTPUT
+            echo "functions=0" >> $GITHUB_OUTPUT
             echo "No coverage file found"
-            echo "No coverage data available" > coverage-report.md
           fi
-
-      - name: Generate HTML coverage report
-        working-directory: ${{ matrix.app.working_dir }}
-        run: |
-          if [[ -f coverage.txt ]]; then
-            go tool cover -html=coverage.txt -o coverage.html
-          fi
-
-      - name: Upload coverage report
-        uses: actions/upload-artifact@v6
-        with:
-          name: coverage-report-${{ matrix.app.name }}
-          path: |
-            ${{ matrix.app.working_dir }}/coverage.txt
-            ${{ matrix.app.working_dir }}/coverage.html
-            ${{ matrix.app.working_dir }}/coverage-report.md
-          retention-days: 30
 
       - name: Post coverage comment
         if: github.event_name == 'pull_request'
-        uses: actions/github-script@v8
+        uses: actions/github-script@v7
         with:
           github-token: ${{ secrets.MANAGE_TOKEN || github.token }}
           script: |
-            const fs = require('fs');
             const coverage = '${{ steps.coverage.outputs.coverage }}';
+            const statements = '${{ steps.coverage.outputs.statements }}';
+            const branches = '${{ steps.coverage.outputs.branches }}';
+            const functions = '${{ steps.coverage.outputs.functions }}';
             const threshold = '${{ inputs.coverage_threshold }}';
             const appName = '${{ matrix.app.name }}';
-            const workingDir = '${{ matrix.app.working_dir }}';
             const passFail = parseFloat(coverage) >= parseFloat(threshold) ? '✅ PASS' : '⚠️ BELOW THRESHOLD';
-
-            let coverageReport = '';
-            try {
-              const path = require('path');
-              const fullPath = path.join(process.cwd(), workingDir, 'coverage-report.md');
-              console.log('Reading coverage report from:', fullPath);
-              coverageReport = fs.readFileSync(fullPath, 'utf8');
-              console.log('Coverage report content length:', coverageReport.length);
-            } catch (err) {
-              console.log('Error reading coverage report:', err.message);
-              coverageReport = 'Coverage report not available';
-            }
 
             const body = `## 📊 Unit Test Coverage Report: \`${appName}\`
 
-            | Metric | Value |
-            |--------|-------|
-            | **Overall Coverage** | \`${coverage}%\` ${passFail} |
-            | **Threshold** | \`${threshold}%\` |
-
-            ${coverageReport}
+            | Metric | Value | Status |
+            |--------|-------|--------|
+            | **Lines** | \`${coverage}%\` | ${passFail} |
+            | **Statements** | \`${statements}%\` | |
+            | **Branches** | \`${branches}%\` | |
+            | **Functions** | \`${functions}%\` | |
+            | **Threshold** | \`${threshold}%\` | |
 
             ---
-            *Generated by Go PR Analysis workflow*`;
+            *Generated by Frontend PR Analysis workflow*`;
 
-            // Find and update existing comment or create new one
             const { data: comments } = await github.rest.issues.listComments({
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: context.issue.number,
             });
 
-            const botComment = comments.find(comment => 
+            const botComment = comments.find(comment =>
               comment.body.includes(`Unit Test Coverage Report: \`${appName}\``)
             );
 
             if (botComment) {
-              console.log('Updating existing comment:', botComment.id);
               await github.rest.issues.updateComment({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 comment_id: botComment.id,
                 body: body
               });
-              console.log('Comment updated successfully');
             } else {
-              console.log('Creating new comment');
               await github.rest.issues.createComment({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 issue_number: context.issue.number,
                 body: body
               });
-              console.log('Comment created successfully');
             }
 
       - name: Check coverage threshold
@@ -514,20 +487,16 @@ jobs:
           fi
 
       - name: Coverage summary
-        working-directory: ${{ matrix.app.working_dir }}
         run: |
           echo "## Coverage Summary: ${{ matrix.app.name }}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "- **Total Coverage**: ${{ steps.coverage.outputs.coverage }}%" >> $GITHUB_STEP_SUMMARY
-          echo "- **Threshold**: ${{ inputs.coverage_threshold }}%" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          if [[ -f coverage.txt ]]; then
-            echo "### Coverage by Function" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo '```' >> $GITHUB_STEP_SUMMARY
-            go tool cover -func=coverage.txt >> $GITHUB_STEP_SUMMARY
-            echo '```' >> $GITHUB_STEP_SUMMARY
-          fi
+          echo "| Metric | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Lines | ${{ steps.coverage.outputs.coverage }}% |" >> $GITHUB_STEP_SUMMARY
+          echo "| Statements | ${{ steps.coverage.outputs.statements }}% |" >> $GITHUB_STEP_SUMMARY
+          echo "| Branches | ${{ steps.coverage.outputs.branches }}% |" >> $GITHUB_STEP_SUMMARY
+          echo "| Functions | ${{ steps.coverage.outputs.functions }}% |" >> $GITHUB_STEP_SUMMARY
+          echo "| Threshold | ${{ inputs.coverage_threshold }}% |" >> $GITHUB_STEP_SUMMARY
 
   # ============================================
   # BUILD VERIFICATION
@@ -545,52 +514,56 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v6
 
-      - name: Setup Go
-        uses: actions/setup-go@v6
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
         with:
-          go-version: ${{ inputs.go_version }}
-          cache: true
+          node-version: ${{ inputs.node_version }}
+          cache: ${{ inputs.package_manager }}
+          cache-dependency-path: ${{ matrix.app.working_dir }}/package-lock.json
 
-      - name: Configure private Go modules
-        if: inputs.go_private_modules != ''
-        run: |
-          git config --global url."https://${{ secrets.MANAGE_TOKEN }}@github.com/".insteadOf "https://github.com/"
-        env:
-          GOPRIVATE: ${{ inputs.go_private_modules }}
-
-      - name: Download dependencies
+      - name: Install dependencies
         working-directory: ${{ matrix.app.working_dir }}
-        run: go mod download
+        run: |
+          case "${{ inputs.package_manager }}" in
+            yarn) yarn install --frozen-lockfile ;;
+            pnpm) pnpm install --frozen-lockfile ;;
+            *) npm ci ;;
+          esac
 
       - name: Build
         working-directory: ${{ matrix.app.working_dir }}
-        run: go build -v ./...
+        run: |
+          case "${{ inputs.package_manager }}" in
+            yarn) yarn build ;;
+            pnpm) pnpm build ;;
+            *) npm run build ;;
+          esac
 
   # ============================================
   # NO CHANGES DETECTED
   # ============================================
   no-changes:
-    name: No Go Changes
+    name: No Frontend Changes
     needs: detect-changes
     if: needs.detect-changes.outputs.has_changes != 'true'
     runs-on: ${{ inputs.runner_type }}
     steps:
       - name: Skip
         run: |
-          echo "No Go code changes detected in monitored paths."
-          echo "Skipping Go analysis workflows."
+          echo "No frontend code changes detected in monitored paths."
+          echo "Skipping frontend analysis workflows."
 
   # ============================================
   # SLACK NOTIFICATION
   # ============================================
   notify:
     name: Notify
-    needs: [detect-changes, lint, security, tests, build]
+    needs: [detect-changes, lint, typecheck, security, tests, build]
     if: always() && needs.detect-changes.outputs.has_changes == 'true'
     uses: ./.github/workflows/slack-notify.yml
     with:
-      status: ${{ (needs.lint.result == 'failure' || needs.security.result == 'failure' || needs.tests.result == 'failure' || needs.build.result == 'failure') && 'failure' || 'success' }}
-      workflow_name: "Go PR Analysis"
-      failed_jobs: ${{ needs.lint.result == 'failure' && 'Lint, ' || '' }}${{ needs.security.result == 'failure' && 'Security, ' || '' }}${{ needs.tests.result == 'failure' && 'Tests, ' || '' }}${{ needs.build.result == 'failure' && 'Build' || '' }}
+      status: ${{ (needs.lint.result == 'failure' || needs.typecheck.result == 'failure' || needs.security.result == 'failure' || needs.tests.result == 'failure' || needs.build.result == 'failure') && 'failure' || 'success' }}
+      workflow_name: "Frontend PR Analysis"
+      failed_jobs: ${{ needs.lint.result == 'failure' && 'Lint, ' || '' }}${{ needs.typecheck.result == 'failure' && 'TypeCheck, ' || '' }}${{ needs.security.result == 'failure' && 'Security, ' || '' }}${{ needs.tests.result == 'failure' && 'Tests, ' || '' }}${{ needs.build.result == 'failure' && 'Build' || '' }}
     secrets:
       SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
