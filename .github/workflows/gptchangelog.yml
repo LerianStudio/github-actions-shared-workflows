@@ -380,7 +380,7 @@ jobs:
             echo "$COMMITS_TEXT"
             
             # Get unique contributors (GitHub usernames) for this app
-            # Try to extract GitHub username from email (format: user@users.noreply.github.com or username+id@users.noreply.github.com)
+            # Try to extract GitHub username from email (format: user@users.noreply.github.com or id+username@users.noreply.github.com)
             if [ "$WORKING_DIR" != "." ]; then
               RAW_EMAILS=$(git log "$SINCE".."$LAST_TAG" --format='%ae' -- "$WORKING_DIR" 2>/dev/null | sort -u)
             else
