@@ -636,8 +636,8 @@ jobs:
             echo "⚠️ PR already exists"
           fi
           
-          # Auto-merge if possible
-          gh pr merge --merge --delete-branch || echo "⚠️ Could not auto-merge PR"
+          # Auto-merge if possible (capture stderr for failure details)
+          gh pr merge --merge --delete-branch 2>&1 || echo "⚠️ Could not auto-merge PR (check above for details)"
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
 
