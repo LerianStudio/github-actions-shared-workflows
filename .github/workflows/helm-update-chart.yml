@@ -1,0 +1,612 @@
+name: "Update Helm Chart"
+
+# Reusable workflow for updating Helm charts from dispatch payload
+# Receives a JSON payload with chart name, components, versions, and env vars
+# Updates values.yaml, Chart.yaml (appVersion), and optionally configmap/secret templates
+# Creates a PR for review instead of pushing directly to the target branch
+#
+# Usage:
+#   jobs:
+#     update:
+#       uses: LerianStudio/github-actions-shared-workflows/.github/workflows/helm-update-chart.yml@main
+#       with:
+#         payload: ${{ inputs.payload }}
+#         base_branch: develop
+#       secrets: inherit
+
+on:
+  workflow_call:
+    inputs:
+      payload:
+        description: 'JSON payload with chart, components, and metadata'
+        type: string
+        required: true
+      base_branch:
+        description: 'Target branch for the PR (default: develop)'
+        type: string
+        default: 'main'
+      scripts_path:
+        description: 'Path to scripts directory (default: .github/scripts)'
+        type: string
+        default: '.github/scripts'
+      charts_path:
+        description: 'Path to charts directory (default: charts)'
+        type: string
+        default: 'charts'
+      update_readme:
+        description: 'Whether to update README matrix (default: true)'
+        type: boolean
+        default: true
+      runner_type:
+        description: 'GitHub runner type to use'
+        type: string
+        default: 'ubuntu-latest'
+      gpg_sign_commits:
+        description: 'Whether to sign commits with GPG (default: true)'
+        type: boolean
+        default: true
+      slack_notification:
+        description: 'Whether to send Slack notification (default: false)'
+        type: boolean
+        default: false
+      slack_channel:
+        description: 'Slack channel ID to send notifications (e.g., C1234567890)'
+        type: string
+        required: false
+      slack_mention_group:
+        description: 'Slack user group ID to mention (e.g., S0614TZR7 for @devops-sre). Falls back to SLACK_GROUP_DEVOPS_SRE org variable.'
+        type: string
+        required: false
+      slack_bot_mention:
+        description: 'Slack bot user ID for Jira ticket creation (e.g., U1234567890 for @Severino). Falls back to SLACK_BOT_SEVERINO org variable.'
+        type: string
+        required: false
+    secrets:
+      APP_ID:
+        description: 'GitHub App ID for token generation'
+        required: true
+      APP_PRIVATE_KEY:
+        description: 'GitHub App private key'
+        required: true
+      GPG_KEY:
+        description: 'GPG private key for signing commits'
+        required: false
+      GPG_KEY_PASSWORD:
+        description: 'GPG key passphrase'
+        required: false
+      GIT_USER_NAME:
+        description: 'Git committer name'
+        required: true
+      GIT_USER_EMAIL:
+        description: 'Git committer email'
+        required: true
+      SLACK_BOT_TOKEN_HELM:
+        description: 'Slack Bot OAuth Token (xoxb-...) for Helm notifications'
+        required: false
+      SLACK_CHANNEL_DEVOPS:
+        description: 'Slack channel ID for DevOps notifications'
+        required: false
+      SLACK_GROUP_DEVOPS_SRE:
+        description: 'Slack group ID for @devops-sre mentions'
+        required: false
+      SLACK_BOT_SEVERINO:
+        description: 'Slack bot user ID for Severino (@severino)'
+        required: false
+
+jobs:
+  update-chart:
+    name: Update Chart
+    runs-on: ${{ inputs.runner_type }}
+    steps:
+      - name: Generate GitHub App Token
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+
+      - name: Extract payload
+        id: payload
+        env:
+          PAYLOAD_INPUT: ${{ inputs.payload }}
+        run: |
+          echo "Received payload:"
+          # Write payload to file using env var to avoid quote escaping issues
+          echo "${PAYLOAD_INPUT}" > /tmp/payload.json
+
+          # Debug: show raw content
+          echo "DEBUG: Raw payload file content:"
+          cat /tmp/payload.json
+          echo ""
+          echo "DEBUG: Hex dump of first 200 bytes:"
+          head -c 200 /tmp/payload.json | xxd || true
+
+          # Pretty print
+          jq . /tmp/payload.json
+
+          # Extract all fields
+          CHART=$(jq -r '.chart' /tmp/payload.json)
+          HAS_NEW_ENV_VARS=$(jq -r '.has_new_env_vars' /tmp/payload.json)
+          SOURCE_REF=$(jq -r '.source_ref // "unknown"' /tmp/payload.json)
+          SOURCE_REPO=$(jq -r '.source_repo // "unknown"' /tmp/payload.json)
+          SOURCE_ACTOR=$(jq -r '.source_actor // "unknown"' /tmp/payload.json)
+          SOURCE_SHA=$(jq -r '.source_sha // "unknown"' /tmp/payload.json)
+
+          # Generate branch name
+          TIMESTAMP=$(date +%Y%m%d%H%M%S)
+          BRANCH_NAME="update/${CHART}/${SOURCE_REF}-${TIMESTAMP}"
+
+          echo "chart=${CHART}" >> $GITHUB_OUTPUT
+          echo "has_new_env_vars=${HAS_NEW_ENV_VARS}" >> $GITHUB_OUTPUT
+          echo "source_ref=${SOURCE_REF}" >> $GITHUB_OUTPUT
+          echo "source_repo=${SOURCE_REPO}" >> $GITHUB_OUTPUT
+          echo "source_actor=${SOURCE_ACTOR}" >> $GITHUB_OUTPUT
+          echo "source_sha=${SOURCE_SHA}" >> $GITHUB_OUTPUT
+          echo "branch_name=${BRANCH_NAME}" >> $GITHUB_OUTPUT
+
+          # Save components array to file for processing
+          jq -c '.components' /tmp/payload.json > /tmp/components.json
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+          ref: ${{ inputs.base_branch }}
+          fetch-depth: 0
+
+      - name: Import GPG key
+        if: ${{ inputs.gpg_sign_commits }}
+        uses: crazy-max/ghaction-import-gpg@v6
+        with:
+          gpg_private_key: ${{ secrets.GPG_KEY }}
+          passphrase: ${{ secrets.GPG_KEY_PASSWORD }}
+          git_committer_name: ${{ secrets.GIT_USER_NAME }}
+          git_committer_email: ${{ secrets.GIT_USER_EMAIL }}
+          git_config_global: true
+          git_user_signingkey: true
+          git_commit_gpgsign: true
+
+      - name: Configure git (without GPG)
+        if: ${{ !inputs.gpg_sign_commits }}
+        env:
+          GIT_USER_NAME: ${{ secrets.GIT_USER_NAME }}
+          GIT_USER_EMAIL: ${{ secrets.GIT_USER_EMAIL }}
+        run: |
+          git config user.name "${GIT_USER_NAME}"
+          git config user.email "${GIT_USER_EMAIL}"
+
+      - name: Create feature branch
+        run: |
+          git checkout -b "${{ steps.payload.outputs.branch_name }}"
+
+      - name: Setup Go
+        if: ${{ inputs.update_readme }}
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.21'
+          cache-dependency-path: ${{ inputs.scripts_path }}/go.mod
+
+      - name: Build scripts
+        if: ${{ inputs.update_readme }}
+        run: |
+          cd ${{ inputs.scripts_path }}
+          go build -o update-readme-matrix update-readme-matrix.go
+          go build -o update-chart-version-readme update-chart-version-readme.go
+
+      - name: Setup yq
+        uses: mikefarah/yq@v4
+
+      - name: Process all components
+        id: process
+        run: |
+          CHART="${{ steps.payload.outputs.chart }}"
+          CHARTS_PATH="${{ inputs.charts_path }}"
+          VALUES_FILE="${CHARTS_PATH}/${CHART}/values.yaml"
+          CHART_FILE="${CHARTS_PATH}/${CHART}/Chart.yaml"
+          TEMPLATES_BASE="${CHARTS_PATH}/${CHART}/templates"
+
+          # Debug: show components file content
+          echo "DEBUG: Components file content:"
+          cat /tmp/components.json
+          echo ""
+
+          COMPONENTS=$(cat /tmp/components.json)
+          UPDATED_COMPONENTS=""
+
+          # Function to check if a variable is sensitive (should go to secrets)
+          is_sensitive_var() {
+            local var_name="$1"
+            # Match patterns: *_KEY, *_SECRET, *_PASSWORD, *_TOKEN, *_CREDENTIAL, *_PRIVATE*, *_API_KEY
+            if [[ "$var_name" =~ _(KEY|SECRET|PASSWORD|TOKEN|CREDENTIAL|PRIVATE)$ ]] || \
+               [[ "$var_name" =~ ^(API_KEY|SECRET_|PRIVATE_|PASSWORD_|TOKEN_) ]] || \
+               [[ "$var_name" =~ _API_KEY$ ]]; then
+              return 0  # true - is sensitive
+            fi
+            return 1  # false - not sensitive
+          }
+
+          # Function to escape sed special characters
+          escape_sed() {
+            local str="$1"
+            # Escape: \ & / and newlines
+            printf '%s' "$str" | sed -e 's/[\/&\\]/\\&/g' | tr -d '\n'
+          }
+
+          # Track highest version for appVersion
+          HIGHEST_VERSION=""
+
+          # Get chart name from Chart.yaml for template references
+          CHART_TEMPLATE_NAME=$(yq '.name' "${CHART_FILE}")
+
+          # Function to create secret template if it doesn't exist
+          create_secret_template() {
+            local comp_name="$1"
+            local secret_file="${TEMPLATES_BASE}/${comp_name}/secret.yaml"
+
+            if [ ! -f "$secret_file" ]; then
+              echo "  Creating secret template: $secret_file"
+              mkdir -p "${TEMPLATES_BASE}/${comp_name}"
+              printf '%s\n' \
+                "apiVersion: v1" \
+                "kind: Secret" \
+                "metadata:" \
+                "  name: {{ include \"${CHART_TEMPLATE_NAME}.fullname\" . }}-${comp_name}" \
+                "  labels:" \
+                "    {{- include \"${CHART_TEMPLATE_NAME}.labels\" . | nindent 4 }}" \
+                "    app.kubernetes.io/component: ${comp_name}" \
+                "type: Opaque" \
+                "data:" \
+                "  # Extra Secret Vars" \
+                "  {{- if .Values.${comp_name}.extraSecretVars }}" \
+                "  {{- toYaml .Values.${comp_name}.extraSecretVars | nindent 2 }}" \
+                "  {{- end }}" > "$secret_file"
+            fi
+          }
+
+          echo "Processing components for chart: $CHART"
+
+          # Process each component
+          for row in $(echo "$COMPONENTS" | jq -c '.[]'); do
+            COMP_NAME=$(echo "$row" | jq -r '.name')
+            COMP_VERSION=$(echo "$row" | jq -r '.version')
+            COMP_ENV_VARS=$(echo "$row" | jq -c '.env_vars // {}')
+
+            echo ""
+            echo "=== Processing: $COMP_NAME ==="
+            echo "  Version: $COMP_VERSION"
+            echo "  Env Vars: $COMP_ENV_VARS"
+
+            # Update image tag in values.yaml
+            echo "  Updating ${COMP_NAME}.image.tag to ${COMP_VERSION}"
+            yq -i ".${COMP_NAME}.image.tag = \"${COMP_VERSION}\"" "${VALUES_FILE}"
+
+            # Track highest version for appVersion (using sort -V for version comparison)
+            if [ -z "$HIGHEST_VERSION" ]; then
+              HIGHEST_VERSION="$COMP_VERSION"
+            else
+              HIGHEST_VERSION=$(printf '%s\n%s' "$HIGHEST_VERSION" "$COMP_VERSION" | sort -V | tail -n1)
+            fi
+
+            # Add new environment variables if any
+            if [ "$COMP_ENV_VARS" != "{}" ] && [ "$COMP_ENV_VARS" != "null" ]; then
+              CONFIGMAP_FILE="${TEMPLATES_BASE}/${COMP_NAME}/configmap.yaml"
+              SECRET_FILE="${TEMPLATES_BASE}/${COMP_NAME}/secret.yaml"
+
+              echo "$COMP_ENV_VARS" | jq -r 'to_entries[] | "\(.key)=\(.value)"' | while IFS='=' read -r key value; do
+                if [ -n "$key" ]; then
+                  # Escape values for safe sed insertion
+                  escaped_value=$(escape_sed "$value")
+
+                  # Check if variable is sensitive
+                  if is_sensitive_var "$key"; then
+                    echo "  Adding SECRET var: ${key}=***"
+
+                    # Create secret template if needed
+                    create_secret_template "$COMP_NAME"
+
+                    # Add to secret template (using 2 spaces indentation for data section)
+                    if [ -f "${SECRET_FILE}" ] && grep -q "# Extra Secret Vars" "${SECRET_FILE}"; then
+                      sed -i "/# Extra Secret Vars/i\\  ${key}: {{ .Values.${COMP_NAME}.secrets.${key} | default \"${escaped_value}\" | b64enc | quote }}" "${SECRET_FILE}"
+                    fi
+                  else
+                    echo "  Adding configmap var: ${key}=${value}"
+
+                    # Add to configmap template if it exists (using 2 spaces indentation)
+                    if [ -f "${CONFIGMAP_FILE}" ] && grep -q "# Extra Env Vars" "${CONFIGMAP_FILE}"; then
+                      sed -i "/# Extra Env Vars/i\\  ${key}: {{ .Values.${COMP_NAME}.configmap.${key} | default \"${escaped_value}\" | quote }}" "${CONFIGMAP_FILE}"
+                    fi
+                  fi
+                fi
+              done
+            fi
+
+            # Build updated components list for commit message
+            if [ -n "$UPDATED_COMPONENTS" ]; then
+              UPDATED_COMPONENTS="${UPDATED_COMPONENTS}, ${COMP_NAME}@${COMP_VERSION}"
+            else
+              UPDATED_COMPONENTS="${COMP_NAME}@${COMP_VERSION}"
+            fi
+          done
+
+          # Update appVersion with highest version among all components
+          if [ -n "$HIGHEST_VERSION" ]; then
+            echo ""
+            echo "Updating appVersion to ${HIGHEST_VERSION} (highest version)"
+            yq -i ".appVersion = \"${HIGHEST_VERSION}\"" "${CHART_FILE}"
+          fi
+
+          echo ""
+          echo "updated_components=$UPDATED_COMPONENTS" >> $GITHUB_OUTPUT
+
+      - name: Update README matrix
+        if: ${{ inputs.update_readme }}
+        run: |
+          CHART="${{ steps.payload.outputs.chart }}"
+          CHARTS_PATH="${{ inputs.charts_path }}"
+          SCRIPTS_PATH="${{ inputs.scripts_path }}"
+          COMPONENTS=$(cat /tmp/components.json)
+
+          # Get current appVersion from Chart.yaml
+          APP_VERSION=$(yq '.appVersion' "${CHARTS_PATH}/${CHART}/Chart.yaml")
+
+          # Update README for each component
+          for row in $(echo "$COMPONENTS" | jq -c '.[]'); do
+            COMP_NAME=$(echo "$row" | jq -r '.name')
+            COMP_VERSION=$(echo "$row" | jq -r '.version')
+
+            echo "Updating README matrix for ${COMP_NAME}@${COMP_VERSION}"
+
+            ./${SCRIPTS_PATH}/update-readme-matrix \
+              --chart "${CHART}" \
+              --component "${COMP_NAME}" \
+              --version "${COMP_VERSION}" \
+              --app-version "${APP_VERSION}"
+          done
+
+      - name: Commit changes
+        id: commit
+        run: |
+          CHART="${{ steps.payload.outputs.chart }}"
+          UPDATED_COMPONENTS="${{ steps.process.outputs.updated_components }}"
+          HAS_NEW_ENV_VARS="${{ steps.payload.outputs.has_new_env_vars }}"
+
+          git add -A
+
+          # Check if there are changes to commit
+          if git diff --staged --quiet; then
+            echo "No changes to commit"
+            echo "has_changes=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          echo "has_changes=true" >> $GITHUB_OUTPUT
+
+          # Determine commit message based on env_vars
+          # feat: when new environment variables are added (requires attention)
+          # fix: when it's just a version bump (routine update)
+          if [ "${HAS_NEW_ENV_VARS}" = "true" ]; then
+            COMMIT_MSG="feat(${CHART}): update ${UPDATED_COMPONENTS} - new env vars"
+          else
+            COMMIT_MSG="fix(${CHART}): update ${UPDATED_COMPONENTS}"
+          fi
+
+          echo "commit_msg=${COMMIT_MSG}" >> $GITHUB_OUTPUT
+          echo "Committing with message: ${COMMIT_MSG}"
+          git commit -m "${COMMIT_MSG}"
+
+      - name: Push branch and create PR
+        id: push-pr
+        if: steps.commit.outputs.has_changes == 'true'
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          CHART="${{ steps.payload.outputs.chart }}"
+          BRANCH_NAME="${{ steps.payload.outputs.branch_name }}"
+          BASE_BRANCH="${{ inputs.base_branch }}"
+          COMMIT_MSG="${{ steps.commit.outputs.commit_msg }}"
+          HAS_NEW_ENV_VARS="${{ steps.payload.outputs.has_new_env_vars }}"
+          UPDATED_COMPONENTS="${{ steps.process.outputs.updated_components }}"
+
+          # Push the branch
+          git push -u origin "${BRANCH_NAME}"
+
+          # Build PR body
+          COMPONENTS=$(cat /tmp/components.json)
+
+          # Determine PR title prefix
+          if [ "${HAS_NEW_ENV_VARS}" = "true" ]; then
+            PR_TITLE="feat(${CHART}): update ${UPDATED_COMPONENTS}"
+            ATTENTION_NOTE="> ⚠️ **Attention:** This PR includes new environment variables that may require configuration."
+          else
+            PR_TITLE="fix(${CHART}): update ${UPDATED_COMPONENTS}"
+            ATTENTION_NOTE=""
+          fi
+
+          # Build components table
+          COMPONENTS_TABLE=$(echo "$COMPONENTS" | jq -r '
+            ["| Component | Version | New Env Vars |", "|-----------|---------|--------------|"] +
+            [.[] | "| \(.name) | \(.version) | \(.env_vars | if . == {} then "-" else (. | keys | join(", ")) end) |"]
+            | .[]
+          ')
+
+          # Create PR body file
+          {
+            echo "## Summary"
+            echo ""
+            echo "Automated update of Helm chart components."
+            echo ""
+            if [ -n "${ATTENTION_NOTE}" ]; then
+              echo "${ATTENTION_NOTE}"
+              echo ""
+            fi
+            echo "## Components Updated"
+            echo ""
+            echo "${COMPONENTS_TABLE}"
+            echo ""
+            echo "---"
+            echo "*This PR was automatically generated by the CI/CD pipeline.*"
+          } > /tmp/pr_body.md
+
+          # Create PR
+          PR_URL=$(gh pr create \
+            --base "${BASE_BRANCH}" \
+            --head "${BRANCH_NAME}" \
+            --title "${PR_TITLE}" \
+            --body-file /tmp/pr_body.md)
+
+          echo "PR created: ${PR_URL}"
+          echo "pr_url=${PR_URL}" >> $GITHUB_OUTPUT
+
+      - name: Summary
+        run: |
+          COMPONENTS=$(cat /tmp/components.json)
+          CHART="${{ steps.payload.outputs.chart }}"
+          BRANCH_NAME="${{ steps.payload.outputs.branch_name }}"
+          HAS_CHANGES="${{ steps.commit.outputs.has_changes }}"
+
+          echo "### Helm Chart Update Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Chart:** \`${CHART}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Branch:** \`${BRANCH_NAME}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Base:** \`${{ inputs.base_branch }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          if [ "${HAS_CHANGES}" = "true" ]; then
+            echo "✅ **PR created successfully**" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "ℹ️ **No changes detected**" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Components:**" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Component | Version | New Env Vars |" >> $GITHUB_STEP_SUMMARY
+          echo "|-----------|---------|--------------|" >> $GITHUB_STEP_SUMMARY
+
+          echo "$COMPONENTS" | jq -r '.[] | "| \(.name) | \(.version) | \(.env_vars | if . == {} then "-" else (. | keys | join(", ")) end) |"' >> $GITHUB_STEP_SUMMARY
+
+      - name: Send Slack notification
+        if: ${{ inputs.slack_notification && steps.commit.outputs.has_changes == 'true' }}
+        run: |
+          CHART="${{ steps.payload.outputs.chart }}"
+          HAS_NEW_ENV_VARS="${{ steps.payload.outputs.has_new_env_vars }}"
+          SOURCE_REF="${{ steps.payload.outputs.source_ref }}"
+          SOURCE_REPO="${{ steps.payload.outputs.source_repo }}"
+          SOURCE_ACTOR="${{ steps.payload.outputs.source_actor }}"
+          SOURCE_SHA="${{ steps.payload.outputs.source_sha }}"
+          PR_URL="${{ steps.push-pr.outputs.pr_url }}"
+          COMPONENTS=$(cat /tmp/components.json)
+
+          # Get appVersion (highest version)
+          APP_VERSION=$(echo "$COMPONENTS" | jq -r '.[].version' | sort -V | tail -n1)
+
+          # Determine emoji based on env vars
+          if [ "${HAS_NEW_ENV_VARS}" = "true" ]; then
+            TYPE_EMOJI=":sparkles:"
+          else
+            TYPE_EMOJI=":rocket:"
+          fi
+
+          # Build metadata
+          TIMESTAMP=$(date -u '+%Y-%m-%d %H:%M:%S UTC')
+          WORKFLOW_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          WORKFLOW_NUM="${{ github.run_number }}"
+          BASE_BRANCH="${{ inputs.base_branch }}"
+
+          # Context with optional team mention (input takes precedence over org secret)
+          MENTION_GROUP="${{ inputs.slack_mention_group || secrets.SLACK_GROUP_DEVOPS_SRE }}"
+          if [ -n "$MENTION_GROUP" ]; then
+            CONTEXT_TEXT=":clock1: ${TIMESTAMP} | Workflow: <${WORKFLOW_URL}|#${WORKFLOW_NUM}> | cc: <!subteam^${MENTION_GROUP}>"
+          else
+            CONTEXT_TEXT=":clock1: ${TIMESTAMP} | Workflow: <${WORKFLOW_URL}|#${WORKFLOW_NUM}>"
+          fi
+
+          # Build component fields for table (header + rows)
+          COMPONENT_FIELDS=$(echo "$COMPONENTS" | jq -c '[
+            {"type": "mrkdwn", "text": "*Component*"},
+            {"type": "mrkdwn", "text": "*Version*"}
+          ] + [.[] | {"type": "mrkdwn", "text": ("`" + .name + "`")}, {"type": "mrkdwn", "text": ("`" + .version + "`")}]')
+
+          # Get channel (input takes precedence over org secret)
+          SLACK_CHANNEL="${{ inputs.slack_channel || secrets.SLACK_CHANNEL_DEVOPS }}"
+
+          # Build complete payload using jq
+          SLACK_PAYLOAD=$(jq -n \
+            --arg channel "${SLACK_CHANNEL}" \
+            --arg header "${TYPE_EMOJI} Helm Chart Update" \
+            --arg chart "${CHART}" \
+            --arg version "${APP_VERSION}" \
+            --arg repo "${SOURCE_REPO}" \
+            --arg actor "${SOURCE_ACTOR}" \
+            --arg ref "${SOURCE_REF}" \
+            --arg branch "${BASE_BRANCH}" \
+            --argjson comp_fields "${COMPONENT_FIELDS}" \
+            --arg pr_url "${PR_URL}" \
+            --arg commit_url "https://github.com/${SOURCE_REPO}/commit/${SOURCE_SHA}" \
+            --arg context "${CONTEXT_TEXT}" \
+            '{
+              channel: $channel,
+              attachments: [{
+                color: "#FFC107",
+                blocks: [
+                  {type: "header", text: {type: "plain_text", text: $header, emoji: true}},
+                  {type: "section", fields: [
+                    {type: "mrkdwn", text: ("*Chart:* `" + $chart + "`")},
+                    {type: "mrkdwn", text: ("*App Version:* `" + $version + "`")},
+                    {type: "mrkdwn", text: ("*Source:* <https://github.com/" + $repo + "|" + $repo + ">")},
+                    {type: "mrkdwn", text: ("*Author:* <https://github.com/" + $actor + "|@" + $actor + ">")},
+                    {type: "mrkdwn", text: ("*Source Ref:* `" + $ref + "`")},
+                    {type: "mrkdwn", text: ("*Target Branch:* `" + $branch + "`")}
+                  ]},
+                  {type: "divider"},
+                  {type: "section", text: {type: "mrkdwn", text: "*Components Updated:*"}},
+                  {type: "section", fields: $comp_fields},
+                  {type: "divider"},
+                  {type: "actions", elements: [
+                    {type: "button", text: {type: "plain_text", text: "View PR", emoji: true}, url: $pr_url, style: "primary"},
+                    {type: "button", text: {type: "plain_text", text: "View Commit", emoji: true}, url: $commit_url}
+                  ]},
+                  {type: "context", elements: [{type: "mrkdwn", text: $context}]}
+                ]
+              }]
+            }')
+
+          # Add warning block if new env vars detected
+          if [ "${HAS_NEW_ENV_VARS}" = "true" ]; then
+            SLACK_PAYLOAD=$(echo "$SLACK_PAYLOAD" | jq '.attachments[0].blocks = .attachments[0].blocks[0:4] + [{"type": "section", "text": {"type": "mrkdwn", "text": ":warning: *New environment variables detected* - Review required before merging"}}] + .attachments[0].blocks[4:]')
+          fi
+
+          # Send main notification to Slack via Bot API
+          SLACK_RESPONSE=$(curl -s -X POST \
+            -H "Authorization: Bearer ${{ secrets.SLACK_BOT_TOKEN_HELM }}" \
+            -H "Content-type: application/json; charset=utf-8" \
+            --data "$SLACK_PAYLOAD" \
+            "https://slack.com/api/chat.postMessage")
+
+          # Check response
+          if echo "$SLACK_RESPONSE" | jq -e '.ok == true' > /dev/null; then
+            echo "Slack notification sent successfully"
+          else
+            echo "::warning::Failed to send Slack notification"
+            echo "$SLACK_RESPONSE" | jq .
+          fi
+
+          # Send separate message for Severino bot (Jira ticket creation)
+          # Input takes precedence over org secret
+          BOT_MENTION="${{ inputs.slack_bot_mention || secrets.SLACK_BOT_SEVERINO }}"
+          if [ -n "$BOT_MENTION" ]; then
+            SEVERINO_TEXT="<@${BOT_MENTION}> helm chart PR review | ${PR_URL} | Chart: ${CHART}"
+
+            SEVERINO_RESPONSE=$(curl -s -X POST \
+              -H "Authorization: Bearer ${{ secrets.SLACK_BOT_TOKEN_HELM }}" \
+              -H "Content-type: application/json; charset=utf-8" \
+              --data "{\"channel\":\"${SLACK_CHANNEL}\",\"text\":\"${SEVERINO_TEXT}\"}" \
+              "https://slack.com/api/chat.postMessage")
+
+            if echo "$SEVERINO_RESPONSE" | jq -e '.ok == true' > /dev/null; then
+              echo "Severino message sent successfully"
+            else
+              echo "::warning::Failed to send Severino message"
+              echo "$SEVERINO_RESPONSE" | jq .
+            fi
+          fi

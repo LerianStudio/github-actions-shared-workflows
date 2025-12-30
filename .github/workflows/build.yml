@@ -9,6 +9,7 @@ name: "Build and Push Docker Images"
 # - Platform strategy: beta/rc builds amd64 only, release builds amd64+arm64
 # - Semantic versioning tags
 # - GitOps artifacts upload for downstream gitops-update workflow
+# - Helm chart dispatch for automatic version updates in Helm repositories
 
 on:
   workflow_call:
@@ -58,6 +59,35 @@ on:
         description: 'Enable GitOps artifacts upload for downstream gitops-update workflow'
         type: boolean
         default: false
+      # Helm dispatch configuration
+      enable_helm_dispatch:
+        description: 'Enable dispatching to Helm repository for chart updates'
+        type: boolean
+        default: false
+      helm_repository:
+        description: 'Helm repository to dispatch to (org/repo format, e.g., LerianStudio/helm)'
+        type: string
+        default: 'LerianStudio/helm'
+      helm_chart:
+        description: 'Helm chart name to update'
+        type: string
+        default: ''
+      helm_target_ref:
+        description: 'Target branch in Helm repository (e.g., develop, main)'
+        type: string
+        default: 'main'
+      helm_components_base_path:
+        description: 'Base path for components in source repo (default: components)'
+        type: string
+        default: 'components'
+      helm_env_file:
+        description: 'Env example file name relative to component path (default: .env.example)'
+        type: string
+        default: '.env.example'
+      helm_detect_env_changes:
+        description: 'Whether to detect new environment variables for Helm'
+        type: boolean
+        default: true
 
 permissions:
   contents: read
@@ -105,7 +135,7 @@ jobs:
         id: set-platforms
         run: |
           TAG="${GITHUB_REF#refs/tags/}"
-          
+
           if [[ "$TAG" == *"-beta"* ]] || [[ "$TAG" == *"-rc"* ]]; then
             echo "platforms=linux/amd64" >> $GITHUB_OUTPUT
             echo "is_release=false" >> $GITHUB_OUTPUT
@@ -249,3 +279,26 @@ jobs:
       failed_jobs: ${{ needs.build.result == 'failure' && 'Build' || '' }}
     secrets:
       SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+
+  # Dispatch to Helm repository for chart updates
+  dispatch-helm:
+    name: Dispatch Helm Update
+    needs: [prepare, build]
+    if: |
+      inputs.enable_helm_dispatch &&
+      needs.prepare.outputs.has_builds == 'true' &&
+      needs.build.result == 'success' &&
+      inputs.helm_chart != ''
+    uses: ./.github/workflows/dispatch-helm.yml
+    with:
+      helm_repository: ${{ inputs.helm_repository }}
+      chart: ${{ inputs.helm_chart }}
+      target_ref: ${{ inputs.helm_target_ref }}
+      version: ${{ github.ref_name }}
+      components_json: ${{ needs.prepare.outputs.matrix }}
+      components_base_path: ${{ inputs.helm_components_base_path }}
+      env_file: ${{ inputs.helm_env_file }}
+      detect_env_changes: ${{ inputs.helm_detect_env_changes }}
+      runner_type: ${{ inputs.runner_type }}
+    secrets:
+      helm_repo_token: ${{ secrets.HELM_REPO_TOKEN }}
