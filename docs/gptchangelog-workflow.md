@@ -1,10 +1,10 @@
 # GPT Changelog Workflow
 
-Reusable workflow for generating a consolidated CHANGELOG.md and RELEASE_NOTES.md using GPTChangelog. Uses OpenAI GPT-4o to analyze commits and generate human-readable, categorized changelogs.
+Reusable workflow for generating CHANGELOG.md using AI. Uses OpenRouter API (GPT-4o by default) to analyze commits and generate human-readable, categorized changelogs.
 
 ## Features
 
-- **AI-powered changelog generation**: Uses OpenAI GPT-4o for intelligent commit analysis
+- **AI-powered changelog generation**: Uses OpenRouter API (GPT-4o) for intelligent commit analysis
 - **Consolidated changelog**: Single CHANGELOG.md with sections per app (no overwrites)
 - **Monorepo support**: Automatic detection of changed components via filter_paths
 - **GitHub Release integration**: Automatically updates release notes per app tag
@@ -15,7 +15,35 @@ Reusable workflow for generating a consolidated CHANGELOG.md and RELEASE_NOTES.m
 
 ## Usage
 
-### Single App Repository
+### Single App Repository (Recommended - After Release)
+
+Trigger changelog generation after your Release workflow completes on main:
+
+```yaml
+name: GPT Changelog
+on:
+  workflow_run:
+    workflows: ["Release"]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  changelog:
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/gptchangelog.yml@main
+    with:
+      runner_type: "blacksmith-4vcpu-ubuntu-2404"
+    secrets: inherit
+```
+
+> **Note**: By default, `stable_releases_only: true` means changelog is only generated for stable releases (v1.0.0), not prereleases (v1.0.0-beta.1).
+
+### Single App Repository (Tag Push Trigger)
 
 ```yaml
 name: Generate Changelog
@@ -32,7 +60,7 @@ jobs:
   changelog:
     uses: LerianStudio/github-actions-shared-workflows/.github/workflows/gptchangelog.yml@main
     with:
-      runner_type: "blacksmith"
+      runner_type: "blacksmith-4vcpu-ubuntu-2404"
     secrets: inherit
 ```
 
@@ -144,9 +172,9 @@ jobs:
 | `runner_type` | string | `blacksmith` | GitHub runner type |
 | `filter_paths` | string | `''` | Newline-separated list of path prefixes. If empty, single-app mode |
 | `path_level` | string | `2` | Directory depth for app name extraction |
-| `openai_model` | string | `gpt-4o` | OpenAI model for changelog generation |
-| `max_context_tokens` | string | `80000` | Maximum context tokens for OpenAI API |
-| `python_version` | string | `3.10` | Python version to use |
+| `stable_releases_only` | boolean | `true` | Only generate changelogs for stable releases (skip beta/rc/alpha) |
+| `openai_model` | string | `openai/gpt-4o` | OpenRouter model for changelog generation |
+| `max_context_tokens` | string | `80000` | Maximum context tokens for API |
 
 ## Secrets
 
@@ -154,7 +182,7 @@ All secrets are inherited via `secrets: inherit`. Required secrets in your repos
 
 | Secret | Description |
 |--------|-------------|
-| `OPENAI_API_KEY` | OpenAI API key for GPT-4o access |
+| `OPENROUTER_API_KEY` | OpenRouter API key for AI model access |
 | `LERIAN_STUDIO_MIDAZ_PUSH_BOT_APP_ID` | GitHub App ID for authentication |
 | `LERIAN_STUDIO_MIDAZ_PUSH_BOT_PRIVATE_KEY` | GitHub App private key |
 | `LERIAN_CI_CD_USER_GPG_KEY` | GPG private key for signing commits |
@@ -283,15 +311,15 @@ Add `SLACK_WEBHOOK_URL` secret for team notifications.
 2. Check if branch already exists
 3. Review PR creation step logs
 
-### OpenAI API errors
+### OpenRouter API errors
 
-**Issue**: gptchangelog fails with API errors
+**Issue**: Changelog generation fails with API errors
 
 **Solutions**:
-1. Verify `OPENAI_API_KEY` is set correctly
+1. Verify `OPENROUTER_API_KEY` is set correctly
 2. Check API rate limits
 3. Try reducing `max_context_tokens`
-4. Ensure model name is valid (`gpt-4o`)
+4. Ensure model name is valid (e.g., `openai/gpt-4o`)
 
 ### Monorepo changes not detected
 
@@ -360,13 +388,13 @@ jobs:
     secrets: inherit
 ```
 
-### Custom OpenAI Model
+### Custom OpenRouter Model
 
 ```yaml
 changelog:
   uses: LerianStudio/github-actions-shared-workflows/.github/workflows/gptchangelog.yml@main
   with:
-    openai_model: 'gpt-4-turbo'
+    openai_model: 'anthropic/claude-3.5-sonnet'
     max_context_tokens: '128000'
   secrets: inherit
 ```
