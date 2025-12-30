@@ -660,8 +660,8 @@ jobs:
           
           echo "📌 Syncing $DEFAULT_BRANCH → $TARGET_BRANCH"
           
-          # Check if PR already exists from main to develop
-          EXISTING_PR=$(gh pr list --base "$TARGET_BRANCH" --head "$DEFAULT_BRANCH" --json number -q '.[0].number' 2>/dev/null || true)
+          # Check if PR already exists from main to develop (only open PRs)
+          EXISTING_PR=$(gh pr list --state open --base "$TARGET_BRANCH" --head "$DEFAULT_BRANCH" --json number -q '.[0].number' 2>/dev/null || true)
           if [ -n "$EXISTING_PR" ]; then
             echo "⚠️ PR #$EXISTING_PR already exists for $DEFAULT_BRANCH → $TARGET_BRANCH"
             echo "sync_pr=" >> $GITHUB_OUTPUT
