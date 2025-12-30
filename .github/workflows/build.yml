@@ -76,10 +76,6 @@ on:
         description: 'Target branch in Helm repository (e.g., develop, main)'
         type: string
         default: 'main'
-      helm_path_mapping:
-        description: 'JSON mapping of paths to component names for Helm (e.g., {"components/api": {"name": "api"}})'
-        type: string
-        default: ''
       helm_components_base_path:
         description: 'Base path for components in source repo (default: components)'
         type: string
@@ -105,7 +101,6 @@ jobs:
       has_builds: ${{ steps.set-matrix.outputs.has_builds }}
       platforms: ${{ steps.set-platforms.outputs.platforms }}
       is_release: ${{ steps.set-platforms.outputs.is_release }}
-      paths_matrix: ${{ steps.set-paths.outputs.paths_matrix }}
     steps:
       - name: Get changed paths (monorepo)
         if: inputs.filter_paths != ''
@@ -149,18 +144,6 @@ jobs:
             echo "platforms=linux/amd64,linux/arm64" >> $GITHUB_OUTPUT
             echo "is_release=true" >> $GITHUB_OUTPUT
             echo "Building for amd64 and arm64 (release tag)"
-          fi
-
-      - name: Set paths matrix for Helm dispatch
-        id: set-paths
-        run: |
-          MATRIX='${{ steps.set-matrix.outputs.matrix }}'
-          # Extract working_dir from matrix items for dispatch-helm
-          if [ -n "$MATRIX" ] && [ "$MATRIX" != "[]" ]; then
-            PATHS_MATRIX=$(echo "$MATRIX" | jq -c '[.[].working_dir]')
-            echo "paths_matrix=$PATHS_MATRIX" >> $GITHUB_OUTPUT
-          else
-            echo "paths_matrix=[]" >> $GITHUB_OUTPUT
           fi
 
   build:
@@ -305,7 +288,6 @@ jobs:
       inputs.enable_helm_dispatch &&
       needs.prepare.outputs.has_builds == 'true' &&
       needs.build.result == 'success' &&
-      inputs.helm_repository != '' &&
       inputs.helm_chart != ''
     uses: ./.github/workflows/dispatch-helm.yml
     with:
@@ -313,8 +295,7 @@ jobs:
       chart: ${{ inputs.helm_chart }}
       target_ref: ${{ inputs.helm_target_ref }}
       version: ${{ github.ref_name }}
-      paths_matrix: ${{ needs.prepare.outputs.paths_matrix }}
-      path_mapping: ${{ inputs.helm_path_mapping }}
+      components_json: ${{ needs.prepare.outputs.matrix }}
       components_base_path: ${{ inputs.helm_components_base_path }}
       env_file: ${{ inputs.helm_env_file }}
       detect_env_changes: ${{ inputs.helm_detect_env_changes }}
