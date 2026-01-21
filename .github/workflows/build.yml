@@ -100,6 +100,10 @@ on:
         description: 'Enable Helm dispatch for beta tags'
         type: boolean
         default: false
+      helm_values_key_mappings:
+        description: 'JSON mapping of component names to values.yaml keys. If not mapped, uses component name as fallback. Example: {"my-app": "api", "my-app-worker": "worker"}'
+        type: string
+        default: ''
 
 permissions:
   contents: read
@@ -319,6 +323,7 @@ jobs:
       components_base_path: ${{ inputs.helm_components_base_path }}
       env_file: ${{ inputs.helm_env_file }}
       detect_env_changes: ${{ inputs.helm_detect_env_changes }}
+      values_key_mappings: ${{ inputs.helm_values_key_mappings }}
       runner_type: ${{ inputs.runner_type }}
     secrets:
       helm_repo_token: ${{ secrets.HELM_REPO_TOKEN }}
