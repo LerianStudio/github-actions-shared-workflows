@@ -239,8 +239,11 @@ jobs:
           CHART_TEMPLATE_NAME=$(yq '.name' "${CHART_FILE}")
 
           # Function to create secret template if it doesn't exist
+          # $1 = comp_name (for directory/file path)
+          # $2 = values_key (for .Values references)
           create_secret_template() {
             local comp_name="$1"
+            local values_key="${2:-$1}"  # fallback to comp_name if not provided
             local secret_file="${TEMPLATES_BASE}/${comp_name}/secret.yaml"
 
             if [ ! -f "$secret_file" ]; then
@@ -257,8 +260,8 @@ jobs:
                 "type: Opaque" \
                 "data:" \
                 "  # Extra Secret Vars" \
-                "  {{- if .Values.${comp_name}.extraSecretVars }}" \
-                "  {{- toYaml .Values.${comp_name}.extraSecretVars | nindent 2 }}" \
+                "  {{- if .Values.${values_key}.extraSecretVars }}" \
+                "  {{- toYaml .Values.${values_key}.extraSecretVars | nindent 2 }}" \
                 "  {{- end }}" > "$secret_file"
             fi
           }
@@ -270,15 +273,18 @@ jobs:
             COMP_NAME=$(echo "$row" | jq -r '.name')
             COMP_VERSION=$(echo "$row" | jq -r '.version')
             COMP_ENV_VARS=$(echo "$row" | jq -c '.env_vars // {}')
+            # Use values_key if provided, otherwise fallback to name
+            VALUES_KEY=$(echo "$row" | jq -r '.values_key // .name')
 
             echo ""
             echo "=== Processing: $COMP_NAME ==="
             echo "  Version: $COMP_VERSION"
+            echo "  Values Key: $VALUES_KEY"
             echo "  Env Vars: $COMP_ENV_VARS"
 
             # Update image tag in values.yaml
-            echo "  Updating ${COMP_NAME}.image.tag to ${COMP_VERSION}"
-            yq -i ".${COMP_NAME}.image.tag = \"${COMP_VERSION}\"" "${VALUES_FILE}"
+            echo "  Updating ${VALUES_KEY}.image.tag to ${COMP_VERSION}"
+            yq -i ".${VALUES_KEY}.image.tag = \"${COMP_VERSION}\"" "${VALUES_FILE}"
 
             # Track highest version for appVersion (using sort -V for version comparison)
             if [ -z "$HIGHEST_VERSION" ]; then
@@ -289,6 +295,8 @@ jobs:
 
             # Add new environment variables if any
             if [ "$COMP_ENV_VARS" != "{}" ] && [ "$COMP_ENV_VARS" != "null" ]; then
+              # Template paths use COMP_NAME (directory structure)
+              # Values references use VALUES_KEY (values.yaml structure)
               CONFIGMAP_FILE="${TEMPLATES_BASE}/${COMP_NAME}/configmap.yaml"
               SECRET_FILE="${TEMPLATES_BASE}/${COMP_NAME}/secret.yaml"
 
@@ -301,19 +309,19 @@ jobs:
                   if is_sensitive_var "$key"; then
                     echo "  Adding SECRET var: ${key}=***"
 
-                    # Create secret template if needed
-                    create_secret_template "$COMP_NAME"
+                    # Create secret template if needed (uses COMP_NAME for path, VALUES_KEY for .Values)
+                    create_secret_template "$COMP_NAME" "$VALUES_KEY"
 
                     # Add to secret template (using 2 spaces indentation for data section)
                     if [ -f "${SECRET_FILE}" ] && grep -q "# Extra Secret Vars" "${SECRET_FILE}"; then
-                      sed -i "/# Extra Secret Vars/i\\  ${key}: {{ .Values.${COMP_NAME}.secrets.${key} | default \"${escaped_value}\" | b64enc | quote }}" "${SECRET_FILE}"
+                      sed -i "/# Extra Secret Vars/i\\  ${key}: {{ .Values.${VALUES_KEY}.secrets.${key} | default \"${escaped_value}\" | b64enc | quote }}" "${SECRET_FILE}"
                     fi
                   else
                     echo "  Adding configmap var: ${key}=${value}"
 
                     # Add to configmap template if it exists (using 2 spaces indentation)
                     if [ -f "${CONFIGMAP_FILE}" ] && grep -q "# Extra Env Vars" "${CONFIGMAP_FILE}"; then
-                      sed -i "/# Extra Env Vars/i\\  ${key}: {{ .Values.${COMP_NAME}.configmap.${key} | default \"${escaped_value}\" | quote }}" "${CONFIGMAP_FILE}"
+                      sed -i "/# Extra Env Vars/i\\  ${key}: {{ .Values.${VALUES_KEY}.configmap.${key} | default \"${escaped_value}\" | quote }}" "${CONFIGMAP_FILE}"
                     fi
                   fi
                 fi

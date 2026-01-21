@@ -81,6 +81,10 @@ on:
         description: 'Whether to detect new environment variables'
         type: boolean
         default: true
+      values_key_mappings:
+        description: 'JSON mapping of component names to values.yaml keys. If not mapped, uses component name as fallback.'
+        type: string
+        default: ''
       runner_type:
         description: 'GitHub runner type to use'
         type: string
@@ -106,6 +110,7 @@ jobs:
           BASE_PATH="${{ inputs.components_base_path }}"
           ENV_FILE="${{ inputs.env_file }}"
           DETECT_ENV="${{ inputs.detect_env_changes }}"
+          VALUES_KEY_MAPPINGS='${{ inputs.values_key_mappings }}'
 
           # Determine BEFORE_SHA for comparison
           # For tags, github.event.before is 0000..., so we need to find the previous tag
@@ -185,6 +190,20 @@ jobs:
 
             echo "Processing component: $COMP_NAME (path: $COMP_PATH)"
 
+            # Determine values_key (from mapping or fallback to component name)
+            VALUES_KEY="$COMP_NAME"
+            if [ -n "$VALUES_KEY_MAPPINGS" ] && [ "$VALUES_KEY_MAPPINGS" != "" ]; then
+              MAPPED_KEY=$(echo "$VALUES_KEY_MAPPINGS" | jq -r --arg name "$COMP_NAME" '.[$name] // empty')
+              if [ -n "$MAPPED_KEY" ]; then
+                VALUES_KEY="$MAPPED_KEY"
+                echo "  Values key (mapped): $VALUES_KEY"
+              else
+                echo "  Values key (fallback): $VALUES_KEY"
+              fi
+            else
+              echo "  Values key: $VALUES_KEY"
+            fi
+
             # Use component version or input version
             VERSION="$COMP_VERSION"
             echo "  Version: $VERSION"
@@ -234,7 +253,7 @@ jobs:
             fi
 
             # Build component object
-            COMP_OBJ="{\"name\":\"${COMP_NAME}\",\"version\":\"${VERSION}\",\"env_vars\":${ENV_VARS_JSON}}"
+            COMP_OBJ="{\"name\":\"${COMP_NAME}\",\"values_key\":\"${VALUES_KEY}\",\"version\":\"${VERSION}\",\"env_vars\":${ENV_VARS_JSON}}"
 
             if [ "$FIRST" = "true" ]; then
               PROCESSED_COMPONENTS="${PROCESSED_COMPONENTS}${COMP_OBJ}"
