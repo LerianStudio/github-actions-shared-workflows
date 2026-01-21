@@ -92,6 +92,14 @@ on:
         description: 'Whether to detect new environment variables for Helm'
         type: boolean
         default: true
+      helm_dispatch_on_rc:
+        description: 'Enable Helm dispatch for release-candidate (rc) tags'
+        type: boolean
+        default: false
+      helm_dispatch_on_beta:
+        description: 'Enable Helm dispatch for beta tags'
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -286,6 +294,8 @@ jobs:
       SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
 
   # Dispatch to Helm repository for chart updates
+  # By default only runs on production releases (non-beta, non-rc tags)
+  # Can be enabled for rc/beta via helm_dispatch_on_rc and helm_dispatch_on_beta inputs
   dispatch-helm:
     name: Dispatch Helm Update
     needs: [prepare, build]
@@ -293,7 +303,12 @@ jobs:
       inputs.enable_helm_dispatch &&
       needs.prepare.outputs.has_builds == 'true' &&
       needs.build.result == 'success' &&
-      inputs.helm_chart != ''
+      inputs.helm_chart != '' &&
+      (
+        needs.prepare.outputs.is_release == 'true' ||
+        (contains(github.ref, '-rc') && inputs.helm_dispatch_on_rc) ||
+        (contains(github.ref, '-beta') && inputs.helm_dispatch_on_beta)
+      )
     uses: ./.github/workflows/dispatch-helm.yml
     with:
       helm_repository: ${{ inputs.helm_repository }}
