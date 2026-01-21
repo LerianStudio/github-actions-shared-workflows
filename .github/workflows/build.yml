@@ -51,6 +51,10 @@ on:
         description: 'Prefix for app names in monorepo (e.g., "midaz" results in "midaz-agent")'
         type: string
         default: ''
+      app_name_overrides:
+        description: 'Explicit app name mappings in "path:name" format. Use "path:" for prefix-only. Overrides default extraction for matched paths.'
+        type: string
+        default: ''
       build_context:
         description: 'Docker build context (defaults to repository root for monorepo)'
         type: string
@@ -105,12 +109,13 @@ jobs:
       - name: Get changed paths (monorepo)
         if: inputs.filter_paths != ''
         id: changed-paths
-        uses: LerianStudio/github-actions-changed-paths@main
+        uses: LerianStudio/github-actions-changed-paths@chore/add-name-override
         with:
           filter_paths: ${{ inputs.filter_paths }}
           path_level: ${{ inputs.path_level }}
           get_app_name: 'true'
           app_name_prefix: ${{ inputs.app_name_prefix }}
+          app_name_overrides: ${{ inputs.app_name_overrides }}
 
       - name: Set matrix
         id: set-matrix
