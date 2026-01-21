@@ -231,22 +231,33 @@ jobs:
                   done <<< "$CURRENT_VARS"
                 fi
 
-                # Build JSON for new vars
+                # Build JSON for new vars using jq for proper escaping
                 if [ -n "$(echo "$NEW_VARS" | tr -d '[:space:]')" ]; then
                   HAS_NEW_ENV_VARS=true
-                  ENV_VARS_JSON="{"
-                  FIRST_VAR=true
+                  ENV_VARS_JSON="{}"
                   for var in $NEW_VARS; do
-                    # Extract value, remove surrounding quotes, then escape internal quotes
-                    DEFAULT_VALUE=$(grep "^${var}=" "$FULL_ENV_FILE" | cut -d'=' -f2- | sed 's/^"//;s/"$//' | sed 's/"/\\"/g' || echo "")
-                    if [ "$FIRST_VAR" = "true" ]; then
-                      ENV_VARS_JSON="${ENV_VARS_JSON}\"${var}\":\"${DEFAULT_VALUE}\""
-                      FIRST_VAR=false
+                    # Extract value after =, handle quoted values with inline comments
+                    RAW_LINE=$(grep "^${var}=" "$FULL_ENV_FILE" | head -1)
+                    RAW_VALUE="${RAW_LINE#*=}"
+
+                    # If value starts with quote, extract only the quoted part (handles inline comments)
+                    if [[ "$RAW_VALUE" == \"* ]]; then
+                      # Remove leading quote and extract until closing quote
+                      RAW_VALUE="${RAW_VALUE#\"}"
+                      RAW_VALUE="${RAW_VALUE%%\"*}"
+                    elif [[ "$RAW_VALUE" == \'* ]]; then
+                      # Handle single quotes
+                      RAW_VALUE="${RAW_VALUE#\'}"
+                      RAW_VALUE="${RAW_VALUE%%\'*}"
                     else
-                      ENV_VARS_JSON="${ENV_VARS_JSON},\"${var}\":\"${DEFAULT_VALUE}\""
+                      # Unquoted value - strip inline comments (space + #)
+                      RAW_VALUE="${RAW_VALUE%% #*}"
+                      RAW_VALUE="${RAW_VALUE%%	#*}"  # tab + #
                     fi
+
+                    # Use jq to properly escape the value for JSON
+                    ENV_VARS_JSON=$(echo "$ENV_VARS_JSON" | jq --arg key "$var" --arg val "$RAW_VALUE" '. + {($key): $val}')
                   done
-                  ENV_VARS_JSON="${ENV_VARS_JSON}}"
                   echo "  New env vars: $NEW_VARS"
                 fi
               fi
