@@ -109,7 +109,7 @@ jobs:
       - name: Get changed paths (monorepo)
         if: inputs.filter_paths != ''
         id: changed-paths
-        uses: LerianStudio/github-actions-changed-paths@chore/add-name-override
+        uses: LerianStudio/github-actions-changed-paths@main
         with:
           filter_paths: ${{ inputs.filter_paths }}
           path_level: ${{ inputs.path_level }}
