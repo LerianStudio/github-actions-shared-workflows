@@ -1,0 +1,253 @@
+name: "TypeScript CI"
+
+# Reusable workflow for TypeScript continuous integration
+# Runs lint, build, tests, security audit, and documentation generation
+# Supports multi-version Node.js testing
+
+on:
+  workflow_call:
+    inputs:
+      node_versions:
+        description: 'JSON array of Node.js versions to test (e.g., ["18.x", "20.x", "22.x"])'
+        type: string
+        default: '["20.x", "22.x"]'
+      node_version_primary:
+        description: 'Primary Node.js version for lint and other single-version jobs'
+        type: string
+        default: '22.x'
+      runner_type:
+        description: 'GitHub runner type'
+        type: string
+        default: 'ubuntu-latest'
+      package_manager:
+        description: 'Package manager to use (npm, yarn, pnpm)'
+        type: string
+        default: 'npm'
+      build_cmd:
+        description: 'Build command (default: npm run build)'
+        type: string
+        default: 'npm run build'
+      test_cmd:
+        description: 'Test command (default: npm test)'
+        type: string
+        default: 'npm test'
+      lint_cmd:
+        description: 'Lint command (default: npm run lint)'
+        type: string
+        default: 'npm run lint'
+      typecheck_cmd:
+        description: 'Type check command (default: npm run typecheck)'
+        type: string
+        default: 'npm run typecheck'
+      enable_coverage:
+        description: 'Enable test coverage reporting'
+        type: boolean
+        default: true
+      coverage_cmd:
+        description: 'Coverage command (default: npm run test:coverage)'
+        type: string
+        default: 'npm run test:coverage'
+      enable_security_audit:
+        description: 'Enable npm security audit'
+        type: boolean
+        default: true
+      audit_level:
+        description: 'npm audit level (low, moderate, high, critical)'
+        type: string
+        default: 'moderate'
+      enable_docs:
+        description: 'Enable documentation generation'
+        type: boolean
+        default: false
+      docs_cmd:
+        description: 'Documentation generation command'
+        type: string
+        default: 'npm run docs'
+      working_directory:
+        description: 'Working directory for commands'
+        type: string
+        default: '.'
+
+permissions:
+  contents: read
+  pull-requests: write
+  security-events: write
+
+jobs:
+  lint-and-typecheck:
+    name: Lint & Type Check
+    runs-on: ${{ inputs.runner_type }}
+    defaults:
+      run:
+        working-directory: ${{ inputs.working_directory }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ inputs.node_version_primary }}
+          cache: ${{ inputs.package_manager }}
+
+      - name: Install dependencies
+        run: |
+          if [ "${{ inputs.package_manager }}" = "yarn" ]; then
+            yarn install --frozen-lockfile
+          elif [ "${{ inputs.package_manager }}" = "pnpm" ]; then
+            pnpm install --frozen-lockfile
+          else
+            npm ci
+          fi
+
+      - name: Run linter
+        run: ${{ inputs.lint_cmd }}
+
+      - name: Run type check
+        run: ${{ inputs.typecheck_cmd }}
+        continue-on-error: false
+
+  build-and-test:
+    name: Build & Test (Node ${{ matrix.node }})
+    runs-on: ${{ inputs.runner_type }}
+    needs: lint-and-typecheck
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ${{ fromJson(inputs.node_versions) }}
+    defaults:
+      run:
+        working-directory: ${{ inputs.working_directory }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js ${{ matrix.node }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: ${{ inputs.package_manager }}
+
+      - name: Install dependencies
+        run: |
+          if [ "${{ inputs.package_manager }}" = "yarn" ]; then
+            yarn install --frozen-lockfile
+          elif [ "${{ inputs.package_manager }}" = "pnpm" ]; then
+            pnpm install --frozen-lockfile
+          else
+            npm ci
+          fi
+
+      - name: Build TypeScript
+        run: ${{ inputs.build_cmd }}
+
+      - name: Run tests
+        run: ${{ inputs.test_cmd }}
+
+      - name: Run tests with coverage
+        if: inputs.enable_coverage && matrix.node == inputs.node_version_primary
+        run: ${{ inputs.coverage_cmd }}
+
+      - name: Upload coverage artifact
+        if: inputs.enable_coverage && matrix.node == inputs.node_version_primary
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: coverage/
+          retention-days: 7
+
+      - name: Check for uncommitted changes
+        run: |
+          if [ -n "$(git status --porcelain)" ]; then
+            echo "Uncommitted changes detected after build!"
+            git status
+            exit 1
+          fi
+
+  security-audit:
+    name: Security Audit
+    runs-on: ${{ inputs.runner_type }}
+    if: inputs.enable_security_audit
+    defaults:
+      run:
+        working-directory: ${{ inputs.working_directory }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ inputs.node_version_primary }}
+          cache: ${{ inputs.package_manager }}
+
+      - name: Install dependencies
+        run: |
+          if [ "${{ inputs.package_manager }}" = "yarn" ]; then
+            yarn install --frozen-lockfile
+          elif [ "${{ inputs.package_manager }}" = "pnpm" ]; then
+            pnpm install --frozen-lockfile
+          else
+            npm ci
+          fi
+
+      - name: Run security audit
+        run: |
+          if [ "${{ inputs.package_manager }}" = "yarn" ]; then
+            yarn audit --level ${{ inputs.audit_level }}
+          elif [ "${{ inputs.package_manager }}" = "pnpm" ]; then
+            pnpm audit --audit-level=${{ inputs.audit_level }}
+          else
+            npm audit --audit-level=${{ inputs.audit_level }}
+          fi
+        continue-on-error: true
+
+      - name: Run CodeQL Analysis
+        uses: github/codeql-action/init@v3
+        with:
+          languages: javascript-typescript
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v3
+
+  docs:
+    name: Generate Documentation
+    runs-on: ${{ inputs.runner_type }}
+    if: inputs.enable_docs
+    needs: build-and-test
+    defaults:
+      run:
+        working-directory: ${{ inputs.working_directory }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ inputs.node_version_primary }}
+          cache: ${{ inputs.package_manager }}
+
+      - name: Install dependencies
+        run: |
+          if [ "${{ inputs.package_manager }}" = "yarn" ]; then
+            yarn install --frozen-lockfile
+          elif [ "${{ inputs.package_manager }}" = "pnpm" ]; then
+            pnpm install --frozen-lockfile
+          else
+            npm ci
+          fi
+
+      - name: Generate documentation
+        run: ${{ inputs.docs_cmd }}
+
+      - name: Upload documentation artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: documentation
+          path: docs/
+          retention-days: 7

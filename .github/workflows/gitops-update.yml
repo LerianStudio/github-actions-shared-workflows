@@ -287,11 +287,27 @@ jobs:
           cd gitops
           git pull origin main
 
-      - name: Download GitOps tag artifact
+      - name: Download GitOps tag artifacts (pattern-based)
+        id: download-pattern
+        uses: actions/download-artifact@v7
+        with:
+          pattern: ${{ steps.setup.outputs.artifact_pattern }}
+          path: .gitops-tags
+          merge-multiple: true
+        continue-on-error: true
+
+      - name: Fallback to legacy artifact name
+        if: steps.download-pattern.outcome == 'failure'
         uses: actions/download-artifact@v7
         with:
           name: gitops-tags
           path: .gitops-tags
+
+      - name: List downloaded artifacts
+        shell: bash
+        run: |
+          echo "Downloaded artifacts:"
+          ls -la .gitops-tags/ || echo "No artifacts found"
 
       - name: Apply tags to values.yaml
         shell: bash
