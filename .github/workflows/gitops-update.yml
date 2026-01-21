@@ -287,11 +287,12 @@ jobs:
           cd gitops
           git pull origin main
 
-      - name: Download GitOps tag artifact
+      - name: Download GitOps tag artifacts
         uses: actions/download-artifact@v7
         with:
-          name: gitops-tags
+          pattern: ${{ steps.setup.outputs.artifact_pattern }}
           path: .gitops-tags
+          merge-multiple: true
 
       - name: Apply tags to values.yaml
         shell: bash
