@@ -104,6 +104,11 @@ on:
         description: 'JSON mapping of component names to values.yaml keys. If not mapped, uses component name as fallback. Example: {"my-app": "api", "my-app-worker": "worker"}'
         type: string
         default: ''
+      # Path normalization
+      normalize_to_filter:
+        description: 'Normalize changed paths to their filter path (e.g., components/app/cmd -> components/app). Recommended for monorepos to avoid duplicate builds.'
+        type: boolean
+        default: true
 
 permissions:
   contents: read
@@ -128,6 +133,7 @@ jobs:
           get_app_name: 'true'
           app_name_prefix: ${{ inputs.app_name_prefix }}
           app_name_overrides: ${{ inputs.app_name_overrides }}
+          normalize_to_filter: ${{ inputs.normalize_to_filter }}
 
       - name: Set matrix
         id: set-matrix
