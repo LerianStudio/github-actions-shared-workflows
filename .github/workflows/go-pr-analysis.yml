@@ -312,30 +312,17 @@ jobs:
       - name: Run Security (make)
         if: steps.detect-make.outputs.use_make == 'true'
         working-directory: ${{ matrix.app.working_dir }}
-        run: |
-          if make -n sec SARIF=1 >/dev/null 2>&1; then
-            make sec SARIF=1
-          else
-            make sec
-          fi
+        run: make sec
         continue-on-error: true
 
-      - name: Upload SARIF from make
-        if: always() && steps.detect-make.outputs.use_make == 'true'
-        uses: github/codeql-action/upload-sarif@v4
-        with:
-          sarif_file: ${{ matrix.app.working_dir }}/gosec-report.sarif
-          category: gosec-${{ matrix.app.name }}
-        continue-on-error: true
-
-      - name: Run Gosec (action)
-        if: steps.detect-make.outputs.use_make != 'true'
+      - name: Run Gosec for SARIF
+        id: gosec-sarif
         uses: securego/gosec@v2.22.11
         with:
           args: -no-fail -fmt sarif -out gosec-${{ matrix.app.name }}.sarif ./${{ matrix.app.working_dir }}/...
 
       - name: Upload Gosec SARIF
-        if: always() && steps.detect-make.outputs.use_make != 'true'
+        if: always()
         uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: gosec-${{ matrix.app.name }}.sarif
@@ -343,11 +330,9 @@ jobs:
         continue-on-error: true
 
       - name: Install govulncheck
-        if: steps.detect-make.outputs.use_make != 'true'
         run: go install golang.org/x/vuln/cmd/govulncheck@latest
 
       - name: Run govulncheck
-        if: steps.detect-make.outputs.use_make != 'true'
         working-directory: ${{ matrix.app.working_dir }}
         run: govulncheck ./...
         continue-on-error: true
