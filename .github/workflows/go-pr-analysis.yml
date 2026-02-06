@@ -427,6 +427,27 @@ jobs:
         run: |
           # make test ran but doesn't generate coverage, run go test for coverage only
           echo "Generating coverage with go test (make test doesn't generate coverage)"
+          
+          # Check for .ignorecoverunit to filter packages
+          IGNORE_FILE=""
+          if [[ -f .ignorecoverunit ]]; then
+            IGNORE_FILE=".ignorecoverunit"
+          elif [[ -f "$GITHUB_WORKSPACE/.ignorecoverunit" ]]; then
+            IGNORE_FILE="$GITHUB_WORKSPACE/.ignorecoverunit"
+          fi
+
+          if [[ -n "$IGNORE_FILE" ]]; then
+            PATTERNS=$(grep -v '^#' "$IGNORE_FILE" | grep -v '^[[:space:]]*$' | tr '\n' '|' | sed 's/|$//')
+            if [[ -n "$PATTERNS" ]]; then
+              REGEX_PATTERNS=$(echo "$PATTERNS" | sed 's/\./\\./g' | sed 's/\*/.*/g')
+              PACKAGES=$(go list ./... | grep -vE "$REGEX_PATTERNS" || true)
+              if [[ -n "$PACKAGES" ]]; then
+                echo "$PACKAGES" | xargs go test -coverprofile=coverage.txt -covermode=atomic > /dev/null 2>&1 || true
+                exit 0
+              fi
+            fi
+          fi
+          
           go test -coverprofile=coverage.txt -covermode=atomic ./... > /dev/null 2>&1 || true
 
       - name: Run tests (go)
@@ -434,7 +455,45 @@ jobs:
         working-directory: ${{ matrix.app.working_dir }}
         env:
           CGO_ENABLED: 1
-        run: go test -v -race -coverprofile=coverage.txt -covermode=atomic ./...
+        run: |
+          # Check for .ignorecoverunit to filter packages before testing
+          IGNORE_FILE=""
+          if [[ -f .ignorecoverunit ]]; then
+            IGNORE_FILE=".ignorecoverunit"
+            echo "Using .ignorecoverunit from working directory"
+          elif [[ -f "$GITHUB_WORKSPACE/.ignorecoverunit" ]]; then
+            IGNORE_FILE="$GITHUB_WORKSPACE/.ignorecoverunit"
+            echo "Using .ignorecoverunit from repository root"
+          fi
+
+          if [[ -n "$IGNORE_FILE" ]]; then
+            # Read patterns, filter comments and empty lines
+            PATTERNS=$(grep -v '^#' "$IGNORE_FILE" | grep -v '^[[:space:]]*$' | tr '\n' '|' | sed 's/|$//')
+            
+            if [[ -n "$PATTERNS" ]]; then
+              # Convert glob patterns to regex (escape dots, convert * to .*)
+              REGEX_PATTERNS=$(echo "$PATTERNS" | sed 's/\./\\./g' | sed 's/\*/.*/g')
+              echo "Filtering packages with patterns: $PATTERNS"
+              
+              # Get filtered package list
+              PACKAGES=$(go list ./... | grep -vE "$REGEX_PATTERNS" || true)
+              
+              if [[ -z "$PACKAGES" ]]; then
+                echo "No packages left after filtering, running all packages"
+                go test -v -race -coverprofile=coverage.txt -covermode=atomic ./...
+              else
+                PACKAGE_COUNT=$(echo "$PACKAGES" | wc -l | tr -d ' ')
+                echo "Running tests on $PACKAGE_COUNT packages (filtered)"
+                echo "$PACKAGES" | xargs go test -v -race -coverprofile=coverage.txt -covermode=atomic
+              fi
+            else
+              echo "No patterns found in .ignorecoverunit, running all packages"
+              go test -v -race -coverprofile=coverage.txt -covermode=atomic ./...
+            fi
+          else
+            echo "No .ignorecoverunit file found, running all packages"
+            go test -v -race -coverprofile=coverage.txt -covermode=atomic ./...
+          fi
 
       - name: Upload coverage artifact
         uses: actions/upload-artifact@v6
