@@ -231,7 +231,30 @@ jobs:
         env:
           GOPRIVATE: ${{ inputs.go_private_modules }}
 
-      - name: Run GolangCI-Lint
+      - name: Detect Makefile lint target
+        id: detect-make
+        working-directory: ${{ matrix.app.working_dir }}
+        run: |
+          if [[ -f "Makefile" ]] || [[ -f "makefile" ]] || [[ -f "GNUmakefile" ]]; then
+            if make -n lint >/dev/null 2>&1; then
+              echo "Makefile with 'lint' target detected"
+              echo "use_make=true" >> $GITHUB_OUTPUT
+            else
+              echo "Makefile exists but no 'lint' target found"
+              echo "use_make=false" >> $GITHUB_OUTPUT
+            fi
+          else
+            echo "No Makefile found"
+            echo "use_make=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Run GolangCI-Lint (make)
+        if: steps.detect-make.outputs.use_make == 'true'
+        working-directory: ${{ matrix.app.working_dir }}
+        run: make lint
+
+      - name: Run GolangCI-Lint (action)
+        if: steps.detect-make.outputs.use_make != 'true'
         uses: golangci/golangci-lint-action@v9
         with:
           version: ${{ inputs.golangci_lint_version }}
@@ -267,13 +290,50 @@ jobs:
         env:
           GOPRIVATE: ${{ inputs.go_private_modules }}
 
-      - name: Run Gosec
+      - name: Detect Makefile sec target
+        id: detect-make
+        working-directory: ${{ matrix.app.working_dir }}
+        run: |
+          if [[ -f "Makefile" ]] || [[ -f "makefile" ]] || [[ -f "GNUmakefile" ]]; then
+            if make -n sec >/dev/null 2>&1; then
+              echo "Makefile with 'sec' target detected"
+              echo "use_make=true" >> $GITHUB_OUTPUT
+            else
+              echo "Makefile exists but no 'sec' target found"
+              echo "use_make=false" >> $GITHUB_OUTPUT
+            fi
+          else
+            echo "No Makefile found"
+            echo "use_make=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Run Security (make)
+        if: steps.detect-make.outputs.use_make == 'true'
+        working-directory: ${{ matrix.app.working_dir }}
+        run: |
+          if make -n sec SARIF=1 >/dev/null 2>&1; then
+            make sec SARIF=1
+          else
+            make sec
+          fi
+        continue-on-error: true
+
+      - name: Upload SARIF from make
+        if: always() && steps.detect-make.outputs.use_make == 'true'
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: ${{ matrix.app.working_dir }}/gosec-report.sarif
+          category: gosec-${{ matrix.app.name }}
+        continue-on-error: true
+
+      - name: Run Gosec (action)
+        if: steps.detect-make.outputs.use_make != 'true'
         uses: securego/gosec@v2.22.11
         with:
           args: -no-fail -fmt sarif -out gosec-${{ matrix.app.name }}.sarif ./${{ matrix.app.working_dir }}/...
 
       - name: Upload Gosec SARIF
-        if: always()
+        if: always() && steps.detect-make.outputs.use_make != 'true'
         uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: gosec-${{ matrix.app.name }}.sarif
@@ -281,9 +341,11 @@ jobs:
         continue-on-error: true
 
       - name: Install govulncheck
+        if: steps.detect-make.outputs.use_make != 'true'
         run: go install golang.org/x/vuln/cmd/govulncheck@latest
 
       - name: Run govulncheck
+        if: steps.detect-make.outputs.use_make != 'true'
         working-directory: ${{ matrix.app.working_dir }}
         run: govulncheck ./...
         continue-on-error: true
@@ -317,11 +379,51 @@ jobs:
         env:
           GOPRIVATE: ${{ inputs.go_private_modules }}
 
+      - name: Detect Makefile test target
+        id: detect-make
+        working-directory: ${{ matrix.app.working_dir }}
+        run: |
+          if [[ -f "Makefile" ]] || [[ -f "makefile" ]] || [[ -f "GNUmakefile" ]]; then
+            if make -n coverage-unit >/dev/null 2>&1; then
+              echo "Makefile with 'coverage-unit' target detected"
+              echo "use_make=true" >> $GITHUB_OUTPUT
+              echo "make_target=coverage-unit" >> $GITHUB_OUTPUT
+            elif make -n test >/dev/null 2>&1; then
+              echo "Makefile with 'test' target detected"
+              echo "use_make=true" >> $GITHUB_OUTPUT
+              echo "make_target=test" >> $GITHUB_OUTPUT
+            else
+              echo "Makefile exists but no 'coverage-unit' or 'test' target found"
+              echo "use_make=false" >> $GITHUB_OUTPUT
+            fi
+          else
+            echo "No Makefile found"
+            echo "use_make=false" >> $GITHUB_OUTPUT
+          fi
+
       - name: Download dependencies
+        if: steps.detect-make.outputs.use_make != 'true'
         working-directory: ${{ matrix.app.working_dir }}
         run: go mod download
 
-      - name: Run tests
+      - name: Run tests (make)
+        if: steps.detect-make.outputs.use_make == 'true'
+        working-directory: ${{ matrix.app.working_dir }}
+        env:
+          CGO_ENABLED: 1
+        run: |
+          make ${{ steps.detect-make.outputs.make_target }}
+          # Normalize coverage file name for downstream jobs
+          if [[ -f "coverage.out" ]] && [[ ! -f "coverage.txt" ]]; then
+            cp coverage.out coverage.txt
+          fi
+          # Check reports directory (Midaz pattern)
+          if [[ -f "reports/unit_coverage.out" ]] && [[ ! -f "coverage.txt" ]]; then
+            cp reports/unit_coverage.out coverage.txt
+          fi
+
+      - name: Run tests (go)
+        if: steps.detect-make.outputs.use_make != 'true'
         working-directory: ${{ matrix.app.working_dir }}
         env:
           CGO_ENABLED: 1
@@ -368,6 +470,45 @@ jobs:
         with:
           name: coverage-${{ matrix.app.name }}
           path: ${{ matrix.app.working_dir }}
+
+      - name: Filter coverage with .ignorecoverunit
+        working-directory: ${{ matrix.app.working_dir }}
+        run: |
+          if [[ ! -f coverage.txt ]]; then
+            echo "No coverage.txt file found, skipping filter"
+            exit 0
+          fi
+
+          if [[ ! -f .ignorecoverunit ]]; then
+            echo "No .ignorecoverunit file found, using full coverage"
+            exit 0
+          fi
+
+          echo "Filtering coverage with .ignorecoverunit patterns..."
+          
+          # Read patterns, filter comments and empty lines, convert to pipe-separated regex
+          PATTERNS=$(grep -v '^#' .ignorecoverunit | grep -v '^[[:space:]]*$' | tr '\n' '|' | sed 's/|$//')
+          
+          if [[ -z "$PATTERNS" ]]; then
+            echo "No patterns found in .ignorecoverunit"
+            exit 0
+          fi
+          
+          echo "Patterns: $PATTERNS"
+          
+          # Convert glob patterns to regex (escape dots, convert * to .*)
+          REGEX_PATTERNS=$(echo "$PATTERNS" | sed 's/\./\\./g' | sed 's/\*/.*/g')
+          echo "Regex patterns: $REGEX_PATTERNS"
+          
+          # Keep header line, filter body
+          head -1 coverage.txt > coverage_filtered.txt
+          tail -n +2 coverage.txt | grep -vE "$REGEX_PATTERNS" >> coverage_filtered.txt || true
+          
+          BEFORE=$(wc -l < coverage.txt | tr -d ' ')
+          AFTER=$(wc -l < coverage_filtered.txt | tr -d ' ')
+          echo "Filtered coverage: $BEFORE lines -> $AFTER lines"
+          
+          mv coverage_filtered.txt coverage.txt
 
       - name: Calculate coverage
         id: coverage
@@ -558,11 +699,35 @@ jobs:
         env:
           GOPRIVATE: ${{ inputs.go_private_modules }}
 
+      - name: Detect Makefile build target
+        id: detect-make
+        working-directory: ${{ matrix.app.working_dir }}
+        run: |
+          if [[ -f "Makefile" ]] || [[ -f "makefile" ]] || [[ -f "GNUmakefile" ]]; then
+            if make -n build >/dev/null 2>&1; then
+              echo "Makefile with 'build' target detected"
+              echo "use_make=true" >> $GITHUB_OUTPUT
+            else
+              echo "Makefile exists but no 'build' target found"
+              echo "use_make=false" >> $GITHUB_OUTPUT
+            fi
+          else
+            echo "No Makefile found"
+            echo "use_make=false" >> $GITHUB_OUTPUT
+          fi
+
       - name: Download dependencies
+        if: steps.detect-make.outputs.use_make != 'true'
         working-directory: ${{ matrix.app.working_dir }}
         run: go mod download
 
-      - name: Build
+      - name: Build (make)
+        if: steps.detect-make.outputs.use_make == 'true'
+        working-directory: ${{ matrix.app.working_dir }}
+        run: make build
+
+      - name: Build (go)
+        if: steps.detect-make.outputs.use_make != 'true'
         working-directory: ${{ matrix.app.working_dir }}
         run: go build -v ./...
 
