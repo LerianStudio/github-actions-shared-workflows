@@ -499,7 +499,15 @@ jobs:
             exit 0
           fi
 
-          if [[ ! -f .ignorecoverunit ]]; then
+          # Check for .ignorecoverunit in working dir first, then repository root
+          IGNORE_FILE=""
+          if [[ -f .ignorecoverunit ]]; then
+            IGNORE_FILE=".ignorecoverunit"
+            echo "Using .ignorecoverunit from working directory"
+          elif [[ -f "$GITHUB_WORKSPACE/.ignorecoverunit" ]]; then
+            IGNORE_FILE="$GITHUB_WORKSPACE/.ignorecoverunit"
+            echo "Using .ignorecoverunit from repository root"
+          else
             echo "No .ignorecoverunit file found, using full coverage"
             exit 0
           fi
@@ -507,7 +515,7 @@ jobs:
           echo "Filtering coverage with .ignorecoverunit patterns..."
           
           # Read patterns, filter comments and empty lines, convert to pipe-separated regex
-          PATTERNS=$(grep -v '^#' .ignorecoverunit | grep -v '^[[:space:]]*$' | tr '\n' '|' | sed 's/|$//')
+          PATTERNS=$(grep -v '^#' "$IGNORE_FILE" | grep -v '^[[:space:]]*$' | tr '\n' '|' | sed 's/|$//')
           
           if [[ -z "$PATTERNS" ]]; then
             echo "No patterns found in .ignorecoverunit"
