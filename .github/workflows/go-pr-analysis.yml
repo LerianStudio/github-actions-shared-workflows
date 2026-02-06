@@ -235,10 +235,18 @@ jobs:
         id: detect-make
         working-directory: ${{ matrix.app.working_dir }}
         run: |
+          # Only use make lint if:
+          # 1. Makefile exists with lint target
+          # 2. golangci-lint is available (make lint often fails to install it properly)
           if [[ -f "Makefile" ]] || [[ -f "makefile" ]] || [[ -f "GNUmakefile" ]]; then
             if make -n lint >/dev/null 2>&1; then
-              echo "Makefile with 'lint' target detected"
-              echo "use_make=true" >> $GITHUB_OUTPUT
+              if command -v golangci-lint >/dev/null 2>&1; then
+                echo "Makefile with 'lint' target detected and golangci-lint available"
+                echo "use_make=true" >> $GITHUB_OUTPUT
+              else
+                echo "Makefile has 'lint' target but golangci-lint not installed, using action"
+                echo "use_make=false" >> $GITHUB_OUTPUT
+              fi
             else
               echo "Makefile exists but no 'lint' target found"
               echo "use_make=false" >> $GITHUB_OUTPUT
