@@ -428,27 +428,14 @@ jobs:
           # make test ran but doesn't generate coverage, run go test for coverage only
           echo "Generating coverage with go test (make test doesn't generate coverage)"
           
-          # Check for .ignorecoverunit to filter packages
-          IGNORE_FILE=""
-          if [[ -f .ignorecoverunit ]]; then
-            IGNORE_FILE=".ignorecoverunit"
-          elif [[ -f "$GITHUB_WORKSPACE/.ignorecoverunit" ]]; then
-            IGNORE_FILE="$GITHUB_WORKSPACE/.ignorecoverunit"
-          fi
-
-          if [[ -n "$IGNORE_FILE" ]]; then
-            PATTERNS=$(grep -v '^#' "$IGNORE_FILE" | grep -v '^[[:space:]]*$' | tr '\n' '|' | sed 's/|$//')
-            if [[ -n "$PATTERNS" ]]; then
-              REGEX_PATTERNS=$(echo "$PATTERNS" | sed 's/\./\\./g' | sed 's/\*/.*/g')
-              PACKAGES=$(go list ./... | grep -vE "$REGEX_PATTERNS" || true)
-              if [[ -n "$PACKAGES" ]]; then
-                echo "$PACKAGES" | xargs go test -coverprofile=coverage.txt -covermode=atomic > /dev/null 2>&1 || true
-                exit 0
-              fi
-            fi
-          fi
+          # Get package list, excluding /tests/ and /api/ directories (like Midaz coverage-unit)
+          PACKAGES=$(go list ./... | awk '!/\/tests($|\/)/' | awk '!/\/api($|\/)/' | awk '!/\/mock($|\/)/')
           
-          go test -coverprofile=coverage.txt -covermode=atomic ./... > /dev/null 2>&1 || true
+          if [[ -n "$PACKAGES" ]]; then
+            echo "$PACKAGES" | xargs go test -coverprofile=coverage.txt -covermode=atomic > /dev/null 2>&1 || true
+          else
+            go test -coverprofile=coverage.txt -covermode=atomic ./... > /dev/null 2>&1 || true
+          fi
 
       - name: Run tests (go)
         if: steps.detect-make.outputs.use_make != 'true'
@@ -456,44 +443,18 @@ jobs:
         env:
           CGO_ENABLED: 1
         run: |
-          # Check for .ignorecoverunit to filter packages before testing
-          IGNORE_FILE=""
-          if [[ -f .ignorecoverunit ]]; then
-            IGNORE_FILE=".ignorecoverunit"
-            echo "Using .ignorecoverunit from working directory"
-          elif [[ -f "$GITHUB_WORKSPACE/.ignorecoverunit" ]]; then
-            IGNORE_FILE="$GITHUB_WORKSPACE/.ignorecoverunit"
-            echo "Using .ignorecoverunit from repository root"
+          # Get package list, excluding /tests/ and /api/ directories (like Midaz coverage-unit)
+          # Also exclude /mock/ directories which contain only test mocks
+          PACKAGES=$(go list ./... | awk '!/\/tests($|\/)/' | awk '!/\/api($|\/)/' | awk '!/\/mock($|\/)/')
+          
+          if [[ -z "$PACKAGES" ]]; then
+            echo "No packages found after filtering /tests/, /api/, /mock/"
+            exit 0
           fi
-
-          if [[ -n "$IGNORE_FILE" ]]; then
-            # Read patterns, filter comments and empty lines
-            PATTERNS=$(grep -v '^#' "$IGNORE_FILE" | grep -v '^[[:space:]]*$' | tr '\n' '|' | sed 's/|$//')
-            
-            if [[ -n "$PATTERNS" ]]; then
-              # Convert glob patterns to regex (escape dots, convert * to .*)
-              REGEX_PATTERNS=$(echo "$PATTERNS" | sed 's/\./\\./g' | sed 's/\*/.*/g')
-              echo "Filtering packages with patterns: $PATTERNS"
-              
-              # Get filtered package list
-              PACKAGES=$(go list ./... | grep -vE "$REGEX_PATTERNS" || true)
-              
-              if [[ -z "$PACKAGES" ]]; then
-                echo "No packages left after filtering, running all packages"
-                go test -v -race -coverprofile=coverage.txt -covermode=atomic ./...
-              else
-                PACKAGE_COUNT=$(echo "$PACKAGES" | wc -l | tr -d ' ')
-                echo "Running tests on $PACKAGE_COUNT packages (filtered)"
-                echo "$PACKAGES" | xargs go test -v -race -coverprofile=coverage.txt -covermode=atomic
-              fi
-            else
-              echo "No patterns found in .ignorecoverunit, running all packages"
-              go test -v -race -coverprofile=coverage.txt -covermode=atomic ./...
-            fi
-          else
-            echo "No .ignorecoverunit file found, running all packages"
-            go test -v -race -coverprofile=coverage.txt -covermode=atomic ./...
-          fi
+          
+          PACKAGE_COUNT=$(echo "$PACKAGES" | wc -l | tr -d ' ')
+          echo "Running tests on $PACKAGE_COUNT packages (excluded /tests/, /api/, /mock/)"
+          echo "$PACKAGES" | xargs go test -v -race -coverprofile=coverage.txt -covermode=atomic
 
       - name: Upload coverage artifact
         uses: actions/upload-artifact@v6
