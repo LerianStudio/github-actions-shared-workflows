@@ -383,19 +383,28 @@ jobs:
         id: detect-make
         working-directory: ${{ matrix.app.working_dir }}
         run: |
-          # Only use make if coverage-unit target exists (generates coverage)
-          # Regular 'make test' typically doesn't generate coverage, so we skip it
+          # Look for Makefile targets that generate coverage
+          # Priority: coverage-unit > cover-html > test (no coverage)
           if [[ -f "Makefile" ]] || [[ -f "makefile" ]] || [[ -f "GNUmakefile" ]]; then
             if make -n coverage-unit >/dev/null 2>&1; then
               echo "Makefile with 'coverage-unit' target detected"
               echo "use_make=true" >> $GITHUB_OUTPUT
               echo "make_target=coverage-unit" >> $GITHUB_OUTPUT
+            elif make -n cover-html >/dev/null 2>&1; then
+              echo "Makefile with 'cover-html' target detected"
+              echo "use_make=true" >> $GITHUB_OUTPUT
+              echo "make_target=cover-html" >> $GITHUB_OUTPUT
+            elif make -n test >/dev/null 2>&1; then
+              echo "Makefile with 'test' target detected (no coverage)"
+              echo "use_make=true" >> $GITHUB_OUTPUT
+              echo "make_target=test" >> $GITHUB_OUTPUT
+              echo "no_coverage=true" >> $GITHUB_OUTPUT
             else
-              echo "No 'coverage-unit' target found, using go test with coverage"
+              echo "No test targets found in Makefile, using go test"
               echo "use_make=false" >> $GITHUB_OUTPUT
             fi
           else
-            echo "No Makefile found, using go test with coverage"
+            echo "No Makefile found, using go test"
             echo "use_make=false" >> $GITHUB_OUTPUT
           fi
 
@@ -404,7 +413,7 @@ jobs:
         working-directory: ${{ matrix.app.working_dir }}
         run: go mod download
 
-      - name: Run tests (make coverage-unit)
+      - name: Run tests (make)
         if: steps.detect-make.outputs.use_make == 'true'
         working-directory: ${{ matrix.app.working_dir }}
         env:
@@ -412,17 +421,26 @@ jobs:
         run: |
           make ${{ steps.detect-make.outputs.make_target }}
           # Normalize coverage file name for downstream jobs
+          # Check various locations where coverage might be generated
           if [[ -f "coverage.out" ]] && [[ ! -f "coverage.txt" ]]; then
             cp coverage.out coverage.txt
           fi
-          # Check reports directory (Midaz pattern)
           if [[ -f "reports/unit_coverage.out" ]] && [[ ! -f "coverage.txt" ]]; then
             cp reports/unit_coverage.out coverage.txt
           fi
-          # Check artifacts directory (Midaz component pattern)
           if [[ -f "artifacts/coverage.out" ]] && [[ ! -f "coverage.txt" ]]; then
             cp artifacts/coverage.out coverage.txt
           fi
+
+      - name: Generate coverage (fallback for make test)
+        if: steps.detect-make.outputs.use_make == 'true' && steps.detect-make.outputs.no_coverage == 'true'
+        working-directory: ${{ matrix.app.working_dir }}
+        env:
+          CGO_ENABLED: 1
+        run: |
+          # make test ran but doesn't generate coverage, run go test for coverage only
+          echo "Generating coverage with go test (make test doesn't generate coverage)"
+          go test -coverprofile=coverage.txt -covermode=atomic ./... > /dev/null 2>&1 || true
 
       - name: Run tests (go)
         if: steps.detect-make.outputs.use_make != 'true'
