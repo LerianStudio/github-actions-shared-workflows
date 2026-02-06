@@ -383,21 +383,19 @@ jobs:
         id: detect-make
         working-directory: ${{ matrix.app.working_dir }}
         run: |
+          # Only use make if coverage-unit target exists (generates coverage)
+          # Regular 'make test' typically doesn't generate coverage, so we skip it
           if [[ -f "Makefile" ]] || [[ -f "makefile" ]] || [[ -f "GNUmakefile" ]]; then
             if make -n coverage-unit >/dev/null 2>&1; then
               echo "Makefile with 'coverage-unit' target detected"
               echo "use_make=true" >> $GITHUB_OUTPUT
               echo "make_target=coverage-unit" >> $GITHUB_OUTPUT
-            elif make -n test >/dev/null 2>&1; then
-              echo "Makefile with 'test' target detected"
-              echo "use_make=true" >> $GITHUB_OUTPUT
-              echo "make_target=test" >> $GITHUB_OUTPUT
             else
-              echo "Makefile exists but no 'coverage-unit' or 'test' target found"
+              echo "No 'coverage-unit' target found, using go test with coverage"
               echo "use_make=false" >> $GITHUB_OUTPUT
             fi
           else
-            echo "No Makefile found"
+            echo "No Makefile found, using go test with coverage"
             echo "use_make=false" >> $GITHUB_OUTPUT
           fi
 
@@ -406,7 +404,7 @@ jobs:
         working-directory: ${{ matrix.app.working_dir }}
         run: go mod download
 
-      - name: Run tests (make)
+      - name: Run tests (make coverage-unit)
         if: steps.detect-make.outputs.use_make == 'true'
         working-directory: ${{ matrix.app.working_dir }}
         env:
@@ -420,6 +418,10 @@ jobs:
           # Check reports directory (Midaz pattern)
           if [[ -f "reports/unit_coverage.out" ]] && [[ ! -f "coverage.txt" ]]; then
             cp reports/unit_coverage.out coverage.txt
+          fi
+          # Check artifacts directory (Midaz component pattern)
+          if [[ -f "artifacts/coverage.out" ]] && [[ ! -f "coverage.txt" ]]; then
+            cp artifacts/coverage.out coverage.txt
           fi
 
       - name: Run tests (go)
