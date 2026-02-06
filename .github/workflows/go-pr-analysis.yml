@@ -231,22 +231,19 @@ jobs:
         env:
           GOPRIVATE: ${{ inputs.go_private_modules }}
 
+      - name: Install golangci-lint
+        run: |
+          curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(go env GOPATH)/bin ${{ inputs.golangci_lint_version }}
+          echo "$(go env GOPATH)/bin" >> $GITHUB_PATH
+
       - name: Detect Makefile lint target
         id: detect-make
         working-directory: ${{ matrix.app.working_dir }}
         run: |
-          # Only use make lint if:
-          # 1. Makefile exists with lint target
-          # 2. golangci-lint is available (make lint often fails to install it properly)
           if [[ -f "Makefile" ]] || [[ -f "makefile" ]] || [[ -f "GNUmakefile" ]]; then
             if make -n lint >/dev/null 2>&1; then
-              if command -v golangci-lint >/dev/null 2>&1; then
-                echo "Makefile with 'lint' target detected and golangci-lint available"
-                echo "use_make=true" >> $GITHUB_OUTPUT
-              else
-                echo "Makefile has 'lint' target but golangci-lint not installed, using action"
-                echo "use_make=false" >> $GITHUB_OUTPUT
-              fi
+              echo "Makefile with 'lint' target detected"
+              echo "use_make=true" >> $GITHUB_OUTPUT
             else
               echo "Makefile exists but no 'lint' target found"
               echo "use_make=false" >> $GITHUB_OUTPUT
@@ -261,13 +258,10 @@ jobs:
         working-directory: ${{ matrix.app.working_dir }}
         run: make lint
 
-      - name: Run GolangCI-Lint (action)
+      - name: Run GolangCI-Lint (direct)
         if: steps.detect-make.outputs.use_make != 'true'
-        uses: golangci/golangci-lint-action@v9
-        with:
-          version: ${{ inputs.golangci_lint_version }}
-          working-directory: ${{ matrix.app.working_dir }}
-          args: ${{ inputs.golangci_lint_args }}
+        working-directory: ${{ matrix.app.working_dir }}
+        run: golangci-lint run ${{ inputs.golangci_lint_args }}
 
   # ============================================
   # SECURITY SCANNING
