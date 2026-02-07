@@ -428,24 +428,8 @@ jobs:
           # make test ran but doesn't generate coverage, run go test for coverage only
           echo "Generating coverage with go test (make test doesn't generate coverage)"
           
-          # Get package list, excluding /tests/ and /api/ directories
+          # Get package list, excluding /tests/ and /api/ directories (standard exclusions)
           PACKAGES=$(go list ./... | awk '!/\/tests($|\/)/' | awk '!/\/api($|\/)/')
-          
-          # Also filter packages using .ignorecoverunit folder patterns
-          IGNORE_FILE=""
-          if [[ -f .ignorecoverunit ]]; then
-            IGNORE_FILE=".ignorecoverunit"
-          elif [[ -f "$GITHUB_WORKSPACE/.ignorecoverunit" ]]; then
-            IGNORE_FILE="$GITHUB_WORKSPACE/.ignorecoverunit"
-          fi
-          
-          if [[ -n "$IGNORE_FILE" ]]; then
-            FOLDER_PATTERNS=$(grep -v '^#' "$IGNORE_FILE" | grep -v '^[[:space:]]*$' | grep '/' | tr '\n' '|' | sed 's/|$//')
-            if [[ -n "$FOLDER_PATTERNS" ]]; then
-              FOLDER_REGEX=$(echo "$FOLDER_PATTERNS" | sed 's/\./\\./g')
-              PACKAGES=$(echo "$PACKAGES" | grep -vE "$FOLDER_REGEX" || true)
-            fi
-          fi
           
           if [[ -n "$PACKAGES" ]]; then
             echo "$PACKAGES" | xargs go test -coverprofile=coverage.txt -covermode=atomic > /dev/null 2>&1 || true
@@ -459,37 +443,17 @@ jobs:
         env:
           CGO_ENABLED: 1
         run: |
-          # Get package list, excluding /tests/ and /api/ directories (like Midaz coverage-unit)
+          # Get package list, excluding /tests/ and /api/ directories (standard exclusions)
+          # .ignorecoverunit patterns are applied to the coverage REPORT, not to test execution
           PACKAGES=$(go list ./... | awk '!/\/tests($|\/)/' | awk '!/\/api($|\/)/')
           
-          # Also filter packages using .ignorecoverunit folder patterns
-          IGNORE_FILE=""
-          if [[ -f .ignorecoverunit ]]; then
-            IGNORE_FILE=".ignorecoverunit"
-          elif [[ -f "$GITHUB_WORKSPACE/.ignorecoverunit" ]]; then
-            IGNORE_FILE="$GITHUB_WORKSPACE/.ignorecoverunit"
-          fi
-          
-          if [[ -n "$IGNORE_FILE" ]]; then
-            echo "Using $IGNORE_FILE to filter packages"
-            # Extract folder patterns (lines starting with / or containing /)
-            FOLDER_PATTERNS=$(grep -v '^#' "$IGNORE_FILE" | grep -v '^[[:space:]]*$' | grep '/' | tr '\n' '|' | sed 's/|$//')
-            
-            if [[ -n "$FOLDER_PATTERNS" ]]; then
-              # Convert to regex (escape dots)
-              FOLDER_REGEX=$(echo "$FOLDER_PATTERNS" | sed 's/\./\\./g')
-              echo "Excluding packages matching: $FOLDER_PATTERNS"
-              PACKAGES=$(echo "$PACKAGES" | grep -vE "$FOLDER_REGEX" || true)
-            fi
-          fi
-          
           if [[ -z "$PACKAGES" ]]; then
-            echo "No packages found after filtering"
+            echo "No packages found after filtering /tests/ and /api/"
             exit 0
           fi
           
           PACKAGE_COUNT=$(echo "$PACKAGES" | wc -l | tr -d ' ')
-          echo "Running tests on $PACKAGE_COUNT packages"
+          echo "Running tests on $PACKAGE_COUNT packages (excluded /tests/, /api/)"
           echo "$PACKAGES" | xargs go test -v -race -coverprofile=coverage.txt -covermode=atomic
 
       - name: Upload coverage artifact
