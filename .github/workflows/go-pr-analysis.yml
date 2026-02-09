@@ -231,12 +231,37 @@ jobs:
         env:
           GOPRIVATE: ${{ inputs.go_private_modules }}
 
-      - name: Run GolangCI-Lint
-        uses: golangci/golangci-lint-action@v9
-        with:
-          version: ${{ inputs.golangci_lint_version }}
-          working-directory: ${{ matrix.app.working_dir }}
-          args: ${{ inputs.golangci_lint_args }}
+      - name: Install golangci-lint
+        run: |
+          curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(go env GOPATH)/bin ${{ inputs.golangci_lint_version }}
+          echo "$(go env GOPATH)/bin" >> $GITHUB_PATH
+
+      - name: Detect Makefile lint target
+        id: detect-make
+        working-directory: ${{ matrix.app.working_dir }}
+        run: |
+          if [[ -f "Makefile" ]] || [[ -f "makefile" ]] || [[ -f "GNUmakefile" ]]; then
+            if make -n lint >/dev/null 2>&1; then
+              echo "Makefile with 'lint' target detected"
+              echo "use_make=true" >> $GITHUB_OUTPUT
+            else
+              echo "Makefile exists but no 'lint' target found"
+              echo "use_make=false" >> $GITHUB_OUTPUT
+            fi
+          else
+            echo "No Makefile found"
+            echo "use_make=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Run GolangCI-Lint (make)
+        if: steps.detect-make.outputs.use_make == 'true'
+        working-directory: ${{ matrix.app.working_dir }}
+        run: make lint
+
+      - name: Run GolangCI-Lint (direct)
+        if: steps.detect-make.outputs.use_make != 'true'
+        working-directory: ${{ matrix.app.working_dir }}
+        run: golangci-lint run ${{ inputs.golangci_lint_args }}
 
   # ============================================
   # SECURITY SCANNING
@@ -267,7 +292,31 @@ jobs:
         env:
           GOPRIVATE: ${{ inputs.go_private_modules }}
 
-      - name: Run Gosec
+      - name: Detect Makefile sec target
+        id: detect-make
+        working-directory: ${{ matrix.app.working_dir }}
+        run: |
+          if [[ -f "Makefile" ]] || [[ -f "makefile" ]] || [[ -f "GNUmakefile" ]]; then
+            if make -n sec >/dev/null 2>&1; then
+              echo "Makefile with 'sec' target detected"
+              echo "use_make=true" >> $GITHUB_OUTPUT
+            else
+              echo "Makefile exists but no 'sec' target found"
+              echo "use_make=false" >> $GITHUB_OUTPUT
+            fi
+          else
+            echo "No Makefile found"
+            echo "use_make=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Run Security (make)
+        if: steps.detect-make.outputs.use_make == 'true'
+        working-directory: ${{ matrix.app.working_dir }}
+        run: make sec
+        continue-on-error: true
+
+      - name: Run Gosec for SARIF
+        id: gosec-sarif
         uses: securego/gosec@v2.22.11
         with:
           args: -no-fail -fmt sarif -out gosec-${{ matrix.app.name }}.sarif ./${{ matrix.app.working_dir }}/...
@@ -317,15 +366,95 @@ jobs:
         env:
           GOPRIVATE: ${{ inputs.go_private_modules }}
 
+      - name: Detect Makefile test target
+        id: detect-make
+        working-directory: ${{ matrix.app.working_dir }}
+        run: |
+          # Look for Makefile targets that generate coverage
+          # Priority: coverage-unit > cover-html > test (no coverage)
+          if [[ -f "Makefile" ]] || [[ -f "makefile" ]] || [[ -f "GNUmakefile" ]]; then
+            if make -n coverage-unit >/dev/null 2>&1; then
+              echo "Makefile with 'coverage-unit' target detected"
+              echo "use_make=true" >> $GITHUB_OUTPUT
+              echo "make_target=coverage-unit" >> $GITHUB_OUTPUT
+            elif make -n cover-html >/dev/null 2>&1; then
+              echo "Makefile with 'cover-html' target detected"
+              echo "use_make=true" >> $GITHUB_OUTPUT
+              echo "make_target=cover-html" >> $GITHUB_OUTPUT
+            elif make -n test >/dev/null 2>&1; then
+              echo "Makefile with 'test' target detected (no coverage)"
+              echo "use_make=true" >> $GITHUB_OUTPUT
+              echo "make_target=test" >> $GITHUB_OUTPUT
+              echo "no_coverage=true" >> $GITHUB_OUTPUT
+            else
+              echo "No test targets found in Makefile, using go test"
+              echo "use_make=false" >> $GITHUB_OUTPUT
+            fi
+          else
+            echo "No Makefile found, using go test"
+            echo "use_make=false" >> $GITHUB_OUTPUT
+          fi
+
       - name: Download dependencies
+        if: steps.detect-make.outputs.use_make != 'true'
         working-directory: ${{ matrix.app.working_dir }}
         run: go mod download
 
-      - name: Run tests
+      - name: Run tests (make)
+        if: steps.detect-make.outputs.use_make == 'true'
         working-directory: ${{ matrix.app.working_dir }}
         env:
           CGO_ENABLED: 1
-        run: go test -v -race -coverprofile=coverage.txt -covermode=atomic ./...
+        run: |
+          make ${{ steps.detect-make.outputs.make_target }}
+          # Normalize coverage file name for downstream jobs
+          # Check various locations where coverage might be generated
+          if [[ -f "coverage.out" ]] && [[ ! -f "coverage.txt" ]]; then
+            cp coverage.out coverage.txt
+          fi
+          if [[ -f "reports/unit_coverage.out" ]] && [[ ! -f "coverage.txt" ]]; then
+            cp reports/unit_coverage.out coverage.txt
+          fi
+          if [[ -f "artifacts/coverage.out" ]] && [[ ! -f "coverage.txt" ]]; then
+            cp artifacts/coverage.out coverage.txt
+          fi
+
+      - name: Generate coverage (fallback for make test)
+        if: steps.detect-make.outputs.use_make == 'true' && steps.detect-make.outputs.no_coverage == 'true'
+        working-directory: ${{ matrix.app.working_dir }}
+        env:
+          CGO_ENABLED: 1
+        run: |
+          # make test ran but doesn't generate coverage, run go test for coverage only
+          echo "Generating coverage with go test (make test doesn't generate coverage)"
+          
+          # Get package list, excluding /tests/ and /api/ directories (standard exclusions)
+          PACKAGES=$(go list ./... | awk '!/\/tests($|\/)/' | awk '!/\/api($|\/)/')
+          
+          if [[ -n "$PACKAGES" ]]; then
+            echo "$PACKAGES" | xargs go test -coverprofile=coverage.txt -covermode=atomic > /dev/null 2>&1 || true
+          else
+            go test -coverprofile=coverage.txt -covermode=atomic ./... > /dev/null 2>&1 || true
+          fi
+
+      - name: Run tests (go)
+        if: steps.detect-make.outputs.use_make != 'true'
+        working-directory: ${{ matrix.app.working_dir }}
+        env:
+          CGO_ENABLED: 1
+        run: |
+          # Get package list, excluding /tests/ and /api/ directories (standard exclusions)
+          # .ignorecoverunit patterns are applied to the coverage REPORT, not to test execution
+          PACKAGES=$(go list ./... | awk '!/\/tests($|\/)/' | awk '!/\/api($|\/)/')
+          
+          if [[ -z "$PACKAGES" ]]; then
+            echo "No packages found after filtering /tests/ and /api/"
+            exit 0
+          fi
+          
+          PACKAGE_COUNT=$(echo "$PACKAGES" | wc -l | tr -d ' ')
+          echo "Running tests on $PACKAGE_COUNT packages (excluded /tests/, /api/)"
+          echo "$PACKAGES" | xargs go test -v -race -coverprofile=coverage.txt -covermode=atomic
 
       - name: Upload coverage artifact
         uses: actions/upload-artifact@v6
@@ -368,6 +497,53 @@ jobs:
         with:
           name: coverage-${{ matrix.app.name }}
           path: ${{ matrix.app.working_dir }}
+
+      - name: Filter coverage with .ignorecoverunit
+        working-directory: ${{ matrix.app.working_dir }}
+        run: |
+          if [[ ! -f coverage.txt ]]; then
+            echo "No coverage.txt file found, skipping filter"
+            exit 0
+          fi
+
+          # Check for .ignorecoverunit in working dir first, then repository root
+          IGNORE_FILE=""
+          if [[ -f .ignorecoverunit ]]; then
+            IGNORE_FILE=".ignorecoverunit"
+            echo "Using .ignorecoverunit from working directory"
+          elif [[ -f "$GITHUB_WORKSPACE/.ignorecoverunit" ]]; then
+            IGNORE_FILE="$GITHUB_WORKSPACE/.ignorecoverunit"
+            echo "Using .ignorecoverunit from repository root"
+          else
+            echo "No .ignorecoverunit file found, using full coverage"
+            exit 0
+          fi
+
+          echo "Filtering coverage with .ignorecoverunit patterns..."
+          
+          # Read patterns, filter comments and empty lines, convert to pipe-separated regex
+          PATTERNS=$(grep -v '^#' "$IGNORE_FILE" | grep -v '^[[:space:]]*$' | tr '\n' '|' | sed 's/|$//')
+          
+          if [[ -z "$PATTERNS" ]]; then
+            echo "No patterns found in .ignorecoverunit"
+            exit 0
+          fi
+          
+          echo "Patterns: $PATTERNS"
+          
+          # Convert glob patterns to regex (escape dots, convert * to .*)
+          REGEX_PATTERNS=$(echo "$PATTERNS" | sed 's/\./\\./g' | sed 's/\*/.*/g')
+          echo "Regex patterns: $REGEX_PATTERNS"
+          
+          # Keep header line, filter body
+          head -1 coverage.txt > coverage_filtered.txt
+          tail -n +2 coverage.txt | grep -vE "$REGEX_PATTERNS" >> coverage_filtered.txt || true
+          
+          BEFORE=$(wc -l < coverage.txt | tr -d ' ')
+          AFTER=$(wc -l < coverage_filtered.txt | tr -d ' ')
+          echo "Filtered coverage: $BEFORE lines -> $AFTER lines"
+          
+          mv coverage_filtered.txt coverage.txt
 
       - name: Calculate coverage
         id: coverage
@@ -558,11 +734,35 @@ jobs:
         env:
           GOPRIVATE: ${{ inputs.go_private_modules }}
 
+      - name: Detect Makefile build target
+        id: detect-make
+        working-directory: ${{ matrix.app.working_dir }}
+        run: |
+          if [[ -f "Makefile" ]] || [[ -f "makefile" ]] || [[ -f "GNUmakefile" ]]; then
+            if make -n build >/dev/null 2>&1; then
+              echo "Makefile with 'build' target detected"
+              echo "use_make=true" >> $GITHUB_OUTPUT
+            else
+              echo "Makefile exists but no 'build' target found"
+              echo "use_make=false" >> $GITHUB_OUTPUT
+            fi
+          else
+            echo "No Makefile found"
+            echo "use_make=false" >> $GITHUB_OUTPUT
+          fi
+
       - name: Download dependencies
+        if: steps.detect-make.outputs.use_make != 'true'
         working-directory: ${{ matrix.app.working_dir }}
         run: go mod download
 
-      - name: Build
+      - name: Build (make)
+        if: steps.detect-make.outputs.use_make == 'true'
+        working-directory: ${{ matrix.app.working_dir }}
+        run: make build
+
+      - name: Build (go)
+        if: steps.detect-make.outputs.use_make != 'true'
         working-directory: ${{ matrix.app.working_dir }}
         run: go build -v ./...
 
