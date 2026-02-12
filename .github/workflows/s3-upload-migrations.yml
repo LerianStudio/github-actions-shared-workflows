@@ -1,0 +1,96 @@
+name: "Upload Migrations to S3"
+
+# This reusable workflow handles uploading SQL migration files to S3 buckets
+# with versioning based on the git tag.
+#
+# Features:
+# - Auto-detects environment from tag (beta/rc -> dev, release -> prd)
+# - Versions migrations by tag in S3 (e.g., midaz/ledger/onboarding/migrations/3.6.0/)
+# - Supports multiple migration paths via JSON mapping
+# - Uses OIDC for secure AWS authentication
+
+on:
+  workflow_call:
+    inputs:
+      runner_type:
+        description: 'Runner to use for the workflow'
+        type: string
+        default: 'blacksmith-4vcpu-ubuntu-2404'
+      migration_paths:
+        description: 'JSON mapping of source paths to S3 prefixes. Example: {"components/onboarding/migrations": "midaz/ledger/onboarding/migrations"}'
+        type: string
+        required: true
+      s3_bucket_dev:
+        description: 'S3 bucket name for dev/staging environments'
+        type: string
+        required: true
+      s3_bucket_prd:
+        description: 'S3 bucket name for production'
+        type: string
+        required: true
+      aws_region:
+        description: 'AWS region for S3 buckets'
+        type: string
+        default: 'us-east-2'
+    secrets:
+      AWS_ROLE_ARN:
+        description: 'AWS IAM role ARN for OIDC authentication'
+        required: true
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  upload-migrations:
+    name: Upload Migrations
+    runs-on: ${{ inputs.runner_type }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Determine environment and version
+        id: env
+        run: |
+          TAG="${GITHUB_REF#refs/tags/}"
+          VERSION=$(echo "$TAG" | sed 's/.*-\(v[0-9]\)/\1/')
+          VERSION_CLEAN="${VERSION#v}"
+
+          if [[ "$TAG" == *"-beta"* ]] || [[ "$TAG" == *"-rc"* ]]; then
+            echo "bucket=${{ inputs.s3_bucket_dev }}" >> $GITHUB_OUTPUT
+            echo "environment=dev" >> $GITHUB_OUTPUT
+          else
+            echo "bucket=${{ inputs.s3_bucket_prd }}" >> $GITHUB_OUTPUT
+            echo "environment=prd" >> $GITHUB_OUTPUT
+          fi
+
+          echo "version=$VERSION_CLEAN" >> $GITHUB_OUTPUT
+          echo "Environment: $(grep environment <<< "$(cat $GITHUB_OUTPUT)" | tail -1)"
+          echo "Version: $VERSION_CLEAN"
+          echo "Bucket: $(grep bucket <<< "$(cat $GITHUB_OUTPUT)" | tail -1)"
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ inputs.aws_region }}
+
+      - name: Upload migrations to S3
+        run: |
+          MIGRATIONS='${{ inputs.migration_paths }}'
+          BUCKET="${{ steps.env.outputs.bucket }}"
+          VERSION="${{ steps.env.outputs.version }}"
+
+          echo "Uploading migrations to s3://${BUCKET} (version: ${VERSION})"
+
+          echo "$MIGRATIONS" | jq -r 'to_entries[] | "\(.key)|\(.value)"' | while IFS='|' read -r src_path s3_prefix; do
+            if [ -d "$src_path" ]; then
+              S3_DEST="s3://${BUCKET}/${s3_prefix}/${VERSION}/"
+              echo "  ${src_path} -> ${S3_DEST}"
+              aws s3 sync "$src_path" "$S3_DEST"
+            else
+              echo "  Warning: ${src_path} not found, skipping"
+            fi
+          done
+
+          echo "Upload complete"
