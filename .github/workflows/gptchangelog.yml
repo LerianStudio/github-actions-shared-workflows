@@ -31,6 +31,14 @@ on:
         description: 'Limits the path to the first N segments (e.g., 2 -> "charts/agent")'
         type: string
         default: '2'
+      tag_separator:
+        description: 'Separator between app name and version in tags. Use "-v" for "app-v1.0.0" format or "@" for "app@1.0.0" format.'
+        type: string
+        default: '-v'
+      app_name_prefix:
+        description: 'Prefix to prepend to directory-derived app names when matching tags (e.g., "ring-" for tags like "ring-default@1.0.0" where directory is "default").'
+        type: string
+        default: ''
       stable_releases_only:
         description: 'Only generate changelogs for stable releases (skip beta/rc/alpha tags)'
         type: boolean
@@ -179,15 +187,18 @@ jobs:
               FIRST=true
               
               # Parse filter_paths to get app names
+              APP_NAME_PREFIX="${{ inputs.app_name_prefix }}"
+              TAG_SEPARATOR="${{ inputs.tag_separator }}"
               while IFS= read -r path; do
                 [ -z "$path" ] && continue
-                APP_NAME=$(basename "$path")
-                
+                DIR_NAME=$(basename "$path")
+                APP_NAME="${APP_NAME_PREFIX}${DIR_NAME}"
+
                 # Check if this app has a recent stable tag
                 # Escape regex metacharacters in app name for grep
                 APP_NAME_ESCAPED=$(echo "$APP_NAME" | sed 's/[.[\*^$()+?{}|\\]/\\&/g')
-                LATEST_TAG=$(git tag --sort=-creatordate | grep "^${APP_NAME_ESCAPED}-v" | grep -v -e "-beta" -e "-rc" -e "-alpha" -e "-dev" -e "-snapshot" | head -1)
-                
+                LATEST_TAG=$(git tag --sort=-creatordate | grep "^${APP_NAME_ESCAPED}${TAG_SEPARATOR}" | grep -v -e "-beta" -e "-rc" -e "-alpha" -e "-dev" -e "-snapshot" | head -1)
+
                 if [ -n "$LATEST_TAG" ]; then
                   echo "📦 Found stable tag for $APP_NAME: $LATEST_TAG"
                   if [ "$FIRST" = true ]; then
@@ -223,11 +234,16 @@ jobs:
               echo "📦 Single app mode: ${APP_NAME}"
             else
               MATRIX='${{ steps.changed-paths.outputs.matrix }}'
+              APP_NAME_PREFIX='${{ inputs.app_name_prefix }}'
               if [ "$MATRIX" == "[]" ] || [ -z "$MATRIX" ]; then
                 echo "matrix=[]" >> $GITHUB_OUTPUT
                 echo "has_changes=false" >> $GITHUB_OUTPUT
                 echo "⚠️ No changes detected in filter_paths"
               else
+                # Apply app_name_prefix to matrix names if configured
+                if [ -n "$APP_NAME_PREFIX" ]; then
+                  MATRIX=$(echo "$MATRIX" | jq -c --arg prefix "$APP_NAME_PREFIX" '[.[] | .name = ($prefix + .name)]')
+                fi
                 echo "matrix=$MATRIX" >> $GITHUB_OUTPUT
                 echo "has_changes=true" >> $GITHUB_OUTPUT
                 echo "📦 Monorepo mode - detected changes: $MATRIX"
@@ -309,14 +325,16 @@ jobs:
             # Determine tag pattern based on app type (monorepo vs single-app)
             # Escape regex metacharacters in app name for grep patterns
             APP_NAME_ESCAPED=$(echo "$APP_NAME" | sed 's/[.[\*^$()+?{}|\\]/\\&/g')
+            TAG_SEPARATOR="${{ inputs.tag_separator }}"
             if [ "$WORKING_DIR" != "." ]; then
-              # Monorepo: tags are prefixed with app name (e.g., auth-v1.0.0)
-              TAG_PATTERN="${APP_NAME}-v*"
-              TAG_GREP_PATTERN="^${APP_NAME_ESCAPED}-v"
+              # Monorepo: tags are prefixed with app name (e.g., auth-v1.0.0 or app@1.0.0)
+              TAG_PATTERN="${APP_NAME}${TAG_SEPARATOR}*"
+              TAG_GREP_PATTERN="^${APP_NAME_ESCAPED}${TAG_SEPARATOR}"
             else
-              # Single-app repo: tags are just version (e.g., v1.0.0)
-              TAG_PATTERN="v*"
-              TAG_GREP_PATTERN="^v"
+              # Single-app repo: derive prefix from separator (-v → v, @ → @)
+              SINGLE_APP_PREFIX="${TAG_SEPARATOR#-}"
+              TAG_PATTERN="${SINGLE_APP_PREFIX}*"
+              TAG_GREP_PATTERN="^${SINGLE_APP_PREFIX}"
             fi
             
             echo "🔍 Looking for tags matching: $TAG_PATTERN"
@@ -349,13 +367,14 @@ jobs:
               echo "🟡 First stable release - Range: first commit → $LAST_TAG"
             fi
             
-            # Extract version from tag (handles both monorepo and single-app formats)
+            # Extract version from tag using the configured separator
             if [ "$WORKING_DIR" != "." ]; then
-              # Monorepo: auth-v1.0.0 -> 1.0.0
-              VERSION=$(echo "$LAST_TAG" | sed 's/.*-v//')
+              # Monorepo: auth-v1.0.0 → 1.0.0, ring-default@1.0.0 → 1.0.0
+              VERSION="${LAST_TAG##*${TAG_SEPARATOR}}"
             else
-              # Single-app: v1.0.0 -> 1.0.0
-              VERSION=$(echo "$LAST_TAG" | sed 's/^v//')
+              # Single-app: v1.0.0 → 1.0.0 (derive prefix from separator: -v → v)
+              SINGLE_APP_PREFIX="${TAG_SEPARATOR#-}"
+              VERSION="${LAST_TAG#${SINGLE_APP_PREFIX}}"
             fi
             
             # Generate changelog using gptchangelog with path filter
