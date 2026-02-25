@@ -27,7 +27,7 @@ on:
 
 jobs:
   check-branch:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/check-branch.yml@main
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/check-branch.yml@v1.11.0
     secrets:
       lerian_studio_push_bot_app_id: ${{ secrets.LERIAN_STUDIO_MIDAZ_PUSH_BOT_APP_ID }}
       lerian_studio_push_bot_private_key: ${{ secrets.LERIAN_STUDIO_MIDAZ_PUSH_BOT_PRIVATE_KEY }}
