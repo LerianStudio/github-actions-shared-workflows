@@ -6,7 +6,6 @@ Reusable workflow that enforces Git branching rules by validating that pull requ
 
 - **Source branch validation** - Blocks PRs to `main` from unauthorized branches
 - **Automatic review** - Posts a REQUEST_CHANGES review explaining the violation
-- **GPG-signed actions** - All bot actions are signed with GPG keys
 - **GitHub App authentication** - Uses app token for secure API operations
 
 ## Usage
@@ -14,7 +13,7 @@ Reusable workflow that enforces Git branching rules by validating that pull requ
 ### Basic Usage
 
 ```yaml
-name: "Enforce Branch PR's from Develop"
+name: "Enforce Branch PRs from Develop"
 
 on:
   pull_request:
@@ -32,10 +31,6 @@ jobs:
     secrets:
       lerian_studio_push_bot_app_id: ${{ secrets.LERIAN_STUDIO_MIDAZ_PUSH_BOT_APP_ID }}
       lerian_studio_push_bot_private_key: ${{ secrets.LERIAN_STUDIO_MIDAZ_PUSH_BOT_PRIVATE_KEY }}
-      lerian_ci_cd_user_gpg_key: ${{ secrets.LERIAN_CI_CD_USER_GPG_KEY }}
-      lerian_ci_cd_user_gpg_key_password: ${{ secrets.LERIAN_CI_CD_USER_GPG_KEY_PASSWORD }}
-      lerian_ci_cd_user_name: ${{ secrets.LERIAN_CI_CD_USER_NAME }}
-      lerian_ci_cd_user_email: ${{ secrets.LERIAN_CI_CD_USER_EMAIL }}
 ```
 
 ## Secrets
@@ -46,10 +41,6 @@ All secrets are **required**.
 |--------|-------------|
 | `lerian_studio_push_bot_app_id` | GitHub App ID for generating authentication tokens |
 | `lerian_studio_push_bot_private_key` | GitHub App private key for authentication |
-| `lerian_ci_cd_user_gpg_key` | GPG private key for signing bot actions |
-| `lerian_ci_cd_user_gpg_key_password` | Passphrase for the GPG key |
-| `lerian_ci_cd_user_name` | Git committer name for bot identity |
-| `lerian_ci_cd_user_email` | Git committer email for bot identity |
 
 ## Allowed Branches
 
@@ -67,9 +58,8 @@ Any PR from a branch not matching these patterns will be blocked with a REQUEST_
 ## How It Works
 
 1. **Authentication** - Generates a GitHub App token using the provided app credentials
-2. **GPG Setup** - Imports GPG key for signed operations
-3. **Branch Check** - Evaluates if the PR source branch matches allowed patterns
-4. **Enforcement** - If the source branch is not allowed:
+2. **Branch Check** - Evaluates if the PR source branch matches allowed patterns
+3. **Enforcement** - If the source branch is not allowed:
    - Posts a REQUEST_CHANGES review on the PR explaining the rule
    - Fails the workflow check, blocking the merge
 
