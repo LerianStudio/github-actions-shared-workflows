@@ -1,0 +1,38 @@
+name: "Check branch origin"
+
+# This reusable workflow enforces that PRs to main branch only come from develop, release-candidate, or hotfix branches
+# It helps maintain a clean Git workflow and prevents direct commits to main
+
+on:
+  workflow_call:
+    secrets:
+      lerian_studio_push_bot_app_id:
+        required: true
+      lerian_studio_push_bot_private_key:
+        required: true
+
+jobs:
+  check-branch:
+    runs-on: ubuntu-24.04
+    steps:
+      # Generate GitHub App token for authentication
+      - uses: actions/create-github-app-token@v1
+        id: app-token
+        with:
+          app-id: ${{ secrets.lerian_studio_push_bot_app_id }}
+          private-key: ${{ secrets.lerian_studio_push_bot_private_key }}
+
+      # Check if PR is from develop, release-candidate, or hotfix branch
+      - name: Check if PR is from develop, release-candidate, or hotfix
+        if: github.event.pull_request.base.ref == 'main' && github.event.pull_request.head.ref != 'develop' && github.event.pull_request.head.ref != 'release-candidate' && startsWith(github.event.pull_request.head.ref, 'hotfix/') == false && startsWith(github.event.pull_request.head.ref, 'release-candidate/') == false
+        env:
+          GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          echo "Pull requests to main can only come from develop, release-candidate, or hotfix branches."
+          # Add a request for changes comment on the pull request
+          curl --fail-with-body -sS -X POST \
+            -H "Authorization: token $GITHUB_TOKEN" \
+            -H "Content-Type: application/json" \
+            -d '{"body": "Pull requests to **main** can only come from **develop**, **release-candidate**, or **hotfix** branches. Please **change base**!!!", "event": "REQUEST_CHANGES"}' \
+            "${{ github.event.pull_request.url }}/reviews"
+          exit 1
