@@ -418,6 +418,9 @@ jobs:
           if [[ -f "artifacts/coverage.out" ]] && [[ ! -f "coverage.txt" ]]; then
             cp artifacts/coverage.out coverage.txt
           fi
+          if [[ -f "artifacts/coverage-unit.out" ]] && [[ ! -f "coverage.txt" ]]; then
+            cp artifacts/coverage-unit.out coverage.txt
+          fi
 
       - name: Generate coverage (fallback for make test)
         if: steps.detect-make.outputs.use_make == 'true' && steps.detect-make.outputs.no_coverage == 'true'
