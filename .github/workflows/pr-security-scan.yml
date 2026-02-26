@@ -316,6 +316,8 @@ jobs:
 
                   if (dockerVulns.length > 0) {
                     hasFindings = true;
+                    const dockerSeverityOrder = { 'CRITICAL/HIGH': 0, CRITICAL: 0, HIGH: 1, MEDIUM: 2, LOW: 3, UNKNOWN: 4 };
+                    dockerVulns.sort((a, b) => (dockerSeverityOrder[a.severity] ?? 5) - (dockerSeverityOrder[b.severity] ?? 5));
                     body += `### Docker Image Scan\n\n`;
                     body += `| Severity | Vulnerability | Title |\n`;
                     body += `|----------|---------------|-------|\n`;
