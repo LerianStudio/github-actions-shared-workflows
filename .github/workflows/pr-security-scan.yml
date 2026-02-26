@@ -377,20 +377,18 @@ jobs:
             }
 
             // Export findings flag for the gate step
-            const fs2 = require('fs');
-            const outputFile = process.env.GITHUB_OUTPUT;
-            fs2.appendFileSync(outputFile, `has_findings=${hasFindings}\n`);
-            fs2.appendFileSync(outputFile, `has_errors=${hasScanErrors}\n`);
+            core.setOutput('has_findings', hasFindings);
+            core.setOutput('has_errors', hasScanErrors);
 
       - name: Gate - Fail on Security Findings
         if: always() && github.event_name == 'pull_request'
         run: |
+          if [ "${{ steps.post-results.outputs.has_errors }}" = "true" ]; then
+            echo "::warning::Some scan artifacts were missing or could not be parsed."
+          fi
           if [ "${{ steps.post-results.outputs.has_findings }}" = "true" ]; then
             echo "::error::Security vulnerabilities found. Check the PR comment for details."
             exit 1
-          fi
-          if [ "${{ steps.post-results.outputs.has_errors }}" = "true" ]; then
-            echo "::warning::Some scan artifacts were missing or could not be parsed."
           fi
 
       ## To be fixed
