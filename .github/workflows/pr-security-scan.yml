@@ -347,38 +347,40 @@ jobs:
               body += `\n✅ **All security checks passed.**\n`;
             }
 
+            // Export findings flag for the gate step (before API calls to ensure they're always set)
+            core.setOutput('has_findings', hasFindings);
+            core.setOutput('has_errors', hasScanErrors);
+
             // Find and update existing comment or create new one
             const marker = `<!-- security-scan-${appName} -->`;
             body = marker + '\n' + body;
-
-            const comments = await github.paginate(github.rest.issues.listComments, {
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: context.issue.number,
-              per_page: 100
-            });
-
-            const existing = comments.find(c => c.body?.includes(marker));
-
-            if (existing) {
-              await github.rest.issues.updateComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                comment_id: existing.id,
-                body
-              });
-            } else {
-              await github.rest.issues.createComment({
+            try {
+              const comments = await github.paginate(github.rest.issues.listComments, {
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 issue_number: context.issue.number,
-                body
+                per_page: 100
               });
-            }
 
-            // Export findings flag for the gate step
-            core.setOutput('has_findings', hasFindings);
-            core.setOutput('has_errors', hasScanErrors);
+              const existing = comments.find(c => c.body?.includes(marker));
+              if (existing) {
+                await github.rest.issues.updateComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  comment_id: existing.id,
+                  body
+                });
+              } else {
+                await github.rest.issues.createComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: context.issue.number,
+                  body
+                });
+              }
+            } catch (e) {
+              core.warning(`Could not post PR security comment: ${e.message}`);
+            }
 
       - name: Gate - Fail on Security Findings
         if: always() && github.event_name == 'pull_request'
