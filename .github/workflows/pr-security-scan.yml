@@ -197,6 +197,184 @@ jobs:
           severity: UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL
           exit-code: '0'  # Do not fail; gate failures in the table step
 
+      # ----------------- Filesystem Vulnerability Scan -----------------
+      - name: Trivy Vulnerability Scan - Filesystem (JSON Output)
+        id: fs-vuln-scan
+        uses: aquasecurity/trivy-action@0.33.1
+        if: always()
+        with:
+          scan-type: fs
+          scan-ref: ${{ matrix.working_dir }}
+          format: json
+          output: 'trivy-fs-vuln-${{ env.APP_NAME }}.json'
+          exit-code: '0'
+          hide-progress: true
+          skip-dirs: '.git,node_modules,dist,build,.next,coverage,vendor'
+
+      # ----------------- PR Comment with Security Findings -----------------
+      - name: Post Security Scan Results to PR
+        if: always() && github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const appName = process.env.APP_NAME;
+            const dockerScanEnabled = ${{ inputs.enable_docker_scan }};
+
+            let body = `## 🔒 Security Scan Results — \`${appName}\`\n\n`;
+            let hasFindings = false;
+            let hasScanErrors = false;
+
+            // Helper to escape markdown table cell content
+            const md = (value) =>
+              String(value ?? '')
+                .replace(/\|/g, '\\|')
+                .replace(/\r?\n/g, ' ')
+                .replace(/`/g, '\\`');
+
+            // Parse filesystem vulnerability scan
+            try {
+              const fsVulnFile = `trivy-fs-vuln-${appName}.json`;
+              if (fs.existsSync(fsVulnFile)) {
+                const data = JSON.parse(fs.readFileSync(fsVulnFile, 'utf8'));
+                const results = data.Results || [];
+                const vulns = [];
+
+                for (const result of results) {
+                  for (const v of (result.Vulnerabilities || [])) {
+                    vulns.push({
+                      library: v.PkgName || 'Unknown',
+                      id: v.VulnerabilityID || 'N/A',
+                      severity: v.Severity || 'UNKNOWN',
+                      installed: v.InstalledVersion || 'N/A',
+                      fixed: v.FixedVersion || 'N/A',
+                      title: v.Title || v.Description || 'No description'
+                    });
+                  }
+                  for (const s of (result.Secrets || [])) {
+                    vulns.push({
+                      library: s.RuleID || 'Secret',
+                      id: s.Category || 'SECRET',
+                      severity: s.Severity || 'HIGH',
+                      installed: '[REDACTED]',
+                      fixed: 'Remove/rotate',
+                      title: s.Title || 'Secret detected'
+                    });
+                  }
+                }
+
+                if (vulns.length > 0) {
+                  hasFindings = true;
+                  body += `### Filesystem Scan\n\n`;
+                  body += `| Severity | Library | Vulnerability | Installed | Fixed | Title |\n`;
+                  body += `|----------|---------|---------------|-----------|-------|-------|\n`;
+
+                  const severityOrder = { CRITICAL: 0, HIGH: 1, MEDIUM: 2, LOW: 3, UNKNOWN: 4 };
+                  vulns.sort((a, b) => (severityOrder[a.severity] ?? 5) - (severityOrder[b.severity] ?? 5));
+
+                  const maxFsFindings = 50;
+                  for (const v of vulns.slice(0, maxFsFindings)) {
+                    const icon = { CRITICAL: '🔴', HIGH: '🟠', MEDIUM: '🟡', LOW: '🔵', UNKNOWN: '⚪' }[v.severity] || '⚪';
+                    const title = v.title.length > 60 ? v.title.substring(0, 57) + '...' : v.title;
+                    body += `| ${icon} ${md(v.severity)} | \`${md(v.library)}\` | ${md(v.id)} | ${md(v.installed)} | ${md(v.fixed)} | ${md(title)} |\n`;
+                  }
+                  if (vulns.length > maxFsFindings) {
+                    body += `\n_... and ${vulns.length - maxFsFindings} more findings._\n`;
+                  }
+                  body += `\n`;
+                } else {
+                  body += `### Filesystem Scan\n\n✅ No vulnerabilities or secrets found.\n\n`;
+                }
+              } else {
+                hasScanErrors = true;
+                body += `### Filesystem Scan\n\n⚠️ Scan artifact not found.\n\n`;
+              }
+            } catch (e) {
+              hasScanErrors = true;
+              body += `### Filesystem Scan\n\n⚠️ Could not parse scan results: ${e.message}\n\n`;
+            }
+
+            // Parse Docker image vulnerability scan
+            if (dockerScanEnabled) {
+              try {
+                const dockerSarifFile = `trivy-vulnerability-scan-docker-${appName}.sarif`;
+                if (fs.existsSync(dockerSarifFile)) {
+                  const sarif = JSON.parse(fs.readFileSync(dockerSarifFile, 'utf8'));
+                  const runs = sarif.runs || [];
+                  const dockerVulns = [];
+
+                  for (const run of runs) {
+                    for (const result of (run.results || [])) {
+                      const rule = (run.tool?.driver?.rules || []).find(r => r.id === result.ruleId);
+                      dockerVulns.push({
+                        id: result.ruleId || 'N/A',
+                        severity: result.level === 'error' ? 'CRITICAL/HIGH' : result.level === 'warning' ? 'MEDIUM' : 'LOW',
+                        title: rule?.shortDescription?.text || result.message?.text || 'No description'
+                      });
+                    }
+                  }
+
+                  if (dockerVulns.length > 0) {
+                    hasFindings = true;
+                    const dockerSeverityOrder = { 'CRITICAL/HIGH': 0, CRITICAL: 0, HIGH: 1, MEDIUM: 2, LOW: 3, UNKNOWN: 4 };
+                    dockerVulns.sort((a, b) => (dockerSeverityOrder[a.severity] ?? 5) - (dockerSeverityOrder[b.severity] ?? 5));
+                    body += `### Docker Image Scan\n\n`;
+                    body += `| Severity | Vulnerability | Title |\n`;
+                    body += `|----------|---------------|-------|\n`;
+                    for (const v of dockerVulns.slice(0, 20)) {
+                      const title = v.title.length > 80 ? v.title.substring(0, 77) + '...' : v.title;
+                      body += `| ${md(v.severity)} | ${md(v.id)} | ${md(title)} |\n`;
+                    }
+                    if (dockerVulns.length > 20) {
+                      body += `\n_... and ${dockerVulns.length - 20} more findings._\n`;
+                    }
+                    body += `\n`;
+                  } else {
+                    body += `### Docker Image Scan\n\n✅ No vulnerabilities found.\n\n`;
+                  }
+                } else {
+                  hasScanErrors = true;
+                  body += `### Docker Image Scan\n\n⚠️ Scan artifact not found.\n\n`;
+                }
+              } catch (e) {
+                hasScanErrors = true;
+                body += `### Docker Image Scan\n\n⚠️ Could not parse scan results: ${e.message}\n\n`;
+              }
+            }
+
+            if (!hasFindings && !hasScanErrors) {
+              body += `\n✅ **All security checks passed.**\n`;
+            }
+
+            // Find and update existing comment or create new one
+            const marker = `<!-- security-scan-${appName} -->`;
+            body = marker + '\n' + body;
+
+            const comments = await github.paginate(github.rest.issues.listComments, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              per_page: 100
+            });
+
+            const existing = comments.find(c => c.body?.includes(marker));
+
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body
+              });
+            }
+
       ## To be fixed
       # - name: Upload Secret Scan Results - Repository (SARIF) to GitHub Security Tab
       #   uses: github/codeql-action/upload-sarif@v3
