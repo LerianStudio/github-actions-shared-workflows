@@ -222,6 +222,14 @@ jobs:
 
             let body = `## 🔒 Security Scan Results — \`${appName}\`\n\n`;
             let hasFindings = false;
+            let hasScanErrors = false;
+
+            // Helper to escape markdown table cell content
+            const md = (value) =>
+              String(value ?? '')
+                .replace(/\|/g, '\\|')
+                .replace(/\r?\n/g, ' ')
+                .replace(/`/g, '\\`');
 
             // Parse filesystem vulnerability scan
             try {
@@ -247,7 +255,7 @@ jobs:
                       library: s.RuleID || 'Secret',
                       id: s.Category || 'SECRET',
                       severity: s.Severity || 'HIGH',
-                      installed: s.Match || 'N/A',
+                      installed: '[REDACTED]',
                       fixed: 'Remove/rotate',
                       title: s.Title || 'Secret detected'
                     });
@@ -266,14 +274,18 @@ jobs:
                   for (const v of vulns) {
                     const icon = { CRITICAL: '🔴', HIGH: '🟠', MEDIUM: '🟡', LOW: '🔵', UNKNOWN: '⚪' }[v.severity] || '⚪';
                     const title = v.title.length > 60 ? v.title.substring(0, 57) + '...' : v.title;
-                    body += `| ${icon} ${v.severity} | \`${v.library}\` | ${v.id} | ${v.installed} | ${v.fixed} | ${title} |\n`;
+                    body += `| ${icon} ${md(v.severity)} | \`${md(v.library)}\` | ${md(v.id)} | ${md(v.installed)} | ${md(v.fixed)} | ${md(title)} |\n`;
                   }
                   body += `\n`;
                 } else {
                   body += `### Filesystem Scan\n\n✅ No vulnerabilities or secrets found.\n\n`;
                 }
+              } else {
+                hasScanErrors = true;
+                body += `### Filesystem Scan\n\n⚠️ Scan artifact not found.\n\n`;
               }
             } catch (e) {
+              hasScanErrors = true;
               body += `### Filesystem Scan\n\n⚠️ Could not parse scan results: ${e.message}\n\n`;
             }
 
@@ -303,7 +315,7 @@ jobs:
                   body += `|----------|---------------|-------|\n`;
                   for (const v of dockerVulns.slice(0, 20)) {
                     const title = v.title.length > 80 ? v.title.substring(0, 77) + '...' : v.title;
-                    body += `| ${v.severity} | ${v.id} | ${title} |\n`;
+                    body += `| ${md(v.severity)} | ${md(v.id)} | ${md(title)} |\n`;
                   }
                   if (dockerVulns.length > 20) {
                     body += `\n_... and ${dockerVulns.length - 20} more findings._\n`;
@@ -314,10 +326,11 @@ jobs:
                 }
               }
             } catch (e) {
-              // Docker scan might not exist if enable_docker_scan is false
+              hasScanErrors = true;
+              body += `### Docker Image Scan\n\n⚠️ Could not parse scan results: ${e.message}\n\n`;
             }
 
-            if (!hasFindings) {
+            if (!hasFindings && !hasScanErrors) {
               body += `\n✅ **All security checks passed.**\n`;
             }
 
@@ -325,10 +338,11 @@ jobs:
             const marker = `<!-- security-scan-${appName} -->`;
             body = marker + '\n' + body;
 
-            const { data: comments } = await github.rest.issues.listComments({
+            const comments = await github.paginate(github.rest.issues.listComments, {
               owner: context.repo.owner,
               repo: context.repo.repo,
-              issue_number: context.issue.number
+              issue_number: context.issue.number,
+              per_page: 100
             });
 
             const existing = comments.find(c => c.body?.includes(marker));
