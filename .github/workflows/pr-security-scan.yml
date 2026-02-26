@@ -218,7 +218,7 @@ jobs:
         with:
           script: |
             const fs = require('fs');
-            const appName = '${{ env.APP_NAME }}';
+            const appName = process.env.APP_NAME;
             const dockerScanEnabled = ${{ inputs.enable_docker_scan }};
 
             let body = `## 🔒 Security Scan Results — \`${appName}\`\n\n`;
@@ -272,10 +272,14 @@ jobs:
                   const severityOrder = { CRITICAL: 0, HIGH: 1, MEDIUM: 2, LOW: 3, UNKNOWN: 4 };
                   vulns.sort((a, b) => (severityOrder[a.severity] ?? 5) - (severityOrder[b.severity] ?? 5));
 
-                  for (const v of vulns) {
+                  const maxFsFindings = 50;
+                  for (const v of vulns.slice(0, maxFsFindings)) {
                     const icon = { CRITICAL: '🔴', HIGH: '🟠', MEDIUM: '🟡', LOW: '🔵', UNKNOWN: '⚪' }[v.severity] || '⚪';
                     const title = v.title.length > 60 ? v.title.substring(0, 57) + '...' : v.title;
                     body += `| ${icon} ${md(v.severity)} | \`${md(v.library)}\` | ${md(v.id)} | ${md(v.installed)} | ${md(v.fixed)} | ${md(title)} |\n`;
+                  }
+                  if (vulns.length > maxFsFindings) {
+                    body += `\n_... and ${vulns.length - maxFsFindings} more findings._\n`;
                   }
                   body += `\n`;
                 } else {
