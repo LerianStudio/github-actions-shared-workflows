@@ -432,8 +432,9 @@ jobs:
           
           # Install argocd CLI if not available
           if ! command -v argocd &> /dev/null; then
-            sudo curl -sSL -o /usr/local/bin/argocd https://github.com/argoproj/argo-cd/releases/latest/download/argocd-linux-amd64
-            sudo chmod +x /usr/local/bin/argocd
+            curl -sSL -o /tmp/argocd https://github.com/argoproj/argo-cd/releases/latest/download/argocd-linux-amd64
+            chmod +x /tmp/argocd
+            sudo mv /tmp/argocd /usr/local/bin/argocd
           fi
           
           # Check if app exists
