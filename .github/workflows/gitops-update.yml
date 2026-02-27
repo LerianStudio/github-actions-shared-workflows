@@ -147,6 +147,14 @@ jobs:
           cd gitops
           git pull origin main
 
+      - name: Cleanup old artifacts (self-hosted runner safety)
+        shell: bash
+        run: |
+          # Remove any existing artifacts from previous runs (important for self-hosted runners)
+          echo "Cleaning up old artifacts directory..."
+          rm -rf .gitops-tags
+          echo "Cleanup complete"
+
       - name: Download GitOps tag artifacts (pattern-based)
         id: download-pattern
         uses: actions/download-artifact@v7
