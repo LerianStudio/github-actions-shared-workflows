@@ -218,10 +218,48 @@ jobs:
           fi
           echo "Servers to deploy to: $SERVERS"
 
+          # First, check which artifacts actually exist
+          echo ""
+          echo "Checking available artifacts..."
+          AVAILABLE_ARTIFACTS=""
+          for artifact_file in .gitops-tags/*; do
+            if [[ -f "$artifact_file" ]]; then
+              artifact_name=$(basename "$artifact_file")
+              echo "  Found artifact: $artifact_name"
+              AVAILABLE_ARTIFACTS="${AVAILABLE_ARTIFACTS}${artifact_name} "
+            fi
+          done
+          
+          if [[ -z "$AVAILABLE_ARTIFACTS" ]]; then
+            echo "No artifacts found in .gitops-tags/"
+            echo "sync_matrix=[]" >> "$GITHUB_OUTPUT"
+            echo "has_sync_targets=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
           # Track results
           UPDATED_FILES=""
           MISSING_FILES=""
           UPDATED_SERVERS_ENVS=""
+
+          # Function to update a single YAML key using sed (preserves formatting)
+          update_yaml_tag() {
+            local file="$1"
+            local yaml_path="$2"
+            local new_tag="$3"
+            
+            # Extract the key name from yaml path (e.g., ".image.tag" -> "tag")
+            local key_name="${yaml_path##*.}"
+            
+            # Use sed to replace only the tag value, preserving all formatting
+            # This handles patterns like "tag: v1.0.0" or "tag: 'v1.0.0'" or 'tag: "v1.0.0"'
+            if grep -q "^[[:space:]]*${key_name}:" "$file"; then
+              # Replace the value after the key, preserving indentation and quotes
+              sed -i -E "s/^([[:space:]]*${key_name}:[[:space:]]*)(['\"]?)([^'\"[:space:]]+)(['\"]?)$/\1\2${new_tag}\4/" "$file"
+              return 0
+            fi
+            return 1
+          }
 
           # Process each server and environment
           for SERVER in $SERVERS; do
@@ -239,38 +277,60 @@ jobs:
                 continue
               fi
               
-              echo "  File exists, applying tags..."
+              # Track if any changes were made to this file
+              FILE_CHANGED=false
               
-              # Apply mappings from inputs
+              # Apply mappings from inputs - only if artifact exists
               MAPPINGS='${{ inputs.yaml_key_mappings }}'
-              echo "$MAPPINGS" | jq -r 'to_entries[] | "\(.key)|\(.value)"' | while IFS='|' read -r artifact_key yaml_key; do
+              while IFS='|' read -r artifact_key yaml_key; do
                 ARTIFACT_FILE=".gitops-tags/${artifact_key}"
                 if [[ -f "$ARTIFACT_FILE" ]]; then
                   TAG="$(cut -d= -f2 < "$ARTIFACT_FILE" | tr -d '[:space:]')"
                   if [[ -n "$TAG" ]]; then
-                    TAG="$TAG" yq e -i "$yaml_key = strenv(TAG)" "$VALUES_FILE"
-                    echo "    Set $yaml_key = $TAG"
+                    # Get current value to check if update is needed
+                    CURRENT_TAG=$(yq e "$yaml_key" "$VALUES_FILE" 2>/dev/null || echo "")
+                    if [[ "$CURRENT_TAG" != "$TAG" ]]; then
+                      # Use yq with explicit output to preserve formatting
+                      TAG="$TAG" yq e "$yaml_key = strenv(TAG)" "$VALUES_FILE" > "${VALUES_FILE}.tmp"
+                      mv "${VALUES_FILE}.tmp" "$VALUES_FILE"
+                      echo "    Updated $yaml_key: $CURRENT_TAG -> $TAG"
+                      FILE_CHANGED=true
+                    else
+                      echo "    Skipped $yaml_key: already set to $TAG"
+                    fi
                   fi
                 fi
-              done
+              done < <(echo "$MAPPINGS" | jq -r 'to_entries[] | "\(.key)|\(.value)"')
               
-              # Apply configmap updates if configured
+              # Apply configmap updates if configured - only if artifact exists
               if [[ -n "${{ inputs.configmap_updates }}" ]]; then
                 CONFIGMAP_MAPPINGS='${{ inputs.configmap_updates }}'
-                echo "$CONFIGMAP_MAPPINGS" | jq -r 'to_entries[] | "\(.key)|\(.value)"' | while IFS='|' read -r artifact_key configmap_key; do
+                while IFS='|' read -r artifact_key configmap_key; do
                   ARTIFACT_FILE=".gitops-tags/${artifact_key}"
                   if [[ -f "$ARTIFACT_FILE" ]]; then
                     TAG="$(cut -d= -f2 < "$ARTIFACT_FILE" | tr -d '[:space:]')"
                     if [[ -n "$TAG" ]]; then
-                      TAG="$TAG" yq e -i "$configmap_key = strenv(TAG)" "$VALUES_FILE"
-                      echo "    Set $configmap_key = $TAG"
+                      CURRENT_TAG=$(yq e "$configmap_key" "$VALUES_FILE" 2>/dev/null || echo "")
+                      if [[ "$CURRENT_TAG" != "$TAG" ]]; then
+                        TAG="$TAG" yq e "$configmap_key = strenv(TAG)" "$VALUES_FILE" > "${VALUES_FILE}.tmp"
+                        mv "${VALUES_FILE}.tmp" "$VALUES_FILE"
+                        echo "    Updated $configmap_key: $CURRENT_TAG -> $TAG"
+                        FILE_CHANGED=true
+                      else
+                        echo "    Skipped $configmap_key: already set to $TAG"
+                      fi
                     fi
                   fi
-                done
+                done < <(echo "$CONFIGMAP_MAPPINGS" | jq -r 'to_entries[] | "\(.key)|\(.value)"')
               fi
               
-              UPDATED_FILES="${UPDATED_FILES}${VALUES_FILE}\n"
-              UPDATED_SERVERS_ENVS="${UPDATED_SERVERS_ENVS}${SERVER}:${ENV}\n"
+              # Only track as updated if changes were actually made
+              if [[ "$FILE_CHANGED" == "true" ]]; then
+                UPDATED_FILES="${UPDATED_FILES}${VALUES_FILE}\n"
+                UPDATED_SERVERS_ENVS="${UPDATED_SERVERS_ENVS}${SERVER}:${ENV}\n"
+              else
+                echo "  No changes needed for this file"
+              fi
             done
           done
 
@@ -292,7 +352,7 @@ jobs:
             echo -e "$MISSING_FILES"
           fi
 
-          # Save updated servers/envs for ArgoCD sync
+          # Save updated servers/envs for ArgoCD sync - only include files that actually changed
           if [[ -n "$UPDATED_SERVERS_ENVS" ]]; then
             echo -e "$UPDATED_SERVERS_ENVS" | grep -v '^$' > /tmp/updated_servers_envs.txt
             
@@ -372,8 +432,8 @@ jobs:
           
           # Install argocd CLI if not available
           if ! command -v argocd &> /dev/null; then
-            curl -sSL -o /usr/local/bin/argocd https://github.com/argoproj/argo-cd/releases/latest/download/argocd-linux-amd64
-            chmod +x /usr/local/bin/argocd
+            sudo curl -sSL -o /usr/local/bin/argocd https://github.com/argoproj/argo-cd/releases/latest/download/argocd-linux-amd64
+            sudo chmod +x /usr/local/bin/argocd
           fi
           
           # Check if app exists
