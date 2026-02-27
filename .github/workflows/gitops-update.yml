@@ -1,7 +1,7 @@
 name: "GitOps Update"
 
 # Reusable workflow for updating GitOps repository with new image tags
-# Supports multiple environments: dev (beta), stg (rc), prd (production), sandbox
+# Supports multiple servers (Firmino, Clotilde) and environments: dev (beta), stg (rc), prd (production), sandbox
 # Handles single or multiple components with flexible YAML key mapping
 
 on:
@@ -11,30 +11,18 @@ on:
         description: 'GitOps repository to update (org/repo format)'
         type: string
         default: 'LerianStudio/midaz-firmino-gitops'
-      gitops_server:
-        description: 'Server name for GitOps path (e.g., firmino)'
-        type: string
-        default: 'firmino'
       app_name:
         description: 'Application name (defaults to repository name if not provided)'
         type: string
         required: false
-      gitops_file_dev:
-        description: 'Path to dev environment values.yaml (auto-generated if not provided)'
-        type: string
-        required: false
-      gitops_file_stg:
-        description: 'Path to stg environment values.yaml (auto-generated if not provided)'
-        type: string
-        required: false
-      gitops_file_prd:
-        description: 'Path to prd environment values.yaml (auto-generated if not provided)'
-        type: string
-        required: false
-      gitops_file_sandbox:
-        description: 'Path to sandbox environment values.yaml (auto-generated if not provided)'
-        type: string
-        required: false
+      deploy_in_firmino:
+        description: 'Deploy to Firmino server'
+        type: boolean
+        default: true
+      deploy_in_clotilde:
+        description: 'Deploy to Clotilde server'
+        type: boolean
+        default: true
       artifact_pattern:
         description: 'Pattern to download artifacts (defaults to "gitops-tags-<repo-name>-*" if not provided)'
         type: string
@@ -55,10 +43,6 @@ on:
         description: 'Enable ArgoCD sync after GitOps update'
         type: boolean
         default: true
-      argocd_app_name:
-        description: 'ArgoCD application name (auto-generated as <server>-<app> if not provided)'
-        type: string
-        required: false
       use_dynamic_mapping:
         description: 'Use dynamic mapping for multiple components (like midaz)'
         type: boolean
@@ -67,14 +51,6 @@ on:
         description: 'Version of yq to install'
         type: string
         default: 'v4.44.3'
-      environment_detection:
-        description: 'Environment detection strategy: tag_suffix (beta/rc/prd) or manual'
-        type: string
-        default: 'tag_suffix'
-      manual_environment:
-        description: 'Manually specify environment (dev/stg/prd/sandbox) - only used if environment_detection is manual'
-        type: string
-        required: false
       enable_docker_login:
         description: 'Enable Docker Hub login to avoid rate limits'
         type: boolean
@@ -87,15 +63,15 @@ on:
 jobs:
   update_gitops:
     runs-on: ${{ inputs.runner_type }}
+    outputs:
+      app_name: ${{ steps.setup.outputs.app_name }}
+      sync_matrix: ${{ steps.apply_tags.outputs.sync_matrix }}
+      has_sync_targets: ${{ steps.apply_tags.outputs.has_sync_targets }}
     env:
       IS_RC: ${{ contains(github.ref, '-rc.') }}
       IS_BETA: ${{ contains(github.ref, '-beta.') }}
       IS_SANDBOX: ${{ contains(github.ref, '-sandbox.') }}
       IS_PRODUCTION: ${{ !contains(github.ref, '-rc.') && !contains(github.ref, '-beta.') && !contains(github.ref, '-sandbox.') && startsWith(github.ref, 'refs/tags/') }}
-      GITOPS_FILE_STG: ${{ inputs.gitops_file_stg }}
-      GITOPS_FILE_DEV: ${{ inputs.gitops_file_dev }}
-      GITOPS_FILE_PRD: ${{ inputs.gitops_file_prd }}
-      GITOPS_FILE_SANDBOX: ${{ inputs.gitops_file_sandbox }}
     steps:
       - name: Log in to Docker Hub
         if: ${{ inputs.enable_docker_login }}
@@ -125,47 +101,14 @@ jobs:
           echo "app_name=$APP_NAME" >> "$GITHUB_OUTPUT"
           echo "Application name: $APP_NAME"
 
-          # Generate GitOps file paths if not provided
-          SERVER="${{ inputs.gitops_server }}"
-          BASE_PATH="gitops/environments/${SERVER}/helmfile/applications"
-
-          if [[ -z "${{ inputs.gitops_file_dev }}" ]]; then
-            DEV_FILE="${BASE_PATH}/dev/${APP_NAME}/values.yaml"
-          else
-            DEV_FILE="${{ inputs.gitops_file_dev }}"
-          fi
-
-          if [[ -z "${{ inputs.gitops_file_stg }}" ]]; then
-            STG_FILE="${BASE_PATH}/stg/${APP_NAME}/values.yaml"
-          else
-            STG_FILE="${{ inputs.gitops_file_stg }}"
-          fi
-
-          if [[ -z "${{ inputs.gitops_file_prd }}" ]]; then
-            PRD_FILE="${BASE_PATH}/prd/${APP_NAME}/values.yaml"
-          else
-            PRD_FILE="${{ inputs.gitops_file_prd }}"
-          fi
-
-          if [[ -z "${{ inputs.gitops_file_sandbox }}" ]]; then
-            SANDBOX_FILE="${BASE_PATH}/sandbox/${APP_NAME}/values.yaml"
-          else
-            SANDBOX_FILE="${{ inputs.gitops_file_sandbox }}"
-          fi
-
-          echo "gitops_file_dev=$DEV_FILE" >> "$GITHUB_OUTPUT"
-          echo "gitops_file_stg=$STG_FILE" >> "$GITHUB_OUTPUT"
-          echo "gitops_file_prd=$PRD_FILE" >> "$GITHUB_OUTPUT"
-          echo "gitops_file_sandbox=$SANDBOX_FILE" >> "$GITHUB_OUTPUT"
-
-          # Generate ArgoCD app name base if not provided (without environment suffix)
-          if [[ -z "${{ inputs.argocd_app_name }}" ]]; then
-            ARGOCD_APP_BASE="${SERVER}-${APP_NAME}"
-          else
-            ARGOCD_APP_BASE="${{ inputs.argocd_app_name }}"
-          fi
-          echo "argocd_app_base=$ARGOCD_APP_BASE" >> "$GITHUB_OUTPUT"
-          echo "ArgoCD app base name: $ARGOCD_APP_BASE"
+          # Determine which servers to deploy to
+          DEPLOY_FIRMINO="${{ inputs.deploy_in_firmino }}"
+          DEPLOY_CLOTILDE="${{ inputs.deploy_in_clotilde }}"
+          
+          echo "deploy_firmino=$DEPLOY_FIRMINO" >> "$GITHUB_OUTPUT"
+          echo "deploy_clotilde=$DEPLOY_CLOTILDE" >> "$GITHUB_OUTPUT"
+          echo "Deploy to Firmino: $DEPLOY_FIRMINO"
+          echo "Deploy to Clotilde: $DEPLOY_CLOTILDE"
 
           # Generate commit message prefix if not provided
           if [[ -z "${{ inputs.commit_message_prefix }}" ]]; then
@@ -184,89 +127,6 @@ jobs:
           fi
           echo "artifact_pattern=$ARTIFACT_PATTERN" >> "$GITHUB_OUTPUT"
           echo "Artifact pattern: $ARTIFACT_PATTERN"
-
-      - name: Detect environment from tag
-        if: ${{ inputs.environment_detection == 'tag_suffix' }}
-        id: detect_env
-        shell: bash
-        run: |
-          TAG_REF="${GITHUB_REF}"
-          echo "Processing ref: $TAG_REF"
-
-          if [[ "$TAG_REF" == *"-beta"* ]]; then
-            echo "environment=dev" >> "$GITHUB_OUTPUT"
-            echo "env_label=beta/dev" >> "$GITHUB_OUTPUT"
-            echo "Detected beta tag → dev environment"
-          elif [[ "$TAG_REF" == *"-rc"* ]]; then
-            echo "environment=stg" >> "$GITHUB_OUTPUT"
-            echo "env_label=rc/stg" >> "$GITHUB_OUTPUT"
-            echo "Detected rc tag → stg environment"
-          elif [[ "$TAG_REF" == refs/tags/* ]] && [[ ! "$TAG_REF" =~ -(beta|rc) ]]; then
-            echo "environment=prd" >> "$GITHUB_OUTPUT"
-            echo "env_label=production" >> "$GITHUB_OUTPUT"
-            echo "Detected production tag → prd environment (will update prd + sandbox)"
-          else
-            echo "❌ Unable to detect environment from ref: $TAG_REF"
-            exit 1
-          fi
-
-      - name: Set manual environment
-        if: ${{ inputs.environment_detection == 'manual' }}
-        id: manual_env
-        shell: bash
-        run: |
-          ENV="${{ inputs.manual_environment }}"
-          if [[ -z "$ENV" ]]; then
-            echo "❌ manual_environment input is required when environment_detection is 'manual'"
-            exit 1
-          fi
-          echo "environment=$ENV" >> "$GITHUB_OUTPUT"
-          echo "env_label=$ENV" >> "$GITHUB_OUTPUT"
-          echo "Using manual environment: $ENV"
-
-      - name: Select target values.yaml file
-        id: select_file
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          ENV="${{ steps.detect_env.outputs.environment || steps.manual_env.outputs.environment }}"
-
-          case "$ENV" in
-            dev)
-              FILES="${{ steps.setup.outputs.gitops_file_dev }}"
-              ;;
-            stg)
-              FILES="${{ steps.setup.outputs.gitops_file_stg }}"
-              ;;
-            prd)
-              # Production releases update both prd and sandbox
-              PRD_FILE="${{ steps.setup.outputs.gitops_file_prd }}"
-              SANDBOX_FILE="${{ steps.setup.outputs.gitops_file_sandbox }}"
-              if [[ -n "$PRD_FILE" && -n "$SANDBOX_FILE" ]]; then
-                FILES="${PRD_FILE}|${SANDBOX_FILE}"
-              elif [[ -n "$PRD_FILE" ]]; then
-                FILES="${PRD_FILE}"
-              elif [[ -n "$SANDBOX_FILE" ]]; then
-                FILES="${SANDBOX_FILE}"
-              else
-                FILES=""
-              fi
-              ;;
-            *)
-              echo "❌ Unknown environment: $ENV"
-              exit 1
-              ;;
-          esac
-
-          if [[ -z "$FILES" ]]; then
-            echo "❌ No GitOps file configured for environment: $ENV"
-            echo "Please provide gitops_file_${ENV} input"
-            exit 1
-          fi
-
-          echo "files=$FILES" >> "$GITHUB_OUTPUT"
-          echo "Using values files: $FILES for environment: $ENV"
 
       - name: Install yq
         shell: bash
@@ -287,6 +147,14 @@ jobs:
           cd gitops
           git pull origin main
 
+      - name: Cleanup old artifacts (self-hosted runner safety)
+        shell: bash
+        run: |
+          # Remove any existing artifacts from previous runs (important for self-hosted runners)
+          echo "Cleaning up old artifacts directory..."
+          rm -rf .gitops-tags
+          echo "Cleanup complete"
+
       - name: Download GitOps tag artifacts (pattern-based)
         id: download-pattern
         uses: actions/download-artifact@v7
@@ -294,6 +162,8 @@ jobs:
           pattern: ${{ steps.setup.outputs.artifact_pattern }}
           path: .gitops-tags
           merge-multiple: true
+          # Only download from this workflow run (default behavior, but explicit for safety)
+          run-id: ${{ github.run_id }}
         continue-on-error: true
 
       - name: Fallback to legacy artifact name
@@ -302,83 +172,246 @@ jobs:
         with:
           name: gitops-tags
           path: .gitops-tags
+          run-id: ${{ github.run_id }}
 
-      - name: List downloaded artifacts
+      - name: Validate artifacts exist
+        id: validate_artifacts
         shell: bash
         run: |
-          echo "Downloaded artifacts:"
-          ls -la .gitops-tags/ || echo "No artifacts found"
+          echo "Checking for downloaded artifacts..."
+          
+          # Check if directory exists and has files
+          if [[ ! -d ".gitops-tags" ]]; then
+            echo "::error::No artifacts directory found. Build job may have been skipped or failed to produce artifacts."
+            echo "artifacts_valid=false" >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+          
+          # Count actual artifact files (not directories)
+          ARTIFACT_COUNT=$(find .gitops-tags -type f -name "*.tag" 2>/dev/null | wc -l || echo "0")
+          
+          if [[ "$ARTIFACT_COUNT" -eq 0 ]]; then
+            echo "::error::No artifact files found in .gitops-tags/. Build job may have been skipped or failed."
+            echo "Directory contents:"
+            ls -laR .gitops-tags/ 2>/dev/null || echo "Directory is empty or doesn't exist"
+            echo "artifacts_valid=false" >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+          
+          echo "Found $ARTIFACT_COUNT artifact file(s):"
+          ls -la .gitops-tags/
+          echo "artifacts_valid=true" >> "$GITHUB_OUTPUT"
 
-      - name: Apply tags to values.yaml
+      - name: Apply tags to values.yaml (multi-server)
+        id: apply_tags
         shell: bash
         run: |
           set -euo pipefail
 
-          # Detect environment and select appropriate file
-          if [[ "${{ env.IS_RC }}" == "true" ]]; then
-            FILE="${{ env.GITOPS_FILE_STG }}"
-            ENV_NAME="stg"
-          elif [[ "${{ env.IS_BETA }}" == "true" ]]; then
-            FILE="${{ env.GITOPS_FILE_DEV }}"
-            ENV_NAME="dev"
-          elif [[ "${{ env.IS_SANDBOX }}" == "true" ]]; then
-            FILE="${{ env.GITOPS_FILE_SANDBOX }}"
-            ENV_NAME="sandbox"
+          # Get app name
+          APP_NAME="${{ steps.setup.outputs.app_name }}"
+          
+          # Determine environments to update based on tag type
+          if [[ "${{ env.IS_BETA }}" == "true" ]]; then
+            ENVIRONMENTS="dev"
+            ENV_LABEL="beta/dev"
+          elif [[ "${{ env.IS_RC }}" == "true" ]]; then
+            ENVIRONMENTS="stg"
+            ENV_LABEL="rc/stg"
           elif [[ "${{ env.IS_PRODUCTION }}" == "true" ]]; then
-            FILE="${{ env.GITOPS_FILE_PRD }}"
-            ENV_NAME="prd"
+            ENVIRONMENTS="dev stg prd sandbox"
+            ENV_LABEL="production"
+          elif [[ "${{ env.IS_SANDBOX }}" == "true" ]]; then
+            ENVIRONMENTS="sandbox"
+            ENV_LABEL="sandbox"
           else
-            echo "❌ Unable to detect environment from tag: ${{ github.ref }}"
+            echo "Unable to detect environment from tag: ${{ github.ref }}"
             exit 1
           fi
-          echo "Detected environment: $ENV_NAME"
-          echo "Using values file: $FILE"
+          echo "env_label=$ENV_LABEL" >> "$GITHUB_OUTPUT"
+          echo "Detected tag type: $ENV_LABEL"
+          echo "Environments to update: $ENVIRONMENTS"
 
-          upd() {
-            local key="$1" file="$2"
-            [[ -f "$file" ]] || return 0
-            local TAG
-            TAG="$(cut -d= -f2 < "$file" | tr -d '[:space:]')"
-            [[ -n "$TAG" ]] || return 0
-            TAG="$TAG" yq e -i "$key = strenv(TAG)" "$FILE"
-            echo "Set $key → $TAG"
+          # Determine servers to deploy to
+          SERVERS=""
+          if [[ "${{ steps.setup.outputs.deploy_firmino }}" == "true" ]]; then
+            SERVERS="firmino"
+          fi
+          if [[ "${{ steps.setup.outputs.deploy_clotilde }}" == "true" ]]; then
+            if [[ -n "$SERVERS" ]]; then
+              SERVERS="$SERVERS clotilde"
+            else
+              SERVERS="clotilde"
+            fi
+          fi
+          
+          if [[ -z "$SERVERS" ]]; then
+            echo "No servers selected for deployment. Enable deploy_in_firmino or deploy_in_clotilde."
+            exit 1
+          fi
+          echo "Servers to deploy to: $SERVERS"
+
+          # First, check which artifacts actually exist
+          echo ""
+          echo "Checking available artifacts..."
+          AVAILABLE_ARTIFACTS=""
+          for artifact_file in .gitops-tags/*; do
+            if [[ -f "$artifact_file" ]]; then
+              artifact_name=$(basename "$artifact_file")
+              echo "  Found artifact: $artifact_name"
+              AVAILABLE_ARTIFACTS="${AVAILABLE_ARTIFACTS}${artifact_name} "
+            fi
+          done
+          
+          if [[ -z "$AVAILABLE_ARTIFACTS" ]]; then
+            echo "No artifacts found in .gitops-tags/"
+            echo "sync_matrix=[]" >> "$GITHUB_OUTPUT"
+            echo "has_sync_targets=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Track results
+          UPDATED_FILES=""
+          MISSING_FILES=""
+          UPDATED_SERVERS_ENVS=""
+
+          # Function to update a single YAML key using sed (preserves formatting)
+          update_yaml_tag() {
+            local file="$1"
+            local yaml_path="$2"
+            local new_tag="$3"
+            
+            # Extract the key name from yaml path (e.g., ".image.tag" -> "tag")
+            local key_name="${yaml_path##*.}"
+            
+            # Use sed to replace only the tag value, preserving all formatting
+            # This handles patterns like "tag: v1.0.0" or "tag: 'v1.0.0'" or 'tag: "v1.0.0"'
+            if grep -q "^[[:space:]]*${key_name}:" "$file"; then
+              # Replace the value after the key, preserving indentation and quotes
+              sed -i -E "s/^([[:space:]]*${key_name}:[[:space:]]*)(['\"]?)([^'\"[:space:]]+)(['\"]?)$/\1\2${new_tag}\4/" "$file"
+              return 0
+            fi
+            return 1
           }
 
-          # Apply mappings from inputs
-          MAPPINGS='${{ inputs.yaml_key_mappings }}'
-          echo "$MAPPINGS" | jq -r 'to_entries[] | "\(.key)|\(.value)"' | while IFS='|' read -r artifact_key yaml_key; do
-            upd "$yaml_key" ".gitops-tags/${artifact_key}"
+          # Process each server and environment
+          for SERVER in $SERVERS; do
+            for ENV in $ENVIRONMENTS; do
+              VALUES_FILE="gitops/environments/${SERVER}/helmfile/applications/${ENV}/${APP_NAME}/values.yaml"
+              
+              echo ""
+              echo "Processing: $SERVER/$ENV"
+              echo "  Path: $VALUES_FILE"
+              
+              # Check if file exists
+              if [[ ! -f "$VALUES_FILE" ]]; then
+                echo "  WARNING: Values file not found for ${SERVER}/${ENV}: ${VALUES_FILE}"
+                MISSING_FILES="${MISSING_FILES}${SERVER}/${ENV}:${VALUES_FILE}\n"
+                continue
+              fi
+              
+              # Track if any changes were made to this file
+              FILE_CHANGED=false
+              
+              # Apply mappings from inputs - only if artifact exists
+              MAPPINGS='${{ inputs.yaml_key_mappings }}'
+              while IFS='|' read -r artifact_key yaml_key; do
+                ARTIFACT_FILE=".gitops-tags/${artifact_key}"
+                if [[ -f "$ARTIFACT_FILE" ]]; then
+                  TAG="$(cut -d= -f2 < "$ARTIFACT_FILE" | tr -d '[:space:]')"
+                  if [[ -n "$TAG" ]]; then
+                    # Get current value to check if update is needed
+                    CURRENT_TAG=$(yq e "$yaml_key" "$VALUES_FILE" 2>/dev/null || echo "")
+                    if [[ "$CURRENT_TAG" != "$TAG" ]]; then
+                      # Use yq with explicit output to preserve formatting
+                      TAG="$TAG" yq e "$yaml_key = strenv(TAG)" "$VALUES_FILE" > "${VALUES_FILE}.tmp"
+                      mv "${VALUES_FILE}.tmp" "$VALUES_FILE"
+                      echo "    Updated $yaml_key: $CURRENT_TAG -> $TAG"
+                      FILE_CHANGED=true
+                    else
+                      echo "    Skipped $yaml_key: already set to $TAG"
+                    fi
+                  fi
+                fi
+              done < <(echo "$MAPPINGS" | jq -r 'to_entries[] | "\(.key)|\(.value)"')
+              
+              # Apply configmap updates if configured - only if artifact exists
+              if [[ -n "${{ inputs.configmap_updates }}" ]]; then
+                CONFIGMAP_MAPPINGS='${{ inputs.configmap_updates }}'
+                while IFS='|' read -r artifact_key configmap_key; do
+                  ARTIFACT_FILE=".gitops-tags/${artifact_key}"
+                  if [[ -f "$ARTIFACT_FILE" ]]; then
+                    TAG="$(cut -d= -f2 < "$ARTIFACT_FILE" | tr -d '[:space:]')"
+                    if [[ -n "$TAG" ]]; then
+                      CURRENT_TAG=$(yq e "$configmap_key" "$VALUES_FILE" 2>/dev/null || echo "")
+                      if [[ "$CURRENT_TAG" != "$TAG" ]]; then
+                        TAG="$TAG" yq e "$configmap_key = strenv(TAG)" "$VALUES_FILE" > "${VALUES_FILE}.tmp"
+                        mv "${VALUES_FILE}.tmp" "$VALUES_FILE"
+                        echo "    Updated $configmap_key: $CURRENT_TAG -> $TAG"
+                        FILE_CHANGED=true
+                      else
+                        echo "    Skipped $configmap_key: already set to $TAG"
+                      fi
+                    fi
+                  fi
+                done < <(echo "$CONFIGMAP_MAPPINGS" | jq -r 'to_entries[] | "\(.key)|\(.value)"')
+              fi
+              
+              # Only track as updated if changes were actually made
+              if [[ "$FILE_CHANGED" == "true" ]]; then
+                UPDATED_FILES="${UPDATED_FILES}${VALUES_FILE}\n"
+                UPDATED_SERVERS_ENVS="${UPDATED_SERVERS_ENVS}${SERVER}:${ENV}\n"
+              else
+                echo "  No changes needed for this file"
+              fi
+            done
           done
 
-          # Apply configmap updates if configured
-          if [[ -n "${{ inputs.configmap_updates }}" ]]; then
-            CONFIGMAP_MAPPINGS='${{ inputs.configmap_updates }}'
-            echo "$CONFIGMAP_MAPPINGS" | jq -r 'to_entries[] | "\(.key)|\(.value)"' | while IFS='|' read -r artifact_key configmap_key; do
-              upd "$configmap_key" ".gitops-tags/${artifact_key}"
-            done
+          # Report results
+          echo ""
+          echo "========================================="
+          echo "Summary:"
+          echo "========================================="
+          if [[ -n "$UPDATED_FILES" ]]; then
+            echo "Updated files:"
+            echo -e "$UPDATED_FILES"
+          else
+            echo "No files were updated"
           fi
+          
+          if [[ -n "$MISSING_FILES" ]]; then
+            echo ""
+            echo "Missing files (skipped):"
+            echo -e "$MISSING_FILES"
+          fi
+
+          # Save updated servers/envs for ArgoCD sync - only include files that actually changed
+          if [[ -n "$UPDATED_SERVERS_ENVS" ]]; then
+            echo -e "$UPDATED_SERVERS_ENVS" | grep -v '^$' > /tmp/updated_servers_envs.txt
+            
+            # Output sync targets as JSON array for matrix job
+            SYNC_MATRIX=$(echo -e "$UPDATED_SERVERS_ENVS" | grep -v '^$' | while IFS=: read -r s e; do
+              [[ -n "$s" && -n "$e" ]] && echo "{\"server\":\"$s\",\"env\":\"$e\"}"
+            done | jq -s -c '.')
+            echo "sync_matrix=$SYNC_MATRIX" >> "$GITHUB_OUTPUT"
+            echo "has_sync_targets=true" >> "$GITHUB_OUTPUT"
+            echo "Sync matrix: $SYNC_MATRIX"
+          else
+            echo "sync_matrix=[]" >> "$GITHUB_OUTPUT"
+            echo "has_sync_targets=false" >> "$GITHUB_OUTPUT"
+          fi
+          
+          echo "updated_count=$(echo -e "$UPDATED_FILES" | grep -c -v '^$' || echo 0)" >> "$GITHUB_OUTPUT"
 
       - name: Show git diff
         shell: bash
         run: |
           cd gitops
           echo "Changes to be committed:"
-          # Detect environment and select appropriate file (same logic as apply step)
-          if [[ "${{ env.IS_RC }}" == "true" ]]; then
-            FILE="${{ env.GITOPS_FILE_STG }}"
-            ENV_NAME="stg"
-          elif [[ "${{ env.IS_BETA }}" == "true" ]]; then
-            FILE="${{ env.GITOPS_FILE_DEV }}"
-            ENV_NAME="dev"
-          elif [[ "${{ env.IS_SANDBOX }}" == "true" ]]; then
-            FILE="${{ env.GITOPS_FILE_SANDBOX }}"
-            ENV_NAME="sandbox"
-          elif [[ "${{ env.IS_PRODUCTION }}" == "true" ]]; then
-            FILE="${{ env.GITOPS_FILE_PRD }}"
-            ENV_NAME="prd"
-          fi
-          echo "--- Changes in $FILE ($ENV_NAME) ---"
-          git diff -- "$FILE" || true
+          git diff --stat
+          echo ""
+          echo "Detailed changes:"
+          git diff
 
       - name: Import GPG key
         uses: crazy-max/ghaction-import-gpg@v6
@@ -396,63 +429,48 @@ jobs:
         run: |
           set -e
           cd gitops
-          # Detect environment for commit message
-          if [[ "${{ env.IS_RC }}" == "true" ]]; then
-            ENV_LABEL="rc/stg"
-          elif [[ "${{ env.IS_BETA }}" == "true" ]]; then
-            ENV_LABEL="beta/dev"
-          elif [[ "${{ env.IS_SANDBOX }}" == "true" ]]; then
-            ENV_LABEL="sandbox"
-          elif [[ "${{ env.IS_PRODUCTION }}" == "true" ]]; then
-            ENV_LABEL="production"
-          else
-            ENV_LABEL="unknown"
+          
+          # Get env label from apply_tags step
+          ENV_LABEL="${{ steps.apply_tags.outputs.env_label }}"
+          
+          # Check if there are changes to commit
+          if git diff --quiet; then
+            echo "No changes to commit"
+            exit 0
           fi
+          
           git commit -am "ci(${{ steps.setup.outputs.commit_prefix }}): update image tags ($ENV_LABEL)" || echo "No changes to commit"
           git push origin main
 
-      - name: ArgoCD Sync
-        if: ${{ inputs.enable_argocd_sync }}
-        shell: bash
-        run: |
-          # Detect environment for ArgoCD sync
-          if [[ "${{ env.IS_RC }}" == "true" ]]; then
-            ENV_SUFFIX="stg"
-          elif [[ "${{ env.IS_BETA }}" == "true" ]]; then
-            ENV_SUFFIX="dev"
-          elif [[ "${{ env.IS_SANDBOX }}" == "true" ]]; then
-            ENV_SUFFIX="sandbox"
-          elif [[ "${{ env.IS_PRODUCTION }}" == "true" ]]; then
-            ENV_SUFFIX="prd"
-          else
-            echo "❌ Unable to detect environment for ArgoCD sync"
-            exit 1
-          fi
-          APP_BASE="${{ steps.setup.outputs.argocd_app_base }}"
-          echo "Syncing ArgoCD app: ${APP_BASE}-${ENV_SUFFIX} (base: $APP_BASE, env: $ENV_SUFFIX)"
-
-          # Call ArgoCD sync action with base name and env prefix
-          echo "APP_BASE=$APP_BASE" >> "$GITHUB_ENV"
-          echo "ENV_PREFIX=$ENV_SUFFIX" >> "$GITHUB_ENV"
-
+  # ArgoCD Sync Job - runs in parallel for each server/env combination
+  argocd_sync:
+    name: ArgoCD Sync (${{ matrix.target.server }}/${{ matrix.target.env }})
+    needs: [update_gitops]
+    if: needs.update_gitops.outputs.has_sync_targets == 'true' && inputs.enable_argocd_sync
+    runs-on: ${{ inputs.runner_type }}
+    strategy:
+      fail-fast: false
+      matrix:
+        target: ${{ fromJson(needs.update_gitops.outputs.sync_matrix) }}
+    steps:
       - name: Execute ArgoCD Sync
-        if: ${{ inputs.enable_argocd_sync }}
         uses: LerianStudio/github-actions-argocd-sync@main
         with:
-          app-name: ${{ env.APP_BASE }}
+          app-name: ${{ matrix.target.server }}-${{ needs.update_gitops.outputs.app_name }}
           argo-cd-token: ${{ secrets.ARGOCD_GHUSER_TOKEN }}
           argo-cd-url: ${{ secrets.ARGOCD_URL }}
-          env-prefix: ${{ env.ENV_PREFIX }}
+          env-prefix: ${{ matrix.target.env }}
+          skip-if-not-exists: 'true'
 
   # Slack notification
   notify:
     name: Notify
-    needs: [update_gitops]
+    needs: [update_gitops, argocd_sync]
     if: always()
     uses: ./.github/workflows/slack-notify.yml
     with:
-      status: ${{ needs.update_gitops.result }}
+      status: ${{ needs.update_gitops.result == 'failure' && 'failure' || needs.argocd_sync.result == 'failure' && 'failure' || 'success' }}
       workflow_name: "GitOps Update"
-      failed_jobs: ${{ needs.update_gitops.result == 'failure' && 'Update GitOps' || '' }}
+      failed_jobs: ${{ needs.update_gitops.result == 'failure' && 'Update GitOps' || '' }}${{ needs.argocd_sync.result == 'failure' && 'ArgoCD Sync' || '' }}
     secrets:
       SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
