@@ -420,46 +420,14 @@ jobs:
       matrix:
         target: ${{ fromJson(needs.update_gitops.outputs.sync_matrix) }}
     steps:
-      - name: Check if ArgoCD app exists
-        id: check_app
-        shell: bash
-        env:
-          ARGOCD_TOKEN: ${{ secrets.ARGOCD_GHUSER_TOKEN }}
-          ARGOCD_URL: ${{ secrets.ARGOCD_URL }}
-        run: |
-          APP_NAME="${{ matrix.target.server }}-${{ needs.update_gitops.outputs.app_name }}-${{ matrix.target.env }}"
-          echo "Checking if ArgoCD app exists: $APP_NAME"
-          
-          # Install argocd CLI if not available
-          if ! command -v argocd &> /dev/null; then
-            curl -sSL -o /tmp/argocd https://github.com/argoproj/argo-cd/releases/latest/download/argocd-linux-amd64
-            chmod +x /tmp/argocd
-            sudo mv /tmp/argocd /usr/local/bin/argocd
-          fi
-          
-          # Check if app exists
-          if argocd app get "$APP_NAME" --server "$ARGOCD_URL" --auth-token "$ARGOCD_TOKEN" --grpc-web > /dev/null 2>&1; then
-            echo "app_exists=true" >> "$GITHUB_OUTPUT"
-            echo "App $APP_NAME exists, will sync"
-          else
-            echo "app_exists=false" >> "$GITHUB_OUTPUT"
-            echo "App $APP_NAME does not exist, skipping sync"
-          fi
-
       - name: Execute ArgoCD Sync
-        if: steps.check_app.outputs.app_exists == 'true'
         uses: LerianStudio/github-actions-argocd-sync@main
         with:
           app-name: ${{ matrix.target.server }}-${{ needs.update_gitops.outputs.app_name }}
           argo-cd-token: ${{ secrets.ARGOCD_GHUSER_TOKEN }}
           argo-cd-url: ${{ secrets.ARGOCD_URL }}
           env-prefix: ${{ matrix.target.env }}
-        continue-on-error: true
-
-      - name: Log skipped sync
-        if: steps.check_app.outputs.app_exists == 'false'
-        run: |
-          echo "::warning::ArgoCD app ${{ matrix.target.server }}-${{ needs.update_gitops.outputs.app_name }}-${{ matrix.target.env }} does not exist, sync skipped"
+          skip-if-not-exists: 'true'
 
   # Slack notification
   notify:
