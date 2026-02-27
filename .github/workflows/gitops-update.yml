@@ -154,6 +154,8 @@ jobs:
           pattern: ${{ steps.setup.outputs.artifact_pattern }}
           path: .gitops-tags
           merge-multiple: true
+          # Only download from this workflow run (default behavior, but explicit for safety)
+          run-id: ${{ github.run_id }}
         continue-on-error: true
 
       - name: Fallback to legacy artifact name
@@ -162,12 +164,35 @@ jobs:
         with:
           name: gitops-tags
           path: .gitops-tags
+          run-id: ${{ github.run_id }}
 
-      - name: List downloaded artifacts
+      - name: Validate artifacts exist
+        id: validate_artifacts
         shell: bash
         run: |
-          echo "Downloaded artifacts:"
-          ls -la .gitops-tags/ || echo "No artifacts found"
+          echo "Checking for downloaded artifacts..."
+          
+          # Check if directory exists and has files
+          if [[ ! -d ".gitops-tags" ]]; then
+            echo "::error::No artifacts directory found. Build job may have been skipped or failed to produce artifacts."
+            echo "artifacts_valid=false" >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+          
+          # Count actual artifact files (not directories)
+          ARTIFACT_COUNT=$(find .gitops-tags -type f -name "*.tag" 2>/dev/null | wc -l || echo "0")
+          
+          if [[ "$ARTIFACT_COUNT" -eq 0 ]]; then
+            echo "::error::No artifact files found in .gitops-tags/. Build job may have been skipped or failed."
+            echo "Directory contents:"
+            ls -laR .gitops-tags/ 2>/dev/null || echo "Directory is empty or doesn't exist"
+            echo "artifacts_valid=false" >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+          
+          echo "Found $ARTIFACT_COUNT artifact file(s):"
+          ls -la .gitops-tags/
+          echo "artifacts_valid=true" >> "$GITHUB_OUTPUT"
 
       - name: Apply tags to values.yaml (multi-server)
         id: apply_tags
