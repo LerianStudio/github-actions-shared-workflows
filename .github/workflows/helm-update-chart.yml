@@ -100,7 +100,7 @@ jobs:
     steps:
       - name: Generate GitHub App Token
         id: app-token
-        uses: actions/create-github-app-token@v1
+        uses: actions/create-github-app-token@v2
         with:
           app-id: ${{ secrets.APP_ID }}
           private-key: ${{ secrets.APP_PRIVATE_KEY }}
@@ -148,7 +148,7 @@ jobs:
           jq -c '.components' /tmp/payload.json > /tmp/components.json
 
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           token: ${{ steps.app-token.outputs.token }}
           ref: ${{ inputs.base_branch }}
@@ -181,7 +181,7 @@ jobs:
 
       - name: Setup Go
         if: ${{ inputs.update_readme }}
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
           go-version: '1.21'
           cache-dependency-path: ${{ inputs.scripts_path }}/go.mod

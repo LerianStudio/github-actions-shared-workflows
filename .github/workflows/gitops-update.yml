@@ -157,7 +157,7 @@ jobs:
 
       - name: Download GitOps tag artifacts (pattern-based)
         id: download-pattern
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           pattern: ${{ steps.setup.outputs.artifact_pattern }}
           path: .gitops-tags
@@ -168,7 +168,7 @@ jobs:
 
       - name: Fallback to legacy artifact name
         if: steps.download-pattern.outcome == 'failure'
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           name: gitops-tags
           path: .gitops-tags
