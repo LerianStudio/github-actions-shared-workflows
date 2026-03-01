@@ -138,7 +138,7 @@ jobs:
 
       # ----------------- Security Scans -----------------
       - name: Trivy Secret Scan - Component (Table Output)
-        uses: aquasecurity/trivy-action@0.33.1
+        uses: aquasecurity/trivy-action@0.34.1
         if: always()
         with:
           scan-type: fs
@@ -147,9 +147,10 @@ jobs:
           exit-code: '1'
           hide-progress: true
           skip-dirs: '.git,node_modules,dist,build,.next,coverage,vendor'
+          version: 'v0.69.2'
 
       - name: Trivy Secret Scan - Component (SARIF Output)
-        uses: aquasecurity/trivy-action@0.33.1
+        uses: aquasecurity/trivy-action@0.34.1
         if: always()
         with:
           scan-type: fs
@@ -159,6 +160,7 @@ jobs:
           exit-code: '0'
           hide-progress: true
           skip-dirs: '.git,node_modules,dist,build,.next,coverage,vendor'
+          version: 'v0.69.2'
 
       - name: Build Docker Image for Scanning
         if: always() && inputs.enable_docker_scan
@@ -176,7 +178,7 @@ jobs:
 
       - name: Trivy Vulnerability Scan - Docker Image (Table Output)
         if: always() && inputs.enable_docker_scan
-        uses: aquasecurity/trivy-action@master
+        uses: aquasecurity/trivy-action@0.34.1
         with:
           image-ref: '${{ env.DOCKERHUB_ORG }}/${{ env.APP_NAME }}:pr-scan-${{ github.sha }}'
           format: 'table'
@@ -184,10 +186,11 @@ jobs:
           vuln-type: 'os,library'
           severity: 'CRITICAL,HIGH'
           exit-code: '0'
+          version: 'v0.69.2'
 
       - name: Trivy Vulnerability Scan - Docker Image (SARIF Output)
         if: always() && inputs.enable_docker_scan
-        uses: aquasecurity/trivy-action@0.33.1
+        uses: aquasecurity/trivy-action@0.34.1
         with:
           image-ref: '${{ env.DOCKERHUB_ORG }}/${{ env.APP_NAME }}:pr-scan-${{ github.sha }}'
           format: sarif
@@ -196,11 +199,12 @@ jobs:
           vuln-type: os,library
           severity: UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL
           exit-code: '0'  # Do not fail; gate failures in the table step
+          version: 'v0.69.2'
 
       # ----------------- Filesystem Vulnerability Scan -----------------
       - name: Trivy Vulnerability Scan - Filesystem (JSON Output)
         id: fs-vuln-scan
-        uses: aquasecurity/trivy-action@0.33.1
+        uses: aquasecurity/trivy-action@0.34.1
         if: always()
         with:
           scan-type: fs
@@ -210,6 +214,7 @@ jobs:
           exit-code: '0'
           hide-progress: true
           skip-dirs: '.git,node_modules,dist,build,.next,coverage,vendor'
+          version: 'v0.69.2'
 
       # ----------------- PR Comment with Security Findings -----------------
       - name: Post Security Scan Results to PR
