@@ -109,6 +109,10 @@ on:
         description: 'Normalize changed paths to their filter path (e.g., components/app/cmd -> components/app). Recommended for monorepos to avoid duplicate builds.'
         type: boolean
         default: true
+      force_multiplatform:
+        description: 'Force multi-platform build (amd64+arm64) even for beta/rc tags'
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -160,9 +164,15 @@ jobs:
           TAG="${GITHUB_REF#refs/tags/}"
 
           if [[ "$TAG" == *"-beta"* ]] || [[ "$TAG" == *"-rc"* ]]; then
-            echo "platforms=linux/amd64" >> $GITHUB_OUTPUT
-            echo "is_release=false" >> $GITHUB_OUTPUT
-            echo "Building for amd64 only (beta/rc tag)"
+            if [ "${{ inputs.force_multiplatform }}" == "true" ]; then
+              echo "platforms=linux/amd64,linux/arm64" >> $GITHUB_OUTPUT
+              echo "is_release=false" >> $GITHUB_OUTPUT
+              echo "Building for amd64 and arm64 (beta/rc tag with force_multiplatform)"
+            else
+              echo "platforms=linux/amd64" >> $GITHUB_OUTPUT
+              echo "is_release=false" >> $GITHUB_OUTPUT
+              echo "Building for amd64 only (beta/rc tag)"
+            fi
           else
             echo "platforms=linux/amd64,linux/arm64" >> $GITHUB_OUTPUT
             echo "is_release=true" >> $GITHUB_OUTPUT
