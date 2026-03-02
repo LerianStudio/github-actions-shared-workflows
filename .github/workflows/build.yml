@@ -195,7 +195,7 @@ jobs:
         uses: actions/checkout@v6
 
       - name: Set up QEMU
-        if: needs.prepare.outputs.is_release == 'true'
+        if: contains(needs.prepare.outputs.platforms, 'arm64')
         uses: docker/setup-qemu-action@v3
 
       - name: Set up Docker Buildx
