@@ -131,10 +131,11 @@ jobs:
         with:
           node-version: '20'
 
-      - name: Init package.json
+      - name: Init package.json and release config
         working-directory: ${{ matrix.app.working_dir }}
         run: |
           echo '{"name":"${{ matrix.app.name }}","version":"0.0.0","private":true}' > package.json
+          echo '{"branches":["${{ github.ref_name }}"]}' > .releaserc.json
           rm -f package-lock.json
 
       - name: Install semantic-release plugins
