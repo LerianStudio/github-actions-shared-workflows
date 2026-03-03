@@ -87,6 +87,10 @@ on:
         description: 'Run package install from repository root instead of working_dir. Required for pnpm workspaces where the lockfile is at root level.'
         type: boolean
         default: false
+      enable_notify:
+        description: 'Enable Slack notification on completion'
+        type: boolean
+        default: true
 
 permissions:
   contents: read
@@ -593,7 +597,7 @@ jobs:
   notify:
     name: Notify
     needs: [detect-changes, lint, typecheck, security, tests, build]
-    if: always() && needs.detect-changes.outputs.has_changes == 'true'
+    if: always() && needs.detect-changes.outputs.has_changes == 'true' && inputs.enable_notify
     uses: ./.github/workflows/slack-notify.yml
     with:
       status: ${{ (needs.lint.result == 'failure' || needs.typecheck.result == 'failure' || needs.security.result == 'failure' || needs.tests.result == 'failure' || needs.build.result == 'failure') && 'failure' || 'success' }}
