@@ -47,6 +47,10 @@ on:
         description: 'Name of the Dockerfile'
         type: string
         default: 'Dockerfile'
+      dockerfile_path:
+        description: 'Full path to the Dockerfile (overrides working_dir/dockerfile_name). Use when Dockerfile is not inside the app directory.'
+        type: string
+        default: ''
       app_name_prefix:
         description: 'Prefix for app names in monorepo (e.g., "midaz" results in "midaz-agent")'
         type: string
@@ -277,7 +281,7 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: ${{ inputs.build_context }}
-          file: ${{ matrix.app.working_dir }}/${{ inputs.dockerfile_name }}
+          file: ${{ inputs.dockerfile_path != '' && inputs.dockerfile_path || format('{0}/{1}', matrix.app.working_dir, inputs.dockerfile_name) }}
           platforms: ${{ needs.prepare.outputs.platforms }}
           push: true
           tags: ${{ steps.meta.outputs.tags }}
