@@ -237,7 +237,8 @@ jobs:
           node-version: ${{ inputs.node_version }}
           cache: ${{ inputs.package_manager }}
           cache-dependency-path: |
-            ${{ inputs.package_manager == 'pnpm' && '**/pnpm-lock.yaml' || inputs.package_manager == 'yarn' && '**/yarn.lock' || '**/package-lock.json' }}
+            ${{ inputs.package_manager == 'pnpm' && format('{0}/pnpm-lock.yaml', matrix.app.working_dir) || inputs.package_manager == 'yarn' && format('{0}/yarn.lock', matrix.app.working_dir) || format('{0}/package-lock.json', matrix.app.working_dir) }}
+            ${{ inputs.package_manager == 'pnpm' && 'pnpm-lock.yaml' || inputs.package_manager == 'yarn' && 'yarn.lock' || 'package-lock.json' }}
 
       - name: Install dependencies
         working-directory: ${{ matrix.app.working_dir }}
@@ -283,7 +284,8 @@ jobs:
           node-version: ${{ inputs.node_version }}
           cache: ${{ inputs.package_manager }}
           cache-dependency-path: |
-            ${{ inputs.package_manager == 'pnpm' && '**/pnpm-lock.yaml' || inputs.package_manager == 'yarn' && '**/yarn.lock' || '**/package-lock.json' }}
+            ${{ inputs.package_manager == 'pnpm' && format('{0}/pnpm-lock.yaml', matrix.app.working_dir) || inputs.package_manager == 'yarn' && format('{0}/yarn.lock', matrix.app.working_dir) || format('{0}/package-lock.json', matrix.app.working_dir) }}
+            ${{ inputs.package_manager == 'pnpm' && 'pnpm-lock.yaml' || inputs.package_manager == 'yarn' && 'yarn.lock' || 'package-lock.json' }}
 
       - name: Install dependencies
         working-directory: ${{ matrix.app.working_dir }}
@@ -324,7 +326,8 @@ jobs:
           node-version: ${{ inputs.node_version }}
           cache: ${{ inputs.package_manager }}
           cache-dependency-path: |
-            ${{ inputs.package_manager == 'pnpm' && '**/pnpm-lock.yaml' || inputs.package_manager == 'yarn' && '**/yarn.lock' || '**/package-lock.json' }}
+            ${{ inputs.package_manager == 'pnpm' && format('{0}/pnpm-lock.yaml', matrix.app.working_dir) || inputs.package_manager == 'yarn' && format('{0}/yarn.lock', matrix.app.working_dir) || format('{0}/package-lock.json', matrix.app.working_dir) }}
+            ${{ inputs.package_manager == 'pnpm' && 'pnpm-lock.yaml' || inputs.package_manager == 'yarn' && 'yarn.lock' || 'package-lock.json' }}
 
       - name: Install dependencies
         working-directory: ${{ matrix.app.working_dir }}
@@ -370,7 +373,8 @@ jobs:
           node-version: ${{ inputs.node_version }}
           cache: ${{ inputs.package_manager }}
           cache-dependency-path: |
-            ${{ inputs.package_manager == 'pnpm' && '**/pnpm-lock.yaml' || inputs.package_manager == 'yarn' && '**/yarn.lock' || '**/package-lock.json' }}
+            ${{ inputs.package_manager == 'pnpm' && format('{0}/pnpm-lock.yaml', matrix.app.working_dir) || inputs.package_manager == 'yarn' && format('{0}/yarn.lock', matrix.app.working_dir) || format('{0}/package-lock.json', matrix.app.working_dir) }}
+            ${{ inputs.package_manager == 'pnpm' && 'pnpm-lock.yaml' || inputs.package_manager == 'yarn' && 'yarn.lock' || 'package-lock.json' }}
 
       - name: Install dependencies
         working-directory: ${{ matrix.app.working_dir }}
@@ -544,7 +548,8 @@ jobs:
           node-version: ${{ inputs.node_version }}
           cache: ${{ inputs.package_manager }}
           cache-dependency-path: |
-            ${{ inputs.package_manager == 'pnpm' && '**/pnpm-lock.yaml' || inputs.package_manager == 'yarn' && '**/yarn.lock' || '**/package-lock.json' }}
+            ${{ inputs.package_manager == 'pnpm' && format('{0}/pnpm-lock.yaml', matrix.app.working_dir) || inputs.package_manager == 'yarn' && format('{0}/yarn.lock', matrix.app.working_dir) || format('{0}/package-lock.json', matrix.app.working_dir) }}
+            ${{ inputs.package_manager == 'pnpm' && 'pnpm-lock.yaml' || inputs.package_manager == 'yarn' && 'yarn.lock' || 'package-lock.json' }}
 
       - name: Install dependencies
         working-directory: ${{ matrix.app.working_dir }}
