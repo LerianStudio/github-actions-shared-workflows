@@ -167,7 +167,7 @@ jobs:
           path: .gitops-tags
           merge-multiple: true
           # Only download from this workflow run (default behavior, but explicit for safety)
-          run-id: ${{ github.run_id }}
+          run-id: ${{ github.event.workflow_run.id || github.run_id }}
         continue-on-error: true
 
       - name: Fallback to legacy artifact name
@@ -176,7 +176,7 @@ jobs:
         with:
           name: gitops-tags
           path: .gitops-tags
-          run-id: ${{ github.run_id }}
+          run-id: ${{ github.event.workflow_run.id || github.run_id }}
 
       - name: Validate artifacts exist
         id: validate_artifacts
