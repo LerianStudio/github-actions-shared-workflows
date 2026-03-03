@@ -133,7 +133,9 @@ jobs:
 
       - name: Init package.json
         working-directory: ${{ matrix.app.working_dir }}
-        run: npm init -y
+        run: |
+          echo '{}' > package.json
+          rm -f package-lock.json
 
       - name: Install semantic-release plugins
         working-directory: ${{ matrix.app.working_dir }}
