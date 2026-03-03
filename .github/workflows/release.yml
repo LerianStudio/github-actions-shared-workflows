@@ -134,7 +134,7 @@ jobs:
       - name: Init package.json
         working-directory: ${{ matrix.app.working_dir }}
         run: |
-          echo '{}' > package.json
+          echo '{"name":"${{ matrix.app.name }}","version":"0.0.0","private":true}' > package.json
           rm -f package-lock.json
 
       - name: Install semantic-release plugins
