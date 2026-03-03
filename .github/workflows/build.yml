@@ -104,6 +104,11 @@ on:
         description: 'JSON mapping of component names to values.yaml keys. If not mapped, uses component name as fallback. Example: {"my-app": "api", "my-app-worker": "worker"}'
         type: string
         default: ''
+      # Docker build arguments
+      build_args:
+        description: 'Newline-separated Docker build arguments. Use {APP_NAME} as placeholder for the detected app name (e.g., SITE={APP_NAME})'
+        type: string
+        default: ''
       # Path normalization
       normalize_to_filter:
         description: 'Normalize changed paths to their filter path (e.g., components/app/cmd -> components/app). Recommended for monorepos to avoid duplicate builds.'
@@ -257,6 +262,17 @@ jobs:
             type=semver,pattern={{major}}.{{minor}},value=${{ steps.version.outputs.version }}
             type=semver,pattern={{major}},value=${{ steps.version.outputs.version }},enable=${{ needs.prepare.outputs.is_release }}
 
+      - name: Resolve build arguments
+        if: inputs.build_args != ''
+        id: resolve-build-args
+        run: |
+          RESOLVED=$(echo "${{ inputs.build_args }}" | sed 's/{APP_NAME}/${{ matrix.app.name }}/g')
+          {
+            echo "args<<EOF"
+            echo "$RESOLVED"
+            echo "EOF"
+          } >> $GITHUB_OUTPUT
+
       - name: Build and push Docker image
         uses: docker/build-push-action@v6
         with:
@@ -266,6 +282,7 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          build-args: ${{ steps.resolve-build-args.outputs.args }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
           secrets: |
