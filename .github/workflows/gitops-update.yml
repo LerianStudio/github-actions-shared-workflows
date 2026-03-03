@@ -12,9 +12,13 @@ on:
         type: string
         default: 'LerianStudio/midaz-firmino-gitops'
       app_name:
-        description: 'Application name (defaults to repository name if not provided)'
+        description: 'Application name (defaults to repository name if not provided). Ignored when iterate_artifacts is true.'
         type: string
         required: false
+      iterate_artifacts:
+        description: 'Monorepo mode: iterate over all downloaded .tag artifacts and derive app name from each filename (e.g., landing-tracer.tag -> landing-tracer)'
+        type: boolean
+        default: false
       deploy_in_firmino:
         description: 'Deploy to Firmino server'
         type: boolean
@@ -208,9 +212,10 @@ jobs:
         run: |
           set -euo pipefail
 
-          # Get app name
+          # Get app name (used in single-app mode only)
           APP_NAME="${{ steps.setup.outputs.app_name }}"
-          
+          ITERATE_ARTIFACTS="${{ inputs.iterate_artifacts }}"
+
           # Determine environments to update based on tag type
           if [[ "${{ env.IS_BETA }}" == "true" ]]; then
             ENVIRONMENTS="dev"
@@ -244,7 +249,7 @@ jobs:
               SERVERS="clotilde"
             fi
           fi
-          
+
           if [[ -z "$SERVERS" ]]; then
             echo "No servers selected for deployment. Enable deploy_in_firmino or deploy_in_clotilde."
             exit 1
@@ -262,7 +267,7 @@ jobs:
               AVAILABLE_ARTIFACTS="${AVAILABLE_ARTIFACTS}${artifact_name} "
             fi
           done
-          
+
           if [[ -z "$AVAILABLE_ARTIFACTS" ]]; then
             echo "No artifacts found in .gitops-tags/"
             echo "sync_matrix=[]" >> "$GITHUB_OUTPUT"
@@ -274,56 +279,52 @@ jobs:
           UPDATED_FILES=""
           MISSING_FILES=""
           UPDATED_SERVERS_ENVS=""
+          UPDATED_APP_NAMES=""
 
-          # Function to update a single YAML key using sed (preserves formatting)
-          update_yaml_tag() {
-            local file="$1"
-            local yaml_path="$2"
-            local new_tag="$3"
-            
-            # Extract the key name from yaml path (e.g., ".image.tag" -> "tag")
-            local key_name="${yaml_path##*.}"
-            
-            # Use sed to replace only the tag value, preserving all formatting
-            # This handles patterns like "tag: v1.0.0" or "tag: 'v1.0.0'" or 'tag: "v1.0.0"'
-            if grep -q "^[[:space:]]*${key_name}:" "$file"; then
-              # Replace the value after the key, preserving indentation and quotes
-              sed -i -E "s/^([[:space:]]*${key_name}:[[:space:]]*)(['\"]?)([^'\"[:space:]]+)(['\"]?)$/\1\2${new_tag}\4/" "$file"
-              return 0
-            fi
-            return 1
-          }
+          # Get YAML key mappings values (the YAML paths to update)
+          MAPPINGS='${{ inputs.yaml_key_mappings }}'
 
-          # Process each server and environment
-          for SERVER in $SERVERS; do
-            for ENV in $ENVIRONMENTS; do
-              VALUES_FILE="gitops/environments/${SERVER}/helmfile/applications/${ENV}/${APP_NAME}/values.yaml"
-              
-              echo ""
-              echo "Processing: $SERVER/$ENV"
-              echo "  Path: $VALUES_FILE"
-              
-              # Check if file exists
-              if [[ ! -f "$VALUES_FILE" ]]; then
-                echo "  WARNING: Values file not found for ${SERVER}/${ENV}: ${VALUES_FILE}"
-                MISSING_FILES="${MISSING_FILES}${SERVER}/${ENV}:${VALUES_FILE}\n"
+          if [[ "$ITERATE_ARTIFACTS" == "true" ]]; then
+            # =============================================
+            # MONOREPO MODE: iterate over each .tag artifact
+            # =============================================
+            echo ""
+            echo "Monorepo mode: iterating over artifacts..."
+
+            for artifact_file in .gitops-tags/*.tag; do
+              [[ ! -f "$artifact_file" ]] && continue
+
+              # Derive app name from artifact filename (e.g., landing-tracer.tag -> landing-tracer)
+              ARTIFACT_APP_NAME=$(basename "$artifact_file" .tag)
+              TAG=$(tr -d '[:space:]' < "$artifact_file")
+
+              if [[ -z "$TAG" ]]; then
+                echo "  WARNING: Empty tag in $artifact_file, skipping"
                 continue
               fi
-              
-              # Track if any changes were made to this file
-              FILE_CHANGED=false
-              
-              # Apply mappings from inputs - only if artifact exists
-              MAPPINGS='${{ inputs.yaml_key_mappings }}'
-              while IFS='|' read -r artifact_key yaml_key; do
-                ARTIFACT_FILE=".gitops-tags/${artifact_key}"
-                if [[ -f "$ARTIFACT_FILE" ]]; then
-                  TAG="$(cut -d= -f2 < "$ARTIFACT_FILE" | tr -d '[:space:]')"
-                  if [[ -n "$TAG" ]]; then
-                    # Get current value to check if update is needed
+
+              echo ""
+              echo "App: $ARTIFACT_APP_NAME (version: $TAG)"
+              UPDATED_APP_NAMES="${UPDATED_APP_NAMES}${ARTIFACT_APP_NAME} "
+
+              for SERVER in $SERVERS; do
+                for ENV in $ENVIRONMENTS; do
+                  VALUES_FILE="gitops/environments/${SERVER}/helmfile/applications/${ENV}/${ARTIFACT_APP_NAME}/values.yaml"
+
+                  echo "  Processing: $SERVER/$ENV -> $VALUES_FILE"
+
+                  if [[ ! -f "$VALUES_FILE" ]]; then
+                    echo "    WARNING: Values file not found, skipping"
+                    MISSING_FILES="${MISSING_FILES}${ARTIFACT_APP_NAME}:${SERVER}/${ENV}:${VALUES_FILE}\n"
+                    continue
+                  fi
+
+                  FILE_CHANGED=false
+
+                  # Apply each YAML key mapping using the tag from this artifact
+                  while IFS='|' read -r _ yaml_key; do
                     CURRENT_TAG=$(yq e "$yaml_key" "$VALUES_FILE" 2>/dev/null || echo "")
                     if [[ "$CURRENT_TAG" != "$TAG" ]]; then
-                      # Use yq with explicit output to preserve formatting
                       TAG="$TAG" yq e "$yaml_key = strenv(TAG)" "$VALUES_FILE" > "${VALUES_FILE}.tmp"
                       mv "${VALUES_FILE}.tmp" "$VALUES_FILE"
                       echo "    Updated $yaml_key: $CURRENT_TAG -> $TAG"
@@ -331,66 +332,110 @@ jobs:
                     else
                       echo "    Skipped $yaml_key: already set to $TAG"
                     fi
+                  done < <(echo "$MAPPINGS" | jq -r 'to_entries[] | "\(.key)|\(.value)"')
+
+                  if [[ "$FILE_CHANGED" == "true" ]]; then
+                    UPDATED_FILES="${UPDATED_FILES}${VALUES_FILE}\n"
+                    UPDATED_SERVERS_ENVS="${UPDATED_SERVERS_ENVS}${SERVER}:${ENV}\n"
                   fi
+                done
+              done
+            done
+          else
+            # =============================================
+            # SINGLE-APP MODE: original behavior
+            # =============================================
+            for SERVER in $SERVERS; do
+              for ENV in $ENVIRONMENTS; do
+                VALUES_FILE="gitops/environments/${SERVER}/helmfile/applications/${ENV}/${APP_NAME}/values.yaml"
+
+                echo ""
+                echo "Processing: $SERVER/$ENV"
+                echo "  Path: $VALUES_FILE"
+
+                if [[ ! -f "$VALUES_FILE" ]]; then
+                  echo "  WARNING: Values file not found for ${SERVER}/${ENV}: ${VALUES_FILE}"
+                  MISSING_FILES="${MISSING_FILES}${SERVER}/${ENV}:${VALUES_FILE}\n"
+                  continue
                 fi
-              done < <(echo "$MAPPINGS" | jq -r 'to_entries[] | "\(.key)|\(.value)"')
-              
-              # Apply configmap updates if configured - only if artifact exists
-              if [[ -n "${{ inputs.configmap_updates }}" ]]; then
-                CONFIGMAP_MAPPINGS='${{ inputs.configmap_updates }}'
-                while IFS='|' read -r artifact_key configmap_key; do
+
+                FILE_CHANGED=false
+
+                while IFS='|' read -r artifact_key yaml_key; do
                   ARTIFACT_FILE=".gitops-tags/${artifact_key}"
                   if [[ -f "$ARTIFACT_FILE" ]]; then
                     TAG="$(cut -d= -f2 < "$ARTIFACT_FILE" | tr -d '[:space:]')"
                     if [[ -n "$TAG" ]]; then
-                      CURRENT_TAG=$(yq e "$configmap_key" "$VALUES_FILE" 2>/dev/null || echo "")
+                      CURRENT_TAG=$(yq e "$yaml_key" "$VALUES_FILE" 2>/dev/null || echo "")
                       if [[ "$CURRENT_TAG" != "$TAG" ]]; then
-                        TAG="$TAG" yq e "$configmap_key = strenv(TAG)" "$VALUES_FILE" > "${VALUES_FILE}.tmp"
+                        TAG="$TAG" yq e "$yaml_key = strenv(TAG)" "$VALUES_FILE" > "${VALUES_FILE}.tmp"
                         mv "${VALUES_FILE}.tmp" "$VALUES_FILE"
-                        echo "    Updated $configmap_key: $CURRENT_TAG -> $TAG"
+                        echo "    Updated $yaml_key: $CURRENT_TAG -> $TAG"
                         FILE_CHANGED=true
                       else
-                        echo "    Skipped $configmap_key: already set to $TAG"
+                        echo "    Skipped $yaml_key: already set to $TAG"
                       fi
                     fi
                   fi
-                done < <(echo "$CONFIGMAP_MAPPINGS" | jq -r 'to_entries[] | "\(.key)|\(.value)"')
-              fi
-              
-              # Only track as updated if changes were actually made
-              if [[ "$FILE_CHANGED" == "true" ]]; then
-                UPDATED_FILES="${UPDATED_FILES}${VALUES_FILE}\n"
-                UPDATED_SERVERS_ENVS="${UPDATED_SERVERS_ENVS}${SERVER}:${ENV}\n"
-              else
-                echo "  No changes needed for this file"
-              fi
+                done < <(echo "$MAPPINGS" | jq -r 'to_entries[] | "\(.key)|\(.value)"')
+
+                if [[ -n "${{ inputs.configmap_updates }}" ]]; then
+                  CONFIGMAP_MAPPINGS='${{ inputs.configmap_updates }}'
+                  while IFS='|' read -r artifact_key configmap_key; do
+                    ARTIFACT_FILE=".gitops-tags/${artifact_key}"
+                    if [[ -f "$ARTIFACT_FILE" ]]; then
+                      TAG="$(cut -d= -f2 < "$ARTIFACT_FILE" | tr -d '[:space:]')"
+                      if [[ -n "$TAG" ]]; then
+                        CURRENT_TAG=$(yq e "$configmap_key" "$VALUES_FILE" 2>/dev/null || echo "")
+                        if [[ "$CURRENT_TAG" != "$TAG" ]]; then
+                          TAG="$TAG" yq e "$configmap_key = strenv(TAG)" "$VALUES_FILE" > "${VALUES_FILE}.tmp"
+                          mv "${VALUES_FILE}.tmp" "$VALUES_FILE"
+                          echo "    Updated $configmap_key: $CURRENT_TAG -> $TAG"
+                          FILE_CHANGED=true
+                        else
+                          echo "    Skipped $configmap_key: already set to $TAG"
+                        fi
+                      fi
+                    fi
+                  done < <(echo "$CONFIGMAP_MAPPINGS" | jq -r 'to_entries[] | "\(.key)|\(.value)"')
+                fi
+
+                if [[ "$FILE_CHANGED" == "true" ]]; then
+                  UPDATED_FILES="${UPDATED_FILES}${VALUES_FILE}\n"
+                  UPDATED_SERVERS_ENVS="${UPDATED_SERVERS_ENVS}${SERVER}:${ENV}\n"
+                else
+                  echo "  No changes needed for this file"
+                fi
+              done
             done
-          done
+          fi
 
           # Report results
           echo ""
           echo "========================================="
           echo "Summary:"
           echo "========================================="
+          if [[ -n "$UPDATED_APP_NAMES" ]]; then
+            echo "Updated apps: $UPDATED_APP_NAMES"
+          fi
           if [[ -n "$UPDATED_FILES" ]]; then
             echo "Updated files:"
             echo -e "$UPDATED_FILES"
           else
             echo "No files were updated"
           fi
-          
+
           if [[ -n "$MISSING_FILES" ]]; then
             echo ""
             echo "Missing files (skipped):"
             echo -e "$MISSING_FILES"
           fi
 
-          # Save updated servers/envs for ArgoCD sync - only include files that actually changed
+          # Save updated servers/envs for ArgoCD sync - deduplicate since monorepo may update same env multiple times
           if [[ -n "$UPDATED_SERVERS_ENVS" ]]; then
-            echo -e "$UPDATED_SERVERS_ENVS" | grep -v '^$' > /tmp/updated_servers_envs.txt
-            
-            # Output sync targets as JSON array for matrix job
-            SYNC_MATRIX=$(echo -e "$UPDATED_SERVERS_ENVS" | grep -v '^$' | while IFS=: read -r s e; do
+            echo -e "$UPDATED_SERVERS_ENVS" | grep -v '^$' | sort -u > /tmp/updated_servers_envs.txt
+
+            SYNC_MATRIX=$(cat /tmp/updated_servers_envs.txt | while IFS=: read -r s e; do
               [[ -n "$s" && -n "$e" ]] && echo "{\"server\":\"$s\",\"env\":\"$e\"}"
             done | jq -s -c '.')
             echo "sync_matrix=$SYNC_MATRIX" >> "$GITHUB_OUTPUT"
@@ -400,7 +445,7 @@ jobs:
             echo "sync_matrix=[]" >> "$GITHUB_OUTPUT"
             echo "has_sync_targets=false" >> "$GITHUB_OUTPUT"
           fi
-          
+
           echo "updated_count=$(echo -e "$UPDATED_FILES" | grep -c -v '^$' || echo 0)" >> "$GITHUB_OUTPUT"
 
       - name: Show git diff

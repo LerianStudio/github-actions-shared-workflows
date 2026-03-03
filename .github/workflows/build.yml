@@ -110,7 +110,7 @@ on:
         default: ''
       # Docker build arguments
       build_args:
-        description: 'Newline-separated Docker build arguments. Use {APP_NAME} as placeholder for the detected app name (e.g., SITE={APP_NAME})'
+        description: 'Newline-separated Docker build arguments. Placeholders: {APP_NAME} for full app name (with prefix), {APP_DIR} for directory name (e.g., SITE={APP_DIR})'
         type: string
         default: ''
       # Path normalization
@@ -270,7 +270,8 @@ jobs:
         if: inputs.build_args != ''
         id: resolve-build-args
         run: |
-          RESOLVED=$(echo "${{ inputs.build_args }}" | sed 's/{APP_NAME}/${{ matrix.app.name }}/g')
+          DIR_NAME=$(basename "${{ matrix.app.working_dir }}")
+          RESOLVED=$(echo "${{ inputs.build_args }}" | sed 's/{APP_NAME}/${{ matrix.app.name }}/g' | sed "s/{APP_DIR}/$DIR_NAME/g")
           {
             echo "args<<EOF"
             echo "$RESOLVED"
