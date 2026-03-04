@@ -177,6 +177,41 @@ jobs:
           name: gitops-tags
           path: .gitops-tags
           run-id: ${{ github.event.workflow_run.id || github.run_id }}
+        continue-on-error: true
+
+      - name: Fallback to cross-workflow download via API
+        if: steps.download-pattern.outcome == 'failure' && github.event.workflow_run.id != ''
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p .gitops-tags
+
+          SOURCE_RUN_ID="${{ github.event.workflow_run.id }}"
+          PATTERN="${{ steps.setup.outputs.artifact_pattern }}"
+          REPO="${{ github.repository }}"
+          REGEX="${PATTERN//\*/.*}"
+
+          echo "Attempting cross-workflow artifact download from run $SOURCE_RUN_ID (pattern: $PATTERN)"
+
+          ARTIFACT_IDS=$(gh api "repos/${REPO}/actions/runs/${SOURCE_RUN_ID}/artifacts" \
+            --jq "[.artifacts[] | select(.name | test(\"^${REGEX}$\"))] | .[] | \"\(.id) \(.name)\"" 2>/dev/null || true)
+
+          if [[ -z "$ARTIFACT_IDS" ]]; then
+            echo "No artifacts found matching '$PATTERN' in run $SOURCE_RUN_ID"
+            exit 0
+          fi
+
+          while read -r AID ANAME; do
+            echo "Downloading: $ANAME (ID: $AID)"
+            gh api "repos/${REPO}/actions/artifacts/${AID}/zip" > "/tmp/${ANAME}.zip"
+            unzip -o "/tmp/${ANAME}.zip" -d .gitops-tags/
+            rm -f "/tmp/${ANAME}.zip"
+          done <<< "$ARTIFACT_IDS"
+
+          echo "Downloaded artifacts:"
+          ls -la .gitops-tags/
 
       - name: Validate artifacts exist
         id: validate_artifacts
