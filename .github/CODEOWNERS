@@ -1,0 +1,57 @@
+# CODEOWNERS — github-actions-shared-workflows
+#
+# Every PR that touches files matched below will automatically request a review
+# from the listed team(s) or user(s). Rules are evaluated bottom-up; the last
+# matching pattern takes precedence.
+#
+# Docs: https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+
+# ── Default owner ──────────────────────────────────────────────────────────────
+# Catches anything not matched by a more specific rule below.
+*                                               @LerianStudio/devops-team
+
+# ── Repository configuration ───────────────────────────────────────────────────
+.github/CODEOWNERS                              @LerianStudio/devops-team
+.github/dependabot.yml                          @LerianStudio/devops-team
+.github/labeler.yml                             @LerianStudio/devops-team
+.github/pull_request_template.md               @LerianStudio/devops-team
+.github/ISSUE_TEMPLATE/                         @LerianStudio/devops-team
+.releaserc.yml                                  @LerianStudio/devops-team
+
+# ── Release & versioning workflows ─────────────────────────────────────────────
+.github/workflows/release.yml                   @LerianStudio/devops-team
+.github/workflows/self-release.yml              @LerianStudio/devops-team
+.github/workflows/go-release.yml                @LerianStudio/devops-team
+.github/workflows/typescript-release.yml        @LerianStudio/devops-team
+.github/workflows/gptchangelog.yml              @LerianStudio/devops-team
+
+# ── Security workflows ─────────────────────────────────────────────────────────
+# Security-sensitive changes require explicit DevOps team approval.
+.github/workflows/go-security.yml               @LerianStudio/devops-team
+.github/workflows/pr-security-scan.yml          @LerianStudio/devops-team
+SECURITY.md                                     @LerianStudio/devops-team
+
+# ── Go workflows ───────────────────────────────────────────────────────────────
+.github/workflows/go-ci.yml                     @LerianStudio/devops-team
+.github/workflows/go-pr-analysis.yml            @LerianStudio/devops-team
+
+# ── Frontend / TypeScript workflows ───────────────────────────────────────────
+.github/workflows/typescript-ci.yml             @LerianStudio/devops-team
+.github/workflows/frontend-pr-analysis.yml      @LerianStudio/devops-team
+
+# ── Infrastructure & GitOps workflows ─────────────────────────────────────────
+.github/workflows/gitops-update.yml             @LerianStudio/devops-team
+.github/workflows/build.yml                     @LerianStudio/devops-team
+.github/workflows/helm-update-chart.yml         @LerianStudio/devops-team
+.github/workflows/dispatch-helm.yml             @LerianStudio/devops-team
+
+# ── Utility workflows ──────────────────────────────────────────────────────────
+.github/workflows/changed-paths.yml             @LerianStudio/devops-team
+.github/workflows/pr-validation.yml             @LerianStudio/devops-team
+.github/workflows/slack-notify.yml              @LerianStudio/devops-team
+.github/workflows/api-dog-e2e-tests.yml         @LerianStudio/devops-team
+
+# ── Documentation ──────────────────────────────────────────────────────────────
+docs/                                           @LerianStudio/devops-team
+README.md                                       @LerianStudio/devops-team
+CONTRIBUTING.md                                 @LerianStudio/devops-team
