@@ -227,18 +227,12 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v6
 
-      - name: Setup pnpm
-        if: inputs.package_manager == 'pnpm'
-        uses: pnpm/action-setup@v4
-
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: ${{ inputs.node_version }}
           cache: ${{ inputs.package_manager }}
-          cache-dependency-path: |
-            ${{ inputs.package_manager == 'pnpm' && format('{0}/pnpm-lock.yaml', matrix.app.working_dir) || inputs.package_manager == 'yarn' && format('{0}/yarn.lock', matrix.app.working_dir) || format('{0}/package-lock.json', matrix.app.working_dir) }}
-            ${{ inputs.package_manager == 'pnpm' && 'pnpm-lock.yaml' || inputs.package_manager == 'yarn' && 'yarn.lock' || 'package-lock.json' }}
+          cache-dependency-path: ${{ matrix.app.working_dir }}/package-lock.json
 
       - name: Install dependencies
         working-directory: ${{ matrix.app.working_dir }}
@@ -274,18 +268,12 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v6
 
-      - name: Setup pnpm
-        if: inputs.package_manager == 'pnpm'
-        uses: pnpm/action-setup@v4
-
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: ${{ inputs.node_version }}
           cache: ${{ inputs.package_manager }}
-          cache-dependency-path: |
-            ${{ inputs.package_manager == 'pnpm' && format('{0}/pnpm-lock.yaml', matrix.app.working_dir) || inputs.package_manager == 'yarn' && format('{0}/yarn.lock', matrix.app.working_dir) || format('{0}/package-lock.json', matrix.app.working_dir) }}
-            ${{ inputs.package_manager == 'pnpm' && 'pnpm-lock.yaml' || inputs.package_manager == 'yarn' && 'yarn.lock' || 'package-lock.json' }}
+          cache-dependency-path: ${{ matrix.app.working_dir }}/package-lock.json
 
       - name: Install dependencies
         working-directory: ${{ matrix.app.working_dir }}
@@ -316,18 +304,12 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v6
 
-      - name: Setup pnpm
-        if: inputs.package_manager == 'pnpm'
-        uses: pnpm/action-setup@v4
-
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: ${{ inputs.node_version }}
           cache: ${{ inputs.package_manager }}
-          cache-dependency-path: |
-            ${{ inputs.package_manager == 'pnpm' && format('{0}/pnpm-lock.yaml', matrix.app.working_dir) || inputs.package_manager == 'yarn' && format('{0}/yarn.lock', matrix.app.working_dir) || format('{0}/package-lock.json', matrix.app.working_dir) }}
-            ${{ inputs.package_manager == 'pnpm' && 'pnpm-lock.yaml' || inputs.package_manager == 'yarn' && 'yarn.lock' || 'package-lock.json' }}
+          cache-dependency-path: ${{ matrix.app.working_dir }}/package-lock.json
 
       - name: Install dependencies
         working-directory: ${{ matrix.app.working_dir }}
@@ -363,18 +345,12 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v6
 
-      - name: Setup pnpm
-        if: inputs.package_manager == 'pnpm'
-        uses: pnpm/action-setup@v4
-
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: ${{ inputs.node_version }}
           cache: ${{ inputs.package_manager }}
-          cache-dependency-path: |
-            ${{ inputs.package_manager == 'pnpm' && format('{0}/pnpm-lock.yaml', matrix.app.working_dir) || inputs.package_manager == 'yarn' && format('{0}/yarn.lock', matrix.app.working_dir) || format('{0}/package-lock.json', matrix.app.working_dir) }}
-            ${{ inputs.package_manager == 'pnpm' && 'pnpm-lock.yaml' || inputs.package_manager == 'yarn' && 'yarn.lock' || 'package-lock.json' }}
+          cache-dependency-path: ${{ matrix.app.working_dir }}/package-lock.json
 
       - name: Install dependencies
         working-directory: ${{ matrix.app.working_dir }}
@@ -538,18 +514,12 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v6
 
-      - name: Setup pnpm
-        if: inputs.package_manager == 'pnpm'
-        uses: pnpm/action-setup@v4
-
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: ${{ inputs.node_version }}
           cache: ${{ inputs.package_manager }}
-          cache-dependency-path: |
-            ${{ inputs.package_manager == 'pnpm' && format('{0}/pnpm-lock.yaml', matrix.app.working_dir) || inputs.package_manager == 'yarn' && format('{0}/yarn.lock', matrix.app.working_dir) || format('{0}/package-lock.json', matrix.app.working_dir) }}
-            ${{ inputs.package_manager == 'pnpm' && 'pnpm-lock.yaml' || inputs.package_manager == 'yarn' && 'yarn.lock' || 'package-lock.json' }}
+          cache-dependency-path: ${{ matrix.app.working_dir }}/package-lock.json
 
       - name: Install dependencies
         working-directory: ${{ matrix.app.working_dir }}
