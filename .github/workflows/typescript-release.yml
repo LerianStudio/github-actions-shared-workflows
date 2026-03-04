@@ -93,6 +93,8 @@ jobs:
     needs: prepare
     if: needs.prepare.outputs.has_changes == 'true' && needs.prepare.outputs.should_skip != 'true'
     runs-on: ${{ inputs.runner_type }}
+    env:
+      GH_PACKAGES_TOKEN: ${{ secrets.GH_PAT_FOR_PACKAGES }}
     environment:
       name: create_release
     name: Release ${{ matrix.app.name }}
@@ -141,12 +143,10 @@ jobs:
           node-version: ${{ inputs.node_version }}
 
       - name: Setup .npmrc for GitHub Packages
-        if: ${{ secrets.GH_PAT_FOR_PACKAGES != '' }}
+        if: ${{ env.GH_PACKAGES_TOKEN != '' }}
         run: |
           echo "//npm.pkg.github.com/:_authToken=${GH_PACKAGES_TOKEN}" > ~/.npmrc
           echo "@lerianstudio:registry=https://npm.pkg.github.com" >> ~/.npmrc
-        env:
-          GH_PACKAGES_TOKEN: ${{ secrets.GH_PAT_FOR_PACKAGES }}
 
       - name: Init package.json and release config
         working-directory: ${{ matrix.app.working_dir }}
