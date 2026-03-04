@@ -83,10 +83,6 @@ on:
         description: 'Enable build verification'
         type: boolean
         default: true
-      install_from_root:
-        description: 'Run package install from repository root instead of working_dir. Required for pnpm workspaces where the lockfile is at root level.'
-        type: boolean
-        default: false
 
 permissions:
   contents: read
@@ -245,7 +241,7 @@ jobs:
             ${{ inputs.package_manager == 'pnpm' && 'pnpm-lock.yaml' || inputs.package_manager == 'yarn' && 'yarn.lock' || 'package-lock.json' }}
 
       - name: Install dependencies
-        working-directory: ${{ inputs.install_from_root && '.' || matrix.app.working_dir }}
+        working-directory: ${{ matrix.app.working_dir }}
         run: |
           case "${{ inputs.package_manager }}" in
             yarn) yarn install --frozen-lockfile ;;
@@ -292,7 +288,7 @@ jobs:
             ${{ inputs.package_manager == 'pnpm' && 'pnpm-lock.yaml' || inputs.package_manager == 'yarn' && 'yarn.lock' || 'package-lock.json' }}
 
       - name: Install dependencies
-        working-directory: ${{ inputs.install_from_root && '.' || matrix.app.working_dir }}
+        working-directory: ${{ matrix.app.working_dir }}
         run: |
           case "${{ inputs.package_manager }}" in
             yarn) yarn install --frozen-lockfile ;;
@@ -334,7 +330,7 @@ jobs:
             ${{ inputs.package_manager == 'pnpm' && 'pnpm-lock.yaml' || inputs.package_manager == 'yarn' && 'yarn.lock' || 'package-lock.json' }}
 
       - name: Install dependencies
-        working-directory: ${{ inputs.install_from_root && '.' || matrix.app.working_dir }}
+        working-directory: ${{ matrix.app.working_dir }}
         run: |
           case "${{ inputs.package_manager }}" in
             yarn) yarn install --frozen-lockfile ;;
@@ -381,7 +377,7 @@ jobs:
             ${{ inputs.package_manager == 'pnpm' && 'pnpm-lock.yaml' || inputs.package_manager == 'yarn' && 'yarn.lock' || 'package-lock.json' }}
 
       - name: Install dependencies
-        working-directory: ${{ inputs.install_from_root && '.' || matrix.app.working_dir }}
+        working-directory: ${{ matrix.app.working_dir }}
         run: |
           case "${{ inputs.package_manager }}" in
             yarn) yarn install --frozen-lockfile ;;
@@ -556,7 +552,7 @@ jobs:
             ${{ inputs.package_manager == 'pnpm' && 'pnpm-lock.yaml' || inputs.package_manager == 'yarn' && 'yarn.lock' || 'package-lock.json' }}
 
       - name: Install dependencies
-        working-directory: ${{ inputs.install_from_root && '.' || matrix.app.working_dir }}
+        working-directory: ${{ matrix.app.working_dir }}
         run: |
           case "${{ inputs.package_manager }}" in
             yarn) yarn install --frozen-lockfile ;;
