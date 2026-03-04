@@ -1,0 +1,130 @@
+name: Bug Report
+description: Report a bug or unexpected behavior in a shared workflow
+title: "fix: "
+labels: ["bug", "triage"]
+assignees: []
+body:
+  - type: markdown
+    attributes:
+      value: |
+        <p align="center">
+          <img src="https://github.com/LerianStudio.png" width="80" alt="Lerian" />
+          <br/>
+          <strong>Lerian — GitHub Actions Shared Workflows</strong>
+        </p>
+
+        ---
+
+        Thanks for taking the time to report a bug! Please fill out the sections below so we can reproduce and fix the issue as quickly as possible.
+
+  - type: dropdown
+    id: workflow
+    attributes:
+      label: Affected Workflow
+      description: Which workflow is experiencing the issue?
+      multiple: false
+      options:
+        - go-ci
+        - go-security
+        - go-release
+        - go-pr-analysis
+        - gitops-update
+        - api-dog-e2e-tests
+        - pr-validation
+        - pr-security-scan
+        - release
+        - changed-paths
+        - build
+        - slack-notify
+        - frontend-pr-analysis
+        - gptchangelog
+        - Other (describe below)
+    validations:
+      required: true
+
+  - type: input
+    id: workflow-version
+    attributes:
+      label: Workflow Version / Ref
+      description: Which tag, branch or SHA are you using? (e.g. `@main`, `@v1.2.3`, `@develop`)
+      placeholder: "@main"
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Bug Description
+      description: A clear and concise description of what the bug is.
+      placeholder: Describe what happened and what you expected to happen.
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps-to-reproduce
+    attributes:
+      label: Steps to Reproduce
+      description: Exact steps to reproduce the behavior.
+      placeholder: |
+        1. Caller workflow configuration (paste relevant `uses:` block)
+        2. Input values used
+        3. What triggered the run (push, PR, manual dispatch, etc.)
+        4. Observed result
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected-behavior
+    attributes:
+      label: Expected Behavior
+      description: What did you expect to happen?
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant Logs / Error Output
+      description: Paste any relevant workflow logs or error messages. This will be automatically formatted as code.
+      render: shell
+
+  - type: textarea
+    id: caller-workflow
+    attributes:
+      label: Caller Workflow Configuration
+      description: Paste the relevant portion of the caller workflow that invokes the shared workflow.
+      render: yaml
+
+  - type: dropdown
+    id: runner-os
+    attributes:
+      label: Runner OS
+      description: Which GitHub Actions runner OS is being used?
+      options:
+        - ubuntu-latest
+        - ubuntu-22.04
+        - ubuntu-20.04
+        - macos-latest
+        - windows-latest
+        - Self-hosted
+        - Not applicable
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Checklist
+      options:
+        - label: I searched existing issues and this is not a duplicate.
+          required: true
+        - label: I am using a supported version/ref of the workflow.
+          required: true
+        - label: I have included relevant logs and configuration above.
+          required: false
+
+  - type: textarea
+    id: additional-context
+    attributes:
+      label: Additional Context
+      description: Any other context, screenshots, or information that might help.

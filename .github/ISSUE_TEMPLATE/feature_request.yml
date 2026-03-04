@@ -1,0 +1,120 @@
+name: Feature Request
+description: Suggest a new workflow or enhancement to an existing one
+title: "feat: "
+labels: ["enhancement"]
+assignees: []
+body:
+  - type: markdown
+    attributes:
+      value: |
+        <p align="center">
+          <img src="https://github.com/LerianStudio.png" width="80" alt="Lerian" />
+          <br/>
+          <strong>Lerian — GitHub Actions Shared Workflows</strong>
+        </p>
+
+        ---
+
+        Thanks for suggesting an improvement! Please fill out the sections below to help us understand your use case and evaluate the request.
+
+  - type: dropdown
+    id: request-type
+    attributes:
+      label: Request Type
+      description: What kind of change are you proposing?
+      options:
+        - New workflow
+        - New input / parameter for an existing workflow
+        - New output for an existing workflow
+        - Performance improvement
+        - Refactor / simplification
+        - Integration with a new tool or service
+        - Other
+    validations:
+      required: true
+
+  - type: dropdown
+    id: affected-workflow
+    attributes:
+      label: Affected Workflow (if applicable)
+      description: Which existing workflow does this request relate to? Leave blank for new workflows.
+      multiple: false
+      options:
+        - N/A — new workflow
+        - go-ci
+        - go-security
+        - go-release
+        - go-pr-analysis
+        - gitops-update
+        - api-dog-e2e-tests
+        - pr-validation
+        - pr-security-scan
+        - release
+        - changed-paths
+        - build
+        - slack-notify
+        - frontend-pr-analysis
+        - gptchangelog
+        - Other (describe below)
+
+  - type: textarea
+    id: problem-statement
+    attributes:
+      label: Problem / Motivation
+      description: What problem does this feature solve? What is the pain point you are experiencing?
+      placeholder: |
+        Example: When using the go-ci workflow in a monorepo with >10 modules, the matrix job
+        count hits GitHub's limit of 256 jobs, which causes the workflow run to fail.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposed-solution
+    attributes:
+      label: Proposed Solution
+      description: Describe the solution you would like. Include proposed input names, default values, and behavior if applicable.
+      placeholder: |
+        Add a `max_parallel` input (default: 10) to cap the number of concurrent matrix jobs.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives Considered
+      description: Describe any alternative solutions or workarounds you have considered.
+
+  - type: textarea
+    id: example-usage
+    attributes:
+      label: Example Usage
+      description: Show how callers would use the new feature (YAML snippet).
+      render: yaml
+
+  - type: dropdown
+    id: breaking-change
+    attributes:
+      label: Would This Be a Breaking Change?
+      description: Would existing callers need to update their workflow configuration?
+      options:
+        - "No — fully backward compatible"
+        - "Yes — existing callers would need changes"
+        - "Unsure"
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Checklist
+      options:
+        - label: I searched existing issues and this is not a duplicate.
+          required: true
+        - label: This feature aligns with the repository's goal of providing reusable, organization-wide workflows.
+          required: true
+
+  - type: textarea
+    id: additional-context
+    attributes:
+      label: Additional Context
+      description: Any other context, links, or references that support this request.

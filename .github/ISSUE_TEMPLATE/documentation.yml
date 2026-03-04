@@ -1,0 +1,100 @@
+name: Documentation
+description: Report missing, incorrect, or unclear documentation
+title: "docs: "
+labels: ["documentation"]
+assignees: []
+body:
+  - type: markdown
+    attributes:
+      value: |
+        <p align="center">
+          <img src="https://github.com/LerianStudio.png" width="80" alt="Lerian" />
+          <br/>
+          <strong>Lerian — GitHub Actions Shared Workflows</strong>
+        </p>
+
+        ---
+
+        Good documentation helps everyone use shared workflows effectively. Use this template to report issues with existing docs or request new documentation.
+
+  - type: dropdown
+    id: doc-type
+    attributes:
+      label: Documentation Issue Type
+      description: What kind of documentation issue are you reporting?
+      options:
+        - Incorrect / outdated information
+        - Missing documentation
+        - Unclear or confusing explanation
+        - Missing example
+        - Typo / formatting issue
+        - New workflow needs documentation
+        - Other
+    validations:
+      required: true
+
+  - type: dropdown
+    id: affected-workflow
+    attributes:
+      label: Affected Workflow / Document
+      description: Which workflow or document does this issue relate to?
+      multiple: false
+      options:
+        - README.md
+        - CONTRIBUTING.md
+        - docs/go-ci-workflow.md
+        - docs/go-security-workflow.md
+        - docs/go-release-workflow.md
+        - docs/go-pr-analysis-workflow.md
+        - docs/gitops-update-workflow.md
+        - docs/api-dog-e2e-tests-workflow.md
+        - docs/pr-validation-workflow.md
+        - docs/pr-security-scan-workflow.md
+        - docs/release-workflow.md
+        - docs/changed-paths-workflow.md
+        - docs/build-workflow.md
+        - docs/slack-notify-workflow.md
+        - docs/frontend-pr-analysis-workflow.md
+        - docs/gptchangelog-workflow.md
+        - Inline workflow comments / descriptions
+        - Other (describe below)
+    validations:
+      required: true
+
+  - type: input
+    id: doc-location
+    attributes:
+      label: Specific Section or Line (if applicable)
+      description: Link to or describe the exact section that has the issue.
+      placeholder: "e.g. README.md — Quick Start section, or https://github.com/LerianStudio/github-actions-shared-workflows/blob/main/README.md#L85"
+
+  - type: textarea
+    id: current-content
+    attributes:
+      label: Current Content
+      description: Paste the current (incorrect or unclear) content, if applicable.
+      render: markdown
+
+  - type: textarea
+    id: expected-content
+    attributes:
+      label: Expected / Suggested Content
+      description: What should the documentation say? Provide a draft or clear description of what is missing or should be changed.
+    validations:
+      required: true
+
+  - type: textarea
+    id: additional-context
+    attributes:
+      label: Additional Context
+      description: Any other context — links to related PRs, external references, or screenshots.
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Checklist
+      options:
+        - label: I searched existing issues and this is not a duplicate.
+          required: true
+        - label: I have identified the specific document or section that needs to be updated.
+          required: true
