@@ -32,6 +32,10 @@ on:
         description: 'Limits the path to the first N segments (e.g., 2 -> "apps/agent")'
         type: string
         default: '2'
+      dry_run:
+        description: 'Run semantic-release in dry-run mode (no tags/releases created)'
+        type: boolean
+        default: false
 
 jobs:
   prepare:
@@ -148,7 +152,7 @@ jobs:
         working-directory: ${{ matrix.app.working_dir }}
         run: |
           echo '{"name":"${{ matrix.app.name }}","version":"0.0.0","private":true}' > package.json
-          echo '{"branches":["${{ github.ref_name }}"]}' > .releaserc.json
+          echo '{"branches":["main",{"name":"develop","prerelease":"beta"},{"name":"release-candidate","prerelease":"rc"}]}' > .releaserc.json
           rm -f package-lock.json
 
       - name: Install semantic-release plugins
@@ -162,6 +166,7 @@ jobs:
         id: semantic
         with:
           ci: false
+          dry_run: ${{ inputs.dry_run }}
           semantic_version: ${{ inputs.semantic_version }}
           working_directory: ${{ matrix.app.working_dir }}
           extra_plugins: |
