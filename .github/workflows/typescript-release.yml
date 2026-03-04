@@ -155,7 +155,7 @@ jobs:
         working-directory: ${{ matrix.app.working_dir }}
         run: |
           npm install --save-dev \
-            @semantic-release/exec
+            @semantic-release/exec@7.1.0
 
       - name: Semantic Release
         uses: cycjimmy/semantic-release-action@v6
@@ -166,7 +166,7 @@ jobs:
           working_directory: ${{ matrix.app.working_dir }}
           extra_plugins: |
             conventional-changelog-conventionalcommits@v7.0.2
-            @saithodev/semantic-release-backmerge
+            @saithodev/semantic-release-backmerge@4.0.1
         env:
           GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
           GIT_AUTHOR_NAME: ${{ secrets.LERIAN_CI_CD_USER_NAME }}
