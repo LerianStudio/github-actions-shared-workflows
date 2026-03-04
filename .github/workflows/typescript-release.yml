@@ -141,7 +141,7 @@ jobs:
           node-version: ${{ inputs.node_version }}
 
       - name: Setup .npmrc for GitHub Packages
-        if: ${{ env.GH_PACKAGES_TOKEN != '' }}
+        if: ${{ secrets.GH_PAT_FOR_PACKAGES != '' }}
         run: |
           echo "//npm.pkg.github.com/:_authToken=${GH_PACKAGES_TOKEN}" > ~/.npmrc
           echo "@lerianstudio:registry=https://npm.pkg.github.com" >> ~/.npmrc
@@ -183,7 +183,7 @@ jobs:
   notify:
     name: Notify
     needs: [prepare, publish_release]
-    if: always() && needs.prepare.outputs.has_changes == 'true'
+    if: always() && needs.prepare.outputs.has_changes == 'true' && needs.prepare.outputs.should_skip != 'true'
     uses: ./.github/workflows/slack-notify.yml
     with:
       status: ${{ needs.publish_release.result }}
