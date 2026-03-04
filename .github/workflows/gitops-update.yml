@@ -59,6 +59,10 @@ on:
         description: 'Enable Docker Hub login to avoid rate limits'
         type: boolean
         default: true
+      version_source:
+        description: 'Source for version info. "artifact" downloads .tag files from build run (default). "event" extracts version from workflow_run event title (no artifact download needed).'
+        type: string
+        default: 'artifact'
       configmap_updates:
         description: 'JSON object mapping artifact names to configmap keys (e.g., {"pix.tag": ".pix.configmap.VERSION"})'
         type: string
@@ -159,67 +163,46 @@ jobs:
           rm -rf .gitops-tags
           echo "Cleanup complete"
 
+      - name: Extract version from event (no artifact download)
+        if: inputs.version_source == 'event'
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p .gitops-tags
+
+          # Get version from triggering workflow run title (e.g., "v1.1.0" -> "1.1.0")
+          VERSION="${{ github.event.workflow_run.display_title || github.ref_name }}"
+          VERSION="${VERSION#v}"
+
+          APP_NAME="${{ steps.setup.outputs.app_name }}"
+
+          echo "Version source: event"
+          echo "Extracted version: $VERSION"
+          echo "App name: $APP_NAME"
+
+          printf "%s" "$VERSION" > ".gitops-tags/${APP_NAME}.tag"
+          echo "Created synthetic artifact: .gitops-tags/${APP_NAME}.tag"
+          ls -la .gitops-tags/
+
       - name: Download GitOps tag artifacts (pattern-based)
+        if: inputs.version_source != 'event'
         id: download-pattern
         uses: actions/download-artifact@v7
         with:
           pattern: ${{ steps.setup.outputs.artifact_pattern }}
           path: .gitops-tags
           merge-multiple: true
-          # Only download from this workflow run (default behavior, but explicit for safety)
           run-id: ${{ github.event.workflow_run.id || github.run_id }}
         continue-on-error: true
 
-      - name: Check if artifacts were downloaded
-        id: check-download
-        shell: bash
-        run: |
-          COUNT=$(find .gitops-tags -type f -name "*.tag" 2>/dev/null | wc -l || echo "0")
-          echo "artifacts_found=$COUNT" >> "$GITHUB_OUTPUT"
-          echo "Found $COUNT artifact(s) after pattern-based download"
-
       - name: Fallback to legacy artifact name
-        if: steps.check-download.outputs.artifacts_found == '0'
+        if: inputs.version_source != 'event' && steps.download-pattern.outcome == 'failure'
         uses: actions/download-artifact@v7
         with:
           name: gitops-tags
           path: .gitops-tags
           run-id: ${{ github.event.workflow_run.id || github.run_id }}
         continue-on-error: true
-
-      - name: Fallback to cross-workflow download via API
-        if: steps.check-download.outputs.artifacts_found == '0' && github.event.workflow_run.id != ''
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          mkdir -p .gitops-tags
-
-          SOURCE_RUN_ID="${{ github.event.workflow_run.id }}"
-          PATTERN="${{ steps.setup.outputs.artifact_pattern }}"
-          REPO="${{ github.repository }}"
-          REGEX="${PATTERN//\*/.*}"
-
-          echo "Attempting cross-workflow artifact download from run $SOURCE_RUN_ID (pattern: $PATTERN)"
-
-          ARTIFACT_IDS=$(gh api "repos/${REPO}/actions/runs/${SOURCE_RUN_ID}/artifacts" \
-            --jq "[.artifacts[] | select(.name | test(\"^${REGEX}$\"))] | .[] | \"\(.id) \(.name)\"" 2>/dev/null || true)
-
-          if [[ -z "$ARTIFACT_IDS" ]]; then
-            echo "No artifacts found matching '$PATTERN' in run $SOURCE_RUN_ID"
-            exit 0
-          fi
-
-          while read -r AID ANAME; do
-            echo "Downloading: $ANAME (ID: $AID)"
-            gh api "repos/${REPO}/actions/artifacts/${AID}/zip" > "/tmp/${ANAME}.zip"
-            unzip -o "/tmp/${ANAME}.zip" -d .gitops-tags/
-            rm -f "/tmp/${ANAME}.zip"
-          done <<< "$ARTIFACT_IDS"
-
-          echo "Downloaded artifacts:"
-          ls -la .gitops-tags/
 
       - name: Validate artifacts exist
         id: validate_artifacts
