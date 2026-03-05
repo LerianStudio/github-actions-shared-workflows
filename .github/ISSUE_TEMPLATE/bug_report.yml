@@ -24,21 +24,13 @@ body:
       description: Which workflow is experiencing the issue?
       multiple: false
       options:
-        - go-ci
-        - go-security
-        - go-release
-        - go-pr-analysis
-        - gitops-update
-        - api-dog-e2e-tests
-        - pr-validation
-        - pr-security-scan
-        - release
-        - changed-paths
-        - build
-        - slack-notify
-        - frontend-pr-analysis
-        - gptchangelog
-        - Other (describe below)
+        - "Go (ci, security, release, pr-analysis)"
+        - "TypeScript (ci, release, frontend-pr-analysis)"
+        - "Infrastructure (gitops-update, build, helm-update-chart, dispatch-helm)"
+        - "Release & Versioning (release, self-release, gptchangelog)"
+        - "Security (go-security, pr-security-scan)"
+        - "Utilities (changed-paths, pr-validation, slack-notify, api-dog-e2e-tests)"
+        - "Other (describe below)"
     validations:
       required: true
 

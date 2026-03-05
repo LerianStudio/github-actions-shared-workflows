@@ -40,24 +40,17 @@ body:
       description: Which workflow or document does this issue relate to?
       multiple: false
       options:
-        - README.md
-        - CONTRIBUTING.md
-        - docs/go-ci-workflow.md
-        - docs/go-security-workflow.md
-        - docs/go-release-workflow.md
-        - docs/go-pr-analysis-workflow.md
-        - docs/gitops-update-workflow.md
-        - docs/api-dog-e2e-tests-workflow.md
-        - docs/pr-validation-workflow.md
-        - docs/pr-security-scan-workflow.md
-        - docs/release-workflow.md
-        - docs/changed-paths-workflow.md
-        - docs/build-workflow.md
-        - docs/slack-notify-workflow.md
-        - docs/frontend-pr-analysis-workflow.md
-        - docs/gptchangelog-workflow.md
-        - Inline workflow comments / descriptions
-        - Other (describe below)
+        - "README.md"
+        - "CONTRIBUTING.md"
+        - "SECURITY.md"
+        - "Go workflows (ci, security, release, pr-analysis)"
+        - "TypeScript workflows (ci, release, frontend-pr-analysis)"
+        - "Infrastructure workflows (gitops-update, build, helm-update-chart, dispatch-helm)"
+        - "Release & Versioning workflows (release, self-release, gptchangelog)"
+        - "Security workflows (go-security, pr-security-scan)"
+        - "Utility workflows (changed-paths, pr-validation, slack-notify, api-dog-e2e-tests)"
+        - "Inline workflow comments / descriptions"
+        - "Other (describe below)"
     validations:
       required: true
 

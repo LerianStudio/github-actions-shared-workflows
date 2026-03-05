@@ -1,10 +1,9 @@
-<p align="center">
-  <img src="https://github.com/LerianStudio.png" width="72" alt="Lerian" />
-  <br/>
-  <strong>Lerian — GitHub Actions Shared Workflows</strong>
-</p>
-
-# Contributing
+<table border="0" cellspacing="0" cellpadding="0">
+  <tr>
+    <td><img src="https://github.com/LerianStudio.png" width="72" alt="Lerian" /></td>
+    <td><h1>Contributing</h1></td>
+  </tr>
+</table>
 
 Thank you for contributing to the Lerian shared workflows repository. Changes here affect every repository across the organization, so we hold contributions to a high standard. Please read this guide carefully before opening a PR.
 
@@ -227,6 +226,9 @@ Shared workflows cannot be unit-tested locally. Use the following strategies:
 **1. Syntax validation (fast, no push needed)**
 
 ```bash
+# Install PyYAML if not already available
+python3 -m pip install --quiet pyyaml
+
 # Validate YAML syntax of all workflow files
 python3 -c "
 import yaml, glob, sys

@@ -1,10 +1,9 @@
-<p align="center">
-  <img src="https://github.com/LerianStudio.png" width="72" alt="Lerian" />
-  <br/>
-  <strong>Lerian — Security Policy</strong>
-</p>
-
-# Security Policy
+<table border="0" cellspacing="0" cellpadding="0">
+  <tr>
+    <td><img src="https://github.com/LerianStudio.png" width="72" alt="Lerian" /></td>
+    <td><h1>Security Policy</h1></td>
+  </tr>
+</table>
 
 ## Scope
 
@@ -34,7 +33,7 @@ Report security issues privately through one of the following channels:
 - **GitHub Private Vulnerability Reporting** (preferred):
   Navigate to [Security → Report a vulnerability](https://github.com/LerianStudio/github-actions-shared-workflows/security/advisories/new) in this repository.
 
-- **Email** (alternative): Send a report to [security@lerian.studio](mailto:security@lerian.studio). Include `[SECURITY] github-actions-shared-workflows` in the subject line.
+- **GitHub Security Advisory** (alternative): If you cannot use the link above, navigate to the **Security** tab of this repository and click **"Report a vulnerability"**.
 
 ### What to include in your report
 

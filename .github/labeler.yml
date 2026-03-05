@@ -122,3 +122,4 @@ security:
     - any-glob-to-any-file:
       - ".github/workflows/go-security.yml"
       - ".github/workflows/pr-security-scan.yml"
+      - "SECURITY.md"

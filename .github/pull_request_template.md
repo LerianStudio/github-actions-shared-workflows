@@ -1,8 +1,9 @@
-<p align="center">
-  <img src="https://github.com/LerianStudio.png" width="72" alt="Lerian" />
-  <br/>
-  <strong>Lerian — GitHub Actions Shared Workflows</strong>
-</p>
+<table border="0" cellspacing="0" cellpadding="0">
+  <tr>
+    <td><img src="https://github.com/LerianStudio.png" width="72" alt="Lerian" /></td>
+    <td><h1>GitHub Actions Shared Workflows</h1></td>
+  </tr>
+</table>
 
 ---
 
@@ -28,22 +29,14 @@
 
 <!-- Mark all workflows changed by this PR. "Indirect" means the workflow itself didn't change but its behavior may be affected (e.g. a shared step, a config file, a reusable action it depends on). -->
 
-| Workflow | Changed | Indirect impact |
+| Category | Changed | Indirect impact |
 |---|:---:|:---:|
-| `go-ci.yml` | | |
-| `go-security.yml` | | |
-| `go-release.yml` | | |
-| `go-pr-analysis.yml` | | |
-| `gitops-update.yml` | | |
-| `api-dog-e2e-tests.yml` | | |
-| `pr-validation.yml` | | |
-| `pr-security-scan.yml` | | |
-| `release.yml` | | |
-| `changed-paths.yml` | | |
-| `build.yml` | | |
-| `slack-notify.yml` | | |
-| `frontend-pr-analysis.yml` | | |
-| `gptchangelog.yml` | | |
+| Go (ci, security, release, pr-analysis) | | |
+| TypeScript (ci, release, frontend-pr-analysis) | | |
+| Infrastructure (gitops-update, build, helm-update-chart, dispatch-helm) | | |
+| Release & Versioning (release, self-release, gptchangelog) | | |
+| Security (go-security, pr-security-scan) | | |
+| Utilities (changed-paths, pr-validation, slack-notify, api-dog-e2e-tests) | | |
 
 ## What Changed
 
