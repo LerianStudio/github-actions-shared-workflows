@@ -50,7 +50,7 @@ Detect changed paths between commits for monorepo CI/CD optimization.
 **Key Features**: Path filtering, path level trimming, app name generation, matrix strategy support
 
 ### 10. [Go PR Analysis](docs/go-pr-analysis-workflow.md)
-Comprehensive Go PR analysis for monorepos with change detection, linting, security, testing, and coverage. Replaces standalone go-coverage-check and go-unit-tests workflows.
+Comprehensive Go PR analysis for monorepos with change detection, linting, security, testing, and coverage.
 
 **Key Features**: Change detection, matrix execution, GolangCI-Lint, GoSec, coverage checks, private module support
 
@@ -76,56 +76,56 @@ AI-powered changelog generation using OpenRouter API (GPT-4o) with consolidated 
 
 ## Documentation
 
-**[Complete Documentation →](docs/README.md)**
-
-Comprehensive guides with examples, best practices, and troubleshooting for all workflows.
+Individual workflow documentation is available in the [`docs/`](docs/) directory.
 
 ## Quick Start
+
+> **Tip:** Pin to a specific release tag in production (e.g. `@v1.2.3`) instead of `@main` for stability. See [versioning](#versioning) for details.
 
 ```yaml
 # Example: Complete CI/CD Pipeline
 jobs:
   security_scan:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/pr-security-scan.yml@main
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/pr-security-scan.yml@v1.2.3
 
   release:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/release.yml@main
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/release.yml@v1.2.3
 
   update_gitops:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/gitops-update.yml@main
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/gitops-update.yml@v1.2.3
 
   e2e_tests:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/api-dog-e2e-tests.yml@main
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/api-dog-e2e-tests.yml@v1.2.3
 ```
 
-See [documentation](docs/README.md) for complete examples and configuration options.
+See the [`docs/`](docs/) directory for complete examples and configuration options for each workflow.
 
 ## Versioning
 
 This repository uses [Semantic Versioning](https://semver.org/) with automated releases via [semantic-release](https://github.com/semantic-release/semantic-release).
 
 **Branches:**
-- `develop` - Development branch for new features and fixes
-- `main` - Production branch for stable releases
+- `develop` — Development branch; merges here publish a beta pre-release (`v1.2.3-beta.1`)
+- `main` — Production branch; merges here publish a stable release (`v1.2.3`)
 
-**Release Process:**
-- Commits to `develop` → Beta releases (`v1.2.3-beta.1`)
-- Commits to `main` → Production releases (`v1.2.3`)
+**Commit types and version impact:**
 
-**Commit Message Format:**
-Follow [Conventional Commits](https://www.conventionalcommits.org/):
-- `feat:` - New feature (minor version bump)
-- `fix:` - Bug fix (patch version bump)
-- `BREAKING CHANGE:` - Breaking change (major version bump)
-- `docs:`, `chore:`, `ci:`, `test:` - No version bump
+| Type | Version bump |
+|---|---|
+| `feat`, `perf`, `refactor`, `build` | Minor (`1.x.0`) |
+| `fix`, `docs`, `chore`, `ci`, `test` | Patch (`1.0.x`) |
+| `BREAKING CHANGE` (in footer) | Major (`x.0.0`) |
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for detailed guidelines.
+Follow [Conventional Commits](https://www.conventionalcommits.org/) format. See [CONTRIBUTING.md](CONTRIBUTING.md) for the full reference.
 
 ## Contributing
 
-Please read [CONTRIBUTING.md](CONTRIBUTING.md) for details on our code of conduct and the process for submitting pull requests.
+This repository is open to contributions. Please read [CONTRIBUTING.md](CONTRIBUTING.md) for branch strategy, commit conventions, and the pull request process.
+
+## Security
+
+To report a security vulnerability, please follow the process described in [SECURITY.md](SECURITY.md). Do not open a public issue.
 
 ## License
 
-This project is licensed under the Apache License 2.0 - see the [LICENSE](LICENSE) file for details.
-
+This project is licensed under the Apache License 2.0 — see the [LICENSE](LICENSE) file for details.

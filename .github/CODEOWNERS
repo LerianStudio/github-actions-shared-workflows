@@ -1,0 +1,7 @@
+# CODEOWNERS — github-actions-shared-workflows
+#
+# Every PR automatically requests a review from the DevOps team.
+#
+# Docs: https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+
+*    @LerianStudio/devops-team

@@ -1,185 +1,338 @@
-# Contributing to Shared Workflows
+<table border="0" cellspacing="0" cellpadding="0">
+  <tr>
+    <td><img src="https://github.com/LerianStudio.png" width="72" alt="Lerian" /></td>
+    <td><h1>Contributing</h1></td>
+  </tr>
+</table>
 
-This document provides guidelines for contributing to the shared workflows repository.
+Thank you for contributing to the Lerian shared workflows repository. Changes here affect every repository across the organization, so we hold contributions to a high standard. Please read this guide carefully before opening a PR.
 
-## Git Flow
+---
 
-We follow a standard Git flow for this repository:
+## Table of Contents
 
-1. **Main Branch**: Contains stable, production-ready code.
-2. **Develop Branch**: Used for integration and testing.
-3. **Feature Branches**: Created from `main` for new features.
-4. **Fix Branches**: Created from `main` for bug fixes.
-5. **Hotfix Branches**: Created from `main` for urgent fixes.
+- [Branch Strategy](#branch-strategy)
+- [Step-by-Step Contribution Flow](#step-by-step-contribution-flow)
+- [Commit Message Format](#commit-message-format)
+- [Testing Workflow Changes](#testing-workflow-changes)
+- [Release Process](#release-process)
+- [Repository Structure](#repository-structure)
+- [Important Rules](#important-rules)
+- [Getting Help](#getting-help)
 
-## How to Update the Shared Workflow
+---
 
-### 1. Create a New Branch
+## Branch Strategy
 
-Always create a new branch from `main` for your changes:
+This repository uses a two-branch model:
+
+| Branch | Purpose | Release type |
+|---|---|---|
+| `main` | Stable, production-ready code | `v1.2.3` |
+| `develop` | Integration and pre-release testing | `v1.2.3-beta.N` |
+
+**Working branches** are short-lived and always merged into `develop` first:
+
+| Prefix | When to use | Example |
+|---|---|---|
+| `feature/` | New workflow or new capability in an existing one | `feature/add-helm-lint-step` |
+| `fix/` | Bug fix in a workflow | `fix/gitops-missing-env-var` |
+| `hotfix/` | Urgent fix that must go to `main` as fast as possible | `hotfix/v1.3.1-broken-release` |
+| `docs/` | Documentation-only changes | `docs/update-go-ci-examples` |
+| `chore/` | Maintenance — dependency bumps, config updates | `chore/bump-actions-checkout-v5` |
+
+> **Never commit directly to `main` or `develop`.** All changes must go through a PR.
+
+---
+
+## Step-by-Step Contribution Flow
+
+This repository is public. The contribution flow differs slightly depending on whether you are a **Lerian team member** (write access) or an **external contributor** (no write access).
+
+### 1. Set up your working branch
+
+**Lerian team members — branch directly:**
 
 ```bash
-git checkout main
-git pull
+git checkout develop
+git pull origin develop
 git checkout -b feature/your-feature-name
 ```
 
-Use the appropriate prefix for your branch:
-- `feature/` for new features
-- `fix/` for bug fixes
-- `hotfix/v*` for urgent fixes that need to be deployed immediately
+> **Hotfixes only:** branch from `main` if the fix must bypass `develop`.
+> ```bash
+> git checkout main && git pull origin main
+> git checkout -b hotfix/description
+> ```
 
-### 2. Make Your Changes
-
-Edit the workflow files as needed. Make sure to:
-- Add clear comments to explain complex steps
-- Follow YAML best practices
-- Test your changes locally if possible
-
-### 3. Commit Your Changes
-
-Use [Conventional Commits](https://www.conventionalcommits.org/) format to enable automatic versioning and changelog generation:
+**External contributors — fork first:**
 
 ```bash
-git add .
-git commit -m "feat: add support for new linting rules"
+# 1. Fork the repo on GitHub (click "Fork" on the repo page)
+# 2. Clone your fork
+git clone https://github.com/<your-username>/github-actions-shared-workflows.git
+cd github-actions-shared-workflows
+
+# 3. Add the upstream remote
+git remote add upstream https://github.com/LerianStudio/github-actions-shared-workflows.git
+
+# 4. Branch from upstream/develop
+git fetch upstream
+git checkout -b feature/your-feature-name upstream/develop
 ```
 
-**Commit Message Format:**
+When opening the PR, target the `develop` branch of the **upstream** (`LerianStudio`) repository — not your fork's `main`.
+
+### 2. Make your changes
+
+- Edit only the workflow file(s) relevant to your change
+- Follow YAML best practices (2-space indent, quoted strings for expressions)
+- Add inline comments for non-obvious steps or conditions
+- Update the corresponding doc in `docs/` if behavior or inputs/outputs changed
+- Update `README.md` if a new workflow was added or a key feature changed
+
+### 3. Commit using Conventional Commits
+
+All commit messages must follow the [Conventional Commits](https://www.conventionalcommits.org/) specification. This drives automatic versioning — **the type you choose determines the version bump**.
 
 ```
 <type>(<scope>): <subject>
 
-<body>
+[optional body]
 
-<footer>
+[optional footer — BREAKING CHANGE: ...]
 ```
 
-**Types and Version Impact:**
+**Subject rules:**
+- Start with a lowercase letter
+- Use the imperative mood ("add support" not "adds support" or "added support")
+- No period at the end
+- Maximum 72 characters
 
-| Type | Description | Version Bump | Example |
-|------|-------------|--------------|---------|
-| `feat` | New feature | Minor (0.x.0) | `feat: add Docker login to GitOps workflow` |
-| `fix` | Bug fix | Patch (0.0.x) | `fix: resolve yq checksum verification issue` |
-| `perf` | Performance improvement | Minor (0.x.0) | `perf: optimize artifact download speed` |
-| `build` | Build system changes | Minor (0.x.0) | `build: update semantic-release to v23` |
-| `refactor` | Code refactoring | Minor (0.x.0) | `refactor: simplify environment detection logic` |
-| `docs` | Documentation only | Patch (0.0.x) | `docs: update GitOps workflow examples` |
-| `chore` | Maintenance tasks | Patch (0.0.x) | `chore: update dependencies` |
-| `ci` | CI configuration | Patch (0.0.x) | `ci: add self-release workflow` |
-| `test` | Adding tests | Patch (0.0.x) | `test: add unit tests for tag detection` |
-| `BREAKING CHANGE` | Breaking change | Major (x.0.0) | See below |
+#### Types and version impact
 
-**Breaking Changes:**
+| Type | Description | Version bump |
+|---|---|---|
+| `feat` | New workflow or new input/output/behavior | Minor (`1.x.0`) |
+| `fix` | Bug fix in a workflow step or condition | Patch (`1.0.x`) |
+| `perf` | Performance improvement (caching, parallelism) | Minor (`1.x.0`) |
+| `refactor` | Internal restructuring, no behavior change | Minor (`1.x.0`) |
+| `build` | Build system or tooling changes | Minor (`1.x.0`) |
+| `docs` | Documentation only | Patch (`1.0.x`) |
+| `chore` | Dependency bumps, config maintenance | Patch (`1.0.x`) |
+| `ci` | Changes to self-CI workflows | Patch (`1.0.x`) |
+| `test` | Adding or updating tests | Patch (`1.0.x`) |
+| `BREAKING CHANGE` | Callers must update their configuration | Major (`x.0.0`) |
 
-For breaking changes, add `BREAKING CHANGE:` in the commit footer:
+#### Scopes (optional but recommended)
+
+Use a scope to identify the affected workflow or area:
+
+| Scope | Workflow |
+|---|---|
+| `go-ci` | Go CI workflow |
+| `go-security` | Go Security workflow |
+| `go-release` | Go Release workflow |
+| `go-pr-analysis` | Go PR Analysis workflow |
+| `gitops` | GitOps Update workflow |
+| `e2e` | API Dog E2E Tests workflow |
+| `pr-validation` | PR Validation workflow |
+| `pr-security` | PR Security Scan workflow |
+| `release` | Release workflow |
+| `changed-paths` | Changed Paths workflow |
+| `build` | Build workflow |
+| `slack` | Slack Notify workflow |
+| `frontend` | Frontend PR Analysis workflow |
+| `gptchangelog` | GPT Changelog workflow |
+| `helm` | Helm Update / Dispatch workflows |
+| `typescript` | TypeScript CI / Release workflows |
+| `docs` | Documentation |
+| `deps` | Dependency updates |
+
+**Examples:**
 
 ```bash
-git commit -m "feat: remove deprecated gitops_file input
+# New feature with scope
+git commit -m "feat(gitops): add sandbox environment support"
 
-BREAKING CHANGE: The gitops_file input has been removed. Use gitops_file_dev, gitops_file_stg, and gitops_file_prd instead."
+# Bug fix without scope
+git commit -m "fix: resolve yq checksum verification on arm64 runners"
+
+# Breaking change
+git commit -m "feat(go-ci): replace golangci_lint_args with lint_config_path input
+
+BREAKING CHANGE: The golangci_lint_args input has been removed.
+Callers must switch to lint_config_path pointing to their .golangci.yml."
 ```
 
-**Scopes (Optional):**
-
-Use scopes to specify which workflow is affected:
-- `gitops`: GitOps Update workflow
-- `e2e`: API Dog E2E Tests workflow
-- `security`: PR Security Scan workflow
-- `release`: Release workflow
-- `docs`: Documentation
-
-Example: `feat(gitops): add sandbox environment support`
-
-### 4. Push Your Changes
+### 4. Push and open a PR to `develop`
 
 ```bash
 git push origin feature/your-feature-name
 ```
 
-### 5. Create a Pull Request to Develop
+Open a Pull Request targeting **`develop`**. Use the PR template — fill in the affected workflows table and the input/output changes section if applicable.
 
-Create a Pull Request targeting the `develop` branch. In your PR description:
-- Explain the purpose of the changes
-- List any breaking changes
-- Mention any dependencies that need to be updated
+The PR will automatically:
+- Request review from `@LerianStudio/devops-team` (via CODEOWNERS)
+- Run `pr-validation` and `pr-security-scan` checks
+- Apply labels based on which files were changed (via `labeler.yml`)
+- Trigger a beta release on merge (`v1.2.3-beta.N`)
 
-### 6. Testing on Develop
+### 5. Validate on `develop`
 
-After your PR is merged to `develop`, test the changes by:
-- Creating a test repository that uses the `@develop` tag
-- Verifying all workflows run correctly
-- Checking for any unexpected behavior
+After your PR is merged to `develop`, a beta release is published automatically (e.g., `v1.2.3-beta.1`). Validate your changes by pointing a test caller to the `@develop` ref or the specific beta tag:
 
-### 7. Promote to Main
+```yaml
+# In a test caller repository
+jobs:
+  test:
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/your-workflow.yml@develop
+    with:
+      # ... your inputs
+```
 
-Once testing is complete, create a Pull Request from `develop` to `main`.
+Verify that:
+- The workflow runs end-to-end without errors
+- All existing inputs still work with their default values
+- No secrets or tokens are exposed in logs
+- No unintended side effects on other workflows
 
-This PR should summarize all changes and confirm that testing has been successful.
+### 6. Promote to `main`
 
-### 8. Automatic Release
+Once validation on `develop` is complete, open a PR from `develop` → `main`.
 
-After merging to `main`, the semantic-release process will automatically:
-- Analyze commit messages to determine version bump
-- Create a new version tag (e.g., `v1.2.3`)
-- Generate CHANGELOG.md with all changes
-- Create a GitHub release with release notes
-- Back-merge changes to `develop` branch
+The PR description should confirm:
+- What was tested and where (link to the workflow run)
+- That all checks on `develop` passed
+- Any breaking changes and their migration path
 
-**Release Branches:**
+### 7. Production release (automatic)
 
-| Branch | Release Type | Version Format | Example |
-|--------|-------------|----------------|---------|
-| `develop` | Beta | `v1.2.3-beta.1` | Pre-release for development testing |
-| `release-candidate` | RC | `v1.2.3-rc.1` | Pre-release for staging/UAT |
-| `main` | Production | `v1.2.3` | Stable production release |
+After merging to `main`, semantic-release automatically:
 
-**Version Calculation:**
+1. Analyzes commits since the last release to determine the version bump
+2. Creates a new version tag (`v1.2.3`)
+3. Generates and commits `CHANGELOG.md`
+4. Publishes a GitHub Release with release notes
+5. Backmerges `main` → `develop` to keep branches in sync
 
-The version is calculated based on commit types since the last release:
-- Any `BREAKING CHANGE` → Major version bump (1.0.0 → 2.0.0)
-- Any `feat`, `perf`, `build`, `refactor` → Minor version bump (1.0.0 → 1.1.0)
-- Any `fix`, `docs`, `chore`, `ci`, `test` → Patch version bump (1.0.0 → 1.0.1)
+---
 
-**Example Release Flow:**
+## Testing Workflow Changes
 
-1. Merge PR with `feat: add new workflow` to `develop`
-   - Creates: `v1.2.0-beta.1`
+Shared workflows cannot be unit-tested locally. Use the following strategies:
 
-2. Merge `develop` to `release-candidate` for testing
-   - Creates: `v1.2.0-rc.1`
+**1. Syntax validation (fast, no push needed)**
 
-3. Merge `release-candidate` to `main` after approval
-   - Creates: `v1.2.0`
-   - Backmerges to `develop`
+```bash
+# Install PyYAML if not already available
+python3 -m pip install --quiet pyyaml
 
-## Semantic Release Configuration
+# Validate YAML syntax of all workflow files
+python3 -c "
+import yaml, glob, sys
+errors = []
+for f in glob.glob('.github/workflows/*.yml'):
+    try:
+        yaml.safe_load(open(f))
+        print(f'✅ {f}')
+    except yaml.YAMLError as e:
+        print(f'❌ {f}: {e}')
+        errors.append(f)
+sys.exit(len(errors))
+"
+```
 
-The repository uses semantic-release with the following configuration (`.releaserc.yml`):
+**2. Test on `develop` before promoting**
 
-**Plugins:**
-- `@semantic-release/commit-analyzer` - Analyzes commits to determine version
-- `@semantic-release/git` - Commits CHANGELOG.md back to repository
-- `@semantic-release/github` - Creates GitHub releases
-- `@saithodev/semantic-release-backmerge` - Backmerges main → develop
-- `@semantic-release/exec` - Executes custom scripts
+Pin a test repository to `@develop` or `@vX.Y.Z-beta.N` and trigger a real run. This is the most reliable validation strategy.
 
-**Configuration Details:**
-- CHANGELOG.md is automatically generated and committed
-- Release notes are published to GitHub Releases
-- Changes are automatically backmerged from main to develop
-- All releases are GPG signed for security
+**3. Use `workflow_dispatch` for manual testing**
 
-## Important Notes
+Many workflows support `workflow_dispatch`. Trigger them manually from the Actions tab of the test repository with specific inputs to isolate behavior.
+
+**4. Check for version inconsistencies**
+
+Scan for actions using different versions across workflows — Dependabot will handle updates, but be aware of mixed versions introduced by your PR:
+
+```bash
+grep -rh "uses:" .github/workflows/ | sort -u
+```
+
+---
+
+## Release Process
+
+```
+feature/* ──► develop (beta: v1.2.3-beta.N) ──► main (prod: v1.2.3)
+                  ▲                                      │
+                  └──────────── backmerge ───────────────┘
+```
+
+| Branch | Trigger | Version format | Example |
+|---|---|---|---|
+| `develop` | PR merge | `v1.2.3-beta.N` | `v1.4.0-beta.2` |
+| `main` | PR from `develop` | `v1.2.3` | `v1.4.0` |
+
+Releases are GPG-signed and published as GitHub Releases with the generated `CHANGELOG.md` attached.
+
+**Callers should always pin to a stable tag in production:**
+
+```yaml
+# ✅ Recommended — pinned to a stable release
+uses: LerianStudio/github-actions-shared-workflows/.github/workflows/go-ci.yml@v1.4.0
+
+# ⚠️ Acceptable for testing — always latest beta
+uses: LerianStudio/github-actions-shared-workflows/.github/workflows/go-ci.yml@develop
+
+# ❌ Avoid in production — no version guarantee
+uses: LerianStudio/github-actions-shared-workflows/.github/workflows/go-ci.yml@main
+```
+
+---
+
+## Repository Structure
+
+```
+.
+├── .github/
+│   ├── CODEOWNERS                  # Auto-assigns reviewers per area
+│   ├── ISSUE_TEMPLATE/             # Bug, feature, and docs issue forms
+│   ├── labeler.yml                 # Auto-labels PRs by changed files
+│   ├── pull_request_template.md    # Structured PR description
+│   ├── dependabot.yml              # Weekly action version updates
+│   └── workflows/
+│       ├── self-release.yml        # This repo's own release pipeline
+│       └── *.yml                   # Reusable shared workflows
+├── docs/
+│   ├── *.md                        # Per-workflow documentation
+│   └── plans/                      # Design documents and proposals
+├── .releaserc.yml                  # semantic-release configuration
+├── CHANGELOG.md                    # Auto-generated — do not edit manually
+├── CONTRIBUTING.md                 # This file
+├── SECURITY.md                     # Vulnerability reporting policy
+└── README.md                       # Workflow index and quick start
+```
+
+---
+
+## Important Rules
 
 - **Never** commit directly to `main` or `develop`
-- **Always** create a PR for your changes
-- **Always** use conventional commit messages
-- **Ensure** your changes are backward compatible when possible
-- **Document** any breaking changes clearly in commit footer
-- **Test** thoroughly before promoting to `main`
-- **Review** CHANGELOG.md after releases to ensure accuracy
+- **Always** target `develop` in your PRs (not `main`)
+- **Always** use Conventional Commits — the message type controls the version bump
+- **Never** hardcode org-specific values (tokens, org names, URLs) — use `inputs` or `secrets`
+- **Always** update `docs/` when you change inputs, outputs, or behavior
+- **Ensure** backward compatibility when possible; document breaking changes clearly
+- **Validate** end-to-end on `develop` before opening a PR to `main`
+- **Report** security issues privately — see [SECURITY.md](SECURITY.md)
+
+---
 
 ## Getting Help
 
-If you have questions or need assistance, please contact the DevOps team.
+- **Questions or ideas?** Open a [GitHub Discussion](https://github.com/LerianStudio/github-actions-shared-workflows/discussions)
+- **Found a bug?** Open an [issue](https://github.com/LerianStudio/github-actions-shared-workflows/issues/new/choose) using the Bug Report template
+- **Security issue?** Follow the process in [SECURITY.md](SECURITY.md) — do not open a public issue
+- **Need urgent help?** Open a [GitHub Discussion](https://github.com/LerianStudio/github-actions-shared-workflows/discussions) or mention `@LerianStudio/devops-team` in your issue/PR
