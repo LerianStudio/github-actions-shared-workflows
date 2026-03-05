@@ -2,114 +2,17 @@
 # Used by actions/labeler in the pr-validation workflow
 # Docs: https://github.com/actions/labeler
 
-# ── Workflow labels ────────────────────────────────────────────────────────────
+# ── Workflows ──────────────────────────────────────────────────────────────────
 
-workflow:go-ci:
+workflow:
   - changed-files:
-    - any-glob-to-any-file: ".github/workflows/go-ci.yml"
+    - any-glob-to-any-file: ".github/workflows/*.yml"
 
-workflow:go-security:
-  - changed-files:
-    - any-glob-to-any-file: ".github/workflows/go-security.yml"
-
-workflow:go-release:
-  - changed-files:
-    - any-glob-to-any-file: ".github/workflows/go-release.yml"
-
-workflow:go-pr-analysis:
-  - changed-files:
-    - any-glob-to-any-file: ".github/workflows/go-pr-analysis.yml"
-
-workflow:gitops-update:
-  - changed-files:
-    - any-glob-to-any-file: ".github/workflows/gitops-update.yml"
-
-workflow:api-dog-e2e-tests:
-  - changed-files:
-    - any-glob-to-any-file: ".github/workflows/api-dog-e2e-tests.yml"
-
-workflow:pr-validation:
-  - changed-files:
-    - any-glob-to-any-file: ".github/workflows/pr-validation.yml"
-
-workflow:pr-security-scan:
-  - changed-files:
-    - any-glob-to-any-file: ".github/workflows/pr-security-scan.yml"
-
-workflow:release:
-  - changed-files:
-    - any-glob-to-any-file:
-      - ".github/workflows/release.yml"
-      - ".github/workflows/self-release.yml"
-      - ".releaserc.yml"
-
-workflow:changed-paths:
-  - changed-files:
-    - any-glob-to-any-file: ".github/workflows/changed-paths.yml"
-
-workflow:build:
-  - changed-files:
-    - any-glob-to-any-file: ".github/workflows/build.yml"
-
-workflow:slack-notify:
-  - changed-files:
-    - any-glob-to-any-file: ".github/workflows/slack-notify.yml"
-
-workflow:frontend-pr-analysis:
-  - changed-files:
-    - any-glob-to-any-file: ".github/workflows/frontend-pr-analysis.yml"
-
-workflow:gptchangelog:
-  - changed-files:
-    - any-glob-to-any-file: ".github/workflows/gptchangelog.yml"
-
-workflow:helm:
-  - changed-files:
-    - any-glob-to-any-file:
-      - ".github/workflows/helm-update-chart.yml"
-      - ".github/workflows/dispatch-helm.yml"
-
-workflow:typescript:
-  - changed-files:
-    - any-glob-to-any-file:
-      - ".github/workflows/typescript-ci.yml"
-      - ".github/workflows/typescript-release.yml"
-
-# ── Change type labels ─────────────────────────────────────────────────────────
-
-documentation:
-  - changed-files:
-    - any-glob-to-any-file:
-      - "docs/**"
-      - "*.md"
-      - ".github/**/*.md"
-
-dependencies:
-  - changed-files:
-    - any-glob-to-any-file:
-      - ".github/dependabot.yml"
-
-ci-config:
-  - changed-files:
-    - any-glob-to-any-file:
-      - ".github/workflows/self-release.yml"
-      - ".releaserc.yml"
-      - ".gitignore"
-
-github-config:
-  - changed-files:
-    - any-glob-to-any-file:
-      - ".github/ISSUE_TEMPLATE/**"
-      - ".github/pull_request_template.md"
-      - ".github/labeler.yml"
-      - ".github/CODEOWNERS"
-
-# ── Language / ecosystem labels ────────────────────────────────────────────────
+# ── Ecosystems ─────────────────────────────────────────────────────────────────
 
 golang:
   - changed-files:
-    - any-glob-to-any-file:
-      - ".github/workflows/go-*.yml"
+    - any-glob-to-any-file: ".github/workflows/go-*.yml"
 
 typescript:
   - changed-files:
@@ -123,3 +26,26 @@ security:
       - ".github/workflows/go-security.yml"
       - ".github/workflows/pr-security-scan.yml"
       - "SECURITY.md"
+
+# ── Change types ───────────────────────────────────────────────────────────────
+
+documentation:
+  - changed-files:
+    - any-glob-to-any-file:
+      - "docs/**"
+      - "*.md"
+      - ".github/**/*.md"
+
+dependencies:
+  - changed-files:
+    - any-glob-to-any-file: ".github/dependabot.yml"
+
+github-config:
+  - changed-files:
+    - any-glob-to-any-file:
+      - ".github/ISSUE_TEMPLATE/**"
+      - ".github/pull_request_template.md"
+      - ".github/labeler.yml"
+      - ".github/CODEOWNERS"
+      - ".releaserc.yml"
+      - ".gitignore"
