@@ -6,7 +6,7 @@ Reusable workflow for building and pushing Docker images to container registries
 
 - **Monorepo support**: Automatic detection of changed components via filter_paths
 - **Multi-registry**: Push to DockerHub and/or GitHub Container Registry (GHCR)
-- **Smart platform builds**: Beta/RC tags build amd64 only, release tags build amd64+arm64
+- **Smart platform builds**: Beta/RC tags build amd64 only (unless `force_multiplatform` is enabled), release tags build amd64+arm64
 - **Semantic versioning**: Automatic tag extraction and Docker metadata
 - **GitOps integration**: Upload artifacts for downstream gitops-update workflow
 - **Slack notifications**: Automatic success/failure notifications
@@ -106,6 +106,7 @@ jobs:
 | `app_name_prefix` | string | `''` | Prefix for app names in monorepo |
 | `build_context` | string | `.` | Docker build context |
 | `enable_gitops_artifacts` | boolean | `false` | Upload artifacts for gitops-update workflow |
+| `force_multiplatform` | boolean | `false` | Force multi-platform build (amd64+arm64) even for beta/rc tags |
 
 ## Secrets
 
@@ -122,11 +123,13 @@ Uses `secrets: inherit` pattern. Required secrets:
 
 The workflow automatically selects platforms based on the tag type:
 
-| Tag Type | Example | Platforms | Rationale |
-|----------|---------|-----------|-----------|
-| Beta | `v1.0.0-beta.1` | `linux/amd64` | Faster CI for development |
-| RC | `v1.0.0-rc.1` | `linux/amd64` | Faster CI for staging |
-| Release | `v1.0.0` | `linux/amd64,linux/arm64` | Full multi-arch support |
+| Tag Type | `force_multiplatform` | Platforms | Rationale |
+|----------|----------------------|-----------|-----------|
+| Beta | `false` (default) | `linux/amd64` | Faster CI for development |
+| Beta | `true` | `linux/amd64,linux/arm64` | Multi-arch needed in dev |
+| RC | `false` (default) | `linux/amd64` | Faster CI for staging |
+| RC | `true` | `linux/amd64,linux/arm64` | Multi-arch needed in staging |
+| Release | N/A | `linux/amd64,linux/arm64` | Always full multi-arch support |
 
 ## Docker Image Tags
 
@@ -220,7 +223,7 @@ Automatically sends notifications on completion:
 
 **Issue**: ARM64 builds take too long
 
-**Solution**: ARM64 builds only run on release tags. Beta/RC tags build amd64 only for faster CI.
+**Solution**: ARM64 builds only run on release tags by default. Beta/RC tags build amd64 only for faster CI. If you need ARM64 on beta/rc, use `force_multiplatform: true` and be aware of the longer build times.
 
 ## Related Workflows
 
