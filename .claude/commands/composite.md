@@ -1,0 +1,121 @@
+# Composite Actions — Rules & Conventions
+
+Use these rules whenever creating or editing a composite action in `src/`.
+
+## Directory layout
+
+Composite actions are grouped by capability inside `src/`:
+
+```
+src/
+├── setup/       ← language runtime setup (Go, Node, etc.)
+├── build/       ← build and artifact generation
+├── test/        ← test execution and coverage
+├── deploy/      ← deployment and release steps
+└── config/      ← repository configuration management
+```
+
+Each composite lives in `src/<capability>/<name>/` with exactly two files:
+
+```
+src/config/labels-sync/
+├── action.yml   ← required
+└── README.md    ← required
+```
+
+## action.yml structure
+
+```yaml
+name: Human-readable name
+description: One-line description.
+
+inputs:
+  github-token:
+    description: GitHub token with required permissions
+    required: true
+  some-option:
+    description: What this option controls
+    required: false
+    default: "default-value"
+
+runs:
+  using: composite
+  steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+    - name: Do the work
+      uses: some-owner/some-action@v1
+      with:
+        token: ${{ inputs.github-token }}
+        option: ${{ inputs.some-option }}
+```
+
+## Design rules
+
+- **5–15 steps maximum** — split if larger
+- **Single responsibility** — one composite, one capability
+- Must not define jobs or call other workflows
+- Must not contain pipeline control logic
+- Never combine multiple language runtimes in the same composite
+
+## Language-specific vs cross-language
+
+Specialize by runtime when toolchains differ:
+
+```
+src/setup/setup-go/     ← Go toolchain, GOPATH, module cache
+src/setup/setup-node/   ← Node.js, npm/yarn/pnpm, cache
+src/build/build-go/     ← go build, cross-compilation
+src/test/test-go/       ← go test, coverage upload
+```
+
+Cross-language composites stay language-agnostic:
+
+```
+src/build/docker-build/   ← any image
+src/deploy/helm-deploy/   ← any chart
+src/config/labels-sync/   ← any repo
+```
+
+## README.md requirements
+
+1. Logo header — HTML table layout (logo left, `h1` title right)
+2. Inputs table — `Input | Description | Required | Default`
+3. Usage as composite step (full YAML)
+4. Usage as reusable workflow (full YAML with `secrets: inherit`)
+5. Required permissions block
+
+## After creating a new composite
+
+- Add to `.github/CODEOWNERS`: `src/<capability>/<name>/  @LerianStudio/devops-team`
+- Update root `README.md` if the composite is meant to be used by external callers
+
+### Labels checklist
+
+Check `.github/labels.yml` for a label matching the composite's capability group. If it doesn't exist, add it:
+
+```yaml
+- name: <capability>           # e.g. "infrastructure", "notifications"
+  color: "0075ca"              # pick a distinct hex color
+  description: Changes to <capability> composite actions
+```
+
+After adding, run the `Sync Labels` workflow (`workflow_dispatch`) to create it in the repository.
+
+### Dependabot checklist
+
+For every third-party action used in the new composite (`uses: owner/action@vX`), check `.github/dependabot.yml`:
+
+- If `owner/*` already matches an existing group → no change needed
+- If not → add to the most appropriate group, or create a new one:
+
+```yaml
+new-tool-category:
+  patterns:
+    - "owner/new-action"
+  update-types:
+    - "minor"
+    - "patch"
+```
+
+Never add `LerianStudio/*` actions to dependabot — pinned to `@main` intentionally.

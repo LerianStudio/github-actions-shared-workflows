@@ -12,6 +12,7 @@ Thank you for contributing to the Lerian shared workflows repository. Changes he
 ## Table of Contents
 
 - [Branch Strategy](#branch-strategy)
+- [Merge Strategy](#merge-strategy)
 - [Step-by-Step Contribution Flow](#step-by-step-contribution-flow)
 - [Commit Message Format](#commit-message-format)
 - [Testing Workflow Changes](#testing-workflow-changes)
@@ -42,6 +43,21 @@ This repository uses a two-branch model:
 | `chore/` | Maintenance — dependency bumps, config updates | `chore/bump-actions-checkout-v5` |
 
 > **Never commit directly to `main` or `develop`.** All changes must go through a PR.
+
+---
+
+## Merge Strategy
+
+The merge strategy varies by the type of PR. This is a **convention enforced by reviewers** — it is not locked at the settings level to allow flexibility for backmerges and releases.
+
+| PR type | Source → Target | Strategy | Why |
+|---|---|---|---|
+| Feature / fix / docs | `feature/*` → `develop` | **Squash and merge** | One clean commit per PR; drives semantic-release correctly |
+| Release | `develop` → `main` | **Merge commit** | Preserves individual PR commits so semantic-release can compute the version bump |
+| Hotfix | `hotfix/*` → `main` | **Squash and merge** | One clean commit for the fix; backmerge follows immediately |
+| Backmerge | `main` → `develop` | **Merge commit** | Preserves history; squash would collapse all of main into one commit |
+
+> **Reviewers:** before clicking Merge, confirm the correct strategy is selected in the GitHub UI. Do not use rebase.
 
 ---
 
@@ -321,6 +337,7 @@ uses: LerianStudio/github-actions-shared-workflows/.github/workflows/go-ci.yml@m
 
 - **Never** commit directly to `main` or `develop`
 - **Always** target `develop` in your PRs (not `main`)
+- **Always** use the correct merge strategy — squash for feature PRs, merge commit for releases and backmerges
 - **Always** use Conventional Commits — the message type controls the version bump
 - **Never** hardcode org-specific values (tokens, org names, URLs) — use `inputs` or `secrets`
 - **Always** update `docs/` when you change inputs, outputs, or behavior

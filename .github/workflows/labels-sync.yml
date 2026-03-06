@@ -1,0 +1,60 @@
+name: Sync Labels
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/labels.yml"
+  workflow_call:
+    inputs:
+      config:
+        description: Path to the labels YAML definition file
+        type: string
+        required: false
+        default: .github/labels.yml
+      dry_run:
+        description: Preview changes without applying them
+        type: boolean
+        required: false
+        default: false
+      skip_delete:
+        description: Skip deletion of labels not present in the config file
+        type: boolean
+        required: false
+        default: false
+    secrets:
+      GITHUB_TOKEN:
+        required: false
+  workflow_dispatch:
+    inputs:
+      config:
+        description: Path to the labels YAML definition file
+        type: string
+        required: false
+        default: .github/labels.yml
+      dry_run:
+        description: Dry run — preview changes without applying them
+        type: boolean
+        default: false
+      skip_delete:
+        description: Skip deletion of labels not present in the config file
+        type: boolean
+        default: false
+
+permissions:
+  issues: write
+  contents: read
+
+jobs:
+  sync:
+    name: Sync labels to repository
+    runs-on: ubuntu-latest
+    steps:
+      - name: Sync labels
+        uses: ./src/labels-sync
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          config: ${{ inputs.config || '.github/labels.yml' }}
+          dry-run: ${{ inputs.dry_run || false }}
+          skip-delete: ${{ inputs.skip_delete || false }}
