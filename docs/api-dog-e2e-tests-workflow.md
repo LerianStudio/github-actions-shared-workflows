@@ -18,7 +18,7 @@ Reusable workflow for automated API testing using Apidog CLI. Runs test scenario
 
 ```yaml
 api-tests:
-  uses: LerianStudio/github-actions-shared-workflows/.github/workflows/api-dog-e2e-tests.yml@main
+  uses: LerianStudio/github-actions-shared-workflows/.github/workflows/api-dog-e2e-tests.yml@v1.0.0
   with:
     test_iterations: "1"
     output_formats: "html,cli"
@@ -31,7 +31,7 @@ api-tests:
 
 ```yaml
 api-tests:
-  uses: LerianStudio/github-actions-shared-workflows/.github/workflows/api-dog-e2e-tests.yml@main
+  uses: LerianStudio/github-actions-shared-workflows/.github/workflows/api-dog-e2e-tests.yml@v1.0.0
   with:
     auto_detect_environment: true
     secrets: inherit
@@ -56,13 +56,13 @@ jobs:
 
   update_gitops:
     needs: build
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/gitops-update.yml@main
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/gitops-update.yml@v1.0.0
     with:
       # ... gitops configuration ...
 
   e2e_tests:
     needs: update_gitops
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/api-dog-e2e-tests.yml@main
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/api-dog-e2e-tests.yml@v1.0.0
     with:
       auto_detect_environment: true
       test_iterations: "3"
@@ -203,7 +203,7 @@ jobs:
 
   e2e_tests:
     needs: update_gitops
-    uses: ./.github/workflows/api-dog-e2e-tests.yml@main
+    uses: ./.github/workflows/api-dog-e2e-tests.yml@v1.0.0
 ```
 
 Ensures tests run after deployment is complete.
@@ -280,7 +280,7 @@ on:
 
 jobs:
   api-tests:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/api-dog-e2e-tests.yml@main
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/api-dog-e2e-tests.yml@v1.0.0
     secrets: inherit
 ```
 
@@ -302,7 +302,7 @@ jobs:
 
   e2e_tests:
     needs: build_and_deploy
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/api-dog-e2e-tests.yml@main
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/api-dog-e2e-tests.yml@v1.0.0
     with:
       auto_detect_environment: true
       test_iterations: "3"
@@ -321,13 +321,13 @@ on:
 
 jobs:
   test_dev:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/api-dog-e2e-tests.yml@main
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/api-dog-e2e-tests.yml@v1.0.0
     with:
       test_iterations: "2"
     secrets: inherit
 
   test_stg:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/api-dog-e2e-tests.yml@main
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/api-dog-e2e-tests.yml@v1.0.0
     with:
       test_iterations: "2"
     secrets: inherit

@@ -1,0 +1,33 @@
+name: Labels Sync
+description: Syncs GitHub labels from a YAML definition file using crazy-max/ghaction-github-labeler.
+
+inputs:
+  github-token:
+    description: GitHub token with issues:write permission
+    required: true
+  config:
+    description: Path to the labels YAML definition file
+    required: false
+    default: .github/labels.yml
+  dry-run:
+    description: Preview changes without applying them
+    required: false
+    default: "false"
+  skip-delete:
+    description: Skip deletion of labels not present in the config file
+    required: false
+    default: "false"
+
+runs:
+  using: composite
+  steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Sync labels
+      uses: crazy-max/ghaction-github-labeler@v5
+      with:
+        github-token: ${{ inputs.github-token }}
+        config: ${{ inputs.config }}
+        dry-run: ${{ inputs.dry-run }}
+        skip-delete: ${{ inputs.skip-delete }}

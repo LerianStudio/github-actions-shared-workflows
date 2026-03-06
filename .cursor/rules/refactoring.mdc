@@ -1,0 +1,179 @@
+---
+description: Refactoring and incremental change protocol for reusable workflows and composite actions
+globs: .github/workflows/*.yml,src/**/*.yml,src/**/action.yml
+alwaysApply: false
+---
+
+# Refactoring Protocol
+
+Apply this protocol **before making any refactoring or additive change** to an existing reusable workflow or composite action.
+
+Never apply changes directly. Always produce a plan first, wait for explicit user confirmation, then apply one step at a time.
+
+---
+
+## Step 1 — Analyze the current state
+
+Before proposing any change, read the target file(s) completely and produce a structured summary:
+
+```
+Current state of <file>:
+- Purpose        : what the workflow/composite does
+- Inputs         : list all current inputs and their defaults
+- Outputs        : list all current outputs
+- Jobs/Steps     : list jobs (workflow) or steps (composite)
+- Callers        : note any known repos or workflows that reference this
+- dry_run        : present / absent
+```
+
+---
+
+## Step 2 — Produce the refactoring plan
+
+Present the plan as a numbered step list. Each step must describe:
+
+- **What changes** (file, section, input, job, step)
+- **Why** (the reason for the change)
+- **Impact** (additive, behavioral, breaking)
+- **Backward compatible?** (yes / no / conditional)
+
+Format:
+
+```
+Refactoring plan — <workflow or composite name>
+
+Step 1 — [Label]
+  Change : <what will be modified>
+  Reason : <why>
+  Impact : additive | behavioral | breaking
+  Safe   : yes | no — <explanation>
+
+Step 2 — [Label]
+  ...
+```
+
+---
+
+## Step 3 — Flag attention points
+
+After the plan, list explicitly:
+
+### Inputs and outputs
+- Any input being renamed, removed, or changing type → **breaking**
+- Any input with a new default that differs from the old implicit behavior → **breaking**
+- Any output being removed or renamed → **breaking**
+
+### Behavior
+- Any step order change that could affect downstream steps → **attention**
+- Any conditional logic that changes when a step runs → **attention**
+- Any new required secret → **breaking for callers**
+
+### dry_run
+- If the workflow/composite does not have a `dry_run` input and the change involves applying state (deploy, create, update, delete), propose adding it as part of the plan:
+
+```yaml
+dry_run:
+  description: Preview changes without applying them
+  required: false
+  type: boolean
+  default: false
+```
+
+---
+
+## Step 4 — Show breaking changes explicitly
+
+If any step is breaking, present it separately with a migration guide:
+
+```
+⚠️ Breaking change in Step N
+
+Before (callers must update):
+  with:
+    old_input: value
+
+After:
+  with:
+    new_input: value
+
+Migration: replace `old_input` with `new_input`. Default behavior is preserved
+when `new_input` is omitted.
+```
+
+---
+
+## Step 5 — Propose test examples
+
+For every behavioral change, provide a concrete test scenario:
+
+```yaml
+# Test scenario: <what is being tested>
+# Expected result: <what should happen>
+
+jobs:
+  test:
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/<workflow>.yml@develop
+    with:
+      <input>: <test value>
+      dry_run: true   # validate before applying
+```
+
+If the change affects a composite action, show how to invoke it via a calling workflow:
+
+```yaml
+- name: Test <composite>
+  uses: ./src/<capability>/<name>
+  with:
+    <input>: <test value>
+```
+
+---
+
+## Step 6 — Confirm before applying
+
+After presenting the full plan, attention points, breaking changes, and test examples, ask:
+
+```
+Ready to apply?
+
+Please confirm each step:
+  [ ] Step 1 — <label>
+  [ ] Step 2 — <label>
+  ...
+
+Reply with the step numbers you want applied, or "all" to apply everything.
+Reply with "cancel" to abort.
+```
+
+**Do not apply any change until the user explicitly confirms.**
+
+---
+
+## Step 7 — Apply one step at a time
+
+Apply only the confirmed steps. After each one:
+
+- Show a diff summary of what changed
+- Note if the next step depends on this one
+- Wait for confirmation before proceeding to the next step if they are independent
+
+---
+
+## Step 8 — Update documentation
+
+After all confirmed steps are applied, update:
+
+- `docs/<workflow-name>.md` — reflect any changed inputs, outputs, or behavior
+- Composite `README.md` — update the inputs table and usage examples
+- `CHANGELOG.md` — do **not** edit manually; semantic-release generates it from commits
+- If a breaking change was applied, note the migration path in the doc
+
+---
+
+## What must never change without explicit confirmation
+
+- Default values of existing inputs
+- Names of existing inputs or outputs
+- Behavior when optional inputs are omitted
+- Step ordering when downstream steps depend on earlier outputs
+- Required secrets — adding one is always a breaking change for callers

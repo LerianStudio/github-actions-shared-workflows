@@ -27,7 +27,7 @@ on:
 
 jobs:
   analysis:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/frontend-pr-analysis.yml@main
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/frontend-pr-analysis.yml@v1.0.0
     secrets: inherit
 ```
 
@@ -41,7 +41,7 @@ on:
 
 jobs:
   analysis:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/frontend-pr-analysis.yml@main
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/frontend-pr-analysis.yml@v1.0.0
     with:
       filter_paths: '["apps/web", "apps/console", "packages/ui"]'
     secrets: inherit
@@ -57,7 +57,7 @@ on:
 
 jobs:
   analysis:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/frontend-pr-analysis.yml@main
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/frontend-pr-analysis.yml@v1.0.0
     with:
       filter_paths: '["apps/web", "apps/admin", "packages/shared"]'
       path_level: 2
@@ -82,7 +82,7 @@ jobs:
 ```yaml
 jobs:
   analysis:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/frontend-pr-analysis.yml@main
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/frontend-pr-analysis.yml@v1.0.0
     with:
       filter_paths: '["src"]'
       enable_typecheck: false
@@ -97,7 +97,7 @@ jobs:
 ```yaml
 jobs:
   analysis:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/frontend-pr-analysis.yml@main
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/frontend-pr-analysis.yml@v1.0.0
     with:
       package_manager: "yarn"
       node_version: "20"
@@ -109,7 +109,7 @@ jobs:
 ```yaml
 jobs:
   analysis:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/frontend-pr-analysis.yml@main
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/frontend-pr-analysis.yml@v1.0.0
     with:
       package_manager: "pnpm"
       node_version: "22"
@@ -251,7 +251,7 @@ The workflow automatically adapts commands based on `package_manager`:
 
 ## Tips
 
-1. **Pin to version tag**: Use `@v1.0.0` instead of `@main` for production stability
+1. **Pin to version tag**: Use `@v1.0.0` instead of `@v1.0.0` for production stability
 2. **Custom ESLint config**: Place `.eslintrc` or `eslint.config.js` in each app directory for app-specific rules
 3. **Coverage threshold**: Start with `fail_on_coverage_threshold: false` and enable once baseline is established
 4. **Test framework**: Works with Jest, Vitest, or any test runner that outputs `coverage-summary.json`

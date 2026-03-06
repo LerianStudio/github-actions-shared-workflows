@@ -34,7 +34,7 @@ permissions:
 
 jobs:
   validate:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/pr-validation.yml@main
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/pr-validation.yml@v1.0.0
 ```
 
 ### Custom Configuration
@@ -54,7 +54,7 @@ permissions:
 
 jobs:
   validate:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/pr-validation.yml@main
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/pr-validation.yml@v1.0.0
     with:
       pr_title_types: |
         feat
@@ -80,7 +80,7 @@ jobs:
 ```yaml
 jobs:
   validate:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/pr-validation.yml@main
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/pr-validation.yml@v1.0.0
     with:
       pr_title_scopes: |
         auth
@@ -262,7 +262,7 @@ Encourages linking PRs to issues using keywords:
 ```yaml
 jobs:
   validate:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/pr-validation.yml@main
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/pr-validation.yml@v1.0.0
 ```
 
 ### Strict Validation
@@ -270,7 +270,7 @@ jobs:
 ```yaml
 jobs:
   validate:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/pr-validation.yml@main
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/pr-validation.yml@v1.0.0
     with:
       require_scope: true
       min_description_length: 100
@@ -282,7 +282,7 @@ jobs:
 ```yaml
 jobs:
   validate:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/pr-validation.yml@main
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/pr-validation.yml@v1.0.0
     with:
       enable_auto_labeler: false
 ```
@@ -294,7 +294,7 @@ Enforce that PRs to `main` only come from `develop`, `release-candidate`, or `ho
 ```yaml
 jobs:
   validate:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/pr-validation.yml@main
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/pr-validation.yml@v1.0.0
     with:
       enforce_source_branches: true
       allowed_source_branches: 'develop|release-candidate|hotfix/*'
@@ -307,7 +307,7 @@ jobs:
 ```yaml
 jobs:
   validate:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/pr-validation.yml@main
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/pr-validation.yml@v1.0.0
     with:
       pr_title_types: |
         feature

@@ -57,7 +57,7 @@ on:
 
 jobs:
   security-scan:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/pr-security-scan.yml@main
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/pr-security-scan.yml@v1.0.0
     with:
       runner_type: "blacksmith-4vcpu-ubuntu-2404"
       dockerhub_org: "lerianstudio"
@@ -74,7 +74,7 @@ on:
 
 jobs:
   security-scan:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/pr-security-scan.yml@main
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/pr-security-scan.yml@v1.0.0
     with:
       runner_type: "blacksmith-4vcpu-ubuntu-2404"
       filter_paths: |-
@@ -96,7 +96,7 @@ on:
 
 jobs:
   security-scan:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/pr-security-scan.yml@main
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/pr-security-scan.yml@v1.0.0
     with:
       runner_type: "blacksmith-4vcpu-ubuntu-2404"
       filter_paths: |-
@@ -125,7 +125,7 @@ on:
 
 jobs:
   security-scan:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/pr-security-scan.yml@main
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/pr-security-scan.yml@v1.0.0
     with:
       runner_type: "blacksmith-4vcpu-ubuntu-2404"
       enable_docker_scan: false
@@ -359,7 +359,7 @@ with:
 
 ```yaml
 security-scan:
-  uses: LerianStudio/github-actions-shared-workflows/.github/workflows/pr-security-scan.yml@main
+  uses: LerianStudio/github-actions-shared-workflows/.github/workflows/pr-security-scan.yml@v1.0.0
   with:
     dockerhub_org: "mycompany"
     docker_registry: "ghcr.io"
@@ -372,7 +372,7 @@ security-scan:
 
 ```yaml
 security-scan:
-  uses: LerianStudio/github-actions-shared-workflows/.github/workflows/pr-security-scan.yml@main
+  uses: LerianStudio/github-actions-shared-workflows/.github/workflows/pr-security-scan.yml@v1.0.0
   with:
     runner_type: "blacksmith-4vcpu-ubuntu-2404"
     filter_paths: |-
@@ -389,7 +389,7 @@ security-scan:
 
 ```yaml
 security-scan:
-  uses: LerianStudio/github-actions-shared-workflows/.github/workflows/pr-security-scan.yml@main
+  uses: LerianStudio/github-actions-shared-workflows/.github/workflows/pr-security-scan.yml@v1.0.0
   with:
     runner_type: "blacksmith-4vcpu-ubuntu-2404"
     filter_paths: |-
@@ -434,7 +434,7 @@ jobs:
         run: make test
 
   security-scan:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/pr-security-scan.yml@main
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/pr-security-scan.yml@v1.0.0
     with:
       runner_type: "blacksmith-4vcpu-ubuntu-2404"
       filter_paths: |-

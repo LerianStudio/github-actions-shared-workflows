@@ -26,7 +26,7 @@ on:
 
 jobs:
   release:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/go-release.yml@main
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/go-release.yml@v1.0.0
 ```
 
 ### With Docker Publishing
@@ -40,7 +40,7 @@ on:
 
 jobs:
   release:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/go-release.yml@main
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/go-release.yml@v1.0.0
     with:
       enable_docker: true
       docker_registry: 'ghcr.io'
@@ -61,7 +61,7 @@ on:
 
 jobs:
   release:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/go-release.yml@main
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/go-release.yml@v1.0.0
     with:
       enable_homebrew: true
       homebrew_tap_repo: 'myorg/homebrew-tap'
@@ -81,7 +81,7 @@ on:
 
 jobs:
   release:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/go-release.yml@main
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/go-release.yml@v1.0.0
     with:
       go_version: '1.23'
       goreleaser_distribution: 'goreleaser'
@@ -146,7 +146,7 @@ Sends release notifications.
 ```yaml
 jobs:
   release:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/go-release.yml@main
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/go-release.yml@v1.0.0
 ```
 
 ### With GoReleaser Pro
@@ -154,7 +154,7 @@ jobs:
 ```yaml
 jobs:
   release:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/go-release.yml@main
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/go-release.yml@v1.0.0
     with:
       goreleaser_distribution: 'goreleaser-pro'
     secrets: inherit
@@ -167,7 +167,7 @@ jobs:
 ```yaml
 jobs:
   release:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/go-release.yml@main
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/go-release.yml@v1.0.0
     with:
       run_tests_before_release: false
 ```
@@ -186,7 +186,7 @@ jobs:
 ## Tips
 
 1. Test GoReleaser locally: `goreleaser release --snapshot --clean`
-2. Pin workflow version: Use `@v1.0.0` instead of `@main`
+2. Pin workflow version: Use `@v1.0.0` instead of `@v1.0.0`
 3. CHANGELOG: GoReleaser generates from commits and PRs
 4. Draft releases: Use GoReleaser's `draft: true` for manual approval
 5. Custom builds: Configure `.goreleaser.yml` for your needs
