@@ -75,6 +75,32 @@ reusable: go-ci.yml
 | Manage multiple jobs or runners | Reusable workflow only |
 | Route secrets to jobs | Reusable workflow only |
 
+## self-* workflows (entrypoints for this repo)
+
+Files prefixed with `self-` (e.g. `self-labels-sync.yml`, `self-branch-cleanup.yml`) are **thin entrypoints** for this repository's own automation. They are not reusable workflows.
+
+Rules for `self-*` files:
+- **Must NOT have `workflow_call`** — they are not offered to external callers
+- **Must NOT have `dry_run` as a required input** — optional at most, default `true` for destructive operations
+- Must call the corresponding reusable workflow via local path (`./.github/workflows/<name>.yml`)
+- Triggers are repo-specific: `push`, `schedule`, `pull_request`, `workflow_dispatch`
+
+```yaml
+# ✅ Correct self-* structure
+name: Self — Labels Sync
+on:
+  push:
+    branches: [main]
+    paths: [".github/labels.yml"]
+  workflow_dispatch:
+jobs:
+  sync:
+    uses: ./.github/workflows/labels-sync.yml  # local path only
+    secrets: inherit
+```
+
+---
+
 ## Workflow structure
 
 Every reusable workflow must:

@@ -35,10 +35,17 @@ reviews:
     - "!.releaserc.yml"
 
   path_instructions:
+    - path: ".github/workflows/self-*.yml"
+      instructions: |
+        This is a self-use entrypoint for this repository — NOT a reusable workflow.
+        Do NOT flag missing `workflow_call` — these files intentionally omit it.
+        Do NOT flag missing `dry_run` — not required for entrypoints.
+        Must call the corresponding reusable workflow via local path and contain no business logic.
+
     - path: ".github/workflows/*.yml"
       instructions: |
         This is a reusable workflow in a shared CI/CD library. Repo-specific rules:
-        - Both `workflow_call` and `workflow_dispatch` must be present
+        - Both `workflow_call` and `workflow_dispatch` must be present (except self-* files)
         - Workflows that apply state changes must have a `dry_run` boolean input (default: false)
         - Composites must use local path only: `./src/<capability>/<name>` — never an external ref
         - A `docs/<filename>.md` matching this workflow's name must exist or be added in this PR
