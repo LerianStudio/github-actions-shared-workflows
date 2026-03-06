@@ -18,9 +18,6 @@ on:
         type: boolean
         required: false
         default: false
-    secrets:
-      GITHUB_TOKEN:
-        required: false
   workflow_dispatch:
     inputs:
       config:
