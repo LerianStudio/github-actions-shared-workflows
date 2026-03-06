@@ -57,7 +57,7 @@ jobs:
       is_stable: ${{ steps.check-tag.outputs.is_stable }}
     steps:
       - name: Checkout for branch check
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
@@ -134,7 +134,7 @@ jobs:
 
       - name: Checkout repository
         if: steps.check-tag.outputs.is_stable == 'true' || inputs.stable_releases_only == false
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
@@ -252,7 +252,7 @@ jobs:
           private-key: ${{ secrets.LERIAN_STUDIO_MIDAZ_PUSH_BOT_PRIVATE_KEY }}
 
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
           token: ${{ steps.app-token.outputs.token }}
