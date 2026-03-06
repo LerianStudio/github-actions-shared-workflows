@@ -196,7 +196,16 @@ Always use `.yml` extension — never `.yaml`:
 
 ## Documentation naming
 
-The doc file in `docs/` must have the **exact same name** as the workflow file, with `.md` extension:
+The doc file in `docs/` must have the **exact same name** as the workflow file, with `.md` extension, and must start with the Lerian branding header:
+
+```markdown
+<table border="0" cellspacing="0" cellpadding="0">
+  <tr>
+    <td><img src="https://github.com/LerianStudio.png" width="72" alt="Lerian" /></td>
+    <td><h1>workflow-name</h1></td>
+  </tr>
+</table>
+```
 
 ```
 .github/workflows/go-ci.yml        → docs/go-ci.md          ✅
