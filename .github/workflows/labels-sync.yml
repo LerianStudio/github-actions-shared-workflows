@@ -47,7 +47,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Sync labels
-        uses: ./src/labels-sync
+        uses: ./src/config/labels-sync
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           config: ${{ inputs.config || '.github/labels.yml' }}
