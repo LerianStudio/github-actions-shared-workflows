@@ -118,6 +118,22 @@ src/config/labels-sync/   ← any repo
 4. Usage as reusable workflow (full YAML with `secrets: inherit`)
 5. Required permissions block
 
+### Usage example ref policy
+
+Examples in README.md must never use `@main`. Use the correct ref for each context:
+
+```yaml
+# ✅ Testing — point to develop or feature branch
+uses: LerianStudio/github-actions-shared-workflows/.github/workflows/labels-sync.yml@develop
+uses: LerianStudio/github-actions-shared-workflows/.github/workflows/labels-sync.yml@feat/my-branch
+
+# ✅ Production — always a pinned stable version
+uses: LerianStudio/github-actions-shared-workflows/.github/workflows/labels-sync.yml@v1.2.3
+
+# ❌ Never in examples
+uses: LerianStudio/github-actions-shared-workflows/.github/workflows/labels-sync.yml@main
+```
+
 ## After creating a new composite
 
 - Update root `README.md` if the composite is meant to be used by external callers

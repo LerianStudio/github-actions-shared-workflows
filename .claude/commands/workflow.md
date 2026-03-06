@@ -176,6 +176,22 @@ The doc file in `docs/` must have the **exact same name** as the workflow file, 
 
 Every new reusable workflow must have a corresponding `docs/<workflow-name>.md`.
 
+### Usage example ref policy
+
+Examples in `docs/` must never use `@main`. Use the correct ref for each context:
+
+```yaml
+# ✅ Testing — point to develop or feature branch
+uses: LerianStudio/github-actions-shared-workflows/.github/workflows/go-ci.yml@develop
+uses: LerianStudio/github-actions-shared-workflows/.github/workflows/go-ci.yml@feat/my-branch
+
+# ✅ Production — always a pinned stable version
+uses: LerianStudio/github-actions-shared-workflows/.github/workflows/go-ci.yml@v1.2.3
+
+# ❌ Never in examples
+uses: LerianStudio/github-actions-shared-workflows/.github/workflows/go-ci.yml@main
+```
+
 ## Anti-patterns
 
 ```yaml

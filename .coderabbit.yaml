@@ -27,7 +27,7 @@ reviews:
   suggest_reviewers: true
   auto_assign_reviewers: false
 
-  request_changes_workflow: false
+  request_changes_workflow: true
 
   abort_on_close: true
 
@@ -56,11 +56,13 @@ reviews:
     - path: "src/**/README.md"
       instructions: |
         Composite action README. Verify inputs table matches `action.yml` exactly (name, required, default).
+        Flag any usage example that references `@main` — examples must use `@develop` or `@feat/<branch>` for testing and `@vX.Y.Z` for production.
 
     - path: "docs/*.md"
       instructions: |
         Workflow documentation. Filename must exactly match the workflow file (e.g., `go-ci.yml` → `docs/go-ci.md`).
         Flag if inputs table is out of sync with the corresponding workflow changes in this PR.
+        Flag any usage example that references `@main` — examples must use `@develop` or `@feat/<branch>` for testing and `@vX.Y.Z` for production.
 
   auto_review:
     enabled: true
