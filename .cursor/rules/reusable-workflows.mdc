@@ -6,6 +6,35 @@ alwaysApply: false
 
 # Reusable Workflows
 
+## Modifying an existing workflow?
+
+Follow the **refactoring protocol** in `.cursor/rules/refactoring.mdc` before making any change. Always produce a plan and wait for confirmation.
+
+---
+
+## Before you create anything
+
+**Step 1 — Check if it already exists in this repo**
+
+Search `.github/workflows/` before starting. If a workflow already covers the same pipeline:
+
+- Summarize what the existing workflow does, its jobs, inputs, and secrets
+- Identify the gap between the existing behavior and the new requirement
+- Propose an **adaptation plan** (add a job, add an input, expose a new secret) instead of creating a new workflow file
+
+**Step 2 — Check the GitHub Actions Marketplace first**
+
+Before implementing custom steps inside a workflow, search the [Marketplace](https://github.com/marketplace?type=actions) for actions that already solve the problem:
+
+- Prefer a well-maintained action over custom shell scripting for non-trivial logic
+- If the action needs wrapping (normalization, extra steps), create a composite in `src/` and call it from the workflow — don't inline complex shell in the workflow itself
+- Pin to a specific tag or SHA — never `@main` or `@master`
+- Document in `docs/<workflow-name>.md` why that action was chosen
+
+Only implement from scratch when no suitable action exists or when existing ones don't meet security or customization requirements.
+
+---
+
 ## Architecture model
 
 ```

@@ -1,6 +1,128 @@
 # GitHub Actions — Full Rules & Conventions
 
 Complete reference for this repository. Use `/workflow` or `/composite` for focused context.
+For refactoring existing files, use `/refactor`.
+
+---
+
+## Modifying an existing workflow or composite?
+
+Apply the refactoring protocol below **before making any change** to an existing file.
+
+Never apply changes directly. Always produce a plan, wait for explicit user confirmation, then apply one step at a time.
+
+### Protocol summary
+
+**Step 1 — Analyze the current state**
+
+Read the target file completely and produce a structured summary:
+
+```
+Current state of <file>:
+- Purpose        : what the workflow/composite does
+- Inputs         : list all current inputs and their defaults
+- Outputs        : list all current outputs
+- Jobs/Steps     : list jobs (workflow) or steps (composite)
+- Callers        : note any known repos or workflows that reference this
+- dry_run        : present / absent
+```
+
+**Step 2 — Produce the refactoring plan**
+
+Present the plan as a numbered step list. Each step must include:
+
+```
+Step N — [Label]
+  Change : <what will be modified>
+  Reason : <why>
+  Impact : additive | behavioral | breaking
+  Safe   : yes | no — <explanation>
+```
+
+**Step 3 — Flag attention points**
+
+- Input/output renamed, removed, or type-changed → **breaking**
+- New default that differs from old implicit behavior → **breaking**
+- Step order change affecting downstream outputs → **attention**
+- New required secret → **breaking for callers**
+- No `dry_run` and change applies state → propose adding `dry_run: false` input
+
+**Step 4 — Show breaking changes with migration guide**
+
+```
+⚠️ Breaking change in Step N
+
+Before:
+  with:
+    old_input: value
+
+After:
+  with:
+    new_input: value
+
+Migration: replace `old_input` with `new_input`.
+```
+
+**Step 5 — Propose test examples**
+
+For every behavioral change, provide a concrete test scenario using `dry_run: true` on `@develop`.
+
+**Step 6 — Confirm before applying**
+
+Ask the user to confirm each step explicitly. Do not apply any change until confirmed:
+
+```
+Ready to apply?
+
+  [ ] Step 1 — <label>
+  [ ] Step 2 — <label>
+
+Reply with step numbers, "all", or "cancel".
+```
+
+**Step 7 — Apply one step at a time**
+
+Show a diff summary after each step. Wait for confirmation before proceeding to independent steps.
+
+**Step 8 — Update documentation**
+
+Update `docs/<workflow-name>.md` or composite `README.md` to reflect all confirmed changes.
+
+### What must never change without explicit confirmation
+
+- Default values of existing inputs
+- Names of existing inputs or outputs
+- Behavior when optional inputs are omitted
+- Step ordering when downstream steps depend on earlier outputs
+- Required secrets — adding one is always a breaking change for callers
+
+---
+
+## Before you create anything
+
+These checks apply to **both reusable workflows and composite actions**.
+
+**Step 1 — Check if it already exists in this repo**
+
+- Workflows: search `.github/workflows/`
+- Composites: search `src/`
+
+If something already covers the same capability:
+
+- Summarize what the existing implementation does (jobs/steps, inputs, secrets)
+- Identify the gap between the existing behavior and the new requirement
+- Propose an **adaptation plan** (add an input, add a job, extend steps) instead of creating a new file
+
+**Step 2 — Check the GitHub Actions Marketplace first**
+
+Before writing custom steps from scratch, search the [Marketplace](https://github.com/marketplace?type=actions):
+
+- Prefer a well-maintained marketplace action over custom shell scripting for non-trivial logic
+- If the action needs wrapping, create a composite in `src/` — don't inline complex shell directly in a workflow
+- Pin to a specific tag or SHA — never `@main` or `@master`
+- Document in the README or `docs/` why that action was chosen
+
+Only implement from scratch when no suitable action exists or when existing ones don't meet security or customization requirements.
 
 ---
 
@@ -278,7 +400,6 @@ src/config/labels-sync/   ← any repo
 
 ## After creating a new composite
 
-- Add to `.github/CODEOWNERS`: `src/<capability>/<name>/  @LerianStudio/devops-team`
 - Update root `README.md` if the composite is meant to be used by external callers
 
 ### Labels checklist

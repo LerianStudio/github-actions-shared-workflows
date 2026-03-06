@@ -12,9 +12,10 @@ Every change here can affect all repositories in the organization that consume t
 Full documentation: [`README.md`](README.md) | Contributing: [`CONTRIBUTING.md`](CONTRIBUTING.md) | Security: [`SECURITY.md`](SECURITY.md)
 
 **Claude Code CLI commands** (load at session start for full context):
-- `/gha` — complete reference (workflows + composites)
+- `/gha` — complete reference (workflows + composites + refactoring protocol)
 - `/workflow` — reusable workflow rules only
 - `/composite` — composite action rules only
+- `/refactor` — refactoring protocol for modifying existing workflows or composites
 
 ---
 
@@ -33,6 +34,7 @@ Each composite must have an `action.yml` and a `README.md`.
 Full rules:
 - Composite actions → `.cursor/rules/composite-actions.mdc` or `/composite`
 - Reusable workflows → `.cursor/rules/reusable-workflows.mdc` or `/workflow`
+- Modifying existing files → `.cursor/rules/refactoring.mdc` or `/refactor`
 
 ### Local path rule for composites
 
@@ -93,6 +95,21 @@ Key fields to always complete:
 
 PR titles must follow Conventional Commits: `type(scope): subject` (lowercase, imperative, max 72 chars).  
 PRs always target `develop` — never `main` directly.
+
+---
+
+## Refactoring existing workflows or composites
+
+Before modifying any existing file, follow the refactoring protocol in `.cursor/rules/refactoring.mdc` (or run `/refactor` in Claude CLI):
+
+1. Summarize the current state of the file (inputs, outputs, jobs/steps, dry_run presence)
+2. Produce a numbered plan with impact classification for each change
+3. Flag breaking changes explicitly and provide a migration guide
+4. Propose test examples using `dry_run: true` on `@develop`
+5. **Ask the user to confirm each step before applying** — never apply changes without confirmation
+6. Apply one step at a time and update documentation after all confirmed steps
+
+**What must never change without explicit confirmation:** input/output names, default values, step ordering that affects downstream outputs, required secrets.
 
 ---
 

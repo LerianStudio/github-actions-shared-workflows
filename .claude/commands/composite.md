@@ -2,6 +2,29 @@
 
 Use these rules whenever creating or editing a composite action in `src/`.
 
+## Before you create anything
+
+**Step 1 — Check if it already exists in this repo**
+
+Search `src/` before starting. If a composite already covers the same capability:
+
+- Summarize what the existing composite does and which inputs it exposes
+- Identify the gap between the existing behavior and the new requirement
+- Propose an **adaptation plan** (add an input, extend steps, split into two) instead of creating a new file
+
+**Step 2 — Check the GitHub Actions Marketplace first**
+
+Before writing custom steps from scratch, search the [Marketplace](https://github.com/marketplace?type=actions) for an existing action that covers the need:
+
+- Prefer a well-maintained marketplace action over custom shell scripting for non-trivial logic
+- Wrap it in a composite if it needs input normalization or additional steps
+- Pin to a specific tag or SHA — never `@main` or `@master`
+- Document in the composite `README.md` why that action was chosen
+
+Only implement from scratch when no suitable action exists or when existing ones don't meet security or customization requirements.
+
+---
+
 ## Directory layout
 
 Composite actions are grouped by capability inside `src/`:
@@ -87,7 +110,6 @@ src/config/labels-sync/   ← any repo
 
 ## After creating a new composite
 
-- Add to `.github/CODEOWNERS`: `src/<capability>/<name>/  @LerianStudio/devops-team`
 - Update root `README.md` if the composite is meant to be used by external callers
 
 ### Labels checklist
