@@ -175,6 +175,8 @@ reusable: go-ci.yml
 Files prefixed with `self-` are **thin entrypoints** for this repository's own automation — not reusable workflows.
 
 - **Must NOT have `workflow_call`** — not offered to external callers
+- **`dry_run` is not required** — omit it unless the workflow performs destructive operations
+- **When `dry_run` is present**, it must be: `type: boolean`, `required: false`, `default: true` for destructive ops (delete, purge) or `default: false` for non-destructive ops (sync, notify)
 - Must call the corresponding reusable workflow via local path (`./.github/workflows/<name>.yml`)
 - Triggers are repo-specific: `push`, `schedule`, `pull_request`, `workflow_dispatch`
 - Must not contain business logic

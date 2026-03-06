@@ -81,9 +81,11 @@ Files prefixed with `self-` (e.g. `self-labels-sync.yml`, `self-branch-cleanup.y
 
 Rules for `self-*` files:
 - **Must NOT have `workflow_call`** — they are not offered to external callers
-- **Must NOT have `dry_run` as a required input** — optional at most, default `true` for destructive operations
+- **`dry_run` is not required** — omit it unless the workflow performs destructive operations
+- **When `dry_run` is present**, it must be: `type: boolean`, `required: false`, `default: true` for destructive ops (delete, purge) or `default: false` for non-destructive ops (sync, notify)
 - Must call the corresponding reusable workflow via local path (`./.github/workflows/<name>.yml`)
 - Triggers are repo-specific: `push`, `schedule`, `pull_request`, `workflow_dispatch`
+- Must not contain business logic
 
 ```yaml
 # ✅ Correct self-* structure

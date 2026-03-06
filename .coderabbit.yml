@@ -39,7 +39,8 @@ reviews:
       instructions: |
         This is a self-use entrypoint for this repository — NOT a reusable workflow.
         Do NOT flag missing `workflow_call` — these files intentionally omit it.
-        Do NOT flag missing `dry_run` — not required for entrypoints.
+        `dry_run` is not required; flag it only if it is marked `required: true` or lacks a default value.
+        When `dry_run` is present it must be: type boolean, required false, default true for destructive operations (delete, purge) or default false for non-destructive ones (sync, notify).
         Must call the corresponding reusable workflow via local path and contain no business logic.
 
     - path: ".github/workflows/*.yml"
