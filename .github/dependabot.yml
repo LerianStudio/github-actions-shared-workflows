@@ -1,31 +1,107 @@
 version: 2
 updates:
-  # Check for updates to GitHub Actions
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
       interval: "weekly"
       day: "monday"
+      time: "08:00"
+      timezone: "America/Sao_Paulo"
     target-branch: "develop"
     labels:
       - "dependencies"
       - "github-actions"
     commit-message:
-      prefix: "ci"
+      prefix: "chore"
       include: "scope"
-    # Limit the number of open PRs to avoid overwhelming maintainers
     open-pull-requests-limit: 10
-    # Add reviewers who should review dependency updates
     reviewers:
       - "LerianStudio/devops-team"
-    # Group all updates together in a single PR
+    ignore:
+      # LerianStudio internal actions are pinned to @main intentionally
+      - dependency-name: "LerianStudio/*"
     groups:
-      github-actions:
+      # Core GitHub-provided actions (checkout, setup-*, upload/download-artifact, etc.)
+      actions-core:
         patterns:
-          - "*"
+          - "actions/*"
         update-types:
           - "major"
           - "minor"
           - "patch"
 
+      # Docker build and registry actions
+      docker:
+        patterns:
+          - "docker/*"
+        update-types:
+          - "major"
+          - "minor"
+          - "patch"
 
+      # GitHub-owned security and analysis actions (CodeQL, dependency-review)
+      github-security:
+        patterns:
+          - "github/codeql-action*"
+          - "actions/dependency-review-action"
+        update-types:
+          - "major"
+          - "minor"
+          - "patch"
+
+      # Third-party security scanning tools
+      security-scanners:
+        patterns:
+          - "aquasecurity/trivy-action"
+          - "securego/gosec"
+          - "sonatype-nexus-community/nancy-github-action"
+          - "trufflesecurity/trufflehog"
+          - "anchore/sbom-action"
+        update-types:
+          - "minor"
+          - "patch"
+
+      # Go ecosystem tooling
+      go-tooling:
+        patterns:
+          - "golangci/golangci-lint-action"
+          - "goreleaser/goreleaser-action"
+          - "fgrosse/go-coverage-report"
+        update-types:
+          - "major"
+          - "minor"
+          - "patch"
+
+      # Release and versioning actions
+      release:
+        patterns:
+          - "cycjimmy/semantic-release-action"
+          - "crazy-max/ghaction-import-gpg"
+          - "actions/create-github-app-token"
+        update-types:
+          - "major"
+          - "minor"
+          - "patch"
+
+      # Slack notification actions
+      notifications:
+        patterns:
+          - "rtCamp/action-slack-notify"
+          - "slackapi/slack-github-action"
+        update-types:
+          - "major"
+          - "minor"
+          - "patch"
+
+      # Miscellaneous third-party utilities
+      utilities:
+        patterns:
+          - "amannn/action-semantic-pull-request"
+          - "actions/labeler"
+          - "gaurav-nelson/github-action-markdown-link-check"
+          - "actions/github-script"
+          - "mikefarah/yq"
+        update-types:
+          - "major"
+          - "minor"
+          - "patch"

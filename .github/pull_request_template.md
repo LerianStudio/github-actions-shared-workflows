@@ -1,73 +1,46 @@
+<table border="0" cellspacing="0" cellpadding="0">
+  <tr>
+    <td><img src="https://github.com/LerianStudio.png" width="72" alt="Lerian" /></td>
+    <td><h1>GitHub Actions Shared Workflows</h1></td>
+  </tr>
+</table>
+
+---
+
 ## Description
 
-<!-- Provide a brief description of the changes in this PR -->
+<!-- Summarize what this PR does and why. List which workflow(s) are affected and what behavior changes. -->
 
 ## Type of Change
 
-<!-- Mark the relevant option with an "x" -->
-
-- [ ] `feat`: New feature or workflow
-- [ ] `fix`: Bug fix
-- [ ] `docs`: Documentation update
-- [ ] `refactor`: Code refactoring
-- [ ] `perf`: Performance improvement
+- [ ] `feat`: New workflow or new input/output/step in an existing workflow
+- [ ] `fix`: Bug fix in a workflow (incorrect behavior, broken step, wrong condition)
+- [ ] `perf`: Performance improvement (e.g. caching, parallelism, reduced steps)
+- [ ] `refactor`: Internal restructuring with no behavior change
+- [ ] `docs`: Documentation only (README, docs/, inline comments)
+- [ ] `ci`: Changes to self-CI (workflows under `.github/workflows/` that run on this repo)
+- [ ] `chore`: Dependency bumps, config updates, maintenance
 - [ ] `test`: Adding or updating tests
-- [ ] `ci`: CI/CD configuration changes
-- [ ] `chore`: Maintenance tasks
-- [ ] `BREAKING CHANGE`: Breaking change (requires major version bump)
-
-## Affected Workflows
-
-<!-- Mark all workflows affected by this PR -->
-
-- [ ] GitOps Update
-- [ ] API Dog E2E Tests
-- [ ] PR Security Scan
-- [ ] Release Workflow
-- [ ] Other (specify): _______________
-
-## Changes Made
-
-<!-- List the main changes in this PR -->
-
--
--
--
+- [ ] `BREAKING CHANGE`: Callers must update their configuration after this PR
 
 ## Breaking Changes
 
-<!-- If this is a breaking change, describe what breaks and how to migrate -->
+<!-- If applicable, describe exactly what breaks and how callers should migrate. Remove this section if not applicable. -->
 
-**None** / **Describe breaking changes here**
+None.
 
 ## Testing
 
-<!-- Describe how you tested these changes -->
+<!-- Shared workflows can't be unit-tested locally. Describe how you validated the change. -->
 
-- [ ] Tested locally
-- [ ] Tested in development environment
-- [ ] Tested with example repository: _______________
-- [ ] All existing workflows still work
+- [ ] YAML syntax validated locally
+- [ ] Triggered a real workflow run on a caller repository using `@develop` or the beta tag
+- [ ] Verified all existing inputs still work with default values
+- [ ] Confirmed no secrets or tokens are printed in logs
+- [ ] Checked that unrelated workflows are not affected
 
-## Checklist
-
-<!-- Ensure all items are completed before requesting review -->
-
-- [ ] Code follows conventional commit format
-- [ ] Documentation updated (if applicable)
-- [ ] Examples updated (if applicable)
-- [ ] No hardcoded secrets or sensitive data
-- [ ] Backward compatible (or breaking changes documented)
-- [ ] Self-review completed
-- [ ] Comments added for complex logic
+**Caller repo / workflow run:** <!-- Link to the Actions run that validated this change -->
 
 ## Related Issues
 
-<!-- Link any related issues -->
-
 Closes #
-Related to #
-
-## Additional Notes
-
-<!-- Add any additional context, screenshots, or information -->
