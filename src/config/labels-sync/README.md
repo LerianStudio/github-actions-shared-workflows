@@ -46,7 +46,7 @@ jobs:
       issues: write
       contents: read
     steps:
-      - uses: LerianStudio/github-actions-shared-workflows/src/labels-sync@main
+      - uses: LerianStudio/github-actions-shared-workflows/src/config/labels-sync@v1.0.0
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
 ```
@@ -56,7 +56,7 @@ jobs:
 ```yaml
 jobs:
   sync:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/labels-sync.yml@main
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/labels-sync.yml@v1.0.0
     with:
       dry_run: false
     secrets: inherit
@@ -65,7 +65,8 @@ jobs:
 ### Dry run (preview only)
 
 ```yaml
-- uses: LerianStudio/github-actions-shared-workflows/src/labels-sync@main
+# Use @develop or your feature branch to test before releasing
+- uses: LerianStudio/github-actions-shared-workflows/src/config/labels-sync@develop
   with:
     github-token: ${{ secrets.GITHUB_TOKEN }}
     dry-run: "true"
@@ -74,7 +75,7 @@ jobs:
 ### Sync without deleting unlisted labels
 
 ```yaml
-- uses: LerianStudio/github-actions-shared-workflows/src/labels-sync@main
+- uses: LerianStudio/github-actions-shared-workflows/src/config/labels-sync@v1.0.0
   with:
     github-token: ${{ secrets.GITHUB_TOKEN }}
     skip-delete: "true"

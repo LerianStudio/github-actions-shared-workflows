@@ -164,6 +164,13 @@ on:
 ❌  workflow.yml   pipeline.yml   ci.yml   action.yml
 ```
 
+Always use `.yml` extension — never `.yaml`:
+
+```
+✅  go-ci.yml   action.yml   labels.yml   dependabot.yml
+❌  go-ci.yaml  action.yaml  labels.yaml
+```
+
 ## Documentation naming
 
 The doc file in `docs/` must have the **exact same name** as the workflow file, with `.md` extension:

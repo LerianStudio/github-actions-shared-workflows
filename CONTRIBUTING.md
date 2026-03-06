@@ -102,6 +102,7 @@ When opening the PR, target the `develop` branch of the **upstream** (`LerianStu
 ### 2. Make your changes
 
 - Edit only the workflow file(s) relevant to your change
+- Always use `.yml` extension — never `.yaml` (applies to workflows, composites, and any YAML config files)
 - Follow YAML best practices (2-space indent, quoted strings for expressions)
 - Add inline comments for non-obvious steps or conditions
 - Update the corresponding doc in `docs/` if behavior or inputs/outputs changed
@@ -339,6 +340,7 @@ uses: LerianStudio/github-actions-shared-workflows/.github/workflows/go-ci.yml@m
 - **Always** target `develop` in your PRs (not `main`)
 - **Always** use the correct merge strategy — squash for feature PRs, merge commit for releases and backmerges
 - **Always** use Conventional Commits — the message type controls the version bump
+- **Always** use `.yml` extension — never `.yaml` for any YAML file in this repository
 - **Never** hardcode org-specific values (tokens, org names, URLs) — use `inputs` or `secrets`
 - **Always** update `docs/` when you change inputs, outputs, or behavior
 - **Ensure** backward compatibility when possible; document breaking changes clearly

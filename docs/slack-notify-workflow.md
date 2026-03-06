@@ -25,7 +25,7 @@ jobs:
   notify:
     needs: [build]
     if: always()
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/slack-notify.yml@main
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/slack-notify.yml@v1.0.0
     with:
       status: ${{ needs.build.result }}
       workflow_name: "Build Pipeline"
@@ -49,7 +49,7 @@ jobs:
   notify:
     needs: [lint, test]
     if: always()
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/slack-notify.yml@main
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/slack-notify.yml@v1.0.0
     with:
       status: ${{ needs.lint.result == 'failure' && 'failure' || needs.test.result }}
       workflow_name: "CI Pipeline"
@@ -61,7 +61,7 @@ jobs:
 
 ```yaml
 notify:
-  uses: LerianStudio/github-actions-shared-workflows/.github/workflows/slack-notify.yml@main
+  uses: LerianStudio/github-actions-shared-workflows/.github/workflows/slack-notify.yml@v1.0.0
   with:
     status: "success"
     workflow_name: "Release"
@@ -73,7 +73,7 @@ notify:
 
 ```yaml
 notify:
-  uses: LerianStudio/github-actions-shared-workflows/.github/workflows/slack-notify.yml@main
+  uses: LerianStudio/github-actions-shared-workflows/.github/workflows/slack-notify.yml@v1.0.0
   with:
     status: ${{ needs.build.result }}
     workflow_name: "Build"

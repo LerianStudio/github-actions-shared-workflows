@@ -56,6 +56,8 @@ src/config/labels-sync/
 └── README.md    ← required
 ```
 
+> **File extension rule:** always use `.yml`, never `.yaml`. This applies to `action.yml`, workflow files, and any YAML configuration files in this repository.
+
 ## action.yml structure
 
 ```yaml

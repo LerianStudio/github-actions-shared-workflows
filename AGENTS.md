@@ -64,6 +64,8 @@ Every reusable workflow must include a `dry_run` input (`boolean`, `default: fal
 | `.releaserc.yml` | Drives all release automation — changes need DevOps review |
 | `.github/CODEOWNERS` | Controls review routing — discuss with the team first |
 
+**File extension:** always use `.yml`, never `.yaml` — for workflows, composites, and any YAML config files.
+
 ---
 
 ## Opening issues

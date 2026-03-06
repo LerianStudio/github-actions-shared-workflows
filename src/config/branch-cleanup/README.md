@@ -22,6 +22,7 @@ Composite action that deletes stale branches (no commits for N days, no open PRs
 ### As a composite action (stale scan)
 
 ```yaml
+# Use @develop or your feature branch to test before releasing
 jobs:
   cleanup:
     runs-on: ubuntu-latest
@@ -30,7 +31,7 @@ jobs:
       pull-requests: read
     steps:
       - uses: actions/checkout@v4
-      - uses: LerianStudio/github-actions-shared-workflows/src/config/branch-cleanup@main
+      - uses: LerianStudio/github-actions-shared-workflows/src/config/branch-cleanup@develop
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           stale-days: "30"
@@ -47,7 +48,7 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v4
-      - uses: LerianStudio/github-actions-shared-workflows/src/config/branch-cleanup@main
+      - uses: LerianStudio/github-actions-shared-workflows/src/config/branch-cleanup@v1.0.0
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           merged-branch: ${{ github.head_ref }}

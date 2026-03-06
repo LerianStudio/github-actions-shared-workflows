@@ -19,6 +19,8 @@ Composite action  (src/<capability>/<name>/)  ← encapsulates steps
 
 Workflows are called via `workflow_call` and versioned with semantic tags. Pin to a specific tag in production — never use `@main`.
 
+All YAML files in this repository use the `.yml` extension — never `.yaml`.
+
 ## Available workflows
 
 See the [`docs/`](docs/) directory for the full list, inputs, outputs, and usage examples for each workflow.
