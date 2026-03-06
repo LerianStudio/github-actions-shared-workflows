@@ -24,7 +24,7 @@ on:
 
 jobs:
   detect-changes:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/changed-paths.yml@main
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/changed-paths.yml@v1.0.0
 
   build:
     needs: detect-changes
@@ -48,7 +48,7 @@ on:
 
 jobs:
   detect-changes:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/changed-paths.yml@main
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/changed-paths.yml@v1.0.0
     with:
       filter_paths: '["components/api", "components/web", "components/worker"]'
       path_level: 2
@@ -77,7 +77,7 @@ on:
 
 jobs:
   detect-changes:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/changed-paths.yml@main
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/changed-paths.yml@v1.0.0
     with:
       filter_paths: '["components/onboarding", "components/transaction", "components/ledger"]'
       path_level: 2
@@ -163,7 +163,7 @@ Detects changed files and extracts unique directories with optional filtering.
 ```yaml
 jobs:
   changes:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/changed-paths.yml@main
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/changed-paths.yml@v1.0.0
 ```
 
 ### Microservices Monorepo
@@ -171,7 +171,7 @@ jobs:
 ```yaml
 jobs:
   changes:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/changed-paths.yml@main
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/changed-paths.yml@v1.0.0
     with:
       filter_paths: '["services/auth", "services/users", "services/orders", "services/payments"]'
       path_level: 2
@@ -184,7 +184,7 @@ jobs:
 ```yaml
 jobs:
   changes:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/changed-paths.yml@main
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/changed-paths.yml@v1.0.0
     with:
       filter_paths: '["packages/ui", "packages/utils", "apps/web", "apps/mobile"]'
       path_level: 2
@@ -195,7 +195,7 @@ jobs:
 ```yaml
 jobs:
   detect:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/changed-paths.yml@main
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/changed-paths.yml@v1.0.0
     with:
       filter_paths: '["src/backend"]'
 
@@ -221,7 +221,7 @@ The `path_level` input trims paths to the first N segments:
 
 ## Tips
 
-1. **Pin to a version tag**: Use `@v1.0.0` instead of `@main` for production stability
+1. **Pin to a version tag**: Use `@v1.0.0` instead of `@v1.0.0` for production stability
 2. **Use `has_changes` output**: Skip downstream jobs when no relevant changes are detected
 3. **Path level for consistency**: Use `path_level` to normalize paths to component directories
 4. **Filter early**: Use `filter_paths` to focus on relevant directories and reduce noise

@@ -51,7 +51,7 @@ permissions:
 jobs:
   release:
     name: Create Release
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/typescript-release.yml@main
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/typescript-release.yml@v1.0.0
     secrets: inherit
 ```
 
@@ -60,7 +60,7 @@ jobs:
 ```yaml
 jobs:
   release:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/typescript-release.yml@main
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/typescript-release.yml@v1.0.0
     with:
       runner_type: "blacksmith-4vcpu-ubuntu-2404"
       node_version: "22"
@@ -72,7 +72,7 @@ jobs:
 ```yaml
 jobs:
   release:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/typescript-release.yml@main
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/typescript-release.yml@v1.0.0
     with:
       dry_run: true
     secrets: inherit
@@ -85,7 +85,7 @@ This runs semantic-release without creating tags, GitHub releases, or pushing co
 ```yaml
 jobs:
   release:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/typescript-release.yml@main
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/typescript-release.yml@v1.0.0
     with:
       filter_paths: |
         apps/api
@@ -121,7 +121,7 @@ jobs:
 
   release:
     needs: test
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/typescript-release.yml@main
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/typescript-release.yml@v1.0.0
     with:
       runner_type: "blacksmith-4vcpu-ubuntu-2404"
       node_version: "20"
