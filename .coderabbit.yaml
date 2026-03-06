@@ -19,12 +19,11 @@ reviews:
   sequence_diagrams: false
 
   poem: false
-  poem_instructions: ""
 
-  suggest_labels: true
+  suggested_labels: true
   auto_apply_labels: false
 
-  suggest_reviewers: true
+  suggested_reviewers: true
   auto_assign_reviewers: false
 
   request_changes_workflow: true
