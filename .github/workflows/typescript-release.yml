@@ -126,7 +126,7 @@ jobs:
           git reset --hard origin/${{ github.ref_name }}
 
       - name: Import GPG key
-        uses: crazy-max/ghaction-import-gpg@v6
+        uses: crazy-max/ghaction-import-gpg@v7
         id: import_gpg
         with:
           gpg_private_key: ${{ secrets.LERIAN_CI_CD_USER_GPG_KEY }}
