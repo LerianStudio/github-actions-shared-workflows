@@ -170,6 +170,33 @@ reusable: go-ci.yml
 | Manage multiple jobs or runners | Reusable workflow only |
 | Route secrets to jobs | Reusable workflow only |
 
+## self-* workflows (entrypoints for this repo)
+
+Files prefixed with `self-` are **thin entrypoints** for this repository's own automation — not reusable workflows.
+
+- **Must NOT have `workflow_call`** — not offered to external callers
+- **`dry_run` is not required** — omit it unless the workflow performs destructive operations
+- **When `dry_run` is present**, it must be: `type: boolean`, `required: false`, `default: true` for destructive ops (delete, purge) or `default: false` for non-destructive ops (sync, notify)
+- Must call the corresponding reusable workflow via local path (`./.github/workflows/<name>.yml`)
+- Triggers are repo-specific: `push`, `schedule`, `pull_request`, `workflow_dispatch`
+- Must not contain business logic
+
+```yaml
+# ✅ Correct self-* structure
+name: Self — Labels Sync
+on:
+  push:
+    branches: [main]
+    paths: [".github/labels.yml"]
+  workflow_dispatch:
+jobs:
+  sync:
+    uses: ./.github/workflows/labels-sync.yml
+    secrets: inherit
+```
+
+---
+
 ## Workflow structure
 
 Every reusable workflow must:
@@ -276,7 +303,16 @@ Always use `.yml` extension — never `.yaml`:
 
 ## Documentation naming
 
-The doc file in `docs/` must have the **exact same name** as the workflow file, with `.md` extension:
+The doc file in `docs/` must have the **exact same name** as the workflow file, with `.md` extension, and must start with the Lerian branding header:
+
+```markdown
+<table border="0" cellspacing="0" cellpadding="0">
+  <tr>
+    <td><img src="https://github.com/LerianStudio.png" width="72" alt="Lerian" /></td>
+    <td><h1>workflow-name</h1></td>
+  </tr>
+</table>
+```
 
 ```
 .github/workflows/go-ci.yml        → docs/go-ci.md          ✅
