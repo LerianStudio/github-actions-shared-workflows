@@ -192,6 +192,7 @@ runs:
         echo "  tags       : ${{ steps.meta.outputs.tags }}"
         echo "  registries : ${{ steps.image-names.outputs.images }}"
 
+    # Dry-run uses only linux/amd64 for fast validation (QEMU multi-platform is slow)
     - name: Build Docker image (dry run)
       if: ${{ inputs.dry-run == 'true' }}
       id: build-dry

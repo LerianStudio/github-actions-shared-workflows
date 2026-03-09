@@ -164,8 +164,9 @@ jobs:
 
       - name: Set matrix
         id: set-matrix
+        env:
+          COMPONENTS_JSON: ${{ inputs.components_json }}
         run: |
-          COMPONENTS_JSON='${{ inputs.components_json }}'
           if [ -n "$COMPONENTS_JSON" ]; then
             echo "matrix=$COMPONENTS_JSON" >> $GITHUB_OUTPUT
             echo "has_builds=true" >> $GITHUB_OUTPUT
@@ -200,6 +201,8 @@ jobs:
         id: set-version
         run: |
           TAG="${GITHUB_REF#refs/tags/}"
+          # Strips optional prefix from tags like "my-app-v1.0.0" → "v1.0.0"
+          # For standard semver tags (v1.0.0, v1.0.0-beta.1) this is a no-op
           VERSION=$(echo "$TAG" | sed 's/.*-\(v[0-9]\)/\1/')
           echo "version=$VERSION" >> $GITHUB_OUTPUT
 
@@ -218,7 +221,7 @@ jobs:
         uses: actions/checkout@v6
 
       - name: Build and push Docker image
-        uses: LerianStudio/github-actions-shared-workflows/src/build/docker-build-ts@feat/typescript-build
+        uses: LerianStudio/github-actions-shared-workflows/src/build/docker-build-ts@develop
         with:
           enable-dockerhub: ${{ inputs.enable_dockerhub }}
           enable-ghcr: ${{ inputs.enable_ghcr }}
@@ -251,7 +254,7 @@ jobs:
 
       - name: Upload GitOps tag artifact
         if: inputs.enable_gitops_artifacts && !inputs.dry_run
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: gitops-tags-${{ matrix.app.name }}
           path: gitops-tags/
