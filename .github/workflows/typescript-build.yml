@@ -166,28 +166,44 @@ jobs:
         id: set-matrix
         env:
           COMPONENTS_JSON: ${{ inputs.components_json }}
+          FILTER_PATHS: ${{ inputs.filter_paths }}
+          CHANGED_MATRIX: ${{ steps.changed-paths.outputs.matrix }}
+          REPO_NAME: ${{ github.event.repository.name }}
         run: |
           if [ -n "$COMPONENTS_JSON" ]; then
-            echo "matrix=$COMPONENTS_JSON" >> $GITHUB_OUTPUT
+            {
+              echo 'matrix<<EOF'
+              printf '%s\n' "$COMPONENTS_JSON"
+              echo EOF
+            } >> "$GITHUB_OUTPUT"
             echo "has_builds=true" >> $GITHUB_OUTPUT
-          elif [ -z "${{ inputs.filter_paths }}" ]; then
-            APP_NAME="${{ github.event.repository.name }}"
-            echo "matrix=[{\"name\": \"${APP_NAME}\", \"working_dir\": \".\"}]" >> $GITHUB_OUTPUT
+          elif [ -z "$FILTER_PATHS" ]; then
+            echo "matrix=[{\"name\": \"${REPO_NAME}\", \"working_dir\": \".\"}]" >> $GITHUB_OUTPUT
             echo "has_builds=true" >> $GITHUB_OUTPUT
           else
-            MATRIX='${{ steps.changed-paths.outputs.matrix }}'
-            if [ "$MATRIX" == "[]" ] || [ -z "$MATRIX" ]; then
+            if [ "$CHANGED_MATRIX" == "[]" ] || [ -z "$CHANGED_MATRIX" ]; then
               echo "matrix=[]" >> $GITHUB_OUTPUT
               echo "has_builds=false" >> $GITHUB_OUTPUT
             else
-              echo "matrix=$MATRIX" >> $GITHUB_OUTPUT
+              {
+                echo 'matrix<<EOF'
+                printf '%s\n' "$CHANGED_MATRIX"
+                echo EOF
+              } >> "$GITHUB_OUTPUT"
               echo "has_builds=true" >> $GITHUB_OUTPUT
             fi
           fi
 
       - name: Set platforms based on tag type
         id: set-platforms
+        env:
+          REF_TYPE: ${{ github.ref_type }}
+          DRY_RUN: ${{ inputs.dry_run }}
         run: |
+          if [ "$REF_TYPE" != "tag" ] && [ "$DRY_RUN" != "true" ]; then
+            echo "::error::This workflow requires a tag ref. Use dry_run for branch dispatches."
+            exit 1
+          fi
           TAG="${GITHUB_REF#refs/tags/}"
           if [[ "$TAG" == *"-beta"* ]] || [[ "$TAG" == *"-rc"* ]]; then
             echo "platforms=linux/amd64" >> $GITHUB_OUTPUT
@@ -199,8 +215,19 @@ jobs:
 
       - name: Extract version from tag
         id: set-version
+        env:
+          REF_TYPE: ${{ github.ref_type }}
+          DRY_RUN: ${{ inputs.dry_run }}
         run: |
           TAG="${GITHUB_REF#refs/tags/}"
+          if [ "$REF_TYPE" != "tag" ]; then
+            if [ "$DRY_RUN" == "true" ]; then
+              echo "version=v0.0.0-dry-run" >> $GITHUB_OUTPUT
+              exit 0
+            fi
+            echo "::error::Cannot extract version — ref is not a tag."
+            exit 1
+          fi
           # Strips optional prefix from tags like "my-app-v1.0.0" → "v1.0.0"
           # For standard semver tags (v1.0.0, v1.0.0-beta.1) this is a no-op
           VERSION=$(echo "$TAG" | sed 's/.*-\(v[0-9]\)/\1/')
@@ -292,7 +319,7 @@ jobs:
       helm_repository: ${{ inputs.helm_repository }}
       chart: ${{ inputs.helm_chart }}
       target_ref: ${{ inputs.helm_target_ref }}
-      version: ${{ github.ref_name }}
+      version: ${{ needs.prepare.outputs.version }}
       components_json: ${{ needs.prepare.outputs.matrix }}
       components_base_path: ${{ inputs.helm_components_base_path }}
       env_file: ${{ inputs.helm_env_file }}
