@@ -1,0 +1,300 @@
+name: "TypeScript Build and Push Docker Images"
+
+# Reusable workflow for building and pushing Docker images from TypeScript/Node.js projects
+# Built-in npmrc secret for GitHub Packages private @lerianstudio dependencies
+#
+# Features:
+# - Native npmrc authentication for GitHub Packages (always injected)
+# - Multi-component matrix via components_json or monorepo change detection
+# - Multi-registry support (GHCR and/or DockerHub)
+# - Platform strategy: beta/rc builds amd64 only, release builds amd64+arm64
+# - Semantic versioning tags
+# - GitOps artifacts upload for downstream gitops-update workflow
+# - Helm chart dispatch for automatic version updates in Helm repositories
+# - Dry-run mode for validation without pushing images
+#
+# Why use this instead of build.yml?
+# - build.yml defaults to DockerHub and requires manual build_secrets for npmrc
+# - typescript-build.yml defaults to GHCR, always injects npmrc, and treats
+#   build_secrets as additive (extra secrets on top of npmrc)
+
+on:
+  workflow_call:
+    inputs:
+      runner_type:
+        description: 'Runner to use for the workflow'
+        type: string
+        default: 'blacksmith-4vcpu-ubuntu-2404'
+      dry_run:
+        description: 'Preview changes without pushing images'
+        required: false
+        type: boolean
+        default: false
+      filter_paths:
+        description: 'Newline-separated list of path prefixes to filter. If not provided, builds from root.'
+        type: string
+        required: false
+        default: ''
+      path_level:
+        description: 'Limits the path to the first N segments (e.g., 2 -> "apps/agent")'
+        type: string
+        default: '2'
+      enable_dockerhub:
+        description: 'Enable pushing to DockerHub'
+        type: boolean
+        default: false
+      enable_ghcr:
+        description: 'Enable pushing to GitHub Container Registry'
+        type: boolean
+        default: true
+      dockerhub_org:
+        description: 'DockerHub organization name'
+        type: string
+        default: 'lerianstudio'
+      ghcr_org:
+        description: 'GHCR organization name (defaults to repository owner)'
+        type: string
+        default: ''
+      dockerfile_name:
+        description: 'Name of the Dockerfile'
+        type: string
+        default: 'Dockerfile'
+      app_name_prefix:
+        description: 'Prefix for app names in monorepo (e.g., "midaz" results in "midaz-agent")'
+        type: string
+        default: ''
+      app_name_overrides:
+        description: 'Explicit app name mappings in "path:name" format. Use "path:" for prefix-only.'
+        type: string
+        default: ''
+      build_context:
+        description: 'Docker build context (defaults to repository root)'
+        type: string
+        default: '.'
+      build_secrets:
+        description: 'Additional secrets for docker build (one per line). npmrc is always included automatically.'
+        type: string
+        default: ''
+      enable_gitops_artifacts:
+        description: 'Enable GitOps artifacts upload for downstream gitops-update workflow'
+        type: boolean
+        default: false
+      components_json:
+        description: 'JSON array of components to build. Each entry must have "name" and "working_dir", optionally "dockerfile". Skips change detection when provided.'
+        type: string
+        default: ''
+      normalize_to_filter:
+        description: 'Normalize changed paths to their filter path. Recommended for monorepos.'
+        type: boolean
+        default: true
+      # Helm dispatch configuration
+      enable_helm_dispatch:
+        description: 'Enable dispatching to Helm repository for chart updates'
+        type: boolean
+        default: false
+      helm_repository:
+        description: 'Helm repository to dispatch to (org/repo format)'
+        type: string
+        default: 'LerianStudio/helm'
+      helm_chart:
+        description: 'Helm chart name to update'
+        type: string
+        default: ''
+      helm_target_ref:
+        description: 'Target branch in Helm repository'
+        type: string
+        default: 'main'
+      helm_components_base_path:
+        description: 'Base path for components in source repo'
+        type: string
+        default: 'components'
+      helm_env_file:
+        description: 'Env example file name relative to component path'
+        type: string
+        default: '.env.example'
+      helm_detect_env_changes:
+        description: 'Whether to detect new environment variables for Helm'
+        type: boolean
+        default: true
+      helm_dispatch_on_rc:
+        description: 'Enable Helm dispatch for release-candidate (rc) tags'
+        type: boolean
+        default: false
+      helm_dispatch_on_beta:
+        description: 'Enable Helm dispatch for beta tags'
+        type: boolean
+        default: false
+      helm_values_key_mappings:
+        description: 'JSON mapping of component names to values.yaml keys'
+        type: string
+        default: ''
+
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Preview changes without pushing images'
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  prepare:
+    runs-on: ${{ inputs.runner_type }}
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+      has_builds: ${{ steps.set-matrix.outputs.has_builds }}
+      platforms: ${{ steps.set-platforms.outputs.platforms }}
+      is_release: ${{ steps.set-platforms.outputs.is_release }}
+      version: ${{ steps.set-version.outputs.version }}
+    steps:
+      - name: Get changed paths (monorepo)
+        if: inputs.components_json == '' && inputs.filter_paths != ''
+        id: changed-paths
+        uses: LerianStudio/github-actions-changed-paths@main
+        with:
+          filter_paths: ${{ inputs.filter_paths }}
+          path_level: ${{ inputs.path_level }}
+          get_app_name: 'true'
+          app_name_prefix: ${{ inputs.app_name_prefix }}
+          app_name_overrides: ${{ inputs.app_name_overrides }}
+          normalize_to_filter: ${{ inputs.normalize_to_filter }}
+
+      - name: Set matrix
+        id: set-matrix
+        run: |
+          COMPONENTS_JSON='${{ inputs.components_json }}'
+          if [ -n "$COMPONENTS_JSON" ]; then
+            echo "matrix=$COMPONENTS_JSON" >> $GITHUB_OUTPUT
+            echo "has_builds=true" >> $GITHUB_OUTPUT
+          elif [ -z "${{ inputs.filter_paths }}" ]; then
+            APP_NAME="${{ github.event.repository.name }}"
+            echo "matrix=[{\"name\": \"${APP_NAME}\", \"working_dir\": \".\"}]" >> $GITHUB_OUTPUT
+            echo "has_builds=true" >> $GITHUB_OUTPUT
+          else
+            MATRIX='${{ steps.changed-paths.outputs.matrix }}'
+            if [ "$MATRIX" == "[]" ] || [ -z "$MATRIX" ]; then
+              echo "matrix=[]" >> $GITHUB_OUTPUT
+              echo "has_builds=false" >> $GITHUB_OUTPUT
+            else
+              echo "matrix=$MATRIX" >> $GITHUB_OUTPUT
+              echo "has_builds=true" >> $GITHUB_OUTPUT
+            fi
+          fi
+
+      - name: Set platforms based on tag type
+        id: set-platforms
+        run: |
+          TAG="${GITHUB_REF#refs/tags/}"
+          if [[ "$TAG" == *"-beta"* ]] || [[ "$TAG" == *"-rc"* ]]; then
+            echo "platforms=linux/amd64" >> $GITHUB_OUTPUT
+            echo "is_release=false" >> $GITHUB_OUTPUT
+          else
+            echo "platforms=linux/amd64,linux/arm64" >> $GITHUB_OUTPUT
+            echo "is_release=true" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Extract version from tag
+        id: set-version
+        run: |
+          TAG="${GITHUB_REF#refs/tags/}"
+          VERSION=$(echo "$TAG" | sed 's/.*-\(v[0-9]\)/\1/')
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+  build:
+    needs: prepare
+    if: needs.prepare.outputs.has_builds == 'true'
+    runs-on: ${{ inputs.runner_type }}
+    name: Build ${{ matrix.app.name }}
+    strategy:
+      max-parallel: 2
+      fail-fast: false
+      matrix:
+        app: ${{ fromJson(needs.prepare.outputs.matrix) }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Build and push Docker image
+        uses: ./src/build/docker-build-ts
+        with:
+          enable-dockerhub: ${{ inputs.enable_dockerhub }}
+          enable-ghcr: ${{ inputs.enable_ghcr }}
+          dockerhub-org: ${{ inputs.dockerhub_org }}
+          ghcr-org: ${{ inputs.ghcr_org }}
+          dockerhub-username: ${{ secrets.DOCKER_USERNAME }}
+          dockerhub-password: ${{ secrets.DOCKER_PASSWORD }}
+          ghcr-token: ${{ secrets.MANAGE_TOKEN }}
+          app-name: ${{ matrix.app.name }}
+          working-dir: ${{ matrix.app.working_dir }}
+          dockerfile: ${{ matrix.app.dockerfile }}
+          dockerfile-name: ${{ inputs.dockerfile_name }}
+          build-context: ${{ inputs.build_context }}
+          build-secrets: ${{ inputs.build_secrets }}
+          platforms: ${{ needs.prepare.outputs.platforms }}
+          version: ${{ needs.prepare.outputs.version }}
+          is-release: ${{ needs.prepare.outputs.is_release }}
+          dry-run: ${{ inputs.dry_run }}
+
+      # GitOps artifacts for downstream gitops-update workflow
+      - name: Create GitOps tag artifact
+        if: inputs.enable_gitops_artifacts && !inputs.dry_run
+        run: |
+          set -euo pipefail
+          mkdir -p gitops-tags
+          VERSION="${{ needs.prepare.outputs.version }}"
+          VERSION="${VERSION#v}"
+          printf "%s" "$VERSION" > "gitops-tags/${{ matrix.app.name }}.tag"
+          echo "Created artifact: gitops-tags/${{ matrix.app.name }}.tag with version: $VERSION"
+
+      - name: Upload GitOps tag artifact
+        if: inputs.enable_gitops_artifacts && !inputs.dry_run
+        uses: actions/upload-artifact@v6
+        with:
+          name: gitops-tags-${{ matrix.app.name }}
+          path: gitops-tags/
+
+  # Slack notification
+  notify:
+    name: Notify
+    needs: [prepare, build]
+    if: always() && needs.prepare.outputs.has_builds == 'true' && !inputs.dry_run
+    uses: ./.github/workflows/slack-notify.yml
+    with:
+      status: ${{ needs.build.result }}
+      workflow_name: "TypeScript Build & Push Docker Images"
+      failed_jobs: ${{ needs.build.result == 'failure' && 'Build' || '' }}
+    secrets:
+      SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+
+  # Dispatch to Helm repository for chart updates
+  dispatch-helm:
+    name: Dispatch Helm Update
+    needs: [prepare, build]
+    if: |
+      inputs.enable_helm_dispatch &&
+      !inputs.dry_run &&
+      needs.prepare.outputs.has_builds == 'true' &&
+      needs.build.result == 'success' &&
+      inputs.helm_chart != '' &&
+      (
+        needs.prepare.outputs.is_release == 'true' ||
+        (contains(github.ref, '-rc') && inputs.helm_dispatch_on_rc) ||
+        (contains(github.ref, '-beta') && inputs.helm_dispatch_on_beta)
+      )
+    uses: ./.github/workflows/dispatch-helm.yml
+    with:
+      helm_repository: ${{ inputs.helm_repository }}
+      chart: ${{ inputs.helm_chart }}
+      target_ref: ${{ inputs.helm_target_ref }}
+      version: ${{ github.ref_name }}
+      components_json: ${{ needs.prepare.outputs.matrix }}
+      components_base_path: ${{ inputs.helm_components_base_path }}
+      env_file: ${{ inputs.helm_env_file }}
+      detect_env_changes: ${{ inputs.helm_detect_env_changes }}
+      values_key_mappings: ${{ inputs.helm_values_key_mappings }}
+      runner_type: ${{ inputs.runner_type }}
+    secrets:
+      helm_repo_token: ${{ secrets.HELM_REPO_TOKEN }}
