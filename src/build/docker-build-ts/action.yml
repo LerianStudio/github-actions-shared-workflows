@@ -1,0 +1,223 @@
+name: Docker Build & Push (TypeScript)
+description: Build and push a Docker image for a TypeScript/Node.js component with built-in npmrc authentication for GitHub Packages.
+
+inputs:
+  # Registry
+  enable-dockerhub:
+    description: Enable pushing to DockerHub
+    required: false
+    default: "false"
+  enable-ghcr:
+    description: Enable pushing to GHCR
+    required: false
+    default: "true"
+  dockerhub-org:
+    description: DockerHub organization name
+    required: false
+    default: "lerianstudio"
+  ghcr-org:
+    description: GHCR organization name (defaults to repository owner)
+    required: false
+    default: ""
+  # Credentials
+  dockerhub-username:
+    description: DockerHub username
+    required: false
+    default: ""
+  dockerhub-password:
+    description: DockerHub password
+    required: false
+    default: ""
+  ghcr-token:
+    description: Token for GHCR login and npmrc authentication
+    required: true
+  # Build
+  app-name:
+    description: Image name for this component
+    required: true
+  working-dir:
+    description: Working directory for this component
+    required: false
+    default: "."
+  dockerfile:
+    description: Dockerfile path relative to working-dir (overrides dockerfile-name)
+    required: false
+    default: ""
+  dockerfile-name:
+    description: Default Dockerfile name when dockerfile is not set
+    required: false
+    default: "Dockerfile"
+  build-context:
+    description: Docker build context
+    required: false
+    default: "."
+  build-secrets:
+    description: Additional secrets for docker build (one per line). npmrc is always included.
+    required: false
+    default: ""
+  platforms:
+    description: Target platforms (e.g., linux/amd64 or linux/amd64,linux/arm64)
+    required: false
+    default: "linux/amd64"
+  version:
+    description: Semver version extracted from tag (e.g., v1.0.0-beta.1)
+    required: true
+  is-release:
+    description: Whether this is a production release (enables major tag)
+    required: false
+    default: "false"
+  # Mode
+  dry-run:
+    description: Build without pushing
+    required: false
+    default: "false"
+
+outputs:
+  image-digest:
+    description: Digest of the pushed image
+    value: ${{ steps.build-push.outputs.digest || steps.build-dry.outputs.digest || '' }}
+  image-tags:
+    description: Tags applied to the image
+    value: ${{ steps.meta.outputs.tags }}
+
+runs:
+  using: composite
+  steps:
+    - name: Set up QEMU
+      if: ${{ contains(inputs.platforms, 'arm64') }}
+      uses: docker/setup-qemu-action@v3
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Log in to DockerHub
+      if: ${{ inputs.enable-dockerhub == 'true' }}
+      uses: docker/login-action@v3
+      with:
+        username: ${{ inputs.dockerhub-username }}
+        password: ${{ inputs.dockerhub-password }}
+
+    - name: Log in to GHCR
+      if: ${{ inputs.enable-ghcr == 'true' }}
+      uses: docker/login-action@v3
+      with:
+        registry: ghcr.io
+        username: ${{ github.actor }}
+        password: ${{ inputs.ghcr-token }}
+
+    - name: Normalize repository owner to lowercase
+      id: normalize
+      shell: bash
+      run: |
+        echo "owner_lower=$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')" >> $GITHUB_OUTPUT
+
+    - name: Set image names
+      id: image-names
+      shell: bash
+      run: |
+        IMAGES=""
+        GHCR_ORG="${{ inputs.ghcr-org }}"
+        if [ -z "$GHCR_ORG" ]; then
+          GHCR_ORG="${{ steps.normalize.outputs.owner_lower }}"
+        else
+          GHCR_ORG=$(echo "$GHCR_ORG" | tr '[:upper:]' '[:lower:]')
+        fi
+
+        if [ "${{ inputs.enable-dockerhub }}" == "true" ]; then
+          IMAGES="${{ inputs.dockerhub-org }}/${{ inputs.app-name }}"
+        fi
+
+        if [ "${{ inputs.enable-ghcr }}" == "true" ]; then
+          if [ -n "$IMAGES" ]; then
+            IMAGES="${IMAGES},ghcr.io/${GHCR_ORG}/${{ inputs.app-name }}"
+          else
+            IMAGES="ghcr.io/${GHCR_ORG}/${{ inputs.app-name }}"
+          fi
+        fi
+
+        echo "images=$IMAGES" >> $GITHUB_OUTPUT
+
+    - name: Docker metadata
+      id: meta
+      uses: docker/metadata-action@v5
+      with:
+        images: ${{ steps.image-names.outputs.images }}
+        tags: |
+          type=semver,pattern={{version}},value=${{ inputs.version }}
+          type=semver,pattern={{major}}.{{minor}},value=${{ inputs.version }}
+          type=semver,pattern={{major}},value=${{ inputs.version }},enable=${{ inputs.is-release }}
+
+    - name: Resolve Dockerfile path
+      id: dockerfile
+      shell: bash
+      run: |
+        DOCKERFILE="${{ inputs.dockerfile }}"
+        if [ -z "$DOCKERFILE" ]; then
+          DOCKERFILE="${{ inputs.dockerfile-name }}"
+        fi
+        echo "path=${{ inputs.working-dir }}/$DOCKERFILE" >> $GITHUB_OUTPUT
+
+    - name: Resolve build secrets
+      id: secrets
+      shell: bash
+      run: |
+        NPMRC_SECRET="npmrc=//npm.pkg.github.com/:_authToken=${{ inputs.ghcr-token }}"
+
+        EXTRA_SECRETS='${{ inputs.build-secrets }}'
+        if [ -n "$EXTRA_SECRETS" ]; then
+          {
+            echo "value<<SECRETS_EOF"
+            echo "$NPMRC_SECRET"
+            echo "$EXTRA_SECRETS"
+            echo "SECRETS_EOF"
+          } >> $GITHUB_OUTPUT
+        else
+          {
+            echo "value<<SECRETS_EOF"
+            echo "$NPMRC_SECRET"
+            echo "SECRETS_EOF"
+          } >> $GITHUB_OUTPUT
+        fi
+
+    # dry_run: true — verbose summary, build without pushing
+    - name: Dry run summary
+      if: ${{ inputs.dry-run == 'true' }}
+      shell: bash
+      run: |
+        echo "::notice::DRY RUN — no images will be pushed"
+        echo "  component  : ${{ inputs.app-name }}"
+        echo "  dockerfile : ${{ steps.dockerfile.outputs.path }}"
+        echo "  context    : ${{ inputs.build-context }}"
+        echo "  platforms  : ${{ inputs.platforms }}"
+        echo "  tags       : ${{ steps.meta.outputs.tags }}"
+        echo "  registries : ${{ steps.image-names.outputs.images }}"
+
+    # Dry-run uses only linux/amd64 for fast validation (QEMU multi-platform is slow)
+    - name: Build Docker image (dry run)
+      if: ${{ inputs.dry-run == 'true' }}
+      id: build-dry
+      uses: docker/build-push-action@v6
+      with:
+        context: ${{ inputs.build-context }}
+        file: ${{ steps.dockerfile.outputs.path }}
+        platforms: linux/amd64
+        push: false
+        tags: ${{ steps.meta.outputs.tags }}
+        labels: ${{ steps.meta.outputs.labels }}
+        secrets: ${{ steps.secrets.outputs.value }}
+
+    # dry_run: false — build and push
+    - name: Build and push Docker image
+      if: ${{ inputs.dry-run != 'true' }}
+      id: build-push
+      uses: docker/build-push-action@v6
+      with:
+        context: ${{ inputs.build-context }}
+        file: ${{ steps.dockerfile.outputs.path }}
+        platforms: ${{ inputs.platforms }}
+        push: true
+        tags: ${{ steps.meta.outputs.tags }}
+        labels: ${{ steps.meta.outputs.labels }}
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+        secrets: ${{ steps.secrets.outputs.value }}
