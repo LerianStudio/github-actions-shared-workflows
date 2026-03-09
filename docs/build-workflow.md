@@ -5,6 +5,7 @@ Reusable workflow for building and pushing Docker images to container registries
 ## Features
 
 - **Monorepo support**: Automatic detection of changed components via filter_paths
+- **Explicit components**: Define multiple components with custom Dockerfiles via components_json
 - **Multi-registry**: Push to DockerHub and/or GitHub Container Registry (GHCR)
 - **Smart platform builds**: Beta/RC tags build amd64 only, release tags build amd64+arm64
 - **Semantic versioning**: Automatic tag extraction and Docker metadata
@@ -60,6 +61,42 @@ jobs:
     secrets: inherit
 ```
 
+### Multiple Components with Custom Dockerfiles
+
+For repositories that produce multiple images from different Dockerfiles (e.g., an app and a background job):
+
+```yaml
+name: Build
+on:
+  push:
+    tags:
+      - 'v*.*.*-beta.*'
+      - 'v*.*.*-rc.*'
+      - 'v[0-9]+.[0-9]+.[0-9]+'
+
+jobs:
+  build:
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/build.yml@v1.0.0
+    with:
+      enable_ghcr: true
+      enable_dockerhub: false
+      components_json: |-
+        [
+          {"name": "my-plugin", "working_dir": ".", "dockerfile": "docker-app.Dockerfile"},
+          {"name": "my-plugin-job", "working_dir": ".", "dockerfile": "docker-job.Dockerfile"}
+        ]
+      enable_helm_dispatch: true
+      helm_chart: my-plugin
+      helm_target_ref: develop
+    secrets: inherit
+```
+
+When `components_json` is provided, the workflow skips change detection and builds all listed components. Each entry supports:
+
+- `name` (required): Image name for the registry
+- `working_dir` (required): Base directory for the Dockerfile
+- `dockerfile` (optional): Dockerfile name, falls back to `dockerfile_name` input if omitted
+
 ### With GitOps Update
 
 ```yaml
@@ -102,7 +139,8 @@ jobs:
 | `enable_ghcr` | boolean | `false` | Enable pushing to GitHub Container Registry |
 | `dockerhub_org` | string | `lerianstudio` | DockerHub organization name |
 | `ghcr_org` | string | `''` | GHCR organization (defaults to repository owner) |
-| `dockerfile_name` | string | `Dockerfile` | Name of the Dockerfile |
+| `dockerfile_name` | string | `Dockerfile` | Name of the Dockerfile (fallback when not set per component) |
+| `components_json` | string | `''` | JSON array of components to build. Skips change detection when provided. Example: `[{"name":"app","working_dir":".","dockerfile":"Dockerfile.app"}]` |
 | `app_name_prefix` | string | `''` | Prefix for app names in monorepo |
 | `build_context` | string | `.` | Docker build context |
 | `enable_gitops_artifacts` | boolean | `false` | Upload artifacts for gitops-update workflow |
@@ -179,7 +217,7 @@ Automatically sends notifications on completion:
 ## Workflow Jobs
 
 ### prepare
-- Detects changed paths (monorepo) or sets single-app mode
+- Uses explicit `components_json` matrix if provided, otherwise detects changed paths (monorepo) or sets single-app mode
 - Determines build platforms based on tag type
 - Outputs matrix for build job
 
@@ -230,5 +268,5 @@ Automatically sends notifications on completion:
 
 ---
 
-**Last Updated:** 2025-12-09
-**Version:** 1.0.0
+**Last Updated:** 2026-03-09
+**Version:** 1.1.0

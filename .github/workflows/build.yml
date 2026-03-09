@@ -104,6 +104,11 @@ on:
         description: 'JSON mapping of component names to values.yaml keys. If not mapped, uses component name as fallback. Example: {"my-app": "api", "my-app-worker": "worker"}'
         type: string
         default: ''
+      # Explicit components matrix
+      components_json:
+        description: 'JSON array of components to build. Each entry must have "name" and "working_dir", optionally "dockerfile". When provided, skips change detection and uses this matrix directly. Example: [{"name":"my-app","working_dir":".","dockerfile":"Dockerfile.app"}]'
+        type: string
+        default: ''
       # Path normalization
       normalize_to_filter:
         description: 'Normalize changed paths to their filter path (e.g., components/app/cmd -> components/app). Recommended for monorepos to avoid duplicate builds.'
@@ -124,7 +129,7 @@ jobs:
       is_release: ${{ steps.set-platforms.outputs.is_release }}
     steps:
       - name: Get changed paths (monorepo)
-        if: inputs.filter_paths != ''
+        if: inputs.components_json == '' && inputs.filter_paths != ''
         id: changed-paths
         uses: LerianStudio/github-actions-changed-paths@main
         with:
@@ -138,7 +143,12 @@ jobs:
       - name: Set matrix
         id: set-matrix
         run: |
-          if [ -z "${{ inputs.filter_paths }}" ]; then
+          COMPONENTS_JSON='${{ inputs.components_json }}'
+          if [ -n "$COMPONENTS_JSON" ]; then
+            # Explicit components mode - use provided matrix directly
+            echo "matrix=$COMPONENTS_JSON" >> $GITHUB_OUTPUT
+            echo "has_builds=true" >> $GITHUB_OUTPUT
+          elif [ -z "${{ inputs.filter_paths }}" ]; then
             # Single app mode - build from root
             APP_NAME="${{ github.event.repository.name }}"
             echo "matrix=[{\"name\": \"${APP_NAME}\", \"working_dir\": \".\"}]" >> $GITHUB_OUTPUT
@@ -257,11 +267,20 @@ jobs:
             type=semver,pattern={{major}}.{{minor}},value=${{ steps.version.outputs.version }}
             type=semver,pattern={{major}},value=${{ steps.version.outputs.version }},enable=${{ needs.prepare.outputs.is_release }}
 
+      - name: Resolve Dockerfile path
+        id: dockerfile
+        run: |
+          DOCKERFILE="${{ matrix.app.dockerfile }}"
+          if [ -z "$DOCKERFILE" ]; then
+            DOCKERFILE="${{ inputs.dockerfile_name }}"
+          fi
+          echo "path=${{ matrix.app.working_dir }}/$DOCKERFILE" >> $GITHUB_OUTPUT
+
       - name: Build and push Docker image
         uses: docker/build-push-action@v6
         with:
           context: ${{ inputs.build_context }}
-          file: ${{ matrix.app.working_dir }}/${{ inputs.dockerfile_name }}
+          file: ${{ steps.dockerfile.outputs.path }}
           platforms: ${{ needs.prepare.outputs.platforms }}
           push: true
           tags: ${{ steps.meta.outputs.tags }}
