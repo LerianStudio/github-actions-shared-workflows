@@ -261,7 +261,7 @@ jobs:
           working-dir: ${{ matrix.app.working_dir }}
           dockerfile: ${{ matrix.app.dockerfile }}
           dockerfile-name: ${{ inputs.dockerfile_name }}
-          build-context: ${{ inputs.build_context }}
+          build-context: ${{ matrix.app.context || inputs.build_context }}
           build-secrets: ${{ inputs.build_secrets }}
           platforms: ${{ needs.prepare.outputs.platforms }}
           version: ${{ needs.prepare.outputs.version }}
