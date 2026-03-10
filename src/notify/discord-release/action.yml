@@ -21,6 +21,9 @@ inputs:
     description: Show timestamp in embed footer
     required: false
     default: "true"
+  release-tag:
+    description: Release tag (e.g. v1.2.3 or v1.0.0-beta.1)
+    required: true
   skip-beta:
     description: Skip notification for beta releases
     required: false
@@ -37,7 +40,7 @@ runs:
       id: beta
       shell: bash
       run: |
-        if [[ "${{ github.ref }}" == *"-beta."* ]]; then
+        if [[ "${{ inputs.release-tag }}" == *"-beta."* ]]; then
           echo "is_beta=true" >> $GITHUB_OUTPUT
         else
           echo "is_beta=false" >> $GITHUB_OUTPUT
@@ -48,13 +51,13 @@ runs:
       shell: bash
       run: |
         echo "::notice::DRY RUN — Discord notification will not be sent"
-        echo "  webhook   : (configured)"
-        echo "  color     : ${{ inputs.color }}"
-        echo "  username  : ${{ inputs.username }}"
-        echo "  content   : ${{ inputs.content }}"
-        echo "  skip-beta : ${{ inputs.skip-beta }}"
-        echo "  is_beta   : ${{ steps.beta.outputs.is_beta }}"
-        echo "  ref       : ${{ github.ref }}"
+        echo "  webhook      : (configured)"
+        echo "  release-tag  : ${{ inputs.release-tag }}"
+        echo "  color        : ${{ inputs.color }}"
+        echo "  username     : ${{ inputs.username }}"
+        echo "  content      : ${{ inputs.content }}"
+        echo "  skip-beta    : ${{ inputs.skip-beta }}"
+        echo "  is_beta      : ${{ steps.beta.outputs.is_beta }}"
 
     - name: Send Discord notification
       if: >-

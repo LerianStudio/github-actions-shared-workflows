@@ -12,6 +12,7 @@ Composite action that sends a release notification to a Discord channel via webh
 | Input | Description | Required | Default |
 |---|---|:---:|---|
 | `webhook-url` | Discord webhook URL | Yes | — |
+| `release-tag` | Release tag (e.g. `v1.2.3` or `v1.0.0-beta.1`) | Yes | — |
 | `color` | Embed color (decimal) | No | `2105893` |
 | `username` | Bot username displayed in Discord | No | `Release Changelog` |
 | `content` | Message content (e.g. role mentions) | No | `""` |
@@ -32,6 +33,7 @@ jobs:
       - uses: LerianStudio/github-actions-shared-workflows/src/notify/discord-release@v1.2.3
         with:
           webhook-url: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          release-tag: ${{ github.event.release.tag_name }}
           content: "<@&1234567890>"
 ```
 
@@ -56,6 +58,7 @@ jobs:
 - uses: LerianStudio/github-actions-shared-workflows/src/notify/discord-release@develop
   with:
     webhook-url: ${{ secrets.DISCORD_WEBHOOK_URL }}
+    release-tag: ${{ github.event.release.tag_name }}
     dry-run: "true"
 ```
 
