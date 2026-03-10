@@ -16,6 +16,7 @@ Reusable workflow for running Go fuzz tests. Executes a configurable fuzz comman
 | `fuzz_command` | Command to run fuzz tests | No | `make fuzz-ci` |
 | `fuzz_artifacts_path` | Path pattern for fuzz failure artifacts | No | `tests/fuzz/**/testdata/fuzz/` |
 | `artifacts_retention_days` | Number of days to retain fuzz failure artifacts | No | `7` |
+| `timeout_minutes` | Maximum job duration in minutes (safety net for unbounded fuzz) | No | `30` |
 | `dry_run` | Preview configuration without running fuzz tests | No | `false` |
 
 ## Usage
@@ -62,6 +63,18 @@ jobs:
       fuzz_command: 'go test -fuzz=. -fuzztime=30s ./...'
       fuzz_artifacts_path: '**/testdata/fuzz/'
 ```
+
+## Fuzz command requirements
+
+The default `fuzz_command` is `make fuzz-ci`. Caller repositories must either:
+
+1. Have a `fuzz-ci` target in their `Makefile` (recommended — allows configuring `-fuzztime` per repo)
+2. Override `fuzz_command` with a direct Go command, e.g.:
+   ```yaml
+   fuzz_command: 'go test -fuzz=. -fuzztime=60s ./...'
+   ```
+
+The `timeout_minutes` input (default: 30) acts as a safety net to prevent unbounded fuzz runs. Ensure your fuzz command uses `-fuzztime` to control individual test duration.
 
 ## Permissions
 

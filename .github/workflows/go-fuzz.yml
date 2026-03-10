@@ -26,6 +26,10 @@ on:
         description: 'Number of days to retain fuzz failure artifacts'
         type: number
         default: 7
+      timeout_minutes:
+        description: 'Maximum job duration in minutes (safety net for unbounded fuzz)'
+        type: number
+        default: 30
       dry_run:
         description: 'Preview configuration without running fuzz tests'
         required: false
@@ -53,6 +57,10 @@ on:
         description: 'Number of days to retain fuzz failure artifacts'
         type: number
         default: 7
+      timeout_minutes:
+        description: 'Maximum job duration in minutes (safety net for unbounded fuzz)'
+        type: number
+        default: 30
       dry_run:
         description: 'Preview configuration without running fuzz tests'
         type: boolean
@@ -65,6 +73,7 @@ jobs:
   fuzz:
     name: Fuzz Tests
     runs-on: ${{ inputs.runner_type }}
+    timeout-minutes: ${{ inputs.timeout_minutes }}
 
     steps:
       - name: Checkout
@@ -84,6 +93,7 @@ jobs:
           echo "  fuzz_command: ${{ inputs.fuzz_command }}"
           echo "  artifacts   : ${{ inputs.fuzz_artifacts_path }}"
           echo "  retention   : ${{ inputs.artifacts_retention_days }} days"
+          echo "  timeout     : ${{ inputs.timeout_minutes }} minutes"
 
       - name: Run Fuzz Tests
         id: fuzz
