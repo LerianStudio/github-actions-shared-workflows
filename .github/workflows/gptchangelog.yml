@@ -720,7 +720,7 @@ jobs:
     name: Notify Sync PR
     needs: [generate_changelog]
     if: needs.generate_changelog.result == 'success' && needs.generate_changelog.outputs.sync_pr != ''
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
       - name: Send Slack notification for sync PR
         uses: slackapi/slack-github-action@v1.24.0
