@@ -86,11 +86,12 @@ jobs:
           echo "  retention   : ${{ inputs.artifacts_retention_days }} days"
 
       - name: Run Fuzz Tests
+        id: fuzz
         if: ${{ !inputs.dry_run }}
         run: ${{ inputs.fuzz_command }}
 
       - name: Upload Fuzz Artifacts
-        if: ${{ !inputs.dry_run && failure() }}
+        if: ${{ !inputs.dry_run && steps.fuzz.outcome == 'failure' }}
         uses: actions/upload-artifact@v7
         with:
           name: fuzz-failures
