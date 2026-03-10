@@ -1,0 +1,53 @@
+name: Slack Release Notification
+description: Sends a release notification to Slack using rtCamp/action-slack-notify.
+
+inputs:
+  webhook-url:
+    description: Slack webhook URL
+    required: true
+  channel:
+    description: Slack channel name
+    required: true
+  product-name:
+    description: Product name displayed in the notification title
+    required: true
+  release-tag:
+    description: Release tag (e.g. v1.2.3)
+    required: true
+  color:
+    description: Sidebar color for the Slack message
+    required: false
+    default: "#36a64f"
+  icon-emoji:
+    description: Emoji icon for the bot
+    required: false
+    default: ":rocket:"
+  dry-run:
+    description: Preview changes without sending the notification
+    required: false
+    default: "false"
+
+runs:
+  using: composite
+  steps:
+    - name: Dry run summary
+      if: inputs.dry-run == 'true'
+      shell: bash
+      run: |
+        echo "::notice::DRY RUN — Slack notification will not be sent"
+        echo "  channel      : ${{ inputs.channel }}"
+        echo "  product-name : ${{ inputs.product-name }}"
+        echo "  release-tag  : ${{ inputs.release-tag }}"
+        echo "  color        : ${{ inputs.color }}"
+        echo "  icon-emoji   : ${{ inputs.icon-emoji }}"
+
+    - name: Send Slack notification
+      if: inputs.dry-run != 'true'
+      uses: rtCamp/action-slack-notify@v2
+      env:
+        SLACK_CHANNEL: ${{ inputs.channel }}
+        SLACK_COLOR: ${{ inputs.color }}
+        SLACK_ICON_EMOJI: ${{ inputs.icon-emoji }}
+        SLACK_TITLE: "${{ inputs.product-name }} New Release: ${{ inputs.release-tag }}"
+        SLACK_MESSAGE: "🎉 *New Release Published!* \n \n <https://github.com/${{ github.repository }}/releases/tag/${{ inputs.release-tag }} | *Click here for details*>"
+        SLACK_WEBHOOK: ${{ inputs.webhook-url }}
