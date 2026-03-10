@@ -112,6 +112,25 @@ src/deploy/helm-deploy/   ← any chart
 src/config/labels-sync/   ← any repo
 ```
 
+## Runner
+
+Composites inherit the runner from the calling job. All usage examples in `README.md` must specify `blacksmith-4vcpu-ubuntu-2404` as the runner:
+
+```yaml
+jobs:
+  example:
+    runs-on: blacksmith-4vcpu-ubuntu-2404   # ✅ required runner
+    steps:
+      - uses: ./src/config/labels-sync
+```
+
+```yaml
+# ❌ Never use other runners in examples
+runs-on: ubuntu-latest
+runs-on: ubuntu-22.04
+runs-on: self-hosted
+```
+
 ## README.md requirements
 
 1. Logo header — HTML table layout (logo left, `h1` title right)
