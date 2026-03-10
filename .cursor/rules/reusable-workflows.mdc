@@ -103,6 +103,24 @@ jobs:
 
 ---
 
+## Runner
+
+All jobs in reusable workflows must use `blacksmith-4vcpu-ubuntu-2404` as the runner:
+
+```yaml
+jobs:
+  build:
+    runs-on: blacksmith-4vcpu-ubuntu-2404   # ✅ required runner
+    # ...
+```
+
+```yaml
+# ❌ Never use other runners
+runs-on: ubuntu-latest
+runs-on: ubuntu-22.04
+runs-on: self-hosted
+```
+
 ## Workflow structure
 
 Every reusable workflow must:
