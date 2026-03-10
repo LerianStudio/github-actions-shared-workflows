@@ -36,14 +36,19 @@ Full rules:
 - Reusable workflows → `.cursor/rules/reusable-workflows.mdc` or `/workflow`
 - Modifying existing files → `.cursor/rules/refactoring.mdc` or `/refactor`
 
-### Local path rule for composites
+### Composite action references in reusable workflows
 
-Inside a reusable workflow, always reference composite actions with a **local path**:
+In reusable workflows (`workflow_call`), `uses: ./path` resolves to the **caller's workspace**, not this repository. This means `./src/...` only works when the caller IS this repo (i.e., `self-*` workflows).
 
-```yaml
-uses: ./src/config/labels-sync      # ✅ version-safe
-uses: LerianStudio/...@main         # ❌ breaks versioning for callers on older tags
-```
+- **Workflows called by external repos** — use an external ref:
+  ```yaml
+  uses: LerianStudio/github-actions-shared-workflows/src/notify/discord-release@develop  # ✅
+  uses: ./src/notify/discord-release  # ❌ resolves to caller's workspace
+  ```
+- **`self-*` workflows (internal only)** — use a local path:
+  ```yaml
+  uses: ./.github/workflows/labels-sync.yml  # ✅ caller is this repo
+  ```
 
 ### dry_run
 

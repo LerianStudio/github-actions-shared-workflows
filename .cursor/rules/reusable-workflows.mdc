@@ -195,14 +195,19 @@ The two modes have opposite goals — design them accordingly:
 - Let failures surface naturally via non-zero exit codes
 - Add a single `::notice::` summary line only after successful completion if useful
 
-## Local path rule (critical)
+## Composite action references (critical)
 
-Inside a reusable workflow, always reference composites with a local path:
+In reusable workflows (`workflow_call`), `uses: ./path` resolves to the **caller's workspace**, not this repository. This means `./src/...` only works when the caller IS this repo (i.e., `self-*` workflows).
 
-```yaml
-uses: ./src/setup/setup-go      # ✅ composite version matches workflow version
-uses: LerianStudio/...@main     # ❌ breaks versioning for callers on older tags
-```
+- **Workflows called by external repos** — must use an external ref:
+  ```yaml
+  uses: LerianStudio/github-actions-shared-workflows/src/notify/discord-release@develop  # ✅
+  uses: ./src/notify/discord-release  # ❌ resolves to caller's workspace, will fail
+  ```
+- **`self-*` workflows (internal only)** — use a local path:
+  ```yaml
+  uses: ./.github/workflows/labels-sync.yml  # ✅ caller is this repo
+  ```
 
 ## Secrets management
 
@@ -292,8 +297,8 @@ runs:
   jobs:          # invalid — composites have steps, not jobs
     build: ...
 
-# ❌ External ref for composite inside a reusable workflow
-uses: LerianStudio/github-actions-shared-workflows/src/setup-go@main  # breaks versioning
+# ❌ Local path for composite in a workflow called by external repos
+uses: ./src/setup-go  # resolves to caller's workspace, not this repo
 
 # ❌ Mutable ref on third-party actions
 uses: some-action/tool@main    # use a specific tag or SHA
