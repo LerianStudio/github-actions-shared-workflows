@@ -1,0 +1,109 @@
+name: "Go Fuzz Tests"
+
+# Reusable workflow for Go fuzz testing
+# Runs fuzz tests and uploads failure artifacts for analysis
+
+on:
+  workflow_call:
+    inputs:
+      runner_type:
+        description: 'GitHub runner type to use'
+        type: string
+        default: 'blacksmith-4vcpu-ubuntu-2404'
+      go_version:
+        description: 'Go version to use'
+        type: string
+        default: '1.25'
+      fuzz_command:
+        description: 'Command to run fuzz tests'
+        type: string
+        default: 'make fuzz-ci'
+      fuzz_artifacts_path:
+        description: 'Path pattern for fuzz failure artifacts'
+        type: string
+        default: 'tests/fuzz/**/testdata/fuzz/'
+      artifacts_retention_days:
+        description: 'Number of days to retain fuzz failure artifacts'
+        type: number
+        default: 7
+      timeout_minutes:
+        description: 'Maximum job duration in minutes (safety net for unbounded fuzz)'
+        type: number
+        default: 30
+      dry_run:
+        description: 'Preview configuration without running fuzz tests'
+        required: false
+        type: boolean
+        default: false
+  workflow_dispatch:
+    inputs:
+      runner_type:
+        description: 'GitHub runner type to use'
+        type: string
+        default: 'blacksmith-4vcpu-ubuntu-2404'
+      go_version:
+        description: 'Go version to use'
+        type: string
+        default: '1.25'
+      fuzz_command:
+        description: 'Command to run fuzz tests'
+        type: string
+        default: 'make fuzz-ci'
+      fuzz_artifacts_path:
+        description: 'Path pattern for fuzz failure artifacts'
+        type: string
+        default: 'tests/fuzz/**/testdata/fuzz/'
+      artifacts_retention_days:
+        description: 'Number of days to retain fuzz failure artifacts'
+        type: number
+        default: 7
+      timeout_minutes:
+        description: 'Maximum job duration in minutes (safety net for unbounded fuzz)'
+        type: number
+        default: 30
+      dry_run:
+        description: 'Preview configuration without running fuzz tests'
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  fuzz:
+    name: Fuzz Tests
+    runs-on: ${{ inputs.runner_type }}
+    timeout-minutes: ${{ inputs.timeout_minutes }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: ${{ inputs.go_version }}
+
+      - name: Dry run summary
+        if: ${{ inputs.dry_run }}
+        run: |
+          echo "::notice::DRY RUN — no fuzz tests will be executed"
+          echo "  runner      : ${{ inputs.runner_type }}"
+          echo "  go_version  : ${{ inputs.go_version }}"
+          echo "  fuzz_command: ${{ inputs.fuzz_command }}"
+          echo "  artifacts   : ${{ inputs.fuzz_artifacts_path }}"
+          echo "  retention   : ${{ inputs.artifacts_retention_days }} days"
+          echo "  timeout     : ${{ inputs.timeout_minutes }} minutes"
+
+      - name: Run Fuzz Tests
+        id: fuzz
+        if: ${{ !inputs.dry_run }}
+        run: ${{ inputs.fuzz_command }}
+
+      - name: Upload Fuzz Artifacts
+        if: ${{ !inputs.dry_run && steps.fuzz.outcome == 'failure' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: fuzz-failures
+          path: ${{ inputs.fuzz_artifacts_path }}
+          retention-days: ${{ inputs.artifacts_retention_days }}
