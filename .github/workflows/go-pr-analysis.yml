@@ -317,7 +317,7 @@ jobs:
 
       - name: Run Gosec for SARIF
         id: gosec-sarif
-        uses: securego/gosec@v2.22.11
+        uses: securego/gosec@v2.24.7
         with:
           args: -no-fail -fmt sarif -out gosec-${{ matrix.app.name }}.sarif ./${{ matrix.app.working_dir }}/...
 
