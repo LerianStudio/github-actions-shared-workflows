@@ -13,6 +13,10 @@ name: "Build and Push Docker Images"
 
 on:
   workflow_call:
+    outputs:
+      has_builds:
+        description: 'Whether any components were detected for building (true/false). Use this to skip downstream jobs when no paths changed.'
+        value: ${{ jobs.prepare.outputs.has_builds }}
     inputs:
       runner_type:
         description: 'Runner to use for the workflow'
