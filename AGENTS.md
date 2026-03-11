@@ -77,10 +77,11 @@ Callers use these outputs to gate dependent jobs:
 ```yaml
 jobs:
   build:
-    uses: ./.github/workflows/build.yml@v1.2.3
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/build.yml@v1.2.3
   deploy:
     needs: build
     if: needs.build.outputs.has_builds == 'true'
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/deploy.yml@v1.2.3
 ```
 
 ### dry_run
