@@ -83,11 +83,12 @@ updates:
           - "minor"
           - "patch"
 
-      # Slack notification actions
+      # Notification actions (Slack, Discord)
       notifications:
         patterns:
           - "rtCamp/action-slack-notify"
           - "slackapi/slack-github-action"
+          - "SethCohen/github-releases-to-discord"
         update-types:
           - "major"
           - "minor"

@@ -1,0 +1,185 @@
+name: "Release Notification"
+
+on:
+  workflow_call:
+    inputs:
+      product_name:
+        description: Product name displayed in notifications
+        required: true
+        type: string
+      slack_channel:
+        description: Slack channel name
+        required: false
+        type: string
+        default: ""
+      discord_color:
+        description: Discord embed color (decimal)
+        required: false
+        type: string
+        default: "2105893"
+      discord_username:
+        description: Bot username displayed in Discord
+        required: false
+        type: string
+        default: "Release Changelog"
+      discord_content:
+        description: Discord message content (e.g. role mentions)
+        required: false
+        type: string
+        default: ""
+      skip_beta_discord:
+        description: Skip Discord notification for beta releases
+        required: false
+        type: boolean
+        default: true
+      slack_color:
+        description: Sidebar color for the Slack message
+        required: false
+        type: string
+        default: "#36a64f"
+      slack_icon_emoji:
+        description: Emoji icon for the Slack bot
+        required: false
+        type: string
+        default: ":rocket:"
+      dry_run:
+        description: Preview changes without sending notifications
+        required: false
+        type: boolean
+        default: false
+    secrets:
+      APP_ID:
+        description: GitHub App ID for authentication
+        required: true
+      APP_PRIVATE_KEY:
+        description: GitHub App private key
+        required: true
+      DISCORD_WEBHOOK_URL:
+        description: Discord webhook URL
+        required: false
+      SLACK_WEBHOOK_URL:
+        description: Slack webhook URL
+        required: false
+  workflow_dispatch:
+    inputs:
+      product_name:
+        description: Product name displayed in notifications
+        required: true
+        type: string
+      slack_channel:
+        description: Slack channel name
+        required: false
+        type: string
+        default: ""
+      discord_color:
+        description: Discord embed color (decimal)
+        required: false
+        type: string
+        default: "2105893"
+      discord_username:
+        description: Bot username displayed in Discord
+        required: false
+        type: string
+        default: "Release Changelog"
+      discord_content:
+        description: Discord message content (e.g. role mentions)
+        required: false
+        type: string
+        default: ""
+      skip_beta_discord:
+        description: Skip Discord notification for beta releases
+        type: boolean
+        default: true
+      slack_color:
+        description: Sidebar color for the Slack message
+        required: false
+        type: string
+        default: "#36a64f"
+      slack_icon_emoji:
+        description: Emoji icon for the Slack bot
+        required: false
+        type: string
+        default: ":rocket:"
+      dry_run:
+        description: Preview changes without sending notifications
+        type: boolean
+        default: false
+
+jobs:
+  notify:
+    name: Release Notification
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    env:
+      DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+      SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+    steps:
+      - name: Create GitHub App token
+        uses: actions/create-github-app-token@v1
+        id: app-token
+        with:
+          app-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Fetch latest release tag
+        id: release
+        env:
+          GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          TAG='${{ github.event.release.tag_name }}'
+          if [[ -z "$TAG" ]]; then
+            echo "No release event tag — falling back to gh release list"
+            TAG=$(gh release list --repo "$GITHUB_REPOSITORY" --limit 1 --json tagName --jq '.[0].tagName')
+          fi
+          if [[ -z "$TAG" || "$TAG" == "null" ]]; then
+            echo "::error::No release tag resolved — aborting"
+            exit 1
+          fi
+          echo "Resolved release tag: $TAG"
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+
+      - name: Dry run summary
+        if: ${{ inputs.dry_run }}
+        run: |
+          ENABLE_DISCORD="${{ env.DISCORD_WEBHOOK_URL != '' && 'true' || 'false' }}"
+          ENABLE_SLACK="${{ env.SLACK_WEBHOOK_URL != '' && inputs.slack_channel != '' && 'true' || 'false' }}"
+          echo "::notice::DRY RUN — no notifications will be sent"
+          echo "  product_name     : ${{ inputs.product_name }}"
+          echo "  release_tag      : ${{ steps.release.outputs.tag }}"
+          echo "  discord_webhook  : ${{ env.DISCORD_WEBHOOK_URL != '' && 'configured' || 'not set' }}"
+          echo "  discord_color    : ${{ inputs.discord_color }}"
+          echo "  discord_username : ${{ inputs.discord_username }}"
+          echo "  discord_content  : ${{ inputs.discord_content }}"
+          echo "  skip_beta_discord: ${{ inputs.skip_beta_discord }}"
+          echo "  enable_discord   : ${ENABLE_DISCORD}"
+          echo "  slack_webhook    : ${{ env.SLACK_WEBHOOK_URL != '' && 'configured' || 'not set' }}"
+          echo "  slack_channel    : ${{ inputs.slack_channel }}"
+          echo "  slack_color      : ${{ inputs.slack_color }}"
+          echo "  slack_icon_emoji : ${{ inputs.slack_icon_emoji }}"
+          echo "  enable_slack     : ${ENABLE_SLACK}"
+
+      - name: Discord notification
+        if: ${{ env.DISCORD_WEBHOOK_URL != '' }}
+        uses: LerianStudio/github-actions-shared-workflows/src/notify/discord-release@develop
+        with:
+          webhook-url: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          release-tag: ${{ steps.release.outputs.tag }}
+          color: ${{ inputs.discord_color }}
+          username: ${{ inputs.discord_username }}
+          content: ${{ inputs.discord_content }}
+          skip-beta: ${{ inputs.skip_beta_discord }}
+          dry-run: ${{ inputs.dry_run }}
+
+      - name: Slack notification
+        if: ${{ env.SLACK_WEBHOOK_URL != '' && inputs.slack_channel != '' }}
+        uses: LerianStudio/github-actions-shared-workflows/src/notify/slack-release@develop
+        with:
+          webhook-url: ${{ secrets.SLACK_WEBHOOK_URL }}
+          channel: ${{ inputs.slack_channel }}
+          product-name: ${{ inputs.product_name }}
+          release-tag: ${{ steps.release.outputs.tag }}
+          color: ${{ inputs.slack_color }}
+          icon-emoji: ${{ inputs.slack_icon_emoji }}
+          dry-run: ${{ inputs.dry_run }}

@@ -195,14 +195,47 @@ The two modes have opposite goals — design them accordingly:
 - Let failures surface naturally via non-zero exit codes
 - Add a single `::notice::` summary line only after successful completion if useful
 
-## Local path rule (critical)
+## Skip-enabling outputs
 
-Inside a reusable workflow, always reference composites with a local path:
+Every reusable workflow that performs conditional work (change detection, feature flags, environment checks) **must expose boolean outputs** so callers can skip downstream jobs when there is nothing to do.
 
 ```yaml
-uses: ./src/setup/setup-go      # ✅ composite version matches workflow version
-uses: LerianStudio/...@main     # ❌ breaks versioning for callers on older tags
+on:
+  workflow_call:
+    outputs:
+      has_builds:
+        description: 'Whether any components were detected for building (true/false)'
+        value: ${{ jobs.prepare.outputs.has_builds }}
 ```
+
+Naming convention: `has_<noun>` (e.g. `has_builds`, `has_changes`, `has_releases`). Value must be the string `'true'` or `'false'`.
+
+Callers use these outputs to gate dependent jobs:
+
+```yaml
+jobs:
+  build:
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/build.yml@v1.2.3
+  deploy:
+    needs: build
+    if: needs.build.outputs.has_builds == 'true'
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/deploy.yml@v1.2.3
+```
+
+## Composite action references (critical)
+
+In reusable workflows (`workflow_call`), `uses: ./path` resolves to the **caller's workspace**, not this repository. This means `./src/...` only works when the caller IS this repo (i.e., `self-*` workflows).
+
+- **Workflows called by external repos** — must use an external ref pinned to a release tag:
+  ```yaml
+  uses: LerianStudio/github-actions-shared-workflows/src/notify/discord-release@v1.2.3  # ✅ pinned
+  uses: LerianStudio/github-actions-shared-workflows/src/notify/discord-release@develop # ⚠️ testing only
+  uses: ./src/notify/discord-release  # ❌ resolves to caller's workspace, will fail
+  ```
+- **`self-*` workflows (internal only)** — use a local path:
+  ```yaml
+  uses: ./.github/workflows/labels-sync.yml  # ✅ caller is this repo
+  ```
 
 ## Secrets management
 
@@ -292,8 +325,8 @@ runs:
   jobs:          # invalid — composites have steps, not jobs
     build: ...
 
-# ❌ External ref for composite inside a reusable workflow
-uses: LerianStudio/github-actions-shared-workflows/src/setup-go@main  # breaks versioning
+# ❌ Local path for composite in a workflow called by external repos
+uses: ./src/setup-go  # resolves to caller's workspace, not this repo
 
 # ❌ Mutable ref on third-party actions
 uses: some-action/tool@main    # use a specific tag or SHA
