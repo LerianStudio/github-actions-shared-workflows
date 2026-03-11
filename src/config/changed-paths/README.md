@@ -39,32 +39,6 @@ steps:
       app_name_prefix: 'myapp'
 ```
 
-## Usage as reusable workflow
-
-Use the `changed-paths.yml` reusable workflow which wraps this composite:
-
-```yaml
-jobs:
-  detect-changes:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/changed-paths.yml@v1.0.0
-    with:
-      filter_paths: '["components/api", "components/web"]'
-      path_level: 2
-      get_app_name: true
-      app_name_prefix: 'myapp'
-
-  build:
-    needs: detect-changes
-    if: needs.detect-changes.outputs.has_changes == 'true'
-    strategy:
-      matrix:
-        app: ${{ fromJson(needs.detect-changes.outputs.matrix) }}
-    runs-on: blacksmith-4vcpu-ubuntu-2404
-    steps:
-      - uses: actions/checkout@v6
-      - run: echo "Building ${{ matrix.app.name }} at ${{ matrix.app.working_dir }}"
-```
-
 ## Output formats
 
 ### Default (get_app_name: false)
