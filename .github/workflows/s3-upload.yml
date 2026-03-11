@@ -76,11 +76,14 @@ jobs:
 
       - name: Determine environment
         id: env
+        env:
+          INPUT_ENV_DETECTION: ${{ inputs.environment_detection }}
+          INPUT_MANUAL_ENV: ${{ inputs.manual_environment }}
         run: |
           set -euo pipefail
 
-          if [[ "${{ inputs.environment_detection }}" == "manual" ]]; then
-            FOLDER="${{ inputs.manual_environment }}"
+          if [[ "$INPUT_ENV_DETECTION" == "manual" ]]; then
+            FOLDER="$INPUT_MANUAL_ENV"
           else
             REF="${GITHUB_REF#refs/}"
             TAG="${GITHUB_REF#refs/tags/}"
@@ -109,13 +112,14 @@ jobs:
 
       - name: Upload files to S3
         if: steps.env.outputs.folder != ''
+        env:
+          BUCKET: ${{ inputs.s3_bucket }}
+          FOLDER: ${{ steps.env.outputs.folder }}
+          PREFIX: ${{ inputs.s3_prefix }}
+          PATTERN: ${{ inputs.file_pattern }}
+          FLATTEN: ${{ inputs.flatten }}
         run: |
           set -euo pipefail
-          BUCKET="${{ inputs.s3_bucket }}"
-          FOLDER="${{ steps.env.outputs.folder }}"
-          PREFIX="${{ inputs.s3_prefix }}"
-          PATTERN="${{ inputs.file_pattern }}"
-          FLATTEN="${{ inputs.flatten }}"
 
           # Build S3 destination path
           if [[ -n "$PREFIX" ]]; then
@@ -125,13 +129,10 @@ jobs:
           fi
 
           # Find and upload files
+          shopt -s nullglob
           FILE_COUNT=0
-          for file in $PATTERN; do
-            if [[ ! -f "$file" ]]; then
-              echo "⚠️ No files matched pattern: ${PATTERN}"
-              exit 1
-            fi
 
+          for file in $PATTERN; do
             if [[ "$FLATTEN" == "true" ]]; then
               aws s3 cp "$file" "${S3_PATH}"
             else
@@ -140,5 +141,10 @@ jobs:
 
             FILE_COUNT=$((FILE_COUNT + 1))
           done
+
+          if [[ $FILE_COUNT -eq 0 ]]; then
+            echo "⚠️ No files matched pattern: ${PATTERN}"
+            exit 1
+          fi
 
           echo "✅ Uploaded ${FILE_COUNT} file(s) to ${S3_PATH}"
