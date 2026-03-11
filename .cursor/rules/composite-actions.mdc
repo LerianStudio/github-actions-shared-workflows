@@ -85,6 +85,19 @@ runs:
         option: ${{ inputs.some-option }}
 ```
 
+## Skip-enabling outputs
+
+Composite actions that perform conditional work (change detection, feature-flag checks, validation gates) **must expose boolean outputs** so the calling workflow can skip downstream steps or jobs.
+
+```yaml
+outputs:
+  has_changes:
+    description: 'Whether any changes were detected (true/false)'
+    value: ${{ steps.detect.outputs.has_changes }}
+```
+
+Naming convention: `has_<noun>` (e.g. `has_changes`, `has_updates`, `has_drift`). Value must be the string `'true'` or `'false'`.
+
 ## Design rules
 
 - **5–15 steps maximum** — split if larger

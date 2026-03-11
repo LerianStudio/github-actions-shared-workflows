@@ -195,6 +195,33 @@ The two modes have opposite goals — design them accordingly:
 - Let failures surface naturally via non-zero exit codes
 - Add a single `::notice::` summary line only after successful completion if useful
 
+## Skip-enabling outputs
+
+Every reusable workflow that performs conditional work (change detection, feature flags, environment checks) **must expose boolean outputs** so callers can skip downstream jobs when there is nothing to do.
+
+```yaml
+on:
+  workflow_call:
+    outputs:
+      has_builds:
+        description: 'Whether any components were detected for building (true/false)'
+        value: ${{ jobs.prepare.outputs.has_builds }}
+```
+
+Naming convention: `has_<noun>` (e.g. `has_builds`, `has_changes`, `has_releases`). Value must be the string `'true'` or `'false'`.
+
+Callers use these outputs to gate dependent jobs:
+
+```yaml
+jobs:
+  build:
+    uses: ./.github/workflows/build.yml@v1.2.3
+  deploy:
+    needs: build
+    if: needs.build.outputs.has_builds == 'true'
+    uses: ./.github/workflows/deploy.yml@v1.2.3
+```
+
 ## Composite action references (critical)
 
 In reusable workflows (`workflow_call`), `uses: ./path` resolves to the **caller's workspace**, not this repository. This means `./src/...` only works when the caller IS this repo (i.e., `self-*` workflows).

@@ -54,9 +54,38 @@ In reusable workflows (`workflow_call`), `uses: ./path` resolves to the **caller
   uses: ./.github/workflows/labels-sync.yml  # ✅ caller is this repo
   ```
 
+### Skip-enabling outputs
+
+Every reusable workflow and composite action that performs conditional work (e.g. change detection, feature-flag checks) **must expose boolean outputs** so callers can skip downstream jobs when there is nothing to do.
+
+```yaml
+# Reusable workflow example
+outputs:
+  has_builds:
+    description: 'Whether any components were detected for building (true/false)'
+    value: ${{ jobs.prepare.outputs.has_builds }}
+
+# Composite action example
+outputs:
+  has_changes:
+    description: 'Whether any changes were detected (true/false)'
+    value: ${{ steps.detect.outputs.has_changes }}
+```
+
+Callers use these outputs to gate dependent jobs:
+
+```yaml
+jobs:
+  build:
+    uses: ./.github/workflows/build.yml@v1.2.3
+  deploy:
+    needs: build
+    if: needs.build.outputs.has_builds == 'true'
+```
+
 ### dry_run
 
-Every reusable workflow must include a `dry_run` input (`boolean`, `default: false`).  
+Every reusable workflow must include a `dry_run` input (`boolean`, `default: false`).
 `dry_run: true` must be verbose (print all resolved values, use tool debug flags). `dry_run: false` must be silent (no extra echo, no debug flags).
 
 ### Branches and commits
