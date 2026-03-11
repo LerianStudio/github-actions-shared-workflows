@@ -143,6 +143,8 @@ jobs:
       - name: Dry run summary
         if: ${{ inputs.dry_run }}
         run: |
+          ENABLE_DISCORD="${{ env.DISCORD_WEBHOOK_URL != '' && 'true' || 'false' }}"
+          ENABLE_SLACK="${{ env.SLACK_WEBHOOK_URL != '' && inputs.slack_channel != '' && 'true' || 'false' }}"
           echo "::notice::DRY RUN — no notifications will be sent"
           echo "  product_name     : ${{ inputs.product_name }}"
           echo "  release_tag      : ${{ steps.release.outputs.tag }}"
@@ -151,10 +153,12 @@ jobs:
           echo "  discord_username : ${{ inputs.discord_username }}"
           echo "  discord_content  : ${{ inputs.discord_content }}"
           echo "  skip_beta_discord: ${{ inputs.skip_beta_discord }}"
+          echo "  enable_discord   : ${ENABLE_DISCORD}"
           echo "  slack_webhook    : ${{ env.SLACK_WEBHOOK_URL != '' && 'configured' || 'not set' }}"
           echo "  slack_channel    : ${{ inputs.slack_channel }}"
           echo "  slack_color      : ${{ inputs.slack_color }}"
           echo "  slack_icon_emoji : ${{ inputs.slack_icon_emoji }}"
+          echo "  enable_slack     : ${ENABLE_SLACK}"
 
       - name: Discord notification
         if: ${{ env.DISCORD_WEBHOOK_URL != '' }}

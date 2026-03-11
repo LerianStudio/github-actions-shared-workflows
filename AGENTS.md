@@ -41,12 +41,15 @@ Full rules:
 In reusable workflows (`workflow_call`), `uses: ./path` resolves to the **caller's workspace**, not this repository. This means `./src/...` only works when the caller IS this repo (i.e., `self-*` workflows).
 
 - **Workflows called by external repos** — use an external ref pinned to a release tag:
+
   ```yaml
   uses: LerianStudio/github-actions-shared-workflows/src/notify/discord-release@v1.2.3  # ✅ pinned
   uses: LerianStudio/github-actions-shared-workflows/src/notify/discord-release@develop # ⚠️ testing only
   uses: ./src/notify/discord-release  # ❌ resolves to caller's workspace
   ```
+
 - **`self-*` workflows (internal only)** — use a local path:
+
   ```yaml
   uses: ./.github/workflows/labels-sync.yml  # ✅ caller is this repo
   ```
