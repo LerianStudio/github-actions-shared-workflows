@@ -51,13 +51,27 @@ runs:
           # For PRs, diff between the base branch and current HEAD
           FILES=$(git diff --name-only ${{ github.event.pull_request.base.sha }} HEAD)
         elif [[ "${{ github.event.before }}" == "0000000000000000000000000000000000000000" ]] || [[ -z "${{ github.event.before }}" ]]; then
-          # For tags or when before is not available, compare with the previous commit
-          PREV_COMMIT=$(git rev-parse HEAD^)
-          if [[ $? -eq 0 ]]; then
-            FILES=$(git diff --name-only $PREV_COMMIT HEAD)
+          # Tag push or missing before ref
+          CURRENT_TAG=$(git describe --tags --exact-match HEAD 2>/dev/null || echo "")
+          if [[ -n "$CURRENT_TAG" ]]; then
+            # Compare against previous tag to capture all changes since last release
+            PREV_TAG=$(git tag --sort=-v:refname | grep -v "^${CURRENT_TAG}$" | head -1)
+            if [[ -n "$PREV_TAG" ]]; then
+              echo "Tag push detected: comparing $PREV_TAG..$CURRENT_TAG"
+              FILES=$(git diff --name-only "$PREV_TAG" HEAD)
+            else
+              # First tag ever — list all files
+              FILES=$(git ls-tree -r --name-only HEAD)
+            fi
           else
-            # Fallback for first commit
-            FILES=$(git ls-tree -r --name-only HEAD)
+            # Not a tag — compare with previous commit
+            PREV_COMMIT=$(git rev-parse HEAD^)
+            if [[ $? -eq 0 ]]; then
+              FILES=$(git diff --name-only $PREV_COMMIT HEAD)
+            else
+              # Fallback for first commit
+              FILES=$(git ls-tree -r --name-only HEAD)
+            fi
           fi
         else
           # Normal case - diff between commits
