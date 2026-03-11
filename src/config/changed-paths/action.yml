@@ -1,0 +1,194 @@
+name: Get Changed Paths
+description: Detects changed files between commits and outputs a matrix of changed directories for monorepo CI/CD pipelines.
+
+inputs:
+  filter_paths:
+    description: 'JSON array of path prefixes to filter results (e.g., ["components/mdz", "components/transaction"])'
+    required: false
+    default: ''
+  path_level:
+    description: 'Limits the path to the first N segments (e.g., 2 -> "components/transactions")'
+    required: false
+    default: '0'
+  get_app_name:
+    description: 'If true, outputs a matrix of objects with app name and working directory. Otherwise, outputs a list of changed directories'
+    required: false
+    default: 'false'
+  app_name_prefix:
+    description: 'Prefix to add to each app name when get_app_name is true'
+    required: false
+    default: ''
+  app_name_overrides:
+    description: 'Newline-separated list of explicit app name mappings in "path:name" format. Use "path:" for prefix-only. Overrides default segment extraction'
+    required: false
+    default: ''
+  normalize_to_filter:
+    description: 'If true, uses the filter path as working_dir instead of the actual trimmed directory path'
+    required: false
+    default: 'false'
+
+outputs:
+  matrix:
+    description: 'JSON array of changed directories (or objects with name and working_dir if get_app_name is true)'
+    value: ${{ steps.dirs.outputs.matrix }}
+  has_changes:
+    description: 'Boolean indicating if there are any changes'
+    value: ${{ steps.dirs.outputs.has_changes }}
+
+runs:
+  using: composite
+  steps:
+    - name: Checkout code
+      uses: actions/checkout@v6
+      with:
+        fetch-depth: 0
+
+    - name: Get changed files
+      id: changed
+      shell: bash
+      run: |
+        if [[ "${{ github.event_name }}" == "pull_request" || "${{ github.event_name }}" == "pull_request_target" ]]; then
+          # For PRs, diff between the base branch and current HEAD
+          FILES=$(git diff --name-only ${{ github.event.pull_request.base.sha }} HEAD)
+        elif [[ "${{ github.event.before }}" == "0000000000000000000000000000000000000000" ]] || [[ -z "${{ github.event.before }}" ]]; then
+          # For tags or when before is not available, compare with the previous commit
+          PREV_COMMIT=$(git rev-parse HEAD^)
+          if [[ $? -eq 0 ]]; then
+            FILES=$(git diff --name-only $PREV_COMMIT HEAD)
+          else
+            # Fallback for first commit
+            FILES=$(git ls-tree -r --name-only HEAD)
+          fi
+        else
+          # Normal case - diff between commits
+          FILES=$(git diff --name-only ${{ github.event.before }} ${{ github.sha }})
+        fi
+        printf "files<<EOF\n%s\nEOF\n" "$FILES" >> "$GITHUB_OUTPUT"
+
+    - name: Extract changed directories
+      id: dirs
+      shell: bash
+      run: |
+        FILES="${{ steps.changed.outputs.files }}"
+        FILTER_PATHS='${{ inputs.filter_paths }}'
+        PATH_LEVEL="${{ inputs.path_level }}"
+        GET_APP_NAME="${{ inputs.get_app_name }}"
+        APP_NAME_PREFIX="${{ inputs.app_name_prefix }}"
+        APP_NAME_OVERRIDES="${{ inputs.app_name_overrides }}"
+        NORMALIZE_TO_FILTER="${{ inputs.normalize_to_filter }}"
+
+        # Parse app_name_overrides into associative array
+        declare -A NAME_OVERRIDES
+        if [[ -n "$APP_NAME_OVERRIDES" ]]; then
+          while IFS= read -r line; do
+            [[ -z "$line" ]] && continue
+            OVERRIDE_PATH="${line%%:*}"
+            OVERRIDE_NAME="${line#*:}"
+            NAME_OVERRIDES["$OVERRIDE_PATH"]="$OVERRIDE_NAME"
+          done <<< "$APP_NAME_OVERRIDES"
+        fi
+
+        if [[ -z "$FILES" ]]; then
+          echo "No files changed."
+          printf "matrix=[]\n" >> "$GITHUB_OUTPUT"
+          printf "has_changes=false\n" >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
+
+        # Get directory for each file
+        DIRS=$(echo "$FILES" | xargs -n1 dirname)
+
+        # Trim to first N path segments if specified
+        if [[ -n "$PATH_LEVEL" ]] && [[ "$PATH_LEVEL" -gt 0 ]]; then
+          echo "Trimming paths to first $PATH_LEVEL segments"
+          DIRS=$(echo "$DIRS" | cut -d'/' -f-"$PATH_LEVEL")
+        fi
+
+        # Filter paths if filter_paths is provided (JSON array format)
+        if [[ -n "$FILTER_PATHS" ]] && [[ "$FILTER_PATHS" != "[]" ]] && [[ "$FILTER_PATHS" != "" ]]; then
+          # Parse JSON array into newline-separated values
+          FILTER_LIST=$(echo "$FILTER_PATHS" | jq -r '.[]' 2>/dev/null || echo "")
+
+          if [[ -n "$FILTER_LIST" ]]; then
+            FILTERED=""
+            while read -r DIR; do
+              while read -r FILTER; do
+                [[ -z "$FILTER" ]] && continue
+                if [[ "$DIR" == "$FILTER"* ]]; then
+                  if [[ "$NORMALIZE_TO_FILTER" == "true" ]]; then
+                    FILTERED+="$FILTER"$'\n'
+                  else
+                    FILTERED+="$DIR"$'\n'
+                  fi
+                  break
+                fi
+              done <<< "$FILTER_LIST"
+            done <<< "$DIRS"
+
+            # If nothing matched, exit
+            if [[ -z "$FILTERED" ]]; then
+              echo "No matching directories found after filtering."
+              printf "matrix=[]\n" >> "$GITHUB_OUTPUT"
+              printf "has_changes=false\n" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+
+            DIRS="$FILTERED"
+          fi
+        fi
+
+        # Deduplicate and remove empty lines
+        DIRS=$(echo "$DIRS" | grep -v '^$' | sort -u)
+
+        # Check if we have any directories
+        if [[ -z "$DIRS" ]]; then
+          echo "No directories found."
+          printf "matrix=[]\n" >> "$GITHUB_OUTPUT"
+          printf "has_changes=false\n" >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
+
+        if [[ "$GET_APP_NAME" == "true" ]]; then
+          echo "Generating object matrix with app names"
+          MATRIX="["
+          FIRST=true
+          while read -r DIR; do
+            # Check if there's an explicit override for this path
+            if [[ -n "${NAME_OVERRIDES[$DIR]+set}" ]]; then
+              OVERRIDE_VALUE="${NAME_OVERRIDES[$DIR]}"
+              if [[ -z "$OVERRIDE_VALUE" ]]; then
+                APP_NAME="$APP_NAME_PREFIX"
+              else
+                if [[ -n "$APP_NAME_PREFIX" ]]; then
+                  APP_NAME="${APP_NAME_PREFIX}-${OVERRIDE_VALUE}"
+                else
+                  APP_NAME="$OVERRIDE_VALUE"
+                fi
+              fi
+            else
+              # No override - extract app name from second path segment
+              EXTRACTED_NAME="$(echo "$DIR" | cut -d'/' -f2)"
+              if [[ -n "$APP_NAME_PREFIX" ]]; then
+                APP_NAME="${APP_NAME_PREFIX}-${EXTRACTED_NAME}"
+              else
+                APP_NAME="$EXTRACTED_NAME"
+              fi
+            fi
+
+            ENTRY="{\"name\":\"$APP_NAME\",\"working_dir\":\"$DIR\"}"
+            if $FIRST; then
+              MATRIX+="$ENTRY"
+              FIRST=false
+            else
+              MATRIX+=",$ENTRY"
+            fi
+          done <<< "$DIRS"
+          MATRIX+="]"
+        else
+          # Default: return just an array of paths
+          MATRIX=$(echo "$DIRS" | jq -Rc . | jq -sc .)
+        fi
+
+        echo "Changed directories matrix: $MATRIX"
+        printf "matrix=%s\n" "$MATRIX" >> "$GITHUB_OUTPUT"
+        printf "has_changes=true\n" >> "$GITHUB_OUTPUT"
