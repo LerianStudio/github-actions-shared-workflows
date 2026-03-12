@@ -55,7 +55,7 @@ jobs:
       - name: Get changed paths (monorepo)
         if: inputs.filter_paths != ''
         id: changed-paths
-        uses: LerianStudio/github-actions-changed-paths@main
+        uses: LerianStudio/github-actions-shared-workflows/src/config/changed-paths@develop
         with:
           filter_paths: ${{ inputs.filter_paths }}
           path_level: ${{ inputs.path_level }}
@@ -115,7 +115,7 @@ jobs:
           git reset --hard origin/${{ github.ref_name }}
 
       - name: Import GPG key
-        uses: crazy-max/ghaction-import-gpg@v6
+        uses: crazy-max/ghaction-import-gpg@v7
         id: import_gpg
         with:
           gpg_private_key: ${{ secrets.LERIAN_CI_CD_USER_GPG_KEY }}

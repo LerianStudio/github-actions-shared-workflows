@@ -1,0 +1,59 @@
+# Labeler configuration for github-actions-shared-workflows
+# Used by actions/labeler in the pr-validation workflow
+# Docs: https://github.com/actions/labeler
+
+# ── Workflows ──────────────────────────────────────────────────────────────────
+
+# Any change to a reusable workflow file
+workflow:
+  - changed-files:
+    - any-glob-to-any-file: ".github/workflows/*.yml"
+
+# ── Ecosystems ─────────────────────────────────────────────────────────────────
+
+# Changes to Go-related workflows (go-ci, go-security, go-release, go-pr-analysis)
+golang:
+  - changed-files:
+    - any-glob-to-any-file: ".github/workflows/go-*.yml"
+
+# Changes to TypeScript or Frontend workflows
+typescript:
+  - changed-files:
+    - any-glob-to-any-file:
+      - ".github/workflows/typescript-*.yml"
+      - ".github/workflows/frontend-*.yml"
+
+# Changes to security workflows or the vulnerability reporting policy
+security:
+  - changed-files:
+    - any-glob-to-any-file:
+      - ".github/workflows/go-security.yml"
+      - ".github/workflows/pr-security-scan.yml"
+      - "SECURITY.md"
+
+# ── Change types ───────────────────────────────────────────────────────────────
+
+# Changes to docs/, any top-level markdown file, or markdown inside .github/
+documentation:
+  - changed-files:
+    - any-glob-to-any-file:
+      - "docs/**"
+      - "*.md"
+      - ".github/**/*.md"
+
+# Changes to dependabot.yml (usually opened automatically by Dependabot itself)
+dependencies:
+  - changed-files:
+    - any-glob-to-any-file: ".github/dependabot.yml"
+
+# Changes to repository-level configuration: issue templates, PR template,
+# labeler, CODEOWNERS, release config, or gitignore
+github-config:
+  - changed-files:
+    - any-glob-to-any-file:
+      - ".github/ISSUE_TEMPLATE/**"
+      - ".github/pull_request_template.md"
+      - ".github/labeler.yml"
+      - ".github/CODEOWNERS"
+      - ".releaserc.yml"
+      - ".gitignore"

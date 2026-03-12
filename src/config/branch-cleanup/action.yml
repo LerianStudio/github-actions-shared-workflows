@@ -1,0 +1,164 @@
+name: Branch Cleanup
+description: Deletes stale branches with no open PRs, or a specific merged branch.
+
+inputs:
+  github-token:
+    description: GitHub token with contents:write and pull-requests:read permissions
+    required: true
+  stale-days:
+    description: Days without commits before a branch is considered stale
+    required: false
+    default: "30"
+  dry-run:
+    description: Preview deletions without applying them
+    required: false
+    default: "false"
+  protected-branches:
+    description: Comma-separated branch patterns to never delete
+    required: false
+    default: "main,master,develop,release/*,hotfix/*"
+  merged-branch:
+    description: Specific branch to delete (merged-branch mode — skips stale scan)
+    required: false
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    - name: Delete merged branch
+      if: ${{ inputs.merged-branch != '' }}
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+        MERGED_BRANCH: ${{ inputs.merged-branch }}
+        DRY_RUN: ${{ inputs.dry-run }}
+        PROTECTED_BRANCHES: ${{ inputs.protected-branches }}
+      run: |
+        is_protected() {
+          local branch="$1"
+          IFS=',' read -ra patterns <<< "$PROTECTED_BRANCHES"
+          for pattern in "${patterns[@]}"; do
+            pattern=$(echo "$pattern" | xargs)
+            # shellcheck disable=SC2254
+            case "$branch" in $pattern) return 0 ;; esac
+          done
+          return 1
+        }
+
+        if is_protected "$MERGED_BRANCH"; then
+          echo "::warning::Branch '$MERGED_BRANCH' matches a protected pattern — skipping"
+          exit 0
+        fi
+
+        if [[ "$DRY_RUN" == "true" ]]; then
+          echo "::notice::DRY RUN — would delete merged branch '$MERGED_BRANCH'"
+          exit 0
+        fi
+
+        echo "Deleting merged branch '$MERGED_BRANCH'..."
+        gh api -X DELETE "repos/${{ github.repository }}/git/refs/heads/${MERGED_BRANCH}" \
+          && echo "::notice::Deleted merged branch '$MERGED_BRANCH'" \
+          || echo "::warning::Branch '$MERGED_BRANCH' not found or already deleted"
+
+    - name: Scan and delete stale branches
+      if: ${{ inputs.merged-branch == '' }}
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+        STALE_DAYS: ${{ inputs.stale-days }}
+        DRY_RUN: ${{ inputs.dry-run }}
+        PROTECTED_BRANCHES: ${{ inputs.protected-branches }}
+      run: |
+        is_protected() {
+          local branch="$1"
+          IFS=',' read -ra patterns <<< "$PROTECTED_BRANCHES"
+          for pattern in "${patterns[@]}"; do
+            pattern=$(echo "$pattern" | xargs)
+            # shellcheck disable=SC2254
+            case "$branch" in $pattern) return 0 ;; esac
+          done
+          return 1
+        }
+
+        cutoff_date=$(date -u -d "$STALE_DAYS days ago" +%Y-%m-%dT%H:%M:%SZ)
+        echo "Cutoff date: $cutoff_date (branches with no commits after this are stale)"
+
+        deleted=0
+        skipped=0
+        protected_count=0
+        has_pr=0
+        page=1
+
+        while :; do
+          branches=$(gh api "repos/${{ github.repository }}/branches?per_page=100&page=${page}" \
+            --jq '.[].name' 2>/dev/null)
+          [[ -z "$branches" ]] && break
+
+          while IFS= read -r branch; do
+            if is_protected "$branch"; then
+              protected_count=$((protected_count + 1))
+              continue
+            fi
+
+            # Check if branch has GitHub branch protection rules
+            status_code=$(gh api -i "repos/${{ github.repository }}/branches/${branch}/protection" \
+              2>/dev/null | head -1 | awk '{print $2}')
+            if [[ "$status_code" == "200" ]]; then
+              protected_count=$((protected_count + 1))
+              [[ "$DRY_RUN" == "true" ]] && echo "  [protected-rule] $branch"
+              continue
+            fi
+
+            # Get last commit date
+            last_commit_date=$(gh api "repos/${{ github.repository }}/commits?sha=${branch}&per_page=1" \
+              --jq '.[0].commit.committer.date' 2>/dev/null)
+
+            if [[ -z "$last_commit_date" ]]; then
+              skipped=$((skipped + 1))
+              continue
+            fi
+
+            if [[ "$last_commit_date" > "$cutoff_date" ]]; then
+              skipped=$((skipped + 1))
+              [[ "$DRY_RUN" == "true" ]] && echo "  [active] $branch (last commit: $last_commit_date)"
+              continue
+            fi
+
+            # Check for open PRs using this branch as head
+            open_prs=$(gh api "repos/${{ github.repository }}/pulls?state=open&head=${{ github.repository_owner }}:${branch}&per_page=1" \
+              --jq 'length' 2>/dev/null)
+
+            if [[ "$open_prs" -gt 0 ]]; then
+              has_pr=$((has_pr + 1))
+              [[ "$DRY_RUN" == "true" ]] && echo "  [has-pr] $branch (last commit: $last_commit_date)"
+              continue
+            fi
+
+            if [[ "$DRY_RUN" == "true" ]]; then
+              echo "  [stale] $branch (last commit: $last_commit_date) — would delete"
+              deleted=$((deleted + 1))
+            else
+              if gh api -X DELETE "repos/${{ github.repository }}/git/refs/heads/${branch}" 2>/dev/null; then
+                echo "  Deleted: $branch (last commit: $last_commit_date)"
+                deleted=$((deleted + 1))
+              else
+                echo "::warning::Failed to delete branch '$branch'"
+              fi
+            fi
+          done <<< "$branches"
+
+          page=$((page + 1))
+        done
+
+        echo ""
+        echo "--- Summary ---"
+        echo "Protected : $protected_count"
+        echo "Active    : $skipped"
+        echo "Has PR    : $has_pr"
+        if [[ "$DRY_RUN" == "true" ]]; then
+          echo "To delete : $deleted"
+          echo "::notice::DRY RUN complete — $deleted branch(es) would be deleted"
+        else
+          echo "Deleted   : $deleted"
+          echo "::notice::Stale branch cleanup complete — $deleted branch(es) deleted"
+        fi

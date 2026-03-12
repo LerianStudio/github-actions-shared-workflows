@@ -33,7 +33,7 @@ on:
 
 jobs:
   security:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/go-security.yml@main
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/go-security.yml@v1.0.0
 ```
 
 ### Custom Configuration
@@ -44,7 +44,7 @@ on: [push, pull_request]
 
 jobs:
   security:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/go-security.yml@main
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/go-security.yml@v1.0.0
     with:
       go_version: '1.23'
       enable_gosec: true
@@ -64,7 +64,7 @@ on: [push, pull_request]
 
 jobs:
   security:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/go-security.yml@main
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/go-security.yml@v1.0.0
     with:
       # Only run critical scanners
       enable_gosec: true
@@ -135,7 +135,7 @@ Aggregate summary of all security scans.
 ```yaml
 jobs:
   security:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/go-security.yml@main
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/go-security.yml@v1.0.0
 ```
 
 ### Critical Scanners Only
@@ -143,7 +143,7 @@ jobs:
 ```yaml
 jobs:
   security:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/go-security.yml@main
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/go-security.yml@v1.0.0
     with:
       enable_gosec: true
       enable_govulncheck: true
@@ -159,7 +159,7 @@ jobs:
 ```yaml
 jobs:
   security:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/go-security.yml@main
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/go-security.yml@v1.0.0
     with:
       fail_on_security_issues: false
 ```
@@ -177,12 +177,12 @@ on:
 
 jobs:
   security:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/go-security.yml@main
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/go-security.yml@v1.0.0
 ```
 
 ## Tips
 
-1. Pin to version: Use `@v1.0.0` instead of `@main` for production
+1. Pin to version: Use `@v1.0.0` instead of `@v1.0.0` for production
 2. Scheduled scans: Run weekly to catch new vulnerabilities
 3. SARIF upload: Keep enabled to track issues in GitHub Security tab
 4. Selective scanning: Disable scanners you don't need to reduce run time

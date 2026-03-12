@@ -57,7 +57,7 @@ jobs:
       is_stable: ${{ steps.check-tag.outputs.is_stable }}
     steps:
       - name: Checkout for branch check
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
@@ -134,14 +134,14 @@ jobs:
 
       - name: Checkout repository
         if: steps.check-tag.outputs.is_stable == 'true' || inputs.stable_releases_only == false
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
       - name: Get changed paths (monorepo)
         if: (steps.check-tag.outputs.is_stable == 'true' || inputs.stable_releases_only == false) && inputs.filter_paths != ''
         id: changed-paths
-        uses: LerianStudio/github-actions-changed-paths@main
+        uses: LerianStudio/github-actions-shared-workflows/src/config/changed-paths@develop
         with:
           filter_paths: ${{ inputs.filter_paths }}
           path_level: ${{ inputs.path_level }}
@@ -245,14 +245,14 @@ jobs:
 
     steps:
       - name: Create GitHub App Token
-        uses: actions/create-github-app-token@v1
+        uses: actions/create-github-app-token@v2
         id: app-token
         with:
           app-id: ${{ secrets.LERIAN_STUDIO_MIDAZ_PUSH_BOT_APP_ID }}
           private-key: ${{ secrets.LERIAN_STUDIO_MIDAZ_PUSH_BOT_PRIVATE_KEY }}
 
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
           token: ${{ steps.app-token.outputs.token }}
@@ -271,7 +271,7 @@ jobs:
           fi
 
       - name: Import GPG key
-        uses: crazy-max/ghaction-import-gpg@v6
+        uses: crazy-max/ghaction-import-gpg@v7
         id: import_gpg
         with:
           gpg_private_key: ${{ secrets.LERIAN_CI_CD_USER_GPG_KEY }}
@@ -720,7 +720,7 @@ jobs:
     name: Notify Sync PR
     needs: [generate_changelog]
     if: needs.generate_changelog.result == 'success' && needs.generate_changelog.outputs.sync_pr != ''
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
       - name: Send Slack notification for sync PR
         uses: slackapi/slack-github-action@v1.24.0

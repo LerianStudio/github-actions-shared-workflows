@@ -24,7 +24,7 @@ Reusable workflow for updating GitOps repository with new image tags across mult
 update_gitops:
   needs: build_backend
   if: needs.build_backend.result == 'success'
-  uses: LerianStudio/github-actions-shared-workflows/.github/workflows/gitops-update.yml@main
+  uses: LerianStudio/github-actions-shared-workflows/.github/workflows/gitops-update.yml@v1.0.0
   with:
     yaml_key_mappings: '{"backend.tag": ".auth.image.tag"}'
   secrets: inherit
@@ -47,7 +47,7 @@ update_gitops:
 update_gitops:
   needs: build_backend
   if: needs.build_backend.result == 'success'
-  uses: LerianStudio/github-actions-shared-workflows/.github/workflows/gitops-update.yml@main
+  uses: LerianStudio/github-actions-shared-workflows/.github/workflows/gitops-update.yml@v1.0.0
   with:
     deploy_in_firmino: true
     deploy_in_clotilde: false
@@ -61,7 +61,7 @@ update_gitops:
 update_gitops:
   needs: build_backend
   if: needs.build_backend.result == 'success'
-  uses: LerianStudio/github-actions-shared-workflows/.github/workflows/gitops-update.yml@main
+  uses: LerianStudio/github-actions-shared-workflows/.github/workflows/gitops-update.yml@v1.0.0
   with:
     deploy_in_firmino: false
     deploy_in_clotilde: true
@@ -75,7 +75,7 @@ update_gitops:
 update_gitops:
   needs: build
   if: needs.build.result == 'success'
-  uses: LerianStudio/github-actions-shared-workflows/.github/workflows/gitops-update.yml@main
+  uses: LerianStudio/github-actions-shared-workflows/.github/workflows/gitops-update.yml@v1.0.0
   with:
     app_name: "midaz"
     artifact_pattern: "gitops-tags-midaz-*"
@@ -243,7 +243,7 @@ This prevents unnecessary errors when an app hasn't been created in ArgoCD yet f
 **Before (single server):**
 ```yaml
 update_gitops:
-  uses: LerianStudio/github-actions-shared-workflows/.github/workflows/gitops-update.yml@main
+  uses: LerianStudio/github-actions-shared-workflows/.github/workflows/gitops-update.yml@v1.0.0
   with:
     gitops_server: 'firmino'
     gitops_file_dev: gitops/environments/firmino/helmfile/applications/dev/my-app/values.yaml
@@ -256,7 +256,7 @@ update_gitops:
 **After (multi-server):**
 ```yaml
 update_gitops:
-  uses: LerianStudio/github-actions-shared-workflows/.github/workflows/gitops-update.yml@main
+  uses: LerianStudio/github-actions-shared-workflows/.github/workflows/gitops-update.yml@v1.0.0
   with:
     app_name: 'my-app'
     deploy_in_firmino: true

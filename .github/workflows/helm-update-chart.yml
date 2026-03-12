@@ -40,7 +40,7 @@ on:
       runner_type:
         description: 'GitHub runner type to use'
         type: string
-        default: 'ubuntu-latest'
+        default: 'blacksmith-4vcpu-ubuntu-2404'
       gpg_sign_commits:
         description: 'Whether to sign commits with GPG (default: true)'
         type: boolean
@@ -100,7 +100,7 @@ jobs:
     steps:
       - name: Generate GitHub App Token
         id: app-token
-        uses: actions/create-github-app-token@v1
+        uses: actions/create-github-app-token@v2
         with:
           app-id: ${{ secrets.APP_ID }}
           private-key: ${{ secrets.APP_PRIVATE_KEY }}
@@ -148,7 +148,7 @@ jobs:
           jq -c '.components' /tmp/payload.json > /tmp/components.json
 
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           token: ${{ steps.app-token.outputs.token }}
           ref: ${{ inputs.base_branch }}
@@ -156,7 +156,7 @@ jobs:
 
       - name: Import GPG key
         if: ${{ inputs.gpg_sign_commits }}
-        uses: crazy-max/ghaction-import-gpg@v6
+        uses: crazy-max/ghaction-import-gpg@v7
         with:
           gpg_private_key: ${{ secrets.GPG_KEY }}
           passphrase: ${{ secrets.GPG_KEY_PASSWORD }}
@@ -181,7 +181,7 @@ jobs:
 
       - name: Setup Go
         if: ${{ inputs.update_readme }}
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
           go-version: '1.21'
           cache-dependency-path: ${{ inputs.scripts_path }}/go.mod

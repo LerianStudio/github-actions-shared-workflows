@@ -1,0 +1,193 @@
+name: "TypeScript Release"
+
+# Reusable workflow for TypeScript/Node.js semantic versioning and release management
+# Creates releases based on conventional commits and manages version tags
+# Includes GitHub Packages authentication for private @lerianstudio dependencies
+#
+# Monorepo Support:
+# - If filter_paths is provided: detects changes and runs release for each changed app
+# - If filter_paths is empty: runs release for the entire repository (single app mode)
+
+on:
+  workflow_call:
+    inputs:
+      semantic_version:
+        description: 'Semantic release version to use'
+        type: string
+        default: '23.0.8'
+      runner_type:
+        description: 'Runner to use for the workflow'
+        type: string
+        default: 'blacksmith-4vcpu-ubuntu-2404'
+      node_version:
+        description: 'Node.js version to use'
+        type: string
+        default: '20'
+      filter_paths:
+        description: 'Newline-separated list of path prefixes to filter. If not provided, treats as single app repo.'
+        type: string
+        required: false
+        default: ''
+      path_level:
+        description: 'Limits the path to the first N segments (e.g., 2 -> "apps/agent")'
+        type: string
+        default: '2'
+      dry_run:
+        description: 'Run semantic-release in dry-run mode (no tags/releases created)'
+        type: boolean
+        default: false
+
+jobs:
+  prepare:
+    runs-on: ${{ inputs.runner_type }}
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+      has_changes: ${{ steps.set-matrix.outputs.has_changes }}
+      should_skip: ${{ steps.check-skip.outputs.should_skip }}
+    steps:
+      - name: Check if should skip (changelog commits)
+        id: check-skip
+        env:
+          COMMIT_MSG: ${{ github.event.head_commit.message }}
+        run: |
+          echo "Checking commit message for skip patterns"
+
+          # Skip if commit message contains [skip ci] or is a changelog update
+          if echo "$COMMIT_MSG" | grep -qiE '\[skip ci\]|chore\(release\): Update CHANGELOGs'; then
+            echo "Skipping release - changelog/skip-ci commit detected"
+            echo "should_skip=true" >> $GITHUB_OUTPUT
+          else
+            echo "Proceeding with release"
+            echo "should_skip=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Get changed paths (monorepo)
+        if: inputs.filter_paths != ''
+        id: changed-paths
+        uses: LerianStudio/github-actions-shared-workflows/src/config/changed-paths@develop
+        with:
+          filter_paths: ${{ inputs.filter_paths }}
+          path_level: ${{ inputs.path_level }}
+          get_app_name: 'true'
+
+      - name: Set matrix
+        id: set-matrix
+        run: |
+          if [ -z "${{ inputs.filter_paths }}" ]; then
+            # Single app mode - release from root
+            APP_NAME="${{ github.event.repository.name }}"
+            echo "matrix=[{\"name\": \"${APP_NAME}\", \"working_dir\": \".\"}]" >> $GITHUB_OUTPUT
+            echo "has_changes=true" >> $GITHUB_OUTPUT
+          else
+            MATRIX='${{ steps.changed-paths.outputs.matrix }}'
+            if [ "$MATRIX" == "[]" ] || [ -z "$MATRIX" ]; then
+              echo "matrix=[]" >> $GITHUB_OUTPUT
+              echo "has_changes=false" >> $GITHUB_OUTPUT
+            else
+              echo "matrix=$MATRIX" >> $GITHUB_OUTPUT
+              echo "has_changes=true" >> $GITHUB_OUTPUT
+            fi
+          fi
+
+  publish_release:
+    needs: prepare
+    if: needs.prepare.outputs.has_changes == 'true' && needs.prepare.outputs.should_skip != 'true'
+    runs-on: ${{ inputs.runner_type }}
+    env:
+      GH_PACKAGES_TOKEN: ${{ secrets.GH_PAT_FOR_PACKAGES }}
+    environment:
+      name: create_release
+    name: Release ${{ matrix.app.name }}
+    strategy:
+      max-parallel: 1
+      fail-fast: false
+      matrix:
+        app: ${{ fromJson(needs.prepare.outputs.matrix) }}
+
+    outputs:
+      gpg_fingerprint: ${{ steps.import_gpg.outputs.fingerprint }}
+
+    steps:
+      - uses: actions/create-github-app-token@v2
+        id: app-token
+        with:
+          app-id: ${{ secrets.LERIAN_STUDIO_MIDAZ_PUSH_BOT_APP_ID }}
+          private-key: ${{ secrets.LERIAN_STUDIO_MIDAZ_PUSH_BOT_PRIVATE_KEY }}
+
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          token: ${{ steps.app-token.outputs.token }}
+
+      - name: Sync with remote branch
+        run: |
+          git fetch origin ${{ github.ref_name }}
+          git reset --hard origin/${{ github.ref_name }}
+
+      - name: Import GPG key
+        uses: crazy-max/ghaction-import-gpg@v7
+        id: import_gpg
+        with:
+          gpg_private_key: ${{ secrets.LERIAN_CI_CD_USER_GPG_KEY }}
+          passphrase: ${{ secrets.LERIAN_CI_CD_USER_GPG_KEY_PASSWORD }}
+          git_committer_name: ${{ secrets.LERIAN_CI_CD_USER_NAME }}
+          git_committer_email: ${{ secrets.LERIAN_CI_CD_USER_EMAIL }}
+          git_config_global: true
+          git_user_signingkey: true
+          git_commit_gpgsign: true
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ inputs.node_version }}
+
+      - name: Setup .npmrc for GitHub Packages
+        if: ${{ env.GH_PACKAGES_TOKEN != '' }}
+        run: |
+          echo "//npm.pkg.github.com/:_authToken=${GH_PACKAGES_TOKEN}" > ~/.npmrc
+          echo "@lerianstudio:registry=https://npm.pkg.github.com" >> ~/.npmrc
+
+      - name: Init package.json and release config
+        working-directory: ${{ matrix.app.working_dir }}
+        run: |
+          echo '{"name":"${{ matrix.app.name }}","version":"0.0.0","private":true}' > package.json
+          echo '{"branches":["main",{"name":"develop","prerelease":"beta"},{"name":"release-candidate","prerelease":"rc"}]}' > .releaserc.json
+          rm -f package-lock.json
+
+      - name: Install semantic-release plugins
+        working-directory: ${{ matrix.app.working_dir }}
+        run: |
+          npm install --save-dev \
+            @semantic-release/exec@7.1.0
+
+      - name: Semantic Release
+        uses: cycjimmy/semantic-release-action@v6
+        id: semantic
+        with:
+          ci: false
+          dry_run: ${{ inputs.dry_run }}
+          semantic_version: ${{ inputs.semantic_version }}
+          working_directory: ${{ matrix.app.working_dir }}
+          extra_plugins: |
+            conventional-changelog-conventionalcommits@v7.0.2
+            @saithodev/semantic-release-backmerge@4.0.1
+        env:
+          GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
+          GIT_AUTHOR_NAME: ${{ secrets.LERIAN_CI_CD_USER_NAME }}
+          GIT_AUTHOR_EMAIL: ${{ secrets.LERIAN_CI_CD_USER_EMAIL }}
+          GIT_COMMITTER_NAME: ${{ secrets.LERIAN_CI_CD_USER_NAME }}
+          GIT_COMMITTER_EMAIL: ${{ secrets.LERIAN_CI_CD_USER_EMAIL }}
+
+  # Slack notification
+  notify:
+    name: Notify
+    needs: [prepare, publish_release]
+    if: always() && needs.prepare.outputs.has_changes == 'true' && needs.prepare.outputs.should_skip != 'true'
+    uses: ./.github/workflows/slack-notify.yml
+    with:
+      status: ${{ needs.publish_release.result }}
+      workflow_name: "TypeScript Release"
+      failed_jobs: ${{ needs.publish_release.result == 'failure' && 'Publish Release' || '' }}
+    secrets:
+      SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}

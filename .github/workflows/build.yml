@@ -4,7 +4,7 @@ name: "Build and Push Docker Images"
 # Supports both DockerHub and GHCR (GitHub Container Registry)
 #
 # Features:
-# - Monorepo support with optional change detection via LerianStudio/github-actions-changed-paths
+# - Monorepo support with optional change detection via internal changed-paths composite
 # - Multi-registry support (DockerHub and/or GHCR)
 # - Platform strategy: beta/rc builds amd64 only, release builds amd64+arm64
 # - Semantic versioning tags
@@ -13,6 +13,10 @@ name: "Build and Push Docker Images"
 
 on:
   workflow_call:
+    outputs:
+      has_builds:
+        description: 'Whether any components were detected for building (true/false). Use this to skip downstream jobs when no paths changed.'
+        value: ${{ jobs.prepare.outputs.has_builds }}
     inputs:
       runner_type:
         description: 'Runner to use for the workflow'
@@ -130,7 +134,7 @@ jobs:
       - name: Get changed paths (monorepo)
         if: inputs.filter_paths != ''
         id: changed-paths
-        uses: LerianStudio/github-actions-changed-paths@main
+        uses: LerianStudio/github-actions-shared-workflows/src/config/changed-paths@develop
         with:
           filter_paths: ${{ inputs.filter_paths }}
           path_level: ${{ inputs.path_level }}
@@ -196,21 +200,21 @@ jobs:
 
       - name: Set up QEMU
         if: contains(needs.prepare.outputs.platforms, 'arm64')
-        uses: docker/setup-qemu-action@v3
+        uses: docker/setup-qemu-action@v4
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
 
       - name: Log in to DockerHub
         if: inputs.enable_dockerhub
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
 
       - name: Log in to GHCR
         if: inputs.enable_ghcr
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -259,7 +263,7 @@ jobs:
 
       - name: Docker metadata
         id: meta
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@v6
         with:
           images: ${{ steps.image-names.outputs.images }}
           tags: |
@@ -268,7 +272,7 @@ jobs:
             type=semver,pattern={{major}},value=${{ steps.version.outputs.version }},enable=${{ needs.prepare.outputs.is_release }}
 
       - name: Build and push Docker image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: ${{ inputs.build_context }}
           file: ${{ matrix.app.working_dir }}/${{ inputs.dockerfile_name }}
@@ -295,7 +299,7 @@ jobs:
 
       - name: Upload GitOps tag artifact
         if: inputs.enable_gitops_artifacts
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: gitops-tags-${{ matrix.app.name }}
           path: gitops-tags/

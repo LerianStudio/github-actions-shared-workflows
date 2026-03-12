@@ -57,7 +57,7 @@ permissions:
 jobs:
   changelog:
     if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/gptchangelog.yml@main
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/gptchangelog.yml@v1.0.0
     with:
       runner_type: "blacksmith-4vcpu-ubuntu-2404"
     secrets: inherit
@@ -82,7 +82,7 @@ permissions:
 
 jobs:
   changelog:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/gptchangelog.yml@main
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/gptchangelog.yml@v1.0.0
     with:
       runner_type: "blacksmith-4vcpu-ubuntu-2404"
     secrets: inherit
@@ -123,7 +123,7 @@ permissions:
 
 jobs:
   changelog:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/gptchangelog.yml@main
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/gptchangelog.yml@v1.0.0
     with:
       runner_type: "blacksmith"
       filter_paths: |-
@@ -178,12 +178,12 @@ on:
 
 jobs:
   release:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/release.yml@main
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/release.yml@v1.0.0
     secrets: inherit
 
   changelog:
     needs: release
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/gptchangelog.yml@main
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/gptchangelog.yml@v1.0.0
     with:
       runner_type: "blacksmith"
     secrets: inherit
@@ -289,7 +289,7 @@ Run changelog generation after the release workflow:
 ```yaml
 changelog:
   needs: release
-  uses: LerianStudio/github-actions-shared-workflows/.github/workflows/gptchangelog.yml@main
+  uses: LerianStudio/github-actions-shared-workflows/.github/workflows/gptchangelog.yml@v1.0.0
   secrets: inherit
 ```
 
@@ -367,7 +367,7 @@ on:
 
 jobs:
   changelog:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/gptchangelog.yml@main
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/gptchangelog.yml@v1.0.0
     secrets: inherit
 ```
 
@@ -381,7 +381,7 @@ on:
 
 jobs:
   changelog:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/gptchangelog.yml@main
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/gptchangelog.yml@v1.0.0
     with:
       filter_paths: |-
         charts/agent
@@ -402,7 +402,7 @@ on:
 
 jobs:
   changelog:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/gptchangelog.yml@main
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/gptchangelog.yml@v1.0.0
     with:
       filter_paths: |-
         services/api
@@ -416,7 +416,7 @@ jobs:
 
 ```yaml
 changelog:
-  uses: LerianStudio/github-actions-shared-workflows/.github/workflows/gptchangelog.yml@main
+  uses: LerianStudio/github-actions-shared-workflows/.github/workflows/gptchangelog.yml@v1.0.0
   with:
     openai_model: 'anthropic/claude-3.5-sonnet'
     max_context_tokens: '128000'

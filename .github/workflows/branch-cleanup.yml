@@ -1,0 +1,60 @@
+name: Branch Cleanup
+
+on:
+  workflow_call:
+    inputs:
+      stale_days:
+        description: Days without commits before a branch is considered stale
+        required: false
+        type: number
+        default: 30
+      dry_run:
+        description: Preview changes without applying them
+        required: false
+        type: boolean
+        default: false
+      protected_branches:
+        description: Comma-separated branch patterns to never delete
+        required: false
+        type: string
+        default: "main,master,develop,release/*,hotfix/*"
+      merged_branch:
+        description: Branch to delete (enables merged-branch mode)
+        required: false
+        type: string
+        default: ""
+  workflow_dispatch:
+    inputs:
+      stale_days:
+        description: Days without commits before a branch is considered stale
+        type: number
+        default: 30
+      dry_run:
+        description: Preview changes without applying them
+        type: boolean
+        default: false
+      protected_branches:
+        description: Comma-separated branch patterns to never delete
+        type: string
+        default: "main,master,develop,release/*,hotfix/*"
+
+permissions:
+  contents: write
+  pull-requests: read
+
+jobs:
+  cleanup:
+    name: Clean up branches
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Run branch cleanup
+        uses: ./src/config/branch-cleanup
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          stale-days: ${{ inputs.stale_days }}
+          dry-run: ${{ inputs.dry_run || false }}
+          protected-branches: ${{ inputs.protected_branches || 'main,master,develop,release/*,hotfix/*' }}
+          merged-branch: ${{ inputs.merged_branch || '' }}

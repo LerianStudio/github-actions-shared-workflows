@@ -28,7 +28,7 @@ on:
 
 jobs:
   ci:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/go-ci.yml@main
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/go-ci.yml@v1.0.0
 ```
 
 ### Custom Configuration
@@ -39,7 +39,7 @@ on: [push, pull_request]
 
 jobs:
   ci:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/go-ci.yml@main
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/go-ci.yml@v1.0.0
     with:
       go_versions: '["1.22", "1.23"]'
       operating_systems: '["ubuntu-latest", "macos-latest"]'
@@ -59,7 +59,7 @@ on: [push, pull_request]
 
 jobs:
   ci:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/go-ci.yml@main
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/go-ci.yml@v1.0.0
     with:
       enable_cross_platform_build: true
       build_path: './cmd/myapp'
@@ -125,7 +125,7 @@ Aggregate status check that fails if any required job fails.
 ```yaml
 jobs:
   ci:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/go-ci.yml@main
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/go-ci.yml@v1.0.0
 ```
 
 ### Only Latest Go Version
@@ -133,7 +133,7 @@ jobs:
 ```yaml
 jobs:
   ci:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/go-ci.yml@main
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/go-ci.yml@v1.0.0
     with:
       go_versions: '["1.23"]'
       operating_systems: '["ubuntu-latest"]'
@@ -144,14 +144,14 @@ jobs:
 ```yaml
 jobs:
   ci:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/go-ci.yml@main
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/go-ci.yml@v1.0.0
     with:
       check_docs: false
 ```
 
 ## Tips
 
-1. Pin to a version tag: Use `@v1.0.0` instead of `@main` for production stability
+1. Pin to a version tag: Use `@v1.0.0` instead of `@v1.0.0` for production stability
 2. golangci-lint config: Place `.golangci.yml` in your repo root for custom linting rules
 3. Custom build targets: Specify exact platforms you need to reduce build time
 4. Markdown link check: Add `.github/markdown-link-check-config.json` to configure link validation

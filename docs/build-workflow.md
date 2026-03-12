@@ -24,7 +24,7 @@ on:
 
 jobs:
   build:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/build.yml@main
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/build.yml@v1.0.0
     with:
       runner_type: "firmino-lxc-runners"
       enable_dockerhub: true
@@ -44,7 +44,7 @@ on:
 
 jobs:
   build:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/build.yml@main
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/build.yml@v1.0.0
     with:
       runner_type: "firmino-lxc-runners"
       filter_paths: |-
@@ -71,7 +71,7 @@ on:
 
 jobs:
   build:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/build.yml@main
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/build.yml@v1.0.0
     with:
       filter_paths: |-
         components/api
@@ -84,7 +84,7 @@ jobs:
   update_gitops:
     needs: [build]
     if: contains(github.ref, '-beta') || contains(github.ref, '-rc')
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/gitops-update.yml@main
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/gitops-update.yml@v1.0.0
     with:
       gitops_repository: "MyOrg/gitops-repo"
       artifact_pattern: "gitops-tags-myapp-*"
