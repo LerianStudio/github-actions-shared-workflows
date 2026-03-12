@@ -120,8 +120,18 @@ runs:
 
         # Filter paths if filter_paths is provided (supports both JSON array and newline-separated formats)
         if [[ -n "$FILTER_PATHS" ]] && [[ "$FILTER_PATHS" != "[]" ]] && [[ "$FILTER_PATHS" != "" ]]; then
-          # Try JSON array first, fall back to newline-separated
-          FILTER_LIST=$(echo "$FILTER_PATHS" | jq -r '.[]' 2>/dev/null || echo "$FILTER_PATHS")
+          # Detect format and parse accordingly
+          if [[ "$FILTER_PATHS" == "["* ]]; then
+            # Input looks like JSON array — validate strictly
+            FILTER_LIST=$(echo "$FILTER_PATHS" | jq -er '.[]' 2>/dev/null)
+            if [[ $? -ne 0 ]]; then
+              echo "::error::filter_paths looks like a JSON array but is malformed: $FILTER_PATHS"
+              exit 1
+            fi
+          else
+            # Newline-separated input
+            FILTER_LIST="$FILTER_PATHS"
+          fi
 
           if [[ -n "$FILTER_LIST" ]]; then
             FILTERED=""

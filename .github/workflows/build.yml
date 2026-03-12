@@ -4,7 +4,7 @@ name: "Build and Push Docker Images"
 # Supports both DockerHub and GHCR (GitHub Container Registry)
 #
 # Features:
-# - Monorepo support with optional change detection via LerianStudio/github-actions-changed-paths
+# - Monorepo support with optional change detection via internal changed-paths composite
 # - Multi-registry support (DockerHub and/or GHCR)
 # - Platform strategy: beta/rc builds amd64 only, release builds amd64+arm64
 # - Semantic versioning tags
