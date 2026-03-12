@@ -847,13 +847,40 @@ jobs:
         env:
           GOPRIVATE: ${{ inputs.go_private_modules }}
 
+      - name: Detect Makefile test target
+        id: detect-make
+        working-directory: ${{ matrix.app.working_dir }}
+        run: |
+          if [[ -f "Makefile" ]] || [[ -f "makefile" ]] || [[ -f "GNUmakefile" ]]; then
+            if make -n test >/dev/null 2>&1; then
+              echo "use_make=true" >> $GITHUB_OUTPUT
+            else
+              echo "use_make=false" >> $GITHUB_OUTPUT
+            fi
+          else
+            echo "use_make=false" >> $GITHUB_OUTPUT
+          fi
+
       - name: Run tests ${{ inputs.test_determinism_runs }} times
         working-directory: ${{ matrix.app.working_dir }}
         run: |
           echo "Running tests ${{ inputs.test_determinism_runs }} times to verify determinism..."
+
+          # Build test command matching the tests job logic
+          if [[ "${{ steps.detect-make.outputs.use_make }}" == "true" ]]; then
+            TEST_CMD="make test"
+          else
+            PACKAGES=$(go list ./... | awk '!/\/tests($|\/)/' | awk '!/\/api($|\/)/')
+            if [[ -z "$PACKAGES" ]]; then
+              echo "No packages found after filtering /tests/ and /api/"
+              exit 0
+            fi
+            TEST_CMD="echo $PACKAGES | xargs go test -count=1 -shuffle=on"
+          fi
+
           for i in $(seq 1 ${{ inputs.test_determinism_runs }}); do
             echo "Run $i/${{ inputs.test_determinism_runs }}"
-            if ! go test -count=1 -shuffle=on ./...; then
+            if ! eval "$TEST_CMD"; then
               echo "Tests failed on run $i"
               exit 1
             fi
