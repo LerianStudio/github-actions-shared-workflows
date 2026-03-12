@@ -3,7 +3,7 @@ description: Detects changed files between commits and outputs a matrix of chang
 
 inputs:
   filter_paths:
-    description: 'JSON array of path prefixes to filter results (e.g., ["components/mdz", "components/transaction"])'
+    description: 'Newline-separated list of path prefixes to filter results (e.g., "components/mdz\ncomponents/transaction"). Also accepts JSON array format.'
     required: false
     default: ''
   path_level:
@@ -118,10 +118,10 @@ runs:
           DIRS=$(echo "$DIRS" | cut -d'/' -f-"$PATH_LEVEL")
         fi
 
-        # Filter paths if filter_paths is provided (JSON array format)
+        # Filter paths if filter_paths is provided (supports both JSON array and newline-separated formats)
         if [[ -n "$FILTER_PATHS" ]] && [[ "$FILTER_PATHS" != "[]" ]] && [[ "$FILTER_PATHS" != "" ]]; then
-          # Parse JSON array into newline-separated values
-          FILTER_LIST=$(echo "$FILTER_PATHS" | jq -r '.[]' 2>/dev/null || echo "")
+          # Try JSON array first, fall back to newline-separated
+          FILTER_LIST=$(echo "$FILTER_PATHS" | jq -r '.[]' 2>/dev/null || echo "$FILTER_PATHS")
 
           if [[ -n "$FILTER_LIST" ]]; then
             FILTERED=""
