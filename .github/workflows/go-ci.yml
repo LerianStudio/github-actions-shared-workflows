@@ -265,7 +265,7 @@ jobs:
           test -f LICENSE
 
       - name: Validate Markdown links
-        uses: tcort/markdown-link-check-action@v1
+        uses: tcort/github-action-markdown-link-check@v1
         with:
           use-quiet-mode: 'yes'
           config-file: '.github/markdown-link-check-config.json'
