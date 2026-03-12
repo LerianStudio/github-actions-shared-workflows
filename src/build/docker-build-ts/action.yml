@@ -85,21 +85,21 @@ runs:
   steps:
     - name: Set up QEMU
       if: ${{ contains(inputs.platforms, 'arm64') }}
-      uses: docker/setup-qemu-action@v3
+      uses: docker/setup-qemu-action@v4
 
     - name: Set up Docker Buildx
-      uses: docker/setup-buildx-action@v3
+      uses: docker/setup-buildx-action@v4
 
     - name: Log in to DockerHub
       if: ${{ inputs.enable-dockerhub == 'true' }}
-      uses: docker/login-action@v3
+      uses: docker/login-action@v4
       with:
         username: ${{ inputs.dockerhub-username }}
         password: ${{ inputs.dockerhub-password }}
 
     - name: Log in to GHCR
       if: ${{ inputs.enable-ghcr == 'true' }}
-      uses: docker/login-action@v3
+      uses: docker/login-action@v4
       with:
         registry: ghcr.io
         username: ${{ github.actor }}
@@ -139,7 +139,7 @@ runs:
 
     - name: Docker metadata
       id: meta
-      uses: docker/metadata-action@v5
+      uses: docker/metadata-action@v6
       with:
         images: ${{ steps.image-names.outputs.images }}
         tags: |
@@ -196,7 +196,7 @@ runs:
     - name: Build Docker image (dry run)
       if: ${{ inputs.dry-run == 'true' }}
       id: build-dry
-      uses: docker/build-push-action@v6
+      uses: docker/build-push-action@v7
       with:
         context: ${{ inputs.build-context }}
         file: ${{ steps.dockerfile.outputs.path }}
@@ -210,7 +210,7 @@ runs:
     - name: Build and push Docker image
       if: ${{ inputs.dry-run != 'true' }}
       id: build-push
-      uses: docker/build-push-action@v6
+      uses: docker/build-push-action@v7
       with:
         context: ${{ inputs.build-context }}
         file: ${{ steps.dockerfile.outputs.path }}
