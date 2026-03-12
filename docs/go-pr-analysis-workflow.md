@@ -109,6 +109,10 @@ jobs:
 | `enable_coverage` | Enable coverage check with PR comment | No | `true` |
 | `enable_build` | Enable build verification | No | `true` |
 | `go_private_modules` | GOPRIVATE pattern for private Go modules (e.g., `github.com/LerianStudio/*`) | No | `''` |
+| `enable_integration_tests` | Enable integration tests job | No | `false` |
+| `integration_test_command` | Command to run integration tests | No | `make test-integration` |
+| `enable_test_determinism` | Enable test determinism check (runs tests multiple times with shuffle) | No | `false` |
+| `test_determinism_runs` | Number of times to run tests for determinism check | No | `3` |
 
 ### With Private Go Modules
 
@@ -159,6 +163,12 @@ Calculates coverage and posts PR comment per changed app:
 
 ### build
 Verifies code compiles successfully per changed app.
+
+### integration-tests
+Runs integration tests per changed app using a configurable command (default: `make test-integration`). Disabled by default — enable with `enable_integration_tests: true`.
+
+### test-determinism
+Runs unit tests multiple times with `-shuffle=on` to detect flaky or order-dependent tests. Always uses `go test` directly (bypasses Makefile) to guarantee shuffle flags are applied. Excludes `/tests/` and `/api/` packages. Disabled by default — enable with `enable_test_determinism: true`.
 
 ### no-changes
 Runs when no Go changes are detected - outputs skip message.
@@ -328,5 +338,5 @@ The workflow requires these permissions:
 
 ---
 
-**Last Updated:** 2026-02-06
-**Version:** 1.2.0
+**Last Updated:** 2026-03-12
+**Version:** 1.3.0
