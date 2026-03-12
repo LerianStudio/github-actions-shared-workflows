@@ -99,7 +99,7 @@ updates:
         patterns:
           - "amannn/action-semantic-pull-request"
           - "actions/labeler"
-          - "gaurav-nelson/github-action-markdown-link-check"
+          - "tcort/markdown-link-check-action"
           - "actions/github-script"
           - "mikefarah/yq"
         update-types:
