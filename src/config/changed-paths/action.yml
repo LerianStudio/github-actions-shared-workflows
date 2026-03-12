@@ -128,7 +128,10 @@ runs:
             while read -r DIR; do
               while read -r FILTER; do
                 [[ -z "$FILTER" ]] && continue
-                if [[ "$DIR" == "$FILTER"* ]]; then
+                while [[ "$FILTER" == */ && "$FILTER" != "/" ]]; do
+                  FILTER="${FILTER%/}"
+                done
+                if [[ "$DIR" == "$FILTER" ]] || [[ "$DIR" == "$FILTER"/* ]]; then
                   if [[ "$NORMALIZE_TO_FILTER" == "true" ]]; then
                     FILTERED+="$FILTER"$'\n'
                   else
