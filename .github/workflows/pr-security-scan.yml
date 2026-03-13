@@ -234,7 +234,7 @@ jobs:
           dockerhub-password: ${{ secrets.DOCKER_PASSWORD }}
           only-severities: critical,high,medium,low
           enable-recommendations: ${{ inputs.enable_docker_scout_recommendations }}
-          compare-to-env: ${{ inputs.docker_scout_compare_env }}
+          compare-to-env: ${{ inputs.docker_scout_compare_env || github.base_ref }}
           organization: ${{ inputs.docker_scout_organization }}
 
       # ----------------- Filesystem Vulnerability Scan -----------------
