@@ -18,6 +18,7 @@ Composite action that posts a formatted security scan summary as a PR comment, c
 | `scout-quickview` | Docker Scout quickview output | No | `""` |
 | `scout-cves` | Docker Scout CVE list output | No | `""` |
 | `scout-has-vulnerabilities` | Whether Docker Scout detected vulnerabilities | No | `"false"` |
+| `scout-recommendations` | Docker Scout recommendations output (Dockerfile issues, missing attestations, non-root user) | No | `""` |
 
 ## Outputs
 
