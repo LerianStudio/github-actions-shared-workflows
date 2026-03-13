@@ -96,7 +96,7 @@ runs:
               const file = `trivy-fs-vuln-${appName}.json`;
               if (!fs.existsSync(file)) {
                 hasScanErrors = true;
-                return `#### Filesystem Scan\n\n\u26A0\uFE0F Scan artifact not found.\n\n`;
+                return `### Filesystem Scan\n\n\u26A0\uFE0F Scan artifact not found.\n\n`;
               }
 
               const data = JSON.parse(fs.readFileSync(file, 'utf8'));
@@ -126,14 +126,14 @@ runs:
               }
 
               if (vulns.length === 0) {
-                return `#### Filesystem Scan\n\n\u2705 No vulnerabilities or secrets found.\n\n`;
+                return `### Filesystem Scan\n\n\u2705 No vulnerabilities or secrets found.\n\n`;
               }
 
               hasFindings = true;
               sortBySeverity(vulns);
 
               const MAX = 50;
-              let out = `#### Filesystem Scan\n\n`;
+              let out = `### Filesystem Scan\n\n`;
               out += `| Severity | Library | Vulnerability | Installed | Fixed | Title |\n`;
               out += `|----------|---------|---------------|-----------|-------|-------|\n`;
 
@@ -146,7 +146,7 @@ runs:
               return out + `\n`;
             } catch (e) {
               hasScanErrors = true;
-              return `#### Filesystem Scan\n\n\u26A0\uFE0F Could not parse scan results: ${e.message}\n\n`;
+              return `### Filesystem Scan\n\n\u26A0\uFE0F Could not parse scan results: ${e.message}\n\n`;
             }
           }
 
@@ -158,7 +158,7 @@ runs:
               const file = `trivy-vulnerability-scan-docker-${appName}.sarif`;
               if (!fs.existsSync(file)) {
                 hasScanErrors = true;
-                return `#### Docker Image Scan\n\n\u26A0\uFE0F Scan artifact not found.\n\n`;
+                return `### Docker Image Scan\n\n\u26A0\uFE0F Scan artifact not found.\n\n`;
               }
 
               const sarif = JSON.parse(fs.readFileSync(file, 'utf8'));
@@ -177,7 +177,7 @@ runs:
               }
 
               if (vulns.length === 0) {
-                return `#### Docker Image Scan\n\n\u2705 No vulnerabilities found.\n\n`;
+                return `### Docker Image Scan\n\n\u2705 No vulnerabilities found.\n\n`;
               }
 
               hasFindings = true;
@@ -185,7 +185,7 @@ runs:
               sortBySeverity(vulns, 'severity', dockerOrder);
 
               const MAX = 20;
-              let out = `#### Docker Image Scan\n\n`;
+              let out = `### Docker Image Scan\n\n`;
               out += `| Severity | Vulnerability | Title |\n`;
               out += `|----------|---------------|-------|\n`;
 
@@ -197,7 +197,7 @@ runs:
               return out + `\n`;
             } catch (e) {
               hasScanErrors = true;
-              return `#### Docker Image Scan\n\n\u26A0\uFE0F Could not parse scan results: ${e.message}\n\n`;
+              return `### Docker Image Scan\n\n\u26A0\uFE0F Could not parse scan results: ${e.message}\n\n`;
             }
           }
 
@@ -211,7 +211,7 @@ runs:
             const compare = process.env.SCOUT_COMPARE || '';
             const recommendations = process.env.SCOUT_RECOMMENDATIONS || '';
 
-            let out = `---\n\n## Docker Scout Analysis\n\n`;
+            let out = `\n---\n\n## Docker Scout Analysis\n\n`;
 
             // Overview & Policies
             if (quickview) {
@@ -236,7 +236,7 @@ runs:
               out += details('\u{1F6A8} CVE Details \u2014 vulnerabilities found', cves);
               out += `> \u{1F6A8} **Docker Scout detected vulnerabilities. Review CVE Details above.**\n\n`;
             } else if (cves) {
-              out += `#### CVE Details\n\n\u2705 No CVEs found \u2014 image is clean.\n\n`;
+              out += `### CVE Details\n\n\u2705 No CVEs found \u2014 image is clean.\n\n`;
             } else if (!quickview) {
               hasScanErrors = true;
               out += `\u26A0\uFE0F Docker Scout results not available.\n\n`;
@@ -248,11 +248,11 @@ runs:
                 /✅ There are no tag recommendations at this time/.test(recommendations));
 
             if (hasActionableRecs) {
-              out += `#### \u{1F4A1} Docker Scout Recommendations\n\n`;
+              out += `### \u{1F4A1} Docker Scout Recommendations\n\n`;
               out += `> These are informational \u2014 they do not block the build.\n\n`;
               out += details('\u{1F4A1} View recommendations', recommendations);
             } else if (recommendations) {
-              out += `#### Docker Scout Recommendations\n\n`;
+              out += `### Docker Scout Recommendations\n\n`;
               out += `\u2705 Base image is up to date \u2014 no recommendations at this time.\n\n`;
             }
 
@@ -260,7 +260,8 @@ runs:
           }
 
           // ── Build Report ──
-          body += `## \u{1F512} Security Scan Results \u2014 \`${appName}\`\n\n`;
+          body += `# \u{1F512} Security Scan Results \u2014 \`${appName}\`\n\n`;
+          body += `---\n\n`;
           body += `## Trivy\n\n`;
           body += buildTrivyFsScan();
           body += buildTrivyDockerScan();
