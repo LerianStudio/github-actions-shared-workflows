@@ -231,6 +231,9 @@ runs:
             body += `#### Docker Scout Recommendations\n\n`;
             body += `> These are informational — they do not block the build.\n\n`;
             body += `<details>\n<summary>View recommendations</summary>\n\n${scoutRecommendations}\n\n</details>\n\n`;
+          } else if (scoutRecommendations) {
+            body += `#### Docker Scout Recommendations\n\n`;
+            body += `✅ Base image is up to date — no recommendations at this time.\n\n`;
           }
 
           if (!hasFindings && !hasScanErrors) {
