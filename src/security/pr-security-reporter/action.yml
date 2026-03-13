@@ -222,8 +222,12 @@ runs:
           }
 
           // Docker Scout Recommendations section
+          // Only show when there are actionable recommendations (not just "up to date" / "no recommendations")
           const scoutRecommendations = process.env.SCOUT_RECOMMENDATIONS || '';
-          if (scoutRecommendations) {
+          const hasActionableRecs = scoutRecommendations &&
+            !(/✅ This image version is up to date/.test(scoutRecommendations) &&
+              /✅ There are no tag recommendations at this time/.test(scoutRecommendations));
+          if (hasActionableRecs) {
             body += `#### Docker Scout Recommendations\n\n`;
             body += `> These are informational — they do not block the build.\n\n`;
             body += `<details>\n<summary>View recommendations</summary>\n\n${scoutRecommendations}\n\n</details>\n\n`;
