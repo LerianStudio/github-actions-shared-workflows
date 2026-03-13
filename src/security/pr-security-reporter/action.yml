@@ -201,26 +201,16 @@ runs:
 
             body += `## Docker Scout Analysis\n\n`;
 
-            // Parse policy grade from quickview output
-            // Extract "X/Y policies met" to derive a letter grade
-            let policyGrade = '';
-            let policySummary = '';
             if (scoutQuickview) {
+              // Extract policy status from quickview (e.g., "3/7 policies met")
               const policyMatch = scoutQuickview.match(/(\d+)\/(\d+)\s+policies?\s+met/);
+              const statusMatch = scoutQuickview.match(/badge\/(PASSED|FAILED)/);
+              let policySuffix = '';
               if (policyMatch) {
-                const met = parseInt(policyMatch[1]);
-                const total = parseInt(policyMatch[2]);
-                const ratio = total > 0 ? met / total : 0;
-                if (ratio >= 1.0) { policyGrade = 'A'; }
-                else if (ratio >= 0.85) { policyGrade = 'B'; }
-                else if (ratio >= 0.7) { policyGrade = 'C'; }
-                else if (ratio >= 0.5) { policyGrade = 'D'; }
-                else if (ratio >= 0.3) { policyGrade = 'E'; }
-                else { policyGrade = 'F'; }
-                policySummary = `${met}/${total} policies met`;
+                const icon = statusMatch && statusMatch[1] === 'PASSED' ? '✅' : '⚠️';
+                policySuffix = ` — ${icon} ${policyMatch[1]}/${policyMatch[2]} policies met`;
               }
-              const gradeLabel = policyGrade ? ` — Grade: ${policyGrade} (${policySummary})` : '';
-              body += `<details>\n<summary>Overview & Policies${gradeLabel}</summary>\n\n${scoutQuickview}\n\n</details>\n\n`;
+              body += `<details>\n<summary>Overview & Policies${policySuffix}</summary>\n\n${scoutQuickview}\n\n</details>\n\n`;
             }
 
             if (scoutCves && scoutHasVulns === 'true') {
