@@ -94,6 +94,15 @@ updates:
           - "minor"
           - "patch"
 
+      # AWS actions (OIDC, credentials, S3)
+      aws:
+        patterns:
+          - "aws-actions/*"
+        update-types:
+          - "major"
+          - "minor"
+          - "patch"
+
       # Miscellaneous third-party utilities
       utilities:
         patterns:
