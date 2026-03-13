@@ -247,9 +247,6 @@ runs:
             body += `✅ Base image is up to date — no recommendations at this time.\n\n`;
           }
 
-          if (!hasFindings && !hasScanErrors) {
-            body += `\n✅ **All security checks passed.**\n`;
-          }
 
           core.setOutput('has_findings', hasFindings);
           core.setOutput('has_errors', hasScanErrors);
