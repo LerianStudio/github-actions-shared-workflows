@@ -22,6 +22,18 @@ on:
         description: 'Directory depth level to extract app name (only used for monorepo)'
         type: string
         default: '2'
+      app_name_prefix:
+        description: 'Prefix for app names in monorepo (e.g., "midaz" results in "midaz-agent"). Must match build workflow config for Scout compare to work.'
+        type: string
+        default: ''
+      app_name_overrides:
+        description: 'Explicit app name mappings in "path:name" format. Must match build workflow config for Scout compare to work.'
+        type: string
+        default: ''
+      normalize_to_filter:
+        description: 'Normalize changed paths to their filter path. Recommended for monorepos to match build workflow behavior.'
+        type: boolean
+        default: true
       monorepo_type:
         description: 'Type of monorepo: "type1" (components in folders) or "type2" (backend in root, frontend in folder)'
         type: string
@@ -87,11 +99,14 @@ jobs:
       - name: Get changed paths (monorepo)
         if: inputs.filter_paths != ''
         id: changed-paths
-        uses: LerianStudio/github-actions-shared-workflows/src/config/changed-paths@develop
+        uses: LerianStudio/github-actions-shared-workflows/src/config/changed-paths@fix/scout-html-output
         with:
           filter_paths: ${{ inputs.filter_paths }}
           get_app_name: true
           path_level: ${{ inputs.path_level }}
+          app_name_prefix: ${{ inputs.app_name_prefix }}
+          app_name_overrides: ${{ inputs.app_name_overrides }}
+          normalize_to_filter: ${{ inputs.normalize_to_filter }}
 
       # ----------------- Build Matrix -----------------
       - name: Set matrix
