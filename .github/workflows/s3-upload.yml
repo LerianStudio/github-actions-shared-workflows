@@ -1,0 +1,250 @@
+name: "S3 Upload"
+
+# Reusable workflow for uploading files to S3 with environment-based folder routing.
+#
+# Features:
+# - Automatic environment detection from tag suffix (beta → development, rc → staging, release → production)
+# - Supports glob patterns for flexible file selection
+# - AWS authentication via OIDC (IAM Role)
+# - Optional custom S3 prefix within environment folder
+# - dry_run mode for previewing uploads without applying
+#
+# Examples:
+#   # Upload Casdoor init data
+#   uses: LerianStudio/github-actions-shared-workflows/.github/workflows/s3-upload.yml@v1.0.0
+#   with:
+#     s3_bucket: "lerian-casdoor-init-data"
+#     file_pattern: "init/casdoor/init_data*.json"
+#   secrets:
+#     AWS_ROLE_ARN: ${{ secrets.AWS_INIT_DATA_ROLE_ARN }}
+#
+#   # Upload migration files with custom prefix
+#   uses: LerianStudio/github-actions-shared-workflows/.github/workflows/s3-upload.yml@v1.0.0
+#   with:
+#     s3_bucket: "lerian-migration-files"
+#     file_pattern: "init/casdoor-migrations/migrations/*.sql"
+#     s3_prefix: "casdoor-migrations"
+#   secrets:
+#     AWS_ROLE_ARN: ${{ secrets.AWS_MIGRATIONS_ROLE_ARN }}
+
+on:
+  workflow_call:
+    inputs:
+      runner_type:
+        description: 'Runner to use for the workflow'
+        type: string
+        default: 'blacksmith-4vcpu-ubuntu-2404'
+      s3_bucket:
+        description: 'S3 bucket name (without s3:// prefix)'
+        type: string
+        required: true
+      file_pattern:
+        description: 'Glob pattern for files to upload (e.g., "init/casdoor/init_data*.json", "migrations/*.sql")'
+        type: string
+        required: true
+      s3_prefix:
+        description: 'Optional prefix inside the environment folder (e.g., "casdoor-migrations" → development/casdoor-migrations/)'
+        type: string
+        default: ''
+      aws_region:
+        description: 'AWS region'
+        type: string
+        default: 'us-east-2'
+      environment_detection:
+        description: 'Environment detection strategy: tag_suffix (auto from tag) or manual'
+        type: string
+        default: 'tag_suffix'
+      manual_environment:
+        description: 'Manually specify environment (development/staging/production) - only used if environment_detection is manual'
+        type: string
+        required: false
+      flatten:
+        description: 'Upload files without preserving directory structure (only filenames)'
+        type: boolean
+        default: true
+      dry_run:
+        description: 'Preview changes without applying them'
+        type: boolean
+        required: false
+        default: false
+    secrets:
+      AWS_ROLE_ARN:
+        description: 'ARN of the IAM role to assume for S3 access'
+        required: true
+  workflow_dispatch:
+    inputs:
+      runner_type:
+        description: 'Runner to use for the workflow'
+        type: string
+        default: 'blacksmith-4vcpu-ubuntu-2404'
+      s3_bucket:
+        description: 'S3 bucket name (without s3:// prefix)'
+        type: string
+        required: true
+      file_pattern:
+        description: 'Glob pattern for files to upload (e.g., "init/casdoor/init_data*.json", "migrations/*.sql")'
+        type: string
+        required: true
+      s3_prefix:
+        description: 'Optional prefix inside the environment folder'
+        type: string
+        default: ''
+      aws_region:
+        description: 'AWS region'
+        type: string
+        default: 'us-east-2'
+      environment_detection:
+        description: 'Environment detection strategy: tag_suffix (auto from tag) or manual'
+        type: string
+        default: 'tag_suffix'
+      manual_environment:
+        description: 'Manually specify environment (development/staging/production)'
+        type: string
+        required: false
+      flatten:
+        description: 'Upload files without preserving directory structure (only filenames)'
+        type: boolean
+        default: true
+      dry_run:
+        description: 'Dry run — preview uploads without applying them'
+        type: boolean
+        default: false
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  upload:
+    runs-on: ${{ inputs.runner_type }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Determine environment
+        id: env
+        env:
+          INPUT_ENV_DETECTION: ${{ inputs.environment_detection }}
+          INPUT_MANUAL_ENV: ${{ inputs.manual_environment }}
+        run: |
+          set -euo pipefail
+
+          if [[ "$INPUT_ENV_DETECTION" == "manual" ]]; then
+            case "$INPUT_MANUAL_ENV" in
+              development|staging|production)
+                FOLDER="$INPUT_MANUAL_ENV"
+                ;;
+              *)
+                echo "::error::manual_environment must be one of: development, staging, production (got '${INPUT_MANUAL_ENV}')"
+                exit 1
+                ;;
+            esac
+          elif [[ "$INPUT_ENV_DETECTION" == "tag_suffix" ]]; then
+            REF="${GITHUB_REF#refs/}"
+            TAG="${GITHUB_REF#refs/tags/}"
+
+            if [[ "$REF" == heads/develop ]] || [[ "$TAG" == *-beta* ]]; then
+              FOLDER="development"
+            elif [[ "$REF" == heads/release-candidate ]] || [[ "$TAG" == *-rc* ]]; then
+              FOLDER="staging"
+            elif [[ "$REF" == heads/main ]] || [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              FOLDER="production"
+            else
+              echo "⚠️ Ref '$REF' does not match any environment. Skipping upload."
+              FOLDER=""
+            fi
+          else
+            echo "::error::environment_detection must be one of: tag_suffix, manual (got '${INPUT_ENV_DETECTION}')"
+            exit 1
+          fi
+
+          echo "folder=${FOLDER}" >> "$GITHUB_OUTPUT"
+          [[ -n "$FOLDER" ]] && echo "📁 Environment: ${FOLDER}" || echo "⚠️ No environment matched"
+
+      - name: Configure AWS credentials
+        if: steps.env.outputs.folder != ''
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ inputs.aws_region }}
+
+      - name: Dry run summary
+        if: steps.env.outputs.folder != '' && inputs.dry_run
+        env:
+          BUCKET: ${{ inputs.s3_bucket }}
+          FOLDER: ${{ steps.env.outputs.folder }}
+          PREFIX: ${{ inputs.s3_prefix }}
+          PATTERN: ${{ inputs.file_pattern }}
+          FLATTEN: ${{ inputs.flatten }}
+        run: |
+          set -euo pipefail
+
+          echo "::notice::DRY RUN — no files will be uploaded"
+          echo "  bucket      : ${BUCKET}"
+          echo "  folder      : ${FOLDER}"
+          echo "  prefix      : ${PREFIX:-<none>}"
+          echo "  pattern     : ${PATTERN}"
+          echo "  flatten     : ${FLATTEN}"
+
+          if [[ -n "$PREFIX" ]]; then
+            S3_PATH="s3://${BUCKET}/${FOLDER}/${PREFIX}/"
+          else
+            S3_PATH="s3://${BUCKET}/${FOLDER}/"
+          fi
+
+          shopt -s nullglob
+          FILE_COUNT=0
+
+          for file in $PATTERN; do
+            if [[ "$FLATTEN" == "true" ]]; then
+              echo "  [dry-run] aws s3 cp $file ${S3_PATH}"
+            else
+              echo "  [dry-run] aws s3 cp $file ${S3_PATH}${file}"
+            fi
+            FILE_COUNT=$((FILE_COUNT + 1))
+          done
+
+          if [[ $FILE_COUNT -eq 0 ]]; then
+            echo "::warning::No files matched pattern: ${PATTERN}"
+            exit 1
+          fi
+
+          echo "::notice::Would upload ${FILE_COUNT} file(s) to ${S3_PATH}"
+
+      - name: Upload files to S3
+        if: steps.env.outputs.folder != '' && !inputs.dry_run
+        env:
+          BUCKET: ${{ inputs.s3_bucket }}
+          FOLDER: ${{ steps.env.outputs.folder }}
+          PREFIX: ${{ inputs.s3_prefix }}
+          PATTERN: ${{ inputs.file_pattern }}
+          FLATTEN: ${{ inputs.flatten }}
+        run: |
+          set -euo pipefail
+
+          # Build S3 destination path
+          if [[ -n "$PREFIX" ]]; then
+            S3_PATH="s3://${BUCKET}/${FOLDER}/${PREFIX}/"
+          else
+            S3_PATH="s3://${BUCKET}/${FOLDER}/"
+          fi
+
+          # Find and upload files
+          shopt -s nullglob
+          FILE_COUNT=0
+
+          for file in $PATTERN; do
+            if [[ "$FLATTEN" == "true" ]]; then
+              aws s3 cp "$file" "${S3_PATH}"
+            else
+              aws s3 cp "$file" "${S3_PATH}${file}"
+            fi
+
+            FILE_COUNT=$((FILE_COUNT + 1))
+          done
+
+          if [[ $FILE_COUNT -eq 0 ]]; then
+            echo "⚠️ No files matched pattern: ${PATTERN}"
+            exit 1
+          fi
+
+          echo "::notice::Uploaded ${FILE_COUNT} file(s) to ${S3_PATH}"
