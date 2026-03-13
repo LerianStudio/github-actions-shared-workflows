@@ -16,24 +16,8 @@ inputs:
     description: Whether Docker Scout analysis results are present and should be included in the report
     required: false
     default: "false"
-  scout-quickview:
-    description: Docker Scout quickview output (from docker-scout composite outputs.quickview)
-    required: false
-    default: ""
-  scout-cves:
-    description: Docker Scout CVE list output (from docker-scout composite outputs.cves)
-    required: false
-    default: ""
-  scout-has-vulnerabilities:
-    description: Whether Docker Scout detected vulnerabilities (from docker-scout composite outputs.has-vulnerabilities)
-    required: false
-    default: "false"
-  scout-recommendations:
-    description: Docker Scout recommendations output (Dockerfile issues, missing attestations, non-root user)
-    required: false
-    default: ""
-  scout-compare:
-    description: Docker Scout compare output (delta between PR image and environment baseline)
+  scout-outputs-dir:
+    description: Directory containing Scout output files (quickview.html, cves.html, recommendations.html, compare.html, has-vulnerabilities.txt)
     required: false
     default: ""
   fail-on-policy-failure:
@@ -59,11 +43,7 @@ runs:
         APP_NAME: ${{ inputs.app-name }}
         ENABLE_DOCKER_SCAN: ${{ inputs.enable-docker-scan }}
         ENABLE_DOCKER_SCOUT: ${{ inputs.enable-docker-scout }}
-        SCOUT_QUICKVIEW: ${{ inputs.scout-quickview }}
-        SCOUT_CVES: ${{ inputs.scout-cves }}
-        SCOUT_HAS_VULNS: ${{ inputs.scout-has-vulnerabilities }}
-        SCOUT_RECOMMENDATIONS: ${{ inputs.scout-recommendations }}
-        SCOUT_COMPARE: ${{ inputs.scout-compare }}
+        SCOUT_OUTPUTS_DIR: ${{ inputs.scout-outputs-dir }}
         FAIL_ON_POLICY: ${{ inputs.fail-on-policy-failure }}
       with:
         github-token: ${{ inputs.github-token }}
@@ -208,14 +188,22 @@ runs:
           }
 
           // ── Docker Scout Analysis ──
+          function readScoutFile(name) {
+            const dir = process.env.SCOUT_OUTPUTS_DIR || '';
+            if (!dir) return '';
+            const path = `${dir}/${name}`;
+            try { return fs.existsSync(path) ? fs.readFileSync(path, 'utf8').trim() : ''; }
+            catch { return ''; }
+          }
+
           function buildScoutSection() {
             if (!dockerScoutEnabled || !dockerScanEnabled) return '';
 
-            const quickview = process.env.SCOUT_QUICKVIEW || '';
-            const cves = process.env.SCOUT_CVES || '';
-            const hasVulns = process.env.SCOUT_HAS_VULNS === 'true';
-            const compare = process.env.SCOUT_COMPARE || '';
-            const recommendations = process.env.SCOUT_RECOMMENDATIONS || '';
+            const quickview = readScoutFile('quickview.html');
+            const cves = readScoutFile('cves.html');
+            const hasVulns = readScoutFile('has-vulnerabilities.txt') === 'true';
+            const compare = readScoutFile('compare.html');
+            const recommendations = readScoutFile('recommendations.html');
 
             let out = `---\n\n## Docker Scout Analysis\n\n`;
 
