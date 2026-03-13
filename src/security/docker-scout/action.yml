@@ -74,6 +74,7 @@ runs:
         dockerhub-user: ${{ inputs.dockerhub-user }}
         dockerhub-password: ${{ inputs.dockerhub-password }}
         github-token: ${{ inputs.github-token }}
+        organization: ${{ inputs.organization }}
         only-severities: ${{ inputs.only-severities }}
         write-comment: ${{ inputs.write-comment }}
 
@@ -86,6 +87,7 @@ runs:
         dockerhub-user: ${{ inputs.dockerhub-user }}
         dockerhub-password: ${{ inputs.dockerhub-password }}
         github-token: ${{ inputs.github-token }}
+        organization: ${{ inputs.organization }}
         only-severities: ${{ inputs.only-severities }}
         exit-code: ${{ inputs.exit-code }}
         write-comment: ${{ inputs.write-comment }}
@@ -114,12 +116,14 @@ runs:
         dockerhub-user: ${{ inputs.dockerhub-user }}
         dockerhub-password: ${{ inputs.dockerhub-password }}
         github-token: ${{ inputs.github-token }}
+        organization: ${{ inputs.organization }}
         write-comment: false
 
     # ----------------- Environment Compare -----------------
     - name: Docker Scout Compare
       id: compare
       if: ${{ inputs.compare-to-env != '' && inputs.organization != '' }}
+      continue-on-error: true
       uses: docker/scout-action@v1.20.2
       with:
         command: compare
