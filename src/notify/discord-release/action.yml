@@ -36,6 +36,7 @@ inputs:
 runs:
   using: composite
   steps:
+    # ----------------- Pre-flight Check -----------------
     - name: Detect beta release
       id: beta
       shell: bash
@@ -46,6 +47,7 @@ runs:
           echo "is_beta=false" >> $GITHUB_OUTPUT
         fi
 
+    # ----------------- Dry Run -----------------
     - name: Dry run summary
       if: inputs.dry-run == 'true'
       shell: bash
@@ -59,6 +61,7 @@ runs:
         echo "  skip-beta    : ${{ inputs.skip-beta }}"
         echo "  is_beta      : ${{ steps.beta.outputs.is_beta }}"
 
+    # ----------------- Notification -----------------
     - name: Send Discord notification
       if: >-
         inputs.dry-run != 'true'

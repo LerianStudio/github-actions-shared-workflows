@@ -1,0 +1,120 @@
+name: Docker Scout Analysis
+description: Run Docker Scout quickview and CVE analysis on a locally built image.
+
+inputs:
+  image:
+    description: Image reference to scan (local tag)
+    required: true
+  dockerhub-user:
+    description: DockerHub username for Scout authentication
+    required: true
+  dockerhub-password:
+    description: DockerHub password for Scout authentication
+    required: true
+  github-token:
+    description: GitHub token
+    required: false
+    default: ${{ github.token }}
+  only-severities:
+    description: Severities to include (csv)
+    required: false
+    default: "critical,high,medium,low"
+  exit-code:
+    description: Fail the step if vulnerabilities are found
+    required: false
+    default: "false"
+  write-comment:
+    description: Post results as a PR comment (via Scout)
+    required: false
+    default: "false"
+  sarif-file:
+    description: Path to export SARIF file (empty = skip SARIF export)
+    required: false
+    default: ""
+  enable-recommendations:
+    description: Run Docker Scout recommendations to surface Dockerfile issues (non-root user, base image gaps, attestation status)
+    required: false
+    default: "true"
+
+outputs:
+  quickview:
+    description: Markdown summary from Scout quickview
+    value: ${{ steps.quickview.outputs.quickview }}
+  cves:
+    description: Markdown CVE details from Scout cves
+    value: ${{ steps.cves.outputs.cves }}
+  has-vulnerabilities:
+    description: "'true' if vulnerabilities were found"
+    value: ${{ steps.parse.outputs.has_vulnerabilities }}
+  recommendations:
+    description: Recommendations output from Scout (Dockerfile issues, missing attestations, non-root user)
+    value: ${{ steps.recommendations.outputs.recommendations }}
+
+runs:
+  using: composite
+  steps:
+    # ----------------- Vulnerability Analysis -----------------
+    - name: Docker Scout Quickview
+      id: quickview
+      uses: docker/scout-action@v1.20.2
+      with:
+        command: quickview
+        image: ${{ inputs.image }}
+        dockerhub-user: ${{ inputs.dockerhub-user }}
+        dockerhub-password: ${{ inputs.dockerhub-password }}
+        github-token: ${{ inputs.github-token }}
+        only-severities: ${{ inputs.only-severities }}
+        write-comment: ${{ inputs.write-comment }}
+
+    - name: Docker Scout CVEs
+      id: cves
+      uses: docker/scout-action@v1.20.2
+      with:
+        command: cves
+        image: ${{ inputs.image }}
+        dockerhub-user: ${{ inputs.dockerhub-user }}
+        dockerhub-password: ${{ inputs.dockerhub-password }}
+        github-token: ${{ inputs.github-token }}
+        only-severities: ${{ inputs.only-severities }}
+        exit-code: ${{ inputs.exit-code }}
+        write-comment: ${{ inputs.write-comment }}
+
+    # ----------------- SARIF Export -----------------
+    - name: Docker Scout SARIF Export
+      if: ${{ inputs.sarif-file != '' }}
+      uses: docker/scout-action@v1.20.2
+      with:
+        command: cves
+        image: ${{ inputs.image }}
+        dockerhub-user: ${{ inputs.dockerhub-user }}
+        dockerhub-password: ${{ inputs.dockerhub-password }}
+        github-token: ${{ inputs.github-token }}
+        only-severities: ${{ inputs.only-severities }}
+        sarif-file: ${{ inputs.sarif-file }}
+
+    # ----------------- Recommendations -----------------
+    - name: Docker Scout Recommendations
+      id: recommendations
+      if: ${{ inputs.enable-recommendations == 'true' }}
+      uses: docker/scout-action@v1.20.2
+      with:
+        command: recommendations
+        image: ${{ inputs.image }}
+        dockerhub-user: ${{ inputs.dockerhub-user }}
+        dockerhub-password: ${{ inputs.dockerhub-password }}
+        github-token: ${{ inputs.github-token }}
+
+    # ----------------- Result Parsing -----------------
+    - name: Parse results
+      id: parse
+      shell: bash
+      run: |
+        QUICKVIEW_OUTPUT='${{ steps.quickview.outputs.quickview }}'
+        CVES_OUTPUT='${{ steps.cves.outputs.cves }}'
+
+        HAS_VULNS="false"
+        if echo "$QUICKVIEW_OUTPUT" "$CVES_OUTPUT" | grep -qiE '(critical|high|medium|low)\s+[1-9]'; then
+          HAS_VULNS="true"
+        fi
+
+        echo "has_vulnerabilities=$HAS_VULNS" >> "$GITHUB_OUTPUT"

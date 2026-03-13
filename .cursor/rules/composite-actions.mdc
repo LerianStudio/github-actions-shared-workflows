@@ -85,6 +85,72 @@ runs:
         option: ${{ inputs.some-option }}
 ```
 
+## Configurability — defaults first, override when needed
+
+Every composite must be **self-contained with sensible defaults**. A caller should be able to drop it in with zero extra configuration and get a safe, useful result. Additional inputs allow the reusable workflow (or caller) to override specific behaviors.
+
+### Composite layer — always define defaults
+
+All optional inputs must declare a `default` that makes the composite safe and functional on its own:
+
+```yaml
+inputs:
+  enable-recommendations:
+    description: Include Docker Scout recommendations in the PR comment
+    required: false
+    default: "true"       # ✅ safe default — composite works standalone
+  severity-threshold:
+    description: Minimum severity to report (critical, high, medium, low)
+    required: false
+    default: "high"       # ✅ opinionated but sensible default
+```
+
+### Reusable workflow layer — expose toggles for each configurable step
+
+When a composite has optional features (steps that can be turned on/off), the reusable workflow must expose a matching input and pass it down. This gives callers control without touching the composite directly:
+
+```yaml
+# reusable workflow inputs — mirrors composite flags
+on:
+  workflow_call:
+    inputs:
+      enable_docker_scout:
+        description: Run Docker Scout vulnerability scan
+        required: false
+        type: boolean
+        default: true
+      enable_docker_scout_recommendations:
+        description: Include Docker Scout recommendations in the PR comment
+        required: false
+        type: boolean
+        default: true
+
+jobs:
+  scan:
+    steps:
+      - name: Docker Scout
+        if: inputs.enable_docker_scout
+        uses: LerianStudio/github-actions-shared-workflows/src/security/docker-scout@v1.2.3
+        with:
+          enable-recommendations: ${{ inputs.enable_docker_scout_recommendations }}
+```
+
+### Three-layer flow
+
+```
+Caller repo              Reusable workflow           Composite
+──────────────────────── ──────────────────────────  ──────────────────────────
+enable_docker_scout_     →  enable_docker_scout_    →  enable-recommendations:
+recommendations: false      recommendations             ${{ inputs.... }}
+                            (passes it down)            (step-level if condition)
+```
+
+**Rules:**
+- Composite inputs → always have a `default`; never `required: true` for feature flags
+- Reusable workflow inputs → match composite flag names (use `_` instead of `-`); pass values explicitly to the composite step
+- Step-level toggles (`if: inputs.enable_xxx`) belong in the **reusable workflow**, not inside the composite — composites run the step based on their own inputs
+- Never hardcode feature flags inside a composite — always expose them as inputs so they can be overridden
+
 ## Skip-enabling outputs
 
 Composite actions that perform conditional work (change detection, feature-flag checks, validation gates) **must expose boolean outputs** so the calling workflow can skip downstream steps or jobs.
@@ -97,6 +163,33 @@ outputs:
 ```
 
 Naming convention: `has_<noun>` (e.g. `has_changes`, `has_updates`, `has_drift`). Value must be the string `'true'` or `'false'`.
+
+## Step section titles
+
+When a composite has more than one logical group of steps, separate them with a titled section comment:
+
+```yaml
+runs:
+  using: composite
+  steps:
+    # ----------------- Setup -----------------
+    - name: Login to Docker Registry
+      ...
+
+    # ----------------- Scan -----------------
+    - name: Docker Scout CVEs
+      ...
+
+    # ----------------- Recommendations -----------------
+    - name: Docker Scout Recommendations
+      ...
+```
+
+**Rules:**
+- Use the exact format: `# ----------------- Title -----------------`
+- Add a section title whenever there are 2 or more logical groups of steps
+- Title must be short and action-oriented
+- Place the comment immediately before the first step of the group — no blank line between comment and step
 
 ## Design rules
 
@@ -203,3 +296,23 @@ new-tool-category:
 ```
 
 Never add `LerianStudio/*` actions to dependabot — they are pinned to `@main` intentionally.
+
+## Reserved names — never use as input names
+
+Never declare a composite input using GitHub's reserved prefixes — they will be silently overridden or cause failures:
+
+```yaml
+# ❌ Reserved — will conflict with the runtime variable
+inputs:
+  GITHUB_TOKEN:
+  GITHUB_SHA:
+  ACTIONS_RUNTIME_TOKEN:
+  RUNNER_OS:
+
+# ✅ Use distinct names
+inputs:
+  github-token:    # conventional kebab-case name for tokens
+  manage-token:
+```
+
+Reserved prefixes: `GITHUB_*`, `ACTIONS_*`, `RUNNER_*`.
