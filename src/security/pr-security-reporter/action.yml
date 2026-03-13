@@ -229,8 +229,6 @@ runs:
             } else if (!scoutQuickview && !scoutCves) {
               hasScanErrors = true;
               body += `⚠️ Docker Scout results not available.\n\n`;
-            } else {
-              body += `✅ No vulnerabilities detected by Docker Scout.\n\n`;
             }
           }
 
