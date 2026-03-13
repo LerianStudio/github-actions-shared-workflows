@@ -55,7 +55,7 @@ on:
         type: boolean
         default: true
       docker_scout_compare_env:
-        description: 'Docker Scout environment to compare against (e.g., develop, release-candidate, main). Empty = skip compare.'
+        description: 'Docker Scout environment to compare against (e.g., develop, release-candidate, main). Empty = fallback to github.base_ref on PR events.'
         type: string
         default: ''
       docker_scout_organization:
