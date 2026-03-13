@@ -28,10 +28,10 @@ inputs:
 outputs:
   has-findings:
     description: True if any security vulnerabilities were found
-    value: ${{ steps.report.outputs.has_findings }}
+    value: ${{ steps.parse-outputs.outputs.has_findings }}
   has-errors:
     description: True if any scan artifacts were missing or could not be parsed
-    value: ${{ steps.report.outputs.has_errors }}
+    value: ${{ steps.parse-outputs.outputs.has_errors }}
 
 runs:
   using: composite
@@ -266,9 +266,8 @@ runs:
           body += buildTrivyDockerScan();
           body += buildScoutSection();
 
-          // ── Outputs ──
-          core.setOutput('has_findings', hasFindings);
-          core.setOutput('has_errors', hasScanErrors);
+          // ── Outputs (return JSON for next step to parse) ──
+          return JSON.stringify({ has_findings: hasFindings, has_errors: hasScanErrors });
 
           // ── Post Comment ──
           const marker = `<!-- security-scan-${appName} -->`;
@@ -297,3 +296,14 @@ runs:
           } catch (e) {
             core.warning(`Could not post PR security comment: ${e.message}`);
           }
+
+    - name: Parse outputs
+      id: parse-outputs
+      shell: bash
+      run: |
+        RESULT='${{ steps.report.outputs.result }}'
+        HAS_FINDINGS=$(echo "$RESULT" | jq -r '.has_findings // false')
+        HAS_ERRORS=$(echo "$RESULT" | jq -r '.has_errors // false')
+        echo "has_findings=$HAS_FINDINGS" >> "$GITHUB_OUTPUT"
+        echo "has_errors=$HAS_ERRORS" >> "$GITHUB_OUTPUT"
+        echo "Parsed outputs: has_findings=$HAS_FINDINGS, has_errors=$HAS_ERRORS"
