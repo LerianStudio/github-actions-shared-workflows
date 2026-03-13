@@ -117,6 +117,15 @@ on:
         description: 'Force multi-platform build (amd64+arm64) even for beta/rc tags'
         type: boolean
         default: false
+      # Docker Scout environment tracking
+      enable_docker_scout_environment:
+        description: 'Enable Docker Scout environment recording after push (registers the built image in a Scout environment)'
+        type: boolean
+        default: false
+      docker_scout_organization:
+        description: 'Docker Hub organization for Scout environments'
+        type: string
+        default: 'lerianstudio'
 
 permissions:
   contents: read
@@ -284,6 +293,31 @@ jobs:
           cache-to: type=gha,mode=max
           secrets: |
             github_token=${{ secrets.MANAGE_TOKEN }}
+
+      # Docker Scout environment recording
+      - name: Determine Scout environment
+        if: inputs.enable_docker_scout_environment
+        id: scout-env
+        run: |
+          TAG="${GITHUB_REF#refs/tags/}"
+          if [[ "$TAG" == *"-beta"* ]]; then
+            echo "name=develop" >> $GITHUB_OUTPUT
+          elif [[ "$TAG" == *"-rc"* ]]; then
+            echo "name=release-candidate" >> $GITHUB_OUTPUT
+          else
+            echo "name=main" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Record image in Scout environment
+        if: inputs.enable_docker_scout_environment
+        uses: docker/scout-action@v1.20.2
+        with:
+          command: environment
+          image: ${{ inputs.dockerhub_org }}/${{ matrix.app.name }}:${{ steps.version.outputs.version }}
+          environment: ${{ steps.scout-env.outputs.name }}
+          organization: ${{ inputs.docker_scout_organization }}
+          dockerhub-user: ${{ secrets.DOCKER_USERNAME }}
+          dockerhub-password: ${{ secrets.DOCKER_PASSWORD }}
 
       # GitOps artifacts for downstream gitops-update workflow
       - name: Create GitOps tag artifact

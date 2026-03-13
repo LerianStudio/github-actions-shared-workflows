@@ -32,6 +32,10 @@ inputs:
     description: Docker Scout recommendations output (Dockerfile issues, missing attestations, non-root user)
     required: false
     default: ""
+  scout-compare:
+    description: Docker Scout compare output (delta between PR image and environment baseline)
+    required: false
+    default: ""
 
 outputs:
   has-findings:
@@ -55,6 +59,7 @@ runs:
         SCOUT_CVES: ${{ inputs.scout-cves }}
         SCOUT_HAS_VULNS: ${{ inputs.scout-has-vulnerabilities }}
         SCOUT_RECOMMENDATIONS: ${{ inputs.scout-recommendations }}
+        SCOUT_COMPARE: ${{ inputs.scout-compare }}
       with:
         github-token: ${{ inputs.github-token }}
         script: |
@@ -200,6 +205,10 @@ runs:
             }
             if (scoutCves) {
               body += `<details>\n<summary>CVE Details</summary>\n\n${scoutCves}\n\n</details>\n\n`;
+            }
+            const scoutCompare = process.env.SCOUT_COMPARE || '';
+            if (scoutCompare) {
+              body += `<details>\n<summary>Compare with Environment</summary>\n\n${scoutCompare}\n\n</details>\n\n`;
             }
             if (scoutHasVulns === 'true') {
               hasFindings = true;

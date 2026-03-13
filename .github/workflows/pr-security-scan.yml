@@ -54,6 +54,14 @@ on:
         description: 'Enable Docker Scout recommendations to surface Dockerfile issues (non-root user, missing attestations, base image gaps)'
         type: boolean
         default: true
+      docker_scout_compare_env:
+        description: 'Docker Scout environment to compare against (e.g., develop, release-candidate, main). Empty = skip compare.'
+        type: string
+        default: ''
+      docker_scout_organization:
+        description: 'Docker Hub organization for Scout environments (required when docker_scout_compare_env is set)'
+        type: string
+        default: 'lerianstudio'
 
 permissions:
   id-token: write       # Required for OIDC authentication
@@ -226,6 +234,8 @@ jobs:
           dockerhub-password: ${{ secrets.DOCKER_PASSWORD }}
           only-severities: critical,high,medium,low
           enable-recommendations: ${{ inputs.enable_docker_scout_recommendations }}
+          compare-to-env: ${{ inputs.docker_scout_compare_env }}
+          organization: ${{ inputs.docker_scout_organization }}
 
       # ----------------- Filesystem Vulnerability Scan -----------------
       - name: Trivy Vulnerability Scan - Filesystem (JSON Output)
@@ -256,6 +266,7 @@ jobs:
           scout-cves: ${{ steps.docker-scout.outputs.cves }}
           scout-has-vulnerabilities: ${{ steps.docker-scout.outputs.has-vulnerabilities }}
           scout-recommendations: ${{ steps.docker-scout.outputs.recommendations }}
+          scout-compare: ${{ steps.docker-scout.outputs.compare }}
 
       - name: Gate - Fail on Security Findings
         if: always() && github.event_name == 'pull_request'
