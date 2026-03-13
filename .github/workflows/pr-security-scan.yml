@@ -307,10 +307,10 @@ jobs:
       - name: Gate - Fail on Security Findings
         if: always() && github.event_name == 'pull_request'
         run: |
-          if [ "${{ steps.post-results.outputs.has_errors }}" = "true" ]; then
+          if [ "${{ steps.post-results.outputs.has-errors }}" = "true" ]; then
             echo "::warning::Some scan artifacts were missing or could not be parsed."
           fi
-          if [ "${{ steps.post-results.outputs.has_findings }}" = "true" ]; then
+          if [ "${{ steps.post-results.outputs.has-findings }}" = "true" ]; then
             echo "::error::Security vulnerabilities found. Check the PR comment for details."
             exit 1
           fi
