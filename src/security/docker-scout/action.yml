@@ -103,6 +103,7 @@ runs:
         dockerhub-user: ${{ inputs.dockerhub-user }}
         dockerhub-password: ${{ inputs.dockerhub-password }}
         github-token: ${{ inputs.github-token }}
+        write-comment: false
 
     # ----------------- Result Parsing -----------------
     - name: Parse results
