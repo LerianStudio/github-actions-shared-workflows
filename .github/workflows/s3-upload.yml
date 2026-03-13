@@ -58,6 +58,10 @@ on:
         description: 'Manually specify environment (development/staging/production) - only used if environment_detection is manual'
         type: string
         required: false
+      strip_prefix:
+        description: 'Remove this prefix from file paths before uploading (e.g., "components/onboarding/migrations" strips that from the source path)'
+        type: string
+        default: ''
       flatten:
         description: 'Upload files without preserving directory structure (only filenames)'
         type: boolean
@@ -101,6 +105,10 @@ on:
         description: 'Manually specify environment (development/staging/production)'
         type: string
         required: false
+      strip_prefix:
+        description: 'Remove this prefix from file paths before uploading'
+        type: string
+        default: ''
       flatten:
         description: 'Upload files without preserving directory structure (only filenames)'
         type: boolean
@@ -175,15 +183,17 @@ jobs:
           PREFIX: ${{ inputs.s3_prefix }}
           PATTERN: ${{ inputs.file_pattern }}
           FLATTEN: ${{ inputs.flatten }}
+          STRIP_PREFIX: ${{ inputs.strip_prefix }}
         run: |
           set -euo pipefail
 
           echo "::notice::DRY RUN — no files will be uploaded"
-          echo "  bucket      : ${BUCKET}"
-          echo "  folder      : ${FOLDER}"
-          echo "  prefix      : ${PREFIX:-<none>}"
-          echo "  pattern     : ${PATTERN}"
-          echo "  flatten     : ${FLATTEN}"
+          echo "  bucket        : ${BUCKET}"
+          echo "  folder        : ${FOLDER}"
+          echo "  prefix        : ${PREFIX:-<none>}"
+          echo "  strip_prefix  : ${STRIP_PREFIX:-<none>}"
+          echo "  pattern       : ${PATTERN}"
+          echo "  flatten       : ${FLATTEN}"
 
           if [[ -n "$PREFIX" ]]; then
             S3_PATH="s3://${BUCKET}/${FOLDER}/${PREFIX}/"
@@ -196,7 +206,10 @@ jobs:
 
           for file in $PATTERN; do
             if [[ "$FLATTEN" == "true" ]]; then
-              echo "  [dry-run] aws s3 cp $file ${S3_PATH}"
+              echo "  [dry-run] aws s3 cp $file ${S3_PATH}$(basename "$file")"
+            elif [[ -n "$STRIP_PREFIX" ]]; then
+              DEST_PATH="${file#"$STRIP_PREFIX"/}"
+              echo "  [dry-run] aws s3 cp $file ${S3_PATH}${DEST_PATH}"
             else
               echo "  [dry-run] aws s3 cp $file ${S3_PATH}${file}"
             fi
@@ -218,6 +231,7 @@ jobs:
           PREFIX: ${{ inputs.s3_prefix }}
           PATTERN: ${{ inputs.file_pattern }}
           FLATTEN: ${{ inputs.flatten }}
+          STRIP_PREFIX: ${{ inputs.strip_prefix }}
         run: |
           set -euo pipefail
 
@@ -235,6 +249,9 @@ jobs:
           for file in $PATTERN; do
             if [[ "$FLATTEN" == "true" ]]; then
               aws s3 cp "$file" "${S3_PATH}"
+            elif [[ -n "$STRIP_PREFIX" ]]; then
+              DEST_PATH="${file#"$STRIP_PREFIX"/}"
+              aws s3 cp "$file" "${S3_PATH}${DEST_PATH}"
             else
               aws s3 cp "$file" "${S3_PATH}${file}"
             fi
