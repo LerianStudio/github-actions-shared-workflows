@@ -36,6 +36,10 @@ inputs:
     description: Docker Scout compare output (delta between PR image and environment baseline)
     required: false
     default: ""
+  fail-on-policy-failure:
+    description: Fail when Docker Scout policies are not fully met
+    required: false
+    default: "false"
 
 outputs:
   has-findings:
@@ -60,6 +64,7 @@ runs:
         SCOUT_HAS_VULNS: ${{ inputs.scout-has-vulnerabilities }}
         SCOUT_RECOMMENDATIONS: ${{ inputs.scout-recommendations }}
         SCOUT_COMPARE: ${{ inputs.scout-compare }}
+        FAIL_ON_POLICY: ${{ inputs.fail-on-policy-failure }}
       with:
         github-token: ${{ inputs.github-token }}
         script: |
@@ -69,6 +74,7 @@ runs:
           const appName = process.env.APP_NAME;
           const dockerScanEnabled = process.env.ENABLE_DOCKER_SCAN === 'true';
           const dockerScoutEnabled = process.env.ENABLE_DOCKER_SCOUT === 'true';
+          const failOnPolicy = process.env.FAIL_ON_POLICY === 'true';
 
           let body = '';
           let hasFindings = false;
@@ -217,12 +223,18 @@ runs:
             if (quickview) {
               const policyMatch = quickview.match(/(\d+)\/(\d+)\s+policies?\s+met/);
               const statusMatch = quickview.match(/badge\/(PASSED|FAILED)/);
+              const policiesPassed = statusMatch && statusMatch[1] === 'PASSED';
               let suffix = '';
               if (policyMatch) {
-                const icon = statusMatch && statusMatch[1] === 'PASSED' ? '\u2705' : '\u26A0\uFE0F';
+                const icon = policiesPassed ? '\u2705' : '\u26A0\uFE0F';
                 suffix = ` \u2014 ${icon} ${policyMatch[1]}/${policyMatch[2]} policies met`;
               }
               out += details(`Overview & Policies${suffix}`, quickview);
+
+              if (failOnPolicy && !policiesPassed) {
+                hasFindings = true;
+                out += `> \u26A0\uFE0F **Docker Scout policies not fully met. Expand Overview & Policies above for details.**\n\n`;
+              }
             }
 
             // Compare with Environment

@@ -66,6 +66,10 @@ on:
         description: 'Enable Docker Scout recommendations to surface Dockerfile issues (non-root user, missing attestations, base image gaps)'
         type: boolean
         default: true
+      docker_scout_fail_on_policy:
+        description: 'Fail the security gate when Docker Scout policies are not fully met (e.g., non-root user, missing attestations)'
+        type: boolean
+        default: false
       docker_scout_compare_env:
         description: 'Docker Scout environment to compare against (e.g., develop, release-candidate, main). Empty = fallback to github.base_ref on PR events.'
         type: string
@@ -282,6 +286,7 @@ jobs:
           scout-has-vulnerabilities: ${{ steps.docker-scout.outputs.has-vulnerabilities }}
           scout-recommendations: ${{ steps.docker-scout.outputs.recommendations }}
           scout-compare: ${{ steps.docker-scout.outputs.compare }}
+          fail-on-policy-failure: ${{ inputs.docker_scout_fail_on_policy }}
 
       - name: Gate - Fail on Security Findings
         if: always() && github.event_name == 'pull_request'
