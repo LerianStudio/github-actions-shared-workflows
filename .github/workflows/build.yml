@@ -297,6 +297,11 @@ jobs:
             github_token=${{ secrets.MANAGE_TOKEN }}
 
       # Docker Scout environment recording
+      - name: Enable Scout for repository
+        if: inputs.enable_docker_scout_environment
+        run: |
+          docker scout repo enable --org ${{ inputs.docker_scout_organization }} ${{ inputs.dockerhub_org }}/${{ matrix.app.name }} || true
+
       - name: Determine Scout environment
         if: inputs.enable_docker_scout_environment
         id: scout-env
