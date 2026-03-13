@@ -22,6 +22,18 @@ on:
         description: 'Directory depth level to extract app name (only used for monorepo)'
         type: string
         default: '2'
+      app_name_prefix:
+        description: 'Prefix for app names in monorepo (e.g., "midaz" results in "midaz-agent"). Must match build workflow config for Scout compare to work.'
+        type: string
+        default: ''
+      app_name_overrides:
+        description: 'Explicit app name mappings in "path:name" format. Must match build workflow config for Scout compare to work.'
+        type: string
+        default: ''
+      normalize_to_filter:
+        description: 'Normalize changed paths to their filter path. Recommended for monorepos to match build workflow behavior.'
+        type: boolean
+        default: true
       monorepo_type:
         description: 'Type of monorepo: "type1" (components in folders) or "type2" (backend in root, frontend in folder)'
         type: string
@@ -54,6 +66,18 @@ on:
         description: 'Enable Docker Scout recommendations to surface Dockerfile issues (non-root user, missing attestations, base image gaps)'
         type: boolean
         default: true
+      docker_scout_fail_on_policy:
+        description: 'Fail the security gate when Docker Scout policies are not fully met (e.g., non-root user, missing attestations)'
+        type: boolean
+        default: false
+      docker_scout_compare_env:
+        description: 'Docker Scout environment to compare against (e.g., develop, release-candidate, main). Empty = fallback to github.base_ref on PR events.'
+        type: string
+        default: ''
+      docker_scout_organization:
+        description: 'Docker Hub organization for Scout environments (required when docker_scout_compare_env is set)'
+        type: string
+        default: 'lerianstudio'
 
 permissions:
   id-token: write       # Required for OIDC authentication
@@ -79,11 +103,14 @@ jobs:
       - name: Get changed paths (monorepo)
         if: inputs.filter_paths != ''
         id: changed-paths
-        uses: LerianStudio/github-actions-shared-workflows/src/config/changed-paths@develop
+        uses: LerianStudio/github-actions-shared-workflows/src/config/changed-paths@fix/scout-html-output
         with:
           filter_paths: ${{ inputs.filter_paths }}
           get_app_name: true
           path_level: ${{ inputs.path_level }}
+          app_name_prefix: ${{ inputs.app_name_prefix }}
+          app_name_overrides: ${{ inputs.app_name_overrides }}
+          normalize_to_filter: ${{ inputs.normalize_to_filter }}
 
       # ----------------- Build Matrix -----------------
       - name: Set matrix
@@ -219,13 +246,15 @@ jobs:
       - name: Docker Scout Analysis
         id: docker-scout
         if: always() && inputs.enable_docker_scout && inputs.enable_docker_scan
-        uses: LerianStudio/github-actions-shared-workflows/src/security/docker-scout@develop
+        uses: LerianStudio/github-actions-shared-workflows/src/security/docker-scout@fix/scout-html-output
         with:
           image: ${{ env.DOCKERHUB_ORG }}/${{ env.APP_NAME }}:pr-scan-${{ github.sha }}
           dockerhub-user: ${{ secrets.DOCKER_USERNAME }}
           dockerhub-password: ${{ secrets.DOCKER_PASSWORD }}
           only-severities: critical,high,medium,low
           enable-recommendations: ${{ inputs.enable_docker_scout_recommendations }}
+          compare-to-env: ${{ inputs.docker_scout_compare_env || github.base_ref }}
+          organization: ${{ inputs.docker_scout_organization }}
 
       # ----------------- Filesystem Vulnerability Scan -----------------
       - name: Trivy Vulnerability Scan - Filesystem (JSON Output)
@@ -242,28 +271,46 @@ jobs:
           skip-dirs: '.git,node_modules,dist,build,.next,coverage,vendor'
           version: 'v0.69.2'
 
+      # ----------------- Save Scout outputs to files (env vars truncate HTML) -----------------
+      - name: Save Scout outputs to files
+        if: always() && inputs.enable_docker_scout && inputs.enable_docker_scan
+        shell: bash
+        run: |
+          mkdir -p .scout-outputs
+          cat <<'QUICKVIEW_EOF' > .scout-outputs/quickview.html
+          ${{ steps.docker-scout.outputs.quickview }}
+          QUICKVIEW_EOF
+          cat <<'CVES_EOF' > .scout-outputs/cves.html
+          ${{ steps.docker-scout.outputs.cves }}
+          CVES_EOF
+          cat <<'RECS_EOF' > .scout-outputs/recommendations.html
+          ${{ steps.docker-scout.outputs.recommendations }}
+          RECS_EOF
+          cat <<'COMPARE_EOF' > .scout-outputs/compare.html
+          ${{ steps.docker-scout.outputs.compare }}
+          COMPARE_EOF
+          echo "${{ steps.docker-scout.outputs.has-vulnerabilities }}" > .scout-outputs/has-vulnerabilities.txt
+
       # ----------------- Results & Security Gate -----------------
       - name: Post Security Scan Results to PR
         id: post-results
         if: always() && github.event_name == 'pull_request'
-        uses: LerianStudio/github-actions-shared-workflows/src/security/pr-security-reporter@develop
+        uses: LerianStudio/github-actions-shared-workflows/src/security/pr-security-reporter@fix/scout-html-output
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           app-name: ${{ env.APP_NAME }}
           enable-docker-scan: ${{ inputs.enable_docker_scan }}
           enable-docker-scout: ${{ inputs.enable_docker_scout }}
-          scout-quickview: ${{ steps.docker-scout.outputs.quickview }}
-          scout-cves: ${{ steps.docker-scout.outputs.cves }}
-          scout-has-vulnerabilities: ${{ steps.docker-scout.outputs.has-vulnerabilities }}
-          scout-recommendations: ${{ steps.docker-scout.outputs.recommendations }}
+          scout-outputs-dir: .scout-outputs
+          fail-on-policy-failure: ${{ inputs.docker_scout_fail_on_policy }}
 
       - name: Gate - Fail on Security Findings
         if: always() && github.event_name == 'pull_request'
         run: |
-          if [ "${{ steps.post-results.outputs.has_errors }}" = "true" ]; then
+          if [ "${{ steps.post-results.outputs.has-errors }}" = "true" ]; then
             echo "::warning::Some scan artifacts were missing or could not be parsed."
           fi
-          if [ "${{ steps.post-results.outputs.has_findings }}" = "true" ]; then
+          if [ "${{ steps.post-results.outputs.has-findings }}" = "true" ]; then
             echo "::error::Security vulnerabilities found. Check the PR comment for details."
             exit 1
           fi

@@ -55,7 +55,7 @@ runs:
           CURRENT_TAG=$(git describe --tags --exact-match HEAD 2>/dev/null || echo "")
           if [[ -n "$CURRENT_TAG" ]]; then
             # Compare against previous tag to capture all changes since last release
-            PREV_TAG=$(git tag --sort=-v:refname | grep -v "^${CURRENT_TAG}$" | head -1)
+            PREV_TAG=$(git tag --sort=-v:refname | grep -v "^${CURRENT_TAG}$" | head -1 || true)
             if [[ -n "$PREV_TAG" ]]; then
               echo "Tag push detected: comparing $PREV_TAG..$CURRENT_TAG"
               FILES=$(git diff --name-only "$PREV_TAG" HEAD)

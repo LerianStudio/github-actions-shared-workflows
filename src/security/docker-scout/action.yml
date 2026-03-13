@@ -35,6 +35,14 @@ inputs:
     description: Run Docker Scout recommendations to surface Dockerfile issues (non-root user, base image gaps, attestation status)
     required: false
     default: "true"
+  compare-to-env:
+    description: Environment name to compare against (empty = skip compare)
+    required: false
+    default: ""
+  organization:
+    description: Docker Hub organization for environments and compare (required when compare-to-env is set)
+    required: false
+    default: ""
 
 outputs:
   quickview:
@@ -49,6 +57,9 @@ outputs:
   recommendations:
     description: Recommendations output from Scout (Dockerfile issues, missing attestations, non-root user)
     value: ${{ steps.recommendations.outputs.recommendations }}
+  compare:
+    description: Compare output showing delta between PR image and environment baseline
+    value: ${{ steps.compare.outputs.compare }}
 
 runs:
   using: composite
@@ -63,6 +74,7 @@ runs:
         dockerhub-user: ${{ inputs.dockerhub-user }}
         dockerhub-password: ${{ inputs.dockerhub-password }}
         github-token: ${{ inputs.github-token }}
+        organization: ${{ inputs.organization }}
         only-severities: ${{ inputs.only-severities }}
         write-comment: ${{ inputs.write-comment }}
 
@@ -75,6 +87,7 @@ runs:
         dockerhub-user: ${{ inputs.dockerhub-user }}
         dockerhub-password: ${{ inputs.dockerhub-password }}
         github-token: ${{ inputs.github-token }}
+        organization: ${{ inputs.organization }}
         only-severities: ${{ inputs.only-severities }}
         exit-code: ${{ inputs.exit-code }}
         write-comment: ${{ inputs.write-comment }}
@@ -103,6 +116,26 @@ runs:
         dockerhub-user: ${{ inputs.dockerhub-user }}
         dockerhub-password: ${{ inputs.dockerhub-password }}
         github-token: ${{ inputs.github-token }}
+        organization: ${{ inputs.organization }}
+        write-comment: false
+
+    # ----------------- Environment Compare -----------------
+    - name: Docker Scout Compare
+      id: compare
+      if: ${{ inputs.compare-to-env != '' && inputs.organization != '' }}
+      continue-on-error: true
+      uses: docker/scout-action@v1.20.2
+      with:
+        command: compare
+        image: ${{ inputs.image }}
+        to-env: ${{ inputs.compare-to-env }}
+        organization: ${{ inputs.organization }}
+        dockerhub-user: ${{ inputs.dockerhub-user }}
+        dockerhub-password: ${{ inputs.dockerhub-password }}
+        github-token: ${{ inputs.github-token }}
+        only-severities: ${{ inputs.only-severities }}
+        ignore-unchanged: true
+        write-comment: false
 
     # ----------------- Result Parsing -----------------
     - name: Parse results
