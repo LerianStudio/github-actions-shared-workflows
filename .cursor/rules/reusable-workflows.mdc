@@ -235,7 +235,7 @@ jobs:
 
 **Three-layer configurability flow:**
 
-```
+```text
 Caller repo                   Reusable workflow              Composite
 ─────────────────────────     ─────────────────────────────  ────────────────────
 enable_docker_scout: false →  if: inputs.enable_docker_scout → step is skipped

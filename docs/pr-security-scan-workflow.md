@@ -178,6 +178,7 @@ This will run all standard scans plus Docker Scout quickview and CVE analysis.
 | `dockerfile_name` | string | `Dockerfile` | Name of the Dockerfile |
 | `enable_docker_scan` | boolean | `true` | Enable Docker image build and vulnerability scanning. Set to `false` for projects without Dockerfile (e.g., CLI tools) |
 | `enable_docker_scout` | boolean | `false` | Enable Docker Scout image analysis for vulnerability scoring. Requires Docker Hub with Scout access |
+| `enable_docker_scout_recommendations` | boolean | `true` | Enable Docker Scout recommendations to surface Dockerfile issues (non-root user, missing attestations, base image gaps) |
 
 ## Secrets
 

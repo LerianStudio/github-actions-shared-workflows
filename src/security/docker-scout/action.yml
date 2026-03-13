@@ -108,10 +108,10 @@ runs:
     - name: Parse results
       id: parse
       shell: bash
+      env:
+        QUICKVIEW_OUTPUT: ${{ steps.quickview.outputs.quickview }}
+        CVES_OUTPUT: ${{ steps.cves.outputs.cves }}
       run: |
-        QUICKVIEW_OUTPUT='${{ steps.quickview.outputs.quickview }}'
-        CVES_OUTPUT='${{ steps.cves.outputs.cves }}'
-
         HAS_VULNS="false"
         if echo "$QUICKVIEW_OUTPUT" "$CVES_OUTPUT" | grep -qiE '(critical|high|medium|low)\s+[1-9]'; then
           HAS_VULNS="true"

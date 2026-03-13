@@ -97,7 +97,7 @@ inputs:
 
 **Three-layer configurability flow:**
 
-```
+```text
 Caller repo              Reusable workflow           Composite
 ──────────────────────── ──────────────────────────  ──────────────────────────
 enable_docker_scout_     →  enable_docker_scout_    →  enable-recommendations:

@@ -323,7 +323,7 @@ jobs:
 - Input naming: workflow inputs → `snake_case`, composite inputs → `kebab-case`
 - Composite defaults must be safe and sensible standalone; workflow defaults may be more opinionated
 
-```
+```text
 Caller repo              Reusable workflow           Composite
 ──────────────────────── ──────────────────────────  ──────────────────────────
 enable_docker_scout: false → if: inputs.enable_xxx  → step is never reached
