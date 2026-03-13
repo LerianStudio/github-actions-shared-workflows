@@ -203,8 +203,10 @@ runs:
             if (scoutQuickview) {
               body += `<details>\n<summary>Quickview</summary>\n\n${scoutQuickview}\n\n</details>\n\n`;
             }
-            if (scoutCves) {
+            if (scoutCves && scoutHasVulns === 'true') {
               body += `<details>\n<summary>CVE Details</summary>\n\n${scoutCves}\n\n</details>\n\n`;
+            } else if (scoutCves) {
+              body += `#### CVE Details\n\n✅ No CVEs found — image is clean.\n\n`;
             }
             const scoutCompare = process.env.SCOUT_COMPARE || '';
             if (scoutCompare) {
