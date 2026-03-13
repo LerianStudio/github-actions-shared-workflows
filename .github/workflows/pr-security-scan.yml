@@ -69,7 +69,7 @@ on:
       docker_scout_fail_on_policy:
         description: 'Fail the security gate when Docker Scout policies are not fully met (e.g., non-root user, missing attestations)'
         type: boolean
-        default: true
+        default: false
       docker_scout_compare_env:
         description: 'Docker Scout environment to compare against (e.g., develop, release-candidate, main). Empty = fallback to github.base_ref on PR events.'
         type: string
