@@ -47,6 +47,7 @@ runs:
         FAIL_ON_POLICY: ${{ inputs.fail-on-policy-failure }}
       with:
         github-token: ${{ inputs.github-token }}
+        result-encoding: string
         script: |
           const fs = require('fs');
 
@@ -266,9 +267,6 @@ runs:
           body += buildTrivyDockerScan();
           body += buildScoutSection();
 
-          // ── Outputs (return JSON for next step to parse) ──
-          return JSON.stringify({ has_findings: hasFindings, has_errors: hasScanErrors });
-
           // ── Post Comment ──
           const marker = `<!-- security-scan-${appName} -->`;
           body = marker + '\n' + body;
@@ -296,6 +294,9 @@ runs:
           } catch (e) {
             core.warning(`Could not post PR security comment: ${e.message}`);
           }
+
+          // ── Outputs (return JSON for next step to parse) ──
+          return JSON.stringify({ has_findings: hasFindings, has_errors: hasScanErrors });
 
     - name: Parse outputs
       id: parse-outputs
