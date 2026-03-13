@@ -186,6 +186,7 @@ runs:
 
           // Docker Scout Analysis section
           if (dockerScoutEnabled && dockerScanEnabled) {
+            body += `---\n\n`;
             const scoutQuickview = process.env.SCOUT_QUICKVIEW || '';
             const scoutCves = process.env.SCOUT_CVES || '';
             const scoutHasVulns = process.env.SCOUT_HAS_VULNS || 'false';
