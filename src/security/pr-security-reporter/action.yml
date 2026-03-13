@@ -192,10 +192,10 @@ runs:
 
             body += `### Docker Scout Analysis\n\n`;
             if (scoutQuickview) {
-              body += `<details>\n<summary>Quickview</summary>\n\n\`\`\`\n${scoutQuickview}\n\`\`\`\n\n</details>\n\n`;
+              body += `<details>\n<summary>Quickview</summary>\n\n${scoutQuickview}\n\n</details>\n\n`;
             }
             if (scoutCves) {
-              body += `<details>\n<summary>CVE Details</summary>\n\n\`\`\`\n${scoutCves}\n\`\`\`\n\n</details>\n\n`;
+              body += `<details>\n<summary>CVE Details</summary>\n\n${scoutCves}\n\n</details>\n\n`;
             }
             if (scoutHasVulns === 'true') {
               hasFindings = true;
@@ -213,7 +213,7 @@ runs:
           if (scoutRecommendations) {
             body += `### Docker Scout Recommendations\n\n`;
             body += `> These are informational — they do not block the build.\n\n`;
-            body += `<details>\n<summary>View recommendations</summary>\n\n\`\`\`\n${scoutRecommendations}\n\`\`\`\n\n</details>\n\n`;
+            body += `<details>\n<summary>View recommendations</summary>\n\n${scoutRecommendations}\n\n</details>\n\n`;
           }
 
           if (!hasFindings && !hasScanErrors) {
