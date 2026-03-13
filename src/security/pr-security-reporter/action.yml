@@ -200,11 +200,32 @@ runs:
             const scoutHasVulns = process.env.SCOUT_HAS_VULNS || 'false';
 
             body += `## Docker Scout Analysis\n\n`;
+
+            // Parse policy grade from quickview output
+            // Extract "X/Y policies met" to derive a letter grade
+            let policyGrade = '';
+            let policySummary = '';
             if (scoutQuickview) {
-              body += `<details>\n<summary>Quickview</summary>\n\n${scoutQuickview}\n\n</details>\n\n`;
+              const policyMatch = scoutQuickview.match(/(\d+)\/(\d+)\s+policies?\s+met/);
+              if (policyMatch) {
+                const met = parseInt(policyMatch[1]);
+                const total = parseInt(policyMatch[2]);
+                const ratio = total > 0 ? met / total : 0;
+                if (ratio >= 1.0) { policyGrade = 'A'; }
+                else if (ratio >= 0.85) { policyGrade = 'B'; }
+                else if (ratio >= 0.7) { policyGrade = 'C'; }
+                else if (ratio >= 0.5) { policyGrade = 'D'; }
+                else if (ratio >= 0.3) { policyGrade = 'E'; }
+                else { policyGrade = 'F'; }
+                policySummary = `${met}/${total} policies met`;
+              }
+              const gradeLabel = policyGrade ? ` — Grade: ${policyGrade} (${policySummary})` : '';
+              body += `<details>\n<summary>Overview & Policies${gradeLabel}</summary>\n\n${scoutQuickview}\n\n</details>\n\n`;
             }
+
             if (scoutCves && scoutHasVulns === 'true') {
-              body += `<details>\n<summary>CVE Details</summary>\n\n${scoutCves}\n\n</details>\n\n`;
+              hasFindings = true;
+              body += `<details>\n<summary>\u{1F6A8} CVE Details — vulnerabilities found</summary>\n\n${scoutCves}\n\n</details>\n\n`;
             } else if (scoutCves) {
               body += `#### CVE Details\n\n✅ No CVEs found — image is clean.\n\n`;
             }
@@ -213,8 +234,7 @@ runs:
               body += `<details>\n<summary>Compare with Environment</summary>\n\n${scoutCompare}\n\n</details>\n\n`;
             }
             if (scoutHasVulns === 'true') {
-              hasFindings = true;
-              body += `> **Warning**: Docker Scout detected vulnerabilities.\n\n`;
+              body += `> \u{1F6A8} **Docker Scout detected vulnerabilities. Review CVE Details above.**\n\n`;
             } else if (!scoutQuickview && !scoutCves) {
               hasScanErrors = true;
               body += `⚠️ Docker Scout results not available.\n\n`;
@@ -230,9 +250,9 @@ runs:
             !(/✅ This image version is up to date/.test(scoutRecommendations) &&
               /✅ There are no tag recommendations at this time/.test(scoutRecommendations));
           if (hasActionableRecs) {
-            body += `#### Docker Scout Recommendations\n\n`;
+            body += `#### \u{1F4A1} Docker Scout Recommendations\n\n`;
             body += `> These are informational — they do not block the build.\n\n`;
-            body += `<details>\n<summary>View recommendations</summary>\n\n${scoutRecommendations}\n\n</details>\n\n`;
+            body += `<details>\n<summary>\u{1F4A1} View recommendations</summary>\n\n${scoutRecommendations}\n\n</details>\n\n`;
           } else if (scoutRecommendations) {
             body += `#### Docker Scout Recommendations\n\n`;
             body += `✅ Base image is up to date — no recommendations at this time.\n\n`;
