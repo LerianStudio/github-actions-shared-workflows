@@ -30,6 +30,7 @@ inputs:
 runs:
   using: composite
   steps:
+    # ----------------- Dry Run -----------------
     - name: Dry run summary
       if: inputs.dry-run == 'true'
       shell: bash
@@ -41,6 +42,7 @@ runs:
         echo "  color        : ${{ inputs.color }}"
         echo "  icon-emoji   : ${{ inputs.icon-emoji }}"
 
+    # ----------------- Notification -----------------
     - name: Send Slack notification
       if: inputs.dry-run != 'true'
       uses: rtCamp/action-slack-notify@v2

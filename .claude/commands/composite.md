@@ -73,6 +73,65 @@ runs:
         option: ${{ inputs.some-option }}
 ```
 
+## Configurability — defaults first, override when needed
+
+Every composite must be **self-contained with sensible defaults**. A caller should get a safe, useful result with zero extra configuration. Additional inputs allow the workflow (or caller) to override specific behaviors.
+
+**Composite layer — always define defaults:**
+
+```yaml
+inputs:
+  enable-recommendations:
+    description: Include Docker Scout recommendations in the PR comment
+    required: false
+    default: "true"       # ✅ composite works standalone
+  severity-threshold:
+    required: false
+    default: "high"       # ✅ opinionated but safe default
+```
+
+**Rules:**
+- All optional inputs must have a `default` — never `required: true` for feature flags
+- Never hardcode feature flags — expose them as inputs so they can be overridden by the reusable workflow
+- Step-level feature toggles (`if: inputs.enable_xxx`) belong in the **reusable workflow**, not inside the composite
+
+**Three-layer configurability flow:**
+
+```
+Caller repo              Reusable workflow           Composite
+──────────────────────── ──────────────────────────  ──────────────────────────
+enable_docker_scout_     →  enable_docker_scout_    →  enable-recommendations:
+recommendations: false      recommendations             ${{ inputs.... }}
+                            (passes it down)
+```
+
+## Step section titles
+
+When a composite has more than one logical group of steps, separate them with a titled section comment:
+
+```yaml
+runs:
+  using: composite
+  steps:
+    # ----------------- Setup -----------------
+    - name: Login to Docker Registry
+      ...
+
+    # ----------------- Scan -----------------
+    - name: Docker Scout CVEs
+      ...
+
+    # ----------------- Recommendations -----------------
+    - name: Docker Scout Recommendations
+      ...
+```
+
+**Rules:**
+- Format: `# ----------------- Title -----------------` (exact spacing)
+- Add when there are 2+ logical groups of steps
+- Title must be short and action-oriented
+- Place the comment immediately before the first step — no blank line between comment and step
+
 ## Design rules
 
 - **5–15 steps maximum** — split if larger
@@ -176,3 +235,23 @@ new-tool-category:
 ```
 
 Never add `LerianStudio/*` actions to dependabot — pinned to `@main` intentionally.
+
+## Reserved input names — never use
+
+Never declare composite inputs using GitHub's reserved prefixes — they conflict with runtime variables and break jobs:
+
+```yaml
+# ❌ Reserved — conflicts with GitHub's runtime variable
+inputs:
+  GITHUB_TOKEN:
+  GITHUB_SHA:
+  ACTIONS_RUNTIME_TOKEN:
+  RUNNER_OS:
+
+# ✅ Use kebab-case and distinct names
+inputs:
+  github-token:
+  manage-token:
+```
+
+Reserved prefixes: `GITHUB_*`, `ACTIONS_*`, `RUNNER_*`.

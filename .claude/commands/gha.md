@@ -253,6 +253,84 @@ on:
         default: false
 ```
 
+## Step section titles
+
+When a job or composite has more than one logical group of steps, separate each group with a titled section comment:
+
+```yaml
+      # ----------------- Security Scans -----------------
+      - name: Trivy Secret Scan
+        ...
+
+      # ----------------- Docker Scout Analysis -----------------
+      - name: Docker Scout
+        ...
+
+      # ----------------- PR Comment with Security Findings -----------------
+      - name: Post Results to PR
+        ...
+```
+
+**Rules:**
+- Format: `# ----------------- Title -----------------` (exact spacing, dashes on both sides)
+- Add when there are 2+ logical groups of steps in the same job or composite
+- Title must be short and action-oriented (e.g. "Build & Push", "Security Scans", "Notifications")
+- Place the comment immediately before the first step of the group — no blank line between comment and step
+- Single-group jobs with 2–3 tightly related steps do not need a title
+
+## Configurability — three-layer defaults and overrides
+
+Composites, reusable workflows, and callers each have a responsibility in the configurability chain. Follow this model to keep things flexible without requiring callers to know composite internals.
+
+**Composite layer** — always define sensible defaults, never `required: true` for feature flags:
+
+```yaml
+inputs:
+  enable-recommendations:
+    description: Include Docker Scout recommendations in the PR comment
+    required: false
+    default: "true"       # ✅ composite works standalone with no config
+```
+
+**Reusable workflow layer** — expose a matching input for every optional composite feature; pass it down explicitly:
+
+```yaml
+on:
+  workflow_call:
+    inputs:
+      enable_docker_scout:
+        description: Run Docker Scout vulnerability scan
+        required: false
+        type: boolean
+        default: true
+      enable_docker_scout_recommendations:
+        required: false
+        type: boolean
+        default: true
+
+jobs:
+  scan:
+    steps:
+      - name: Docker Scout
+        if: inputs.enable_docker_scout            # step-level gate — skip entire composite when disabled
+        uses: LerianStudio/github-actions-shared-workflows/src/security/docker-scout@v1.2.3
+        with:
+          enable-recommendations: ${{ inputs.enable_docker_scout_recommendations }}
+```
+
+**Rules:**
+- Feature toggle `if:` conditions belong in the **reusable workflow** (step or job level), not inside the composite
+- Input naming: workflow inputs → `snake_case`, composite inputs → `kebab-case`
+- Composite defaults must be safe and sensible standalone; workflow defaults may be more opinionated
+
+```
+Caller repo              Reusable workflow           Composite
+──────────────────────── ──────────────────────────  ──────────────────────────
+enable_docker_scout: false → if: inputs.enable_xxx  → step is never reached
+enable_docker_scout_      → enable-recommendations: → ${{ inputs.enable-
+  recommendations: false      ${{ inputs.... }}          recommendations }}
+```
+
 ## dry_run pattern
 
 | Mode | Goal | Log style |
@@ -284,12 +362,20 @@ on:
 
 **Real run (`false`):** no extra `echo`, no debug flags, let failures surface via exit codes, one `::notice::` summary on success at most.
 
-## Local path rule (critical)
+## Composite action references (critical)
 
-```yaml
-uses: ./src/setup/setup-go      # ✅ composite version matches workflow version
-uses: LerianStudio/...@main     # ❌ breaks versioning for callers on older tags
-```
+In reusable workflows (`workflow_call`), `uses: ./path` resolves to the **caller's workspace**, not this repository. This means `./src/...` only works when the caller IS this repo (i.e., `self-*` workflows).
+
+- **Workflows called by external repos** — must use an external ref:
+  ```yaml
+  uses: LerianStudio/github-actions-shared-workflows/src/notify/discord-release@v1.2.3  # ✅ pinned
+  uses: LerianStudio/github-actions-shared-workflows/src/notify/discord-release@develop # ⚠️ testing only
+  uses: ./src/notify/discord-release  # ❌ resolves to caller's workspace, will fail
+  ```
+- **`self-*` workflows (internal only)** — local path for reusable workflow only:
+  ```yaml
+  uses: ./.github/workflows/labels-sync.yml  # ✅ caller is this repo
+  ```
 
 ## Secrets management
 
@@ -375,8 +461,8 @@ runs:
   jobs:          # invalid — composites have steps, not jobs
     build: ...
 
-# ❌ External ref for composite inside a reusable workflow
-uses: LerianStudio/github-actions-shared-workflows/src/setup-go@main
+# ❌ Local path for composite in a workflow called by external repos
+uses: ./src/setup-go  # resolves to caller's workspace, not this repo
 
 # ❌ Mutable ref on third-party actions
 uses: some-action/tool@main
@@ -512,3 +598,25 @@ new-tool-category:
 ```
 
 Never add `LerianStudio/*` actions to dependabot — pinned to `@main` intentionally.
+
+## Reserved names — never use as secret, input, or env var
+
+Never use GitHub's reserved prefixes for custom secrets, inputs, or env vars — they conflict with runtime variables and break jobs silently:
+
+```yaml
+# ❌ Reserved — GITHUB_TOKEN is injected automatically, cannot be a named secret
+on:
+  workflow_call:
+    secrets:
+      GITHUB_TOKEN:   # breaks callers
+        required: true
+
+# ✅ Use a distinct name
+on:
+  workflow_call:
+    secrets:
+      MANAGE_TOKEN:
+        required: false
+```
+
+Reserved prefixes (workflows and composites): `GITHUB_*`, `ACTIONS_*`, `RUNNER_*`.

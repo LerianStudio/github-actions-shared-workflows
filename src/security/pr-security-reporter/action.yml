@@ -1,0 +1,255 @@
+name: PR Security Reporter
+description: Posts a formatted security scan summary comment on the pull request, updating it on subsequent runs.
+
+inputs:
+  github-token:
+    description: GitHub token with pull-requests:write and issues:write permissions
+    required: true
+  app-name:
+    description: Application name used to locate scan artifact files and scope the PR comment
+    required: true
+  enable-docker-scan:
+    description: Whether Docker image scan artifacts are present and should be included in the report
+    required: false
+    default: "true"
+  enable-docker-scout:
+    description: Whether Docker Scout analysis results are present and should be included in the report
+    required: false
+    default: "false"
+  scout-quickview:
+    description: Docker Scout quickview output (from docker-scout composite outputs.quickview)
+    required: false
+    default: ""
+  scout-cves:
+    description: Docker Scout CVE list output (from docker-scout composite outputs.cves)
+    required: false
+    default: ""
+  scout-has-vulnerabilities:
+    description: Whether Docker Scout detected vulnerabilities (from docker-scout composite outputs.has-vulnerabilities)
+    required: false
+    default: "false"
+  scout-recommendations:
+    description: Docker Scout recommendations output (Dockerfile issues, missing attestations, non-root user)
+    required: false
+    default: ""
+
+outputs:
+  has-findings:
+    description: True if any security vulnerabilities were found
+    value: ${{ steps.report.outputs.has_findings }}
+  has-errors:
+    description: True if any scan artifacts were missing or could not be parsed
+    value: ${{ steps.report.outputs.has_errors }}
+
+runs:
+  using: composite
+  steps:
+    - name: Post security report to PR
+      id: report
+      uses: actions/github-script@v8
+      env:
+        APP_NAME: ${{ inputs.app-name }}
+        ENABLE_DOCKER_SCAN: ${{ inputs.enable-docker-scan }}
+        ENABLE_DOCKER_SCOUT: ${{ inputs.enable-docker-scout }}
+        SCOUT_QUICKVIEW: ${{ inputs.scout-quickview }}
+        SCOUT_CVES: ${{ inputs.scout-cves }}
+        SCOUT_HAS_VULNS: ${{ inputs.scout-has-vulnerabilities }}
+        SCOUT_RECOMMENDATIONS: ${{ inputs.scout-recommendations }}
+      with:
+        github-token: ${{ inputs.github-token }}
+        script: |
+          const fs = require('fs');
+          const appName = process.env.APP_NAME;
+          const dockerScanEnabled = process.env.ENABLE_DOCKER_SCAN === 'true';
+          const dockerScoutEnabled = process.env.ENABLE_DOCKER_SCOUT === 'true';
+
+          let body = `## 🔒 Security Scan Results — \`${appName}\`\n\n`;
+          let hasFindings = false;
+          let hasScanErrors = false;
+
+          // Helper to escape markdown table cell content
+          const md = (value) =>
+            String(value ?? '')
+              .replace(/\|/g, '\\|')
+              .replace(/\r?\n/g, ' ')
+              .replace(/`/g, '\\`');
+
+          // Parse filesystem vulnerability scan
+          try {
+            const fsVulnFile = `trivy-fs-vuln-${appName}.json`;
+            if (fs.existsSync(fsVulnFile)) {
+              const data = JSON.parse(fs.readFileSync(fsVulnFile, 'utf8'));
+              const results = data.Results || [];
+              const vulns = [];
+
+              for (const result of results) {
+                for (const v of (result.Vulnerabilities || [])) {
+                  vulns.push({
+                    library: v.PkgName || 'Unknown',
+                    id: v.VulnerabilityID || 'N/A',
+                    severity: v.Severity || 'UNKNOWN',
+                    installed: v.InstalledVersion || 'N/A',
+                    fixed: v.FixedVersion || 'N/A',
+                    title: v.Title || v.Description || 'No description'
+                  });
+                }
+                for (const s of (result.Secrets || [])) {
+                  vulns.push({
+                    library: s.RuleID || 'Secret',
+                    id: s.Category || 'SECRET',
+                    severity: s.Severity || 'HIGH',
+                    installed: '[REDACTED]',
+                    fixed: 'Remove/rotate',
+                    title: s.Title || 'Secret detected'
+                  });
+                }
+              }
+
+              if (vulns.length > 0) {
+                hasFindings = true;
+                body += `### Filesystem Scan\n\n`;
+                body += `| Severity | Library | Vulnerability | Installed | Fixed | Title |\n`;
+                body += `|----------|---------|---------------|-----------|-------|-------|\n`;
+
+                const severityOrder = { CRITICAL: 0, HIGH: 1, MEDIUM: 2, LOW: 3, UNKNOWN: 4 };
+                vulns.sort((a, b) => (severityOrder[a.severity] ?? 5) - (severityOrder[b.severity] ?? 5));
+
+                const maxFsFindings = 50;
+                for (const v of vulns.slice(0, maxFsFindings)) {
+                  const icon = { CRITICAL: '🔴', HIGH: '🟠', MEDIUM: '🟡', LOW: '🔵', UNKNOWN: '⚪' }[v.severity] || '⚪';
+                  const title = v.title.length > 60 ? v.title.substring(0, 57) + '...' : v.title;
+                  body += `| ${icon} ${md(v.severity)} | \`${md(v.library)}\` | ${md(v.id)} | ${md(v.installed)} | ${md(v.fixed)} | ${md(title)} |\n`;
+                }
+                if (vulns.length > maxFsFindings) {
+                  body += `\n_... and ${vulns.length - maxFsFindings} more findings._\n`;
+                }
+                body += `\n`;
+              } else {
+                body += `### Filesystem Scan\n\n✅ No vulnerabilities or secrets found.\n\n`;
+              }
+            } else {
+              hasScanErrors = true;
+              body += `### Filesystem Scan\n\n⚠️ Scan artifact not found.\n\n`;
+            }
+          } catch (e) {
+            hasScanErrors = true;
+            body += `### Filesystem Scan\n\n⚠️ Could not parse scan results: ${e.message}\n\n`;
+          }
+
+          // Parse Docker image vulnerability scan
+          if (dockerScanEnabled) {
+            try {
+              const dockerSarifFile = `trivy-vulnerability-scan-docker-${appName}.sarif`;
+              if (fs.existsSync(dockerSarifFile)) {
+                const sarif = JSON.parse(fs.readFileSync(dockerSarifFile, 'utf8'));
+                const runs = sarif.runs || [];
+                const dockerVulns = [];
+
+                for (const run of runs) {
+                  for (const result of (run.results || [])) {
+                    const rule = (run.tool?.driver?.rules || []).find(r => r.id === result.ruleId);
+                    dockerVulns.push({
+                      id: result.ruleId || 'N/A',
+                      severity: result.level === 'error' ? 'CRITICAL/HIGH' : result.level === 'warning' ? 'MEDIUM' : 'LOW',
+                      title: rule?.shortDescription?.text || result.message?.text || 'No description'
+                    });
+                  }
+                }
+
+                if (dockerVulns.length > 0) {
+                  hasFindings = true;
+                  const dockerSeverityOrder = { 'CRITICAL/HIGH': 0, CRITICAL: 0, HIGH: 1, MEDIUM: 2, LOW: 3, UNKNOWN: 4 };
+                  dockerVulns.sort((a, b) => (dockerSeverityOrder[a.severity] ?? 5) - (dockerSeverityOrder[b.severity] ?? 5));
+                  body += `### Docker Image Scan\n\n`;
+                  body += `| Severity | Vulnerability | Title |\n`;
+                  body += `|----------|---------------|-------|\n`;
+                  for (const v of dockerVulns.slice(0, 20)) {
+                    const title = v.title.length > 80 ? v.title.substring(0, 77) + '...' : v.title;
+                    body += `| ${md(v.severity)} | ${md(v.id)} | ${md(title)} |\n`;
+                  }
+                  if (dockerVulns.length > 20) {
+                    body += `\n_... and ${dockerVulns.length - 20} more findings._\n`;
+                  }
+                  body += `\n`;
+                } else {
+                  body += `### Docker Image Scan\n\n✅ No vulnerabilities found.\n\n`;
+                }
+              } else {
+                hasScanErrors = true;
+                body += `### Docker Image Scan\n\n⚠️ Scan artifact not found.\n\n`;
+              }
+            } catch (e) {
+              hasScanErrors = true;
+              body += `### Docker Image Scan\n\n⚠️ Could not parse scan results: ${e.message}\n\n`;
+            }
+          }
+
+          // Docker Scout Analysis section
+          if (dockerScoutEnabled && dockerScanEnabled) {
+            const scoutQuickview = process.env.SCOUT_QUICKVIEW || '';
+            const scoutCves = process.env.SCOUT_CVES || '';
+            const scoutHasVulns = process.env.SCOUT_HAS_VULNS || 'false';
+
+            body += `### Docker Scout Analysis\n\n`;
+            if (scoutQuickview) {
+              body += `<details>\n<summary>Quickview</summary>\n\n\`\`\`\n${scoutQuickview}\n\`\`\`\n\n</details>\n\n`;
+            }
+            if (scoutCves) {
+              body += `<details>\n<summary>CVE Details</summary>\n\n\`\`\`\n${scoutCves}\n\`\`\`\n\n</details>\n\n`;
+            }
+            if (scoutHasVulns === 'true') {
+              hasFindings = true;
+              body += `> **Warning**: Docker Scout detected vulnerabilities.\n\n`;
+            } else if (!scoutQuickview && !scoutCves) {
+              hasScanErrors = true;
+              body += `⚠️ Docker Scout results not available.\n\n`;
+            } else {
+              body += `✅ No vulnerabilities detected by Docker Scout.\n\n`;
+            }
+          }
+
+          // Docker Scout Recommendations section
+          const scoutRecommendations = process.env.SCOUT_RECOMMENDATIONS || '';
+          if (scoutRecommendations) {
+            body += `### Docker Scout Recommendations\n\n`;
+            body += `> These are informational — they do not block the build.\n\n`;
+            body += `<details>\n<summary>View recommendations</summary>\n\n\`\`\`\n${scoutRecommendations}\n\`\`\`\n\n</details>\n\n`;
+          }
+
+          if (!hasFindings && !hasScanErrors) {
+            body += `\n✅ **All security checks passed.**\n`;
+          }
+
+          core.setOutput('has_findings', hasFindings);
+          core.setOutput('has_errors', hasScanErrors);
+
+          // Find and update existing comment or create new one
+          const marker = `<!-- security-scan-${appName} -->`;
+          body = marker + '\n' + body;
+          try {
+            const comments = await github.paginate(github.rest.issues.listComments, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              per_page: 100
+            });
+
+            const existing = comments.find(c => c.body?.includes(marker));
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body
+              });
+            }
+          } catch (e) {
+            core.warning(`Could not post PR security comment: ${e.message}`);
+          }

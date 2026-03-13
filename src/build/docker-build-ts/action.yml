@@ -83,6 +83,7 @@ outputs:
 runs:
   using: composite
   steps:
+    # ----------------- Setup -----------------
     - name: Set up QEMU
       if: ${{ contains(inputs.platforms, 'arm64') }}
       uses: docker/setup-qemu-action@v4
@@ -105,6 +106,7 @@ runs:
         username: ${{ github.actor }}
         password: ${{ inputs.ghcr-token }}
 
+    # ----------------- Image Configuration -----------------
     - name: Normalize repository owner to lowercase
       id: normalize
       shell: bash
@@ -179,7 +181,7 @@ runs:
           } >> $GITHUB_OUTPUT
         fi
 
-    # dry_run: true — verbose summary, build without pushing
+    # ----------------- Dry Run -----------------
     - name: Dry run summary
       if: ${{ inputs.dry-run == 'true' }}
       shell: bash
@@ -192,7 +194,6 @@ runs:
         echo "  tags       : ${{ steps.meta.outputs.tags }}"
         echo "  registries : ${{ steps.image-names.outputs.images }}"
 
-    # Dry-run uses only linux/amd64 for fast validation (QEMU multi-platform is slow)
     - name: Build Docker image (dry run)
       if: ${{ inputs.dry-run == 'true' }}
       id: build-dry
@@ -206,7 +207,7 @@ runs:
         labels: ${{ steps.meta.outputs.labels }}
         secrets: ${{ steps.secrets.outputs.value }}
 
-    # dry_run: false — build and push
+    # ----------------- Build & Push -----------------
     - name: Build and push Docker image
       if: ${{ inputs.dry-run != 'true' }}
       id: build-push
