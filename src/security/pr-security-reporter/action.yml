@@ -213,15 +213,16 @@ runs:
               body += `<details>\n<summary>Overview & Policies${policySuffix}</summary>\n\n${scoutQuickview}\n\n</details>\n\n`;
             }
 
+            const scoutCompare = process.env.SCOUT_COMPARE || '';
+            if (scoutCompare) {
+              body += `<details>\n<summary>Compare with Environment</summary>\n\n${scoutCompare}\n\n</details>\n\n`;
+            }
+
             if (scoutCves && scoutHasVulns === 'true') {
               hasFindings = true;
               body += `<details>\n<summary>\u{1F6A8} CVE Details — vulnerabilities found</summary>\n\n${scoutCves}\n\n</details>\n\n`;
             } else if (scoutCves) {
               body += `#### CVE Details\n\n✅ No CVEs found — image is clean.\n\n`;
-            }
-            const scoutCompare = process.env.SCOUT_COMPARE || '';
-            if (scoutCompare) {
-              body += `<details>\n<summary>Compare with Environment</summary>\n\n${scoutCompare}\n\n</details>\n\n`;
             }
             if (scoutHasVulns === 'true') {
               body += `> \u{1F6A8} **Docker Scout detected vulnerabilities. Review CVE Details above.**\n\n`;
