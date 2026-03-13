@@ -313,7 +313,7 @@ jobs:
         uses: docker/scout-action@v1.20.2
         with:
           command: environment
-          image: ${{ inputs.dockerhub_org }}/${{ matrix.app.name }}:${{ steps.version.outputs.version }}
+          image: ${{ inputs.dockerhub_org }}/${{ matrix.app.name }}:${{ steps.meta.outputs.version }}
           environment: ${{ steps.scout-env.outputs.name }}
           organization: ${{ inputs.docker_scout_organization }}
           dockerhub-user: ${{ secrets.DOCKER_USERNAME }}
