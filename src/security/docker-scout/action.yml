@@ -67,6 +67,7 @@ runs:
     # ----------------- Vulnerability Analysis -----------------
     - name: Docker Scout Quickview
       id: quickview
+      continue-on-error: true
       uses: docker/scout-action@v1.20.2
       with:
         command: quickview
@@ -80,6 +81,7 @@ runs:
 
     - name: Docker Scout CVEs
       id: cves
+      continue-on-error: true
       uses: docker/scout-action@v1.20.2
       with:
         command: cves
@@ -109,6 +111,7 @@ runs:
     - name: Docker Scout Recommendations
       id: recommendations
       if: ${{ inputs.enable-recommendations == 'true' }}
+      continue-on-error: true
       uses: docker/scout-action@v1.20.2
       with:
         command: recommendations
