@@ -81,6 +81,7 @@ runs:
 
     - name: Docker Scout CVEs
       id: cves
+      if: always()
       continue-on-error: true
       uses: docker/scout-action@v1.20.2
       with:
@@ -96,7 +97,7 @@ runs:
 
     # ----------------- SARIF Export -----------------
     - name: Docker Scout SARIF Export
-      if: ${{ inputs.sarif-file != '' }}
+      if: always() && inputs.sarif-file != ''
       uses: docker/scout-action@v1.20.2
       with:
         command: cves
@@ -110,7 +111,7 @@ runs:
     # ----------------- Recommendations -----------------
     - name: Docker Scout Recommendations
       id: recommendations
-      if: ${{ inputs.enable-recommendations == 'true' }}
+      if: always() && inputs.enable-recommendations == 'true'
       continue-on-error: true
       uses: docker/scout-action@v1.20.2
       with:
@@ -125,7 +126,7 @@ runs:
     # ----------------- Environment Compare -----------------
     - name: Docker Scout Compare
       id: compare
-      if: ${{ inputs.compare-to-env != '' && inputs.organization != '' }}
+      if: always() && inputs.compare-to-env != '' && inputs.organization != ''
       continue-on-error: true
       uses: docker/scout-action@v1.20.2
       with:
@@ -143,6 +144,7 @@ runs:
     # ----------------- Result Parsing -----------------
     - name: Parse results
       id: parse
+      if: always()
       shell: bash
       run: |
         QUICKVIEW_OUTPUT='${{ steps.quickview.outputs.quickview }}'
