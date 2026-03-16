@@ -209,22 +209,33 @@ runs:
 
             // Compare with Environment (includes policy evaluation)
             if (compare) {
+              // Extract env and PR image tags from compare output
+              const tagMatches = compare.match(/`[^`]+:([^`]+)`/g) || [];
+              const envTag = tagMatches[0] ? tagMatches[0].replace(/`/g, '').split(':').pop() : 'environment';
+              const prTag = 'PR image';
+
               // Parse policy rows — format: |Policy Name | env_status | PR_status | Change | Standing |
               const policyRows = compare.match(/\|[^|]+\|[^|]*:(?:warning|question|white_check_mark):[^|]*\|[^|]*:(?:warning|question|white_check_mark):[^|]*\|[^\n]*/g) || [];
               let checkCount = 0, issueCount = 0;
-              const policyLines = [];
+              const envPolicyLines = [];
+              const prPolicyLines = [];
               for (const row of policyRows) {
                 const cols = row.split('|').map(c => c.trim());
                 const name = cols[1] || '';
+                const envCol = cols[2] || '';
                 const prCol = cols[3] || '';
-                const isOk = prCol.includes(':white_check_mark:');
-                if (isOk) checkCount++;
+                const prOk = prCol.includes(':white_check_mark:');
+                if (prOk) checkCount++;
                 else issueCount++;
-                // Clean status for display
-                let status = '\u2705 Passed';
-                if (prCol.includes(':question:')) status = '\u2753 No data';
-                else if (prCol.includes(':warning:')) status = '\u26A0\uFE0F Failed' + (prCol.match(/\d+/) ? ` (${prCol.match(/\d+/)[0]} deviations)` : '');
-                policyLines.push(`| ${isOk ? '\u2705' : '\u26A0\uFE0F'} | ${name} | ${status} |`);
+
+                const cleanStatus = (col) => {
+                  if (col.includes(':white_check_mark:')) return '\u2705 Passed';
+                  if (col.includes(':question:')) return '\u2753 No data';
+                  const devMatch = col.match(/\d+/);
+                  return '\u26A0\uFE0F Failed' + (devMatch ? ` (${devMatch[0]} deviations)` : '');
+                };
+
+                prPolicyLines.push(`| ${prOk ? '\u2705' : '\u26A0\uFE0F'} | ${name} | ${cleanStatus(envCol)} | ${cleanStatus(prCol)} |`);
               }
               const totalPolicies = checkCount + issueCount;
               const hasCompareIssues = issueCount > 0;
@@ -233,8 +244,8 @@ runs:
               if (totalPolicies > 0) {
                 const icon = hasCompareIssues ? '\u26A0\uFE0F' : '\u2705';
                 out += `#### ${icon} Policies \u2014 ${checkCount}/${totalPolicies} met\n\n`;
-                out += `| | Policy | Status |\n|---|---|---|\n`;
-                out += policyLines.join('\n') + '\n\n';
+                out += `| | Policy | \u{1F4E6} \`${envTag}\` | \u{1F6E0}\uFE0F ${prTag} |\n|---|---|---|---|\n`;
+                out += prPolicyLines.join('\n') + '\n\n';
               }
 
               if (failOnPolicy && hasCompareIssues) {
