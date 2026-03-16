@@ -220,7 +220,11 @@ runs:
                 const isOk = prCol.includes(':white_check_mark:');
                 if (isOk) checkCount++;
                 else issueCount++;
-                policyLines.push(`| ${isOk ? '\u2705' : '\u26A0\uFE0F'} | ${name} | ${prCol} |`);
+                // Clean status for display
+                let status = '\u2705 Passed';
+                if (prCol.includes(':question:')) status = '\u2753 No data';
+                else if (prCol.includes(':warning:')) status = '\u26A0\uFE0F Failed' + (prCol.match(/\d+/) ? ` (${prCol.match(/\d+/)[0]} deviations)` : '');
+                policyLines.push(`| ${isOk ? '\u2705' : '\u26A0\uFE0F'} | ${name} | ${status} |`);
               }
               const totalPolicies = checkCount + issueCount;
               const hasCompareIssues = issueCount > 0;
