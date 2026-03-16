@@ -238,6 +238,14 @@ jobs:
           exit-code: '0'
           version: 'v0.69.2'
 
+      # ----------------- CISA KEV Catalog -----------------
+      - name: Download CISA Known Exploited Vulnerabilities catalog
+        if: always() && inputs.enable_docker_scan && inputs.enable_health_score
+        shell: bash
+        run: |
+          curl -sSfL -o cisa-kev.json \
+            https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json || echo '{"vulnerabilities":[]}' > cisa-kev.json
+
       # ----------------- Dockerfile Checks -----------------
       - name: Check Dockerfile for non-root user
         id: check-user

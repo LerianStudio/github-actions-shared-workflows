@@ -213,7 +213,30 @@ runs:
             policies.push({ name: 'No fixable critical/high CVEs', status: fixableCvesPassed ? '\u2705 Passed' : '\u26A0\uFE0F Failed', passed: fixableCvesPassed });
             if (fixableCvesPassed) passCount++;
 
-            // Policy 3: No AGPL v3 licenses (from Trivy license scan)
+            // Policy 3: No high-profile vulnerabilities (cross-reference Trivy CVEs with CISA KEV catalog)
+            let kevPassed = true;
+            try {
+              const kevFile = 'cisa-kev.json';
+              const sarifFile = `trivy-vulnerability-scan-docker-${appName}.sarif`;
+              if (fs.existsSync(kevFile) && fs.existsSync(sarifFile)) {
+                const kev = JSON.parse(fs.readFileSync(kevFile, 'utf8'));
+                const kevIds = new Set((kev.vulnerabilities || []).map(v => v.cveID));
+                const sarif = JSON.parse(fs.readFileSync(sarifFile, 'utf8'));
+                for (const run of (sarif.runs || [])) {
+                  for (const result of (run.results || [])) {
+                    if (kevIds.has(result.ruleId)) {
+                      kevPassed = false;
+                      break;
+                    }
+                  }
+                  if (!kevPassed) break;
+                }
+              }
+            } catch {}
+            policies.push({ name: 'No high-profile vulnerabilities', status: kevPassed ? '\u2705 Passed' : '\u26A0\uFE0F Failed', passed: kevPassed });
+            if (kevPassed) passCount++;
+
+            // Policy 4: No AGPL v3 licenses (from Trivy license scan)
             let licensePassed = true;
             try {
               const licFile = `trivy-license-scan-docker-${appName}.json`;
@@ -232,14 +255,6 @@ runs:
             } catch {}
             policies.push({ name: 'No AGPL v3 licenses', status: licensePassed ? '\u2705 Passed' : '\u26A0\uFE0F Failed', passed: licensePassed });
             if (licensePassed) passCount++;
-
-            // Policy 4: Supply chain attestations (can't evaluate locally)
-            policies.push({ name: 'Supply chain attestations', status: '\u2139\uFE0F Evaluated on release build', passed: true });
-            passCount++;
-
-            // Policy 5: No outdated base images (gcr.io not supported)
-            policies.push({ name: 'No outdated base images', status: '\u2139\uFE0F Not applicable (gcr.io)', passed: true });
-            passCount++;
 
             const totalPolicies = policies.length;
             const failCount = totalPolicies - passCount;
