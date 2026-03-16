@@ -200,7 +200,6 @@ runs:
           function buildScoutSection() {
             if (!dockerScoutEnabled || !dockerScanEnabled) return '';
 
-            const quickview = readScoutFile('quickview.html');
             const cves = readScoutFile('cves.html');
             const hasVulns = readScoutFile('has-vulnerabilities.txt') === 'true';
             const compare = readScoutFile('compare.html');
@@ -208,30 +207,8 @@ runs:
 
             let out = `---\n\n## Docker Scout Analysis\n\n`;
 
-            // Overview & Policies
-            if (quickview) {
-              const policyMatch = quickview.match(/(\d+)\/(\d+)\s+policies?\s+met/);
-              const statusMatch = quickview.match(/badge\/(PASSED|FAILED)/);
-              const policiesPassed = statusMatch && statusMatch[1] === 'PASSED';
-              let suffix = '';
-              if (policyMatch) {
-                const icon = policiesPassed ? '\u2705' : '\u26A0\uFE0F';
-                suffix = ` \u2014 ${icon} ${policyMatch[1]}/${policyMatch[2]} policies met`;
-              }
-              out += details(`Overview & Policies${suffix}`, quickview);
-
-              if (failOnPolicy && !policiesPassed) {
-                hasFindings = true;
-                out += `> \u26A0\uFE0F **Docker Scout policies not fully met. Expand Overview & Policies above for details.**\n\n`;
-              }
-            } else if (!compare) {
-              out += `#### Overview & Policies\n\n`;
-              out += `\u26A0\uFE0F Docker Scout policy evaluation is unavailable for this scan. Check the workflow logs for details.\n\n`;
-            }
-
-            // Compare with Environment
+            // Compare with Environment (includes policy evaluation)
             if (compare) {
-              // Check if policies are not fully met in compare output
               const warnCount = (compare.match(/:warning:/g) || []).length;
               const questionCount = (compare.match(/:question:/g) || []).length;
               const checkCount = (compare.match(/:white_check_mark:/g) || []).length;
@@ -246,10 +223,12 @@ runs:
               }
               out += details(`Compare with Environment${compareSuffix}`, compare);
 
-              if (failOnPolicy && hasCompareIssues && !quickview) {
+              if (failOnPolicy && hasCompareIssues) {
                 hasFindings = true;
                 out += `> \u26A0\uFE0F **Docker Scout policies not fully met. Expand Compare with Environment above for details.**\n\n`;
               }
+            } else {
+              out += `\u2139\uFE0F Policy evaluation available after first release build with Scout environment enabled.\n\n`;
             }
 
             // CVE Details
@@ -259,9 +238,9 @@ runs:
               out += `> \u{1F6A8} **Docker Scout detected vulnerabilities. Review CVE Details above.**\n\n`;
             } else if (cves) {
               out += `#### CVE Details\n\n\u2705 No CVEs found \u2014 image is clean.\n\n`;
-            } else if (!quickview) {
+            } else {
               hasScanErrors = true;
-              out += `\u26A0\uFE0F Docker Scout results not available.\n\n`;
+              out += `\u26A0\uFE0F Docker Scout CVE results not available.\n\n`;
             }
 
             // Recommendations

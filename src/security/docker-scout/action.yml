@@ -45,9 +45,6 @@ inputs:
     default: ""
 
 outputs:
-  quickview:
-    description: Markdown summary from Scout quickview
-    value: ${{ steps.quickview.outputs.quickview }}
   cves:
     description: Markdown CVE details from Scout cves
     value: ${{ steps.cves.outputs.cves }}
@@ -65,20 +62,6 @@ runs:
   using: composite
   steps:
     # ----------------- Vulnerability Analysis -----------------
-    - name: Docker Scout Quickview
-      id: quickview
-      continue-on-error: true
-      uses: docker/scout-action@v1.20.2
-      with:
-        command: quickview
-        image: ${{ inputs.image }}
-        dockerhub-user: ${{ inputs.dockerhub-user }}
-        dockerhub-password: ${{ inputs.dockerhub-password }}
-        github-token: ${{ inputs.github-token }}
-        organization: ${{ inputs.organization }}
-        only-severities: ${{ inputs.only-severities }}
-        write-comment: ${{ inputs.write-comment }}
-
     - name: Docker Scout CVEs
       id: cves
       if: always()
@@ -147,11 +130,10 @@ runs:
       if: always()
       shell: bash
       run: |
-        QUICKVIEW_OUTPUT='${{ steps.quickview.outputs.quickview }}'
         CVES_OUTPUT='${{ steps.cves.outputs.cves }}'
 
         HAS_VULNS="false"
-        if echo "$QUICKVIEW_OUTPUT" "$CVES_OUTPUT" | grep -qiE '(critical|high|medium|low)\s+[1-9]'; then
+        if echo "$CVES_OUTPUT" | grep -qiE '(critical|high|medium|low)\s+[1-9]'; then
           HAS_VULNS="true"
         fi
 

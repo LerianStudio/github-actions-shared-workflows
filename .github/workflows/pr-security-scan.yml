@@ -277,9 +277,6 @@ jobs:
         shell: bash
         run: |
           mkdir -p .scout-outputs
-          cat <<'QUICKVIEW_EOF' > .scout-outputs/quickview.html
-          ${{ steps.docker-scout.outputs.quickview }}
-          QUICKVIEW_EOF
           cat <<'CVES_EOF' > .scout-outputs/cves.html
           ${{ steps.docker-scout.outputs.cves }}
           CVES_EOF
