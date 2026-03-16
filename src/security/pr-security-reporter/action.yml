@@ -231,7 +231,25 @@ runs:
 
             // Compare with Environment
             if (compare) {
-              out += details('Compare with Environment', compare);
+              // Check if policies are not fully met in compare output
+              const warnCount = (compare.match(/:warning:/g) || []).length;
+              const questionCount = (compare.match(/:question:/g) || []).length;
+              const checkCount = (compare.match(/:white_check_mark:/g) || []).length;
+              const totalPolicies = warnCount + questionCount + checkCount;
+              const hasCompareIssues = warnCount > 0 || questionCount > 0;
+
+              let compareSuffix = '';
+              if (totalPolicies > 0 && hasCompareIssues) {
+                compareSuffix = ` \u2014 \u26A0\uFE0F ${checkCount}/${totalPolicies} policies met`;
+              } else if (totalPolicies > 0) {
+                compareSuffix = ` \u2014 \u2705 ${checkCount}/${totalPolicies} policies met`;
+              }
+              out += details(`Compare with Environment${compareSuffix}`, compare);
+
+              if (failOnPolicy && hasCompareIssues && !quickview) {
+                hasFindings = true;
+                out += `> \u26A0\uFE0F **Docker Scout policies not fully met. Expand Compare with Environment above for details.**\n\n`;
+              }
             }
 
             // CVE Details
