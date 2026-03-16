@@ -5,7 +5,7 @@
   </tr>
 </table>
 
-Composite action that posts a formatted security scan summary as a PR comment, combining Trivy filesystem scan, Docker image scan, and Docker Scout results. Updates the comment on subsequent runs instead of creating duplicates.
+Composite action that posts a formatted security scan summary as a PR comment, combining Trivy filesystem scan, Docker image scan, and Docker Hub Health Score compliance checks. Updates the comment on subsequent runs instead of creating duplicates.
 
 ## Inputs
 
@@ -14,10 +14,8 @@ Composite action that posts a formatted security scan summary as a PR comment, c
 | `github-token` | GitHub token with `pull-requests:write` and `issues:write` | Yes | — |
 | `app-name` | Application name — used to locate scan artifacts and scope the PR comment | Yes | — |
 | `enable-docker-scan` | Whether Docker image scan artifacts are present and should be included | No | `true` |
-| `enable-docker-scout` | Whether Docker Scout results are present and should be included | No | `false` |
-| `scout-quickview` | Docker Scout quickview output | No | `""` |
-| `scout-cves` | Docker Scout CVE list output | No | `""` |
-| `scout-has-vulnerabilities` | Whether Docker Scout detected vulnerabilities | No | `"false"` |
+| `enable-health-score` | Whether Docker Hub Health Score compliance checks should be included | No | `false` |
+| `dockerfile-has-non-root-user` | Whether the Dockerfile sets a non-root USER directive | No | `false` |
 
 ## Outputs
 
@@ -34,13 +32,13 @@ This composite expects the following files in the runner working directory, gene
 |---|---|
 | `trivy-fs-vuln-<app-name>.json` | Trivy filesystem scan (JSON format) |
 | `trivy-vulnerability-scan-docker-<app-name>.sarif` | Trivy Docker image scan (SARIF format) |
+| `trivy-license-scan-docker-<app-name>.json` | Trivy license scan (JSON format, for health score) |
 
 ## Usage
 
 ### As a composite step (within a security workflow job)
 
 ```yaml
-# Use @develop or your feature branch to test before releasing
 - name: Post Security Scan Results to PR
   id: post-results
   if: always() && github.event_name == 'pull_request'
@@ -49,10 +47,8 @@ This composite expects the following files in the runner working directory, gene
     github-token: ${{ secrets.GITHUB_TOKEN }}
     app-name: ${{ env.APP_NAME }}
     enable-docker-scan: ${{ inputs.enable_docker_scan }}
-    enable-docker-scout: ${{ inputs.enable_docker_scout }}
-    scout-quickview: ${{ steps.docker-scout.outputs.quickview }}
-    scout-cves: ${{ steps.docker-scout.outputs.cves }}
-    scout-has-vulnerabilities: ${{ steps.docker-scout.outputs.has-vulnerabilities }}
+    enable-health-score: ${{ inputs.enable_health_score }}
+    dockerfile-has-non-root-user: ${{ steps.check-user.outputs.has_non_root_user }}
 ```
 
 ### Production usage

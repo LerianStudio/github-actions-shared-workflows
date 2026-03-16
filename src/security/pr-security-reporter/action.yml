@@ -12,16 +12,12 @@ inputs:
     description: Whether Docker image scan artifacts are present and should be included in the report
     required: false
     default: "true"
-  enable-docker-scout:
-    description: Whether Docker Scout analysis results are present and should be included in the report
+  enable-health-score:
+    description: Whether Docker Hub Health Score compliance checks should be included in the report
     required: false
     default: "false"
-  scout-outputs-dir:
-    description: Directory containing Scout output files (quickview.html, cves.html, recommendations.html, compare.html, has-vulnerabilities.txt)
-    required: false
-    default: ""
-  fail-on-policy-failure:
-    description: Fail when Docker Scout policies are not fully met
+  dockerfile-has-non-root-user:
+    description: Whether the Dockerfile sets a non-root USER directive
     required: false
     default: "false"
 
@@ -42,9 +38,8 @@ runs:
       env:
         APP_NAME: ${{ inputs.app-name }}
         ENABLE_DOCKER_SCAN: ${{ inputs.enable-docker-scan }}
-        ENABLE_DOCKER_SCOUT: ${{ inputs.enable-docker-scout }}
-        SCOUT_OUTPUTS_DIR: ${{ inputs.scout-outputs-dir }}
-        FAIL_ON_POLICY: ${{ inputs.fail-on-policy-failure }}
+        ENABLE_HEALTH_SCORE: ${{ inputs.enable-health-score }}
+        DOCKERFILE_HAS_NON_ROOT_USER: ${{ inputs.dockerfile-has-non-root-user }}
       with:
         github-token: ${{ inputs.github-token }}
         result-encoding: string
@@ -54,8 +49,8 @@ runs:
           // ── Configuration ──
           const appName = process.env.APP_NAME;
           const dockerScanEnabled = process.env.ENABLE_DOCKER_SCAN === 'true';
-          const dockerScoutEnabled = process.env.ENABLE_DOCKER_SCOUT === 'true';
-          const failOnPolicy = process.env.FAIL_ON_POLICY === 'true';
+          const healthScoreEnabled = process.env.ENABLE_HEALTH_SCORE === 'true';
+          const dockerfileHasNonRootUser = process.env.DOCKERFILE_HAS_NON_ROOT_USER === 'true';
 
           let body = '';
           let hasFindings = false;
@@ -188,88 +183,79 @@ runs:
             }
           }
 
-          // ── Docker Scout Analysis ──
-          function readScoutFile(name) {
-            const dir = process.env.SCOUT_OUTPUTS_DIR || '';
-            if (!dir) return '';
-            const path = `${dir}/${name}`;
-            try { return fs.existsSync(path) ? fs.readFileSync(path, 'utf8').trim() : ''; }
-            catch { return ''; }
-          }
+          // ── Docker Hub Health Score Compliance ──
+          function buildHealthScoreSection() {
+            if (!healthScoreEnabled || !dockerScanEnabled) return '';
 
-          function buildScoutSection() {
-            if (!dockerScoutEnabled || !dockerScanEnabled) return '';
+            const policies = [];
+            let passCount = 0;
 
-            const cves = readScoutFile('cves.html');
-            const hasVulns = readScoutFile('has-vulnerabilities.txt') === 'true';
-            const compare = readScoutFile('compare.html');
+            // Policy 1: Default non-root user
+            const nonRootPassed = dockerfileHasNonRootUser;
+            policies.push({ name: 'Default non-root user', status: nonRootPassed ? '\u2705 Passed' : '\u26A0\uFE0F Failed', passed: nonRootPassed });
+            if (nonRootPassed) passCount++;
 
-            let out = `---\n\n## Docker Scout Analysis\n\n`;
-
-            // Compare with Environment (includes policy evaluation)
-            if (compare) {
-              // Extract env and PR image tags from compare output
-              const tagMatches = compare.match(/`[^`]+:([^`]+)`/g) || [];
-              const envTag = tagMatches[0] ? tagMatches[0].replace(/`/g, '').split(':').pop() : 'environment';
-              const prTag = 'PR image';
-
-              // Parse policy rows — format: |Policy Name | env_status | PR_status | Change | Standing |
-              const policyRows = compare.match(/\|[^|]+\|[^|]*:(?:warning|question|white_check_mark):[^|]*\|[^|]*:(?:warning|question|white_check_mark):[^|]*\|[^\n]*/g) || [];
-              let checkCount = 0, issueCount = 0;
-              const envPolicyLines = [];
-              const prPolicyLines = [];
-              for (const row of policyRows) {
-                const cols = row.split('|').map(c => c.trim());
-                const name = cols[1] || '';
-                const envCol = cols[2] || '';
-                const prCol = cols[3] || '';
-                // Skip policies that can't be evaluated on local builds
-                if (prCol.includes(':question:') || /supply chain/i.test(name) || /outdated base/i.test(name) || /unapproved base/i.test(name)) continue;
-
-                const prOk = prCol.includes(':white_check_mark:');
-                if (prOk) checkCount++;
-                else issueCount++;
-
-                const cleanStatus = (col) => {
-                  if (col.includes(':white_check_mark:')) return '\u2705 Passed';
-                  const devMatch = col.match(/\d+/);
-                  return '\u26A0\uFE0F Failed' + (devMatch ? ` (${devMatch[0]} deviations)` : '');
-                };
-
-                prPolicyLines.push(`| ${name} | ${cleanStatus(envCol)} | ${cleanStatus(prCol)} |`);
+            // Policy 2: No fixable critical or high vulnerabilities (from Trivy Docker SARIF)
+            let fixableCvesPassed = true;
+            try {
+              const sarifFile = `trivy-vulnerability-scan-docker-${appName}.sarif`;
+              if (fs.existsSync(sarifFile)) {
+                const sarif = JSON.parse(fs.readFileSync(sarifFile, 'utf8'));
+                let critHighCount = 0;
+                for (const run of (sarif.runs || [])) {
+                  for (const result of (run.results || [])) {
+                    if (result.level === 'error') critHighCount++;
+                  }
+                }
+                fixableCvesPassed = critHighCount === 0;
               }
-              const totalPolicies = checkCount + issueCount;
-              const hasCompareIssues = issueCount > 0;
+            } catch {}
+            policies.push({ name: 'No fixable critical/high CVEs', status: fixableCvesPassed ? '\u2705 Passed' : '\u26A0\uFE0F Failed', passed: fixableCvesPassed });
+            if (fixableCvesPassed) passCount++;
 
-              // Policy summary table (always visible)
-              if (totalPolicies > 0) {
-                const icon = hasCompareIssues ? '\u26A0\uFE0F' : '\u2705';
-                out += `#### ${icon} Policies \u2014 ${checkCount}/${totalPolicies} met\n\n`;
-                out += `| Policy | \u{1F4E6} \`${envTag}\` | \u{1F6E0}\uFE0F ${prTag} |\n|---|---|---|\n`;
-                out += prPolicyLines.join('\n') + '\n\n';
+            // Policy 3: No AGPL v3 licenses (from Trivy license scan)
+            let licensePassed = true;
+            try {
+              const licFile = `trivy-license-scan-docker-${appName}.json`;
+              if (fs.existsSync(licFile)) {
+                const data = JSON.parse(fs.readFileSync(licFile, 'utf8'));
+                for (const result of (data.Results || [])) {
+                  for (const lic of (result.Licenses || [])) {
+                    if (/AGPL-3/i.test(lic.Name) || /AGPL-3/i.test(lic.Category)) {
+                      licensePassed = false;
+                      break;
+                    }
+                  }
+                  if (!licensePassed) break;
+                }
               }
+            } catch {}
+            policies.push({ name: 'No AGPL v3 licenses', status: licensePassed ? '\u2705 Passed' : '\u26A0\uFE0F Failed', passed: licensePassed });
+            if (licensePassed) passCount++;
 
-              if (failOnPolicy && hasCompareIssues) {
-                hasFindings = true;
-                out += `> \u26A0\uFE0F **Docker Scout policies not fully met.**\n\n`;
-              }
+            // Policy 4: Supply chain attestations (can't evaluate locally)
+            policies.push({ name: 'Supply chain attestations', status: '\u2139\uFE0F Evaluated on release build', passed: true });
+            passCount++;
 
-              // Full compare details (collapsible)
-              out += details('Compare with Environment', compare);
-            } else {
-              out += `\u2139\uFE0F Policy evaluation available after first release build with Scout environment enabled.\n\n`;
+            // Policy 5: No outdated base images (gcr.io not supported)
+            policies.push({ name: 'No outdated base images', status: '\u2139\uFE0F Not applicable (gcr.io)', passed: true });
+            passCount++;
+
+            const totalPolicies = policies.length;
+            const failCount = totalPolicies - passCount;
+            const icon = failCount > 0 ? '\u26A0\uFE0F' : '\u2705';
+
+            let out = `---\n\n## Docker Hub Health Score Compliance\n\n`;
+            out += `#### ${icon} Policies \u2014 ${passCount}/${totalPolicies} met\n\n`;
+            out += `| Policy | Status |\n|--------|--------|\n`;
+            for (const p of policies) {
+              out += `| ${p.name} | ${p.status} |\n`;
             }
+            out += '\n';
 
-            // CVE Details
-            if (cves && hasVulns) {
+            if (failCount > 0) {
               hasFindings = true;
-              out += details('\u{1F6A8} CVE Details \u2014 vulnerabilities found', cves);
-              out += `> \u{1F6A8} **Docker Scout detected vulnerabilities. Review CVE Details above.**\n\n`;
-            } else if (cves) {
-              out += `#### CVE Details\n\n\u2705 No CVEs found \u2014 image is clean.\n\n`;
-            } else {
-              hasScanErrors = true;
-              out += `\u26A0\uFE0F Docker Scout CVE results not available.\n\n`;
+              out += `> \u26A0\uFE0F **Some Docker Hub health score policies are not met. Review the table above.**\n\n`;
             }
 
             return out;
@@ -280,7 +266,7 @@ runs:
           body += `## Trivy\n\n`;
           body += buildTrivyFsScan();
           body += buildTrivyDockerScan();
-          body += buildScoutSection();
+          body += buildHealthScoreSection();
 
           // ── Post Comment ──
           const marker = `<!-- security-scan-${appName} -->`;

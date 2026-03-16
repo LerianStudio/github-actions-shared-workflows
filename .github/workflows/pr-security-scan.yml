@@ -23,11 +23,11 @@ on:
         type: string
         default: '2'
       app_name_prefix:
-        description: 'Prefix for app names in monorepo (e.g., "midaz" results in "midaz-agent"). Must match build workflow config for Scout compare to work.'
+        description: 'Prefix for app names in monorepo (e.g., "midaz" results in "midaz-agent"). Must match build workflow config.'
         type: string
         default: ''
       app_name_overrides:
-        description: 'Explicit app name mappings in "path:name" format. Must match build workflow config for Scout compare to work.'
+        description: 'Explicit app name mappings in "path:name" format. Must match build workflow config.'
         type: string
         default: ''
       normalize_to_filter:
@@ -58,22 +58,10 @@ on:
         description: 'Enable Docker image build and vulnerability scanning. Set to false for projects without Dockerfile (e.g., CLI tools)'
         type: boolean
         default: true
-      enable_docker_scout:
-        description: 'Enable Docker Scout image analysis for vulnerability scoring (requires Docker Hub with Scout access)'
+      enable_health_score:
+        description: 'Enable Docker Hub Health Score compliance checks (non-root user, CVEs, licenses)'
         type: boolean
-        default: false
-      docker_scout_fail_on_policy:
-        description: 'Fail the security gate when Docker Scout policies are not fully met (e.g., non-root user, missing attestations)'
-        type: boolean
-        default: false
-      docker_scout_compare_env:
-        description: 'Docker Scout environment to compare against (e.g., develop, release-candidate, main). Empty = fallback to github.base_ref on PR events.'
-        type: string
-        default: ''
-      docker_scout_organization:
-        description: 'Docker Hub organization for Scout environments (required when docker_scout_compare_env is set)'
-        type: string
-        default: 'lerianstudio'
+        default: true
 
 permissions:
   id-token: write       # Required for OIDC authentication
@@ -238,18 +226,29 @@ jobs:
           exit-code: '0'  # Do not fail; gate failures in the table step
           version: 'v0.69.2'
 
-      # ----------------- Docker Scout Analysis -----------------
-      - name: Docker Scout Analysis
-        id: docker-scout
-        if: always() && inputs.enable_docker_scout && inputs.enable_docker_scan
-        uses: LerianStudio/github-actions-shared-workflows/src/security/docker-scout@fix/scout-html-output
+      # ----------------- License Scanning -----------------
+      - name: Trivy License Scan - Docker Image (JSON Output)
+        if: always() && inputs.enable_docker_scan && inputs.enable_health_score
+        uses: aquasecurity/trivy-action@0.35.0
         with:
-          image: ${{ env.DOCKERHUB_ORG }}/${{ env.APP_NAME }}:pr-scan-${{ github.sha }}
-          dockerhub-user: ${{ secrets.DOCKER_USERNAME }}
-          dockerhub-password: ${{ secrets.DOCKER_PASSWORD }}
-          only-severities: critical,high,medium,low
-          compare-to-env: ${{ inputs.docker_scout_compare_env || github.base_ref }}
-          organization: ${{ inputs.docker_scout_organization }}
+          image-ref: '${{ env.DOCKERHUB_ORG }}/${{ env.APP_NAME }}:pr-scan-${{ github.sha }}'
+          scanners: 'license'
+          format: json
+          output: 'trivy-license-scan-docker-${{ env.APP_NAME }}.json'
+          exit-code: '0'
+          version: 'v0.69.2'
+
+      # ----------------- Dockerfile Checks -----------------
+      - name: Check Dockerfile for non-root user
+        id: check-user
+        if: always() && inputs.enable_docker_scan && inputs.enable_health_score
+        shell: bash
+        run: |
+          if grep -qiE '^\s*USER\s+\S+' "${{ env.DOCKERFILE_PATH }}"; then
+            echo "has_non_root_user=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_non_root_user=false" >> "$GITHUB_OUTPUT"
+          fi
 
       # ----------------- Filesystem Vulnerability Scan -----------------
       - name: Trivy Vulnerability Scan - Filesystem (JSON Output)
@@ -266,20 +265,6 @@ jobs:
           skip-dirs: '.git,node_modules,dist,build,.next,coverage,vendor'
           version: 'v0.69.2'
 
-      # ----------------- Save Scout outputs to files (env vars truncate HTML) -----------------
-      - name: Save Scout outputs to files
-        if: always() && inputs.enable_docker_scout && inputs.enable_docker_scan
-        shell: bash
-        run: |
-          mkdir -p .scout-outputs
-          cat <<'CVES_EOF' > .scout-outputs/cves.html
-          ${{ steps.docker-scout.outputs.cves }}
-          CVES_EOF
-          cat <<'COMPARE_EOF' > .scout-outputs/compare.html
-          ${{ steps.docker-scout.outputs.compare }}
-          COMPARE_EOF
-          echo "${{ steps.docker-scout.outputs.has-vulnerabilities }}" > .scout-outputs/has-vulnerabilities.txt
-
       # ----------------- Results & Security Gate -----------------
       - name: Post Security Scan Results to PR
         id: post-results
@@ -289,9 +274,8 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           app-name: ${{ env.APP_NAME }}
           enable-docker-scan: ${{ inputs.enable_docker_scan }}
-          enable-docker-scout: ${{ inputs.enable_docker_scout }}
-          scout-outputs-dir: .scout-outputs
-          fail-on-policy-failure: ${{ inputs.docker_scout_fail_on_policy }}
+          enable-health-score: ${{ inputs.enable_health_score && inputs.enable_docker_scan }}
+          dockerfile-has-non-root-user: ${{ steps.check-user.outputs.has_non_root_user || 'false' }}
 
       - name: Gate - Fail on Security Findings
         if: always() && github.event_name == 'pull_request'
