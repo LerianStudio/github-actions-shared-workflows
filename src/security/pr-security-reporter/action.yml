@@ -235,7 +235,7 @@ runs:
                   return '\u26A0\uFE0F Failed' + (devMatch ? ` (${devMatch[0]} deviations)` : '');
                 };
 
-                prPolicyLines.push(`| ${prOk ? '\u2705' : '\u26A0\uFE0F'} | ${name} | ${cleanStatus(envCol)} | ${cleanStatus(prCol)} |`);
+                prPolicyLines.push(`| ${name} | ${cleanStatus(envCol)} | ${cleanStatus(prCol)} |`);
               }
               const totalPolicies = checkCount + issueCount;
               const hasCompareIssues = issueCount > 0;
@@ -244,7 +244,7 @@ runs:
               if (totalPolicies > 0) {
                 const icon = hasCompareIssues ? '\u26A0\uFE0F' : '\u2705';
                 out += `#### ${icon} Policies \u2014 ${checkCount}/${totalPolicies} met\n\n`;
-                out += `| | Policy | \u{1F4E6} \`${envTag}\` | \u{1F6E0}\uFE0F ${prTag} |\n|---|---|---|---|\n`;
+                out += `| Policy | \u{1F4E6} \`${envTag}\` | \u{1F6E0}\uFE0F ${prTag} |\n|---|---|---|\n`;
                 out += prPolicyLines.join('\n') + '\n\n';
               }
 
