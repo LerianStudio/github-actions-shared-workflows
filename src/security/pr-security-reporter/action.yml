@@ -209,11 +209,19 @@ runs:
 
             // Compare with Environment (includes policy evaluation)
             if (compare) {
-              const warnCount = (compare.match(/:warning:/g) || []).length;
-              const questionCount = (compare.match(/:question:/g) || []).length;
-              const checkCount = (compare.match(/:white_check_mark:/g) || []).length;
-              const totalPolicies = warnCount + questionCount + checkCount;
-              const hasCompareIssues = warnCount > 0 || questionCount > 0;
+              // Parse policy rows — each row has: | env_status | PR_status | Change | Standing |
+              // We count the PR column (second status) to get accurate per-image counts
+              const policyRows = compare.match(/\|:(?:warning|question|white_check_mark):[^\n]*\|[^\n]*\|/g) || [];
+              let checkCount = 0, issueCount = 0;
+              for (const row of policyRows) {
+                // Split by | and get the PR status column (index 2)
+                const cols = row.split('|').map(c => c.trim());
+                const prCol = cols[2] || '';
+                if (prCol.includes(':white_check_mark:')) checkCount++;
+                else issueCount++;
+              }
+              const totalPolicies = checkCount + issueCount;
+              const hasCompareIssues = issueCount > 0;
 
               let compareSuffix = '';
               if (totalPolicies > 0 && hasCompareIssues) {
