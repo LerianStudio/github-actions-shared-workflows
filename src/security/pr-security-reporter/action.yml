@@ -224,13 +224,15 @@ runs:
                 const name = cols[1] || '';
                 const envCol = cols[2] || '';
                 const prCol = cols[3] || '';
+                // Skip policies that can't be evaluated on local builds
+                if (prCol.includes(':question:') || /supply chain/i.test(name) || /outdated base/i.test(name) || /unapproved base/i.test(name)) continue;
+
                 const prOk = prCol.includes(':white_check_mark:');
                 if (prOk) checkCount++;
                 else issueCount++;
 
                 const cleanStatus = (col) => {
                   if (col.includes(':white_check_mark:')) return '\u2705 Passed';
-                  if (col.includes(':question:')) return '\u2753 No data';
                   const devMatch = col.match(/\d+/);
                   return '\u26A0\uFE0F Failed' + (devMatch ? ` (${devMatch[0]} deviations)` : '');
                 };
