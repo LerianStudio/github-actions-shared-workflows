@@ -209,14 +209,14 @@ runs:
 
             // Compare with Environment (includes policy evaluation)
             if (compare) {
-              // Parse policy rows — each row has: | env_status | PR_status | Change | Standing |
-              // We count the PR column (second status) to get accurate per-image counts
-              const policyRows = compare.match(/\|:(?:warning|question|white_check_mark):[^\n]*\|[^\n]*\|/g) || [];
+              // Parse policy rows — format: |Policy Name | env_status | PR_status | Change | Standing |
+              // Match rows that contain policy status icons anywhere
+              const policyRows = compare.match(/\|[^|]+\|[^|]*:(?:warning|question|white_check_mark):[^|]*\|[^|]*:(?:warning|question|white_check_mark):[^|]*\|[^\n]*/g) || [];
               let checkCount = 0, issueCount = 0;
               for (const row of policyRows) {
-                // Split by | and get the PR status column (index 2)
+                // Split by | — cols: [empty, name, env_status, pr_status, change, standing]
                 const cols = row.split('|').map(c => c.trim());
-                const prCol = cols[2] || '';
+                const prCol = cols[3] || '';
                 if (prCol.includes(':white_check_mark:')) checkCount++;
                 else issueCount++;
               }
