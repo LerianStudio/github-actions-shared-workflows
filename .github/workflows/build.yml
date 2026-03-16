@@ -280,7 +280,7 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          sbom: generator=anchore/syft
+          sbom: generator=docker/scout-sbom-indexer:latest
           provenance: mode=max
           cache-from: type=gha
           cache-to: type=gha,mode=max
