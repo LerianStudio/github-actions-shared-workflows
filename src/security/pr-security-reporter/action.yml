@@ -282,7 +282,7 @@ runs:
               out += `#### \u{1F4A1} Docker Scout Recommendations\n\n`;
               out += `> These are informational \u2014 they do not block the build.\n\n`;
               out += details('\u{1F4A1} View recommendations', recommendations);
-            } else if (recommendations) {
+            } else {
               out += `#### Docker Scout Recommendations\n\n`;
               out += `\u2705 Base image is up to date \u2014 no recommendations at this time.\n\n`;
             }
