@@ -224,6 +224,9 @@ runs:
                 hasFindings = true;
                 out += `> \u26A0\uFE0F **Docker Scout policies not fully met. Expand Overview & Policies above for details.**\n\n`;
               }
+            } else {
+              out += `#### Overview & Policies\n\n`;
+              out += `\u26A0\uFE0F Could not evaluate policies \u2014 base image was not detected. Build with provenance attestations for full policy evaluation.\n\n`;
             }
 
             // Compare with Environment
