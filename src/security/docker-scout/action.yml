@@ -31,10 +31,6 @@ inputs:
     description: Path to export SARIF file (empty = skip SARIF export)
     required: false
     default: ""
-  enable-recommendations:
-    description: Run Docker Scout recommendations to surface Dockerfile issues (non-root user, base image gaps, attestation status)
-    required: false
-    default: "true"
   compare-to-env:
     description: Environment name to compare against (empty = skip compare)
     required: false
@@ -51,9 +47,6 @@ outputs:
   has-vulnerabilities:
     description: "'true' if vulnerabilities were found"
     value: ${{ steps.parse.outputs.has_vulnerabilities }}
-  recommendations:
-    description: Recommendations output from Scout (Dockerfile issues, missing attestations, non-root user)
-    value: ${{ steps.recommendations.outputs.recommendations }}
   compare:
     description: Compare output showing delta between PR image and environment baseline
     value: ${{ steps.compare.outputs.compare }}
@@ -90,21 +83,6 @@ runs:
         github-token: ${{ inputs.github-token }}
         only-severities: ${{ inputs.only-severities }}
         sarif-file: ${{ inputs.sarif-file }}
-
-    # ----------------- Recommendations -----------------
-    - name: Docker Scout Recommendations
-      id: recommendations
-      if: always() && inputs.enable-recommendations == 'true'
-      continue-on-error: true
-      uses: docker/scout-action@v1.20.2
-      with:
-        command: recommendations
-        image: ${{ inputs.image }}
-        dockerhub-user: ${{ inputs.dockerhub-user }}
-        dockerhub-password: ${{ inputs.dockerhub-password }}
-        github-token: ${{ inputs.github-token }}
-        organization: ${{ inputs.organization }}
-        write-comment: false
 
     # ----------------- Environment Compare -----------------
     - name: Docker Scout Compare

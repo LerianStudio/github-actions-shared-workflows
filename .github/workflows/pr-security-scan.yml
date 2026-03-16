@@ -62,10 +62,6 @@ on:
         description: 'Enable Docker Scout image analysis for vulnerability scoring (requires Docker Hub with Scout access)'
         type: boolean
         default: false
-      enable_docker_scout_recommendations:
-        description: 'Enable Docker Scout recommendations to surface Dockerfile issues (non-root user, missing attestations, base image gaps)'
-        type: boolean
-        default: true
       docker_scout_fail_on_policy:
         description: 'Fail the security gate when Docker Scout policies are not fully met (e.g., non-root user, missing attestations)'
         type: boolean
@@ -252,7 +248,6 @@ jobs:
           dockerhub-user: ${{ secrets.DOCKER_USERNAME }}
           dockerhub-password: ${{ secrets.DOCKER_PASSWORD }}
           only-severities: critical,high,medium,low
-          enable-recommendations: ${{ inputs.enable_docker_scout_recommendations }}
           compare-to-env: ${{ inputs.docker_scout_compare_env || github.base_ref }}
           organization: ${{ inputs.docker_scout_organization }}
 
@@ -280,9 +275,6 @@ jobs:
           cat <<'CVES_EOF' > .scout-outputs/cves.html
           ${{ steps.docker-scout.outputs.cves }}
           CVES_EOF
-          cat <<'RECS_EOF' > .scout-outputs/recommendations.html
-          ${{ steps.docker-scout.outputs.recommendations }}
-          RECS_EOF
           cat <<'COMPARE_EOF' > .scout-outputs/compare.html
           ${{ steps.docker-scout.outputs.compare }}
           COMPARE_EOF

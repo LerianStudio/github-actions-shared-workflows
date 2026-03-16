@@ -203,7 +203,6 @@ runs:
             const cves = readScoutFile('cves.html');
             const hasVulns = readScoutFile('has-vulnerabilities.txt') === 'true';
             const compare = readScoutFile('compare.html');
-            const recommendations = readScoutFile('recommendations.html');
 
             let out = `---\n\n## Docker Scout Analysis\n\n`;
 
@@ -271,20 +270,6 @@ runs:
             } else {
               hasScanErrors = true;
               out += `\u26A0\uFE0F Docker Scout CVE results not available.\n\n`;
-            }
-
-            // Recommendations
-            const hasActionableRecs = recommendations &&
-              !(/✅ This image version is up to date/.test(recommendations) &&
-                /✅ There are no tag recommendations at this time/.test(recommendations));
-
-            if (hasActionableRecs) {
-              out += `#### \u{1F4A1} Docker Scout Recommendations\n\n`;
-              out += `> These are informational \u2014 they do not block the build.\n\n`;
-              out += details('\u{1F4A1} View recommendations', recommendations);
-            } else {
-              out += `#### Docker Scout Recommendations\n\n`;
-              out += `\u2705 Base image is up to date \u2014 no recommendations at this time.\n\n`;
             }
 
             return out;
