@@ -108,6 +108,8 @@ updates:
         patterns:
           - "ibiqlik/action-yamllint"
           - "raven-actions/actionlint"
+          - "crate-ci/typos"
+          - "tcort/github-action-markdown-link-check"
         update-types:
           - "major"
           - "minor"
@@ -118,7 +120,6 @@ updates:
         patterns:
           - "amannn/action-semantic-pull-request"
           - "actions/labeler"
-          - "tcort/github-action-markdown-link-check"
           - "actions/github-script"
           - "mikefarah/yq"
         update-types:

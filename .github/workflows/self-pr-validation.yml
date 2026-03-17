@@ -1,0 +1,23 @@
+name: Self — PR Validation
+
+on:
+  pull_request:
+    branches:
+      - develop
+      - main
+    types:
+      - opened
+      - synchronize
+      - reopened
+      - edited
+  workflow_dispatch:
+
+jobs:
+  validation:
+    uses: ./.github/workflows/pr-validation.yml
+    with:
+      check_changelog: false
+      enforce_source_branches: true
+      allowed_source_branches: "develop|release-candidate|hotfix/*|feat/*|fix/*|chore/*|docs/*|refactor/*|ci/*"
+      target_branches_for_source_check: "main"
+    secrets: inherit
