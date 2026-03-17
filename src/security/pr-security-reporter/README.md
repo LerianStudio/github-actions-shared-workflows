@@ -49,7 +49,7 @@ This composite expects the following files in the runner working directory, gene
     app-name: ${{ env.APP_NAME }}
     enable-docker-scan: ${{ inputs.enable_docker_scan }}
     enable-health-score: ${{ inputs.enable_health_score }}
-    dockerfile-has-non-root-user: ${{ steps.check-user.outputs.has_non_root_user }}
+    dockerfile-has-non-root-user: ${{ steps.dockerfile-checks.outputs.has-non-root-user }}
 ```
 
 ### Production usage
