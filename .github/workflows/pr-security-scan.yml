@@ -279,7 +279,7 @@ jobs:
         if: always() && github.event_name == 'pull_request'
         uses: LerianStudio/github-actions-shared-workflows/src/security/pr-security-reporter@fix/scout-html-output
         with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
+          github-token: ${{ secrets.MANAGE_TOKEN || secrets.GITHUB_TOKEN }}
           app-name: ${{ env.APP_NAME }}
           enable-docker-scan: ${{ inputs.enable_docker_scan }}
           enable-health-score: ${{ inputs.enable_health_score && inputs.enable_docker_scan }}
