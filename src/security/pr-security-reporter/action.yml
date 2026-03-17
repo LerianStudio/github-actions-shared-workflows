@@ -20,6 +20,10 @@ inputs:
     description: Whether the Dockerfile sets a non-root USER directive
     required: false
     default: "false"
+  fail-on-findings:
+    description: 'Fail the step with exit code 1 when security findings are detected (true/false)'
+    required: false
+    default: "false"
 
 outputs:
   has-findings:
@@ -68,9 +72,6 @@ runs:
 
           const sortBySeverity = (items, key = 'severity', order = SEVERITY_ORDER) =>
             items.sort((a, b) => (order[a[key]] ?? 5) - (order[b[key]] ?? 5));
-
-          const details = (summary, content) =>
-            `<details>\n<summary>${summary}</summary>\n\n${content}\n\n</details>\n\n`;
 
           // ── Trivy: Filesystem Scan ──
           function buildTrivyFsScan() {
@@ -329,3 +330,16 @@ runs:
         echo "has_findings=$HAS_FINDINGS" >> "$GITHUB_OUTPUT"
         echo "has_errors=$HAS_ERRORS" >> "$GITHUB_OUTPUT"
         echo "Parsed outputs: has_findings=$HAS_FINDINGS, has_errors=$HAS_ERRORS"
+
+    # ----------------- Security Gate -----------------
+    - name: Gate - Fail on Security Findings
+      if: inputs.fail-on-findings == 'true'
+      shell: bash
+      run: |
+        if [ "${{ steps.parse-outputs.outputs.has_errors }}" = "true" ]; then
+          echo "::warning::Some scan artifacts were missing or could not be parsed."
+        fi
+        if [ "${{ steps.parse-outputs.outputs.has_findings }}" = "true" ]; then
+          echo "::error::Security vulnerabilities found. Check the PR comment for details."
+          exit 1
+        fi

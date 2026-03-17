@@ -1,0 +1,43 @@
+name: Dockerfile Compliance Checks
+description: Runs Docker Hub Health Score compliance checks — non-root user verification and CISA KEV catalog download.
+
+inputs:
+  dockerfile-path:
+    description: 'Path to the Dockerfile to check (e.g., "./Dockerfile" or "components/api/Dockerfile")'
+    required: true
+
+outputs:
+  has-non-root-user:
+    description: 'Whether the Dockerfile sets a non-root USER directive (true/false)'
+    value: ${{ steps.check-user.outputs.has_non_root_user }}
+  cisa-kev-path:
+    description: 'File path of the downloaded CISA KEV catalog'
+    value: ${{ steps.set-outputs.outputs.cisa-kev-path }}
+
+runs:
+  using: composite
+  steps:
+    # ----------------- CISA KEV Catalog -----------------
+    - name: Download CISA Known Exploited Vulnerabilities catalog
+      shell: bash
+      run: |
+        curl -sSfL -o cisa-kev.json \
+          https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json || echo '{"vulnerabilities":[]}' > cisa-kev.json
+
+    # ----------------- Dockerfile Checks -----------------
+    - name: Check Dockerfile for non-root user
+      id: check-user
+      shell: bash
+      run: |
+        LAST_USER=$(grep -Ei '^\s*USER\s+\S+' "${{ inputs.dockerfile-path }}" | tail -1 | awk '{print $2}' || echo "")
+        if [ -n "$LAST_USER" ] && [ "$LAST_USER" != "root" ] && [ "$LAST_USER" != "0" ]; then
+          echo "has_non_root_user=true" >> "$GITHUB_OUTPUT"
+        else
+          echo "has_non_root_user=false" >> "$GITHUB_OUTPUT"
+        fi
+
+    # ----------------- Outputs -----------------
+    - name: Set output paths
+      id: set-outputs
+      shell: bash
+      run: echo "cisa-kev-path=cisa-kev.json" >> "$GITHUB_OUTPUT"
