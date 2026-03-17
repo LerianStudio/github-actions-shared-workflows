@@ -1,0 +1,16 @@
+name: Spelling Check
+description: Detect typos in source code and documentation using typos-cli.
+
+inputs:
+  config:
+    description: Path to a typos configuration file (_typos.toml)
+    required: false
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    - name: Run typos
+      uses: crate-ci/typos@v1.44.0
+      with:
+        config: ${{ inputs.config }}

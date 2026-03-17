@@ -1,0 +1,22 @@
+name: Markdown Link Check
+description: Validate links in markdown files are not broken.
+
+inputs:
+  file-path:
+    description: Comma-separated list of markdown files to check (empty = skip)
+    required: false
+    default: ""
+  config-file:
+    description: Path to the markdown-link-check configuration file
+    required: false
+    default: ".github/markdown-link-check-config.json"
+
+runs:
+  using: composite
+  steps:
+    - name: Run markdown link check
+      if: inputs.file-path != ''
+      uses: tcort/github-action-markdown-link-check@v1.1.2
+      with:
+        file-path: ${{ inputs.file-path }}
+        config-file: ${{ inputs.config-file }}

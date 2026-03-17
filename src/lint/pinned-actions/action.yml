@@ -1,0 +1,48 @@
+name: Pinned Actions Check
+description: Ensure all third-party action references use pinned versions (not @main/@master).
+
+inputs:
+  files:
+    description: Space-separated list of workflow/composite files to check (empty = skip)
+    required: false
+    default: ""
+  ignore-patterns:
+    description: Pipe-separated org/owner prefixes to ignore (e.g. internal actions pinned to @main)
+    required: false
+    default: "LerianStudio/"
+
+runs:
+  using: composite
+  steps:
+    - name: Check for unpinned actions
+      if: inputs.files != ''
+      shell: bash
+      run: |
+        IFS='|' read -ra IGNORE_PATTERNS <<< "${{ inputs.ignore-patterns }}"
+        violations=0
+
+        for file in ${{ inputs.files }}; do
+          [ -f "$file" ] || continue
+          while IFS= read -r line; do
+            line_num=$(echo "$line" | cut -d: -f1)
+            content=$(echo "$line" | cut -d: -f2-)
+
+            skip=false
+            for pattern in "${IGNORE_PATTERNS[@]}"; do
+              if echo "$content" | grep -q "$pattern"; then
+                skip=true
+                break
+              fi
+            done
+            [ "$skip" = true ] && continue
+
+            echo "::error file=${file},line=${line_num}::Unpinned action found: $(echo "$content" | xargs)"
+            violations=$((violations + 1))
+          done < <(grep -n 'uses:.*@\(main\|master\)' "$file" 2>/dev/null || true)
+        done
+
+        if [ "$violations" -gt 0 ]; then
+          echo "::error::Found $violations unpinned action(s). Pin to a specific version tag or SHA."
+          exit 1
+        fi
+        echo "All actions are properly pinned."

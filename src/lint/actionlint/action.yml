@@ -1,0 +1,27 @@
+name: Action Lint
+description: Validate GitHub Actions workflow syntax using actionlint.
+
+inputs:
+  files:
+    description: Comma-separated glob patterns of workflow files to lint (empty = skip)
+    required: false
+    default: ".github/workflows/*.yml"
+  shellcheck:
+    description: Enable shellcheck integration for run blocks
+    required: false
+    default: "true"
+  fail-on-error:
+    description: Fail the step on lint errors
+    required: false
+    default: "true"
+
+runs:
+  using: composite
+  steps:
+    - name: Run actionlint
+      if: inputs.files != ''
+      uses: raven-actions/actionlint@v2.1.2
+      with:
+        files: ${{ inputs.files }}
+        shellcheck: ${{ inputs.shellcheck }}
+        fail-on-error: ${{ inputs.fail-on-error }}
