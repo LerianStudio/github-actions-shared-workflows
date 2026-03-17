@@ -1,0 +1,26 @@
+---
+extends: default
+
+yaml-files:
+  - "*.yml"
+
+rules:
+  # GitHub Actions uses bare `on:` as top-level key — avoid truthy false positives
+  truthy:
+    allowed-values: ["true", "false"]
+    check-keys: false
+
+  # Workflow files have long run: blocks and action refs
+  line-length:
+    max: 200
+    level: warning
+
+  comments:
+    min-spaces-from-content: 1
+
+  indentation:
+    spaces: 2
+    indent-sequences: whatever
+
+  # Not enforcing leading `---` — optional in workflow files
+  document-start: disable

@@ -1,0 +1,38 @@
+name: Self — PR Analysis
+
+on:
+  pull_request:
+    branches:
+      - develop
+      - main
+    types:
+      - opened
+      - synchronize
+      - reopened
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  yamllint:
+    name: YAML Lint
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run yamllint
+        uses: ibiqlik/action-yamllint@v3.1.1
+        with:
+          config_file: .yamllint.yml
+
+  actionlint:
+    name: Action Lint
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run actionlint
+        uses: raven-actions/actionlint@v2.1.2
