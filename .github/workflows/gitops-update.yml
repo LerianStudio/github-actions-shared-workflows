@@ -401,7 +401,11 @@ jobs:
             echo "has_sync_targets=false" >> "$GITHUB_OUTPUT"
           fi
           
-          echo "updated_count=$(echo -e "$UPDATED_FILES" | grep -c -v '^$' || echo 0)" >> "$GITHUB_OUTPUT"
+          COUNT=0
+          if [[ -n "$UPDATED_FILES" ]]; then
+            COUNT=$(echo -e "$UPDATED_FILES" | grep -c -v '^$' || true)
+          fi
+          echo "updated_count=$COUNT" >> "$GITHUB_OUTPUT"
 
       - name: Show git diff
         shell: bash

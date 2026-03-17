@@ -1,0 +1,85 @@
+name: Trivy Filesystem Scan
+description: Runs Trivy filesystem scans for secrets and vulnerabilities, producing table output and machine-readable artifacts.
+
+inputs:
+  scan-ref:
+    description: 'Path to scan (e.g., "." for repo root or a component directory)'
+    required: false
+    default: '.'
+  app-name:
+    description: 'Application name used for artifact file naming'
+    required: true
+  skip-dirs:
+    description: 'Comma-separated directories to skip during scanning'
+    required: false
+    default: '.git,node_modules,dist,build,.next,coverage,vendor'
+  trivy-version:
+    description: 'Trivy version to install'
+    required: false
+    default: 'v0.69.3'
+  exit-code-secret-scan:
+    description: 'Exit code when secrets are found in table output (1 to fail, 0 to warn only)'
+    required: false
+    default: '1'
+
+outputs:
+  secret-scan-sarif:
+    description: 'File path of the secret scan SARIF artifact'
+    value: ${{ steps.set-outputs.outputs.secret-scan-sarif }}
+  fs-vuln-json:
+    description: 'File path of the filesystem vulnerability JSON artifact'
+    value: ${{ steps.set-outputs.outputs.fs-vuln-json }}
+
+runs:
+  using: composite
+  steps:
+    # ----------------- Secret Scanning -----------------
+    - name: Trivy Secret Scan (Table Output)
+      uses: aquasecurity/trivy-action@0.35.0
+      with:
+        scan-type: fs
+        scanners: secret
+        scan-ref: ${{ inputs.scan-ref }}
+        format: table
+        exit-code: ${{ inputs.exit-code-secret-scan }}
+        hide-progress: true
+        skip-dirs: ${{ inputs.skip-dirs }}
+        version: ${{ inputs.trivy-version }}
+
+    - name: Trivy Secret Scan (SARIF Output)
+      uses: aquasecurity/trivy-action@0.35.0
+      if: always()
+      with:
+        scan-type: fs
+        scanners: secret
+        scan-ref: ${{ inputs.scan-ref }}
+        format: sarif
+        output: 'trivy-secret-scan-${{ inputs.app-name }}.sarif'
+        exit-code: '0'
+        hide-progress: true
+        skip-dirs: ${{ inputs.skip-dirs }}
+        version: ${{ inputs.trivy-version }}
+
+    # ----------------- Vulnerability Scanning -----------------
+    - name: Trivy Vulnerability Scan - Filesystem (JSON Output)
+      uses: aquasecurity/trivy-action@0.35.0
+      if: always()
+      with:
+        scan-type: fs
+        scanners: vuln
+        scan-ref: ${{ inputs.scan-ref }}
+        format: json
+        output: 'trivy-fs-vuln-${{ inputs.app-name }}.json'
+        exit-code: '0'
+        hide-progress: true
+        skip-dirs: ${{ inputs.skip-dirs }}
+        version: ${{ inputs.trivy-version }}
+
+    # ----------------- Outputs -----------------
+    - name: Set output paths
+      id: set-outputs
+      if: always()
+      shell: bash
+      run: |
+        echo "secret-scan-sarif=trivy-secret-scan-${{ inputs.app-name }}.sarif" >> "$GITHUB_OUTPUT"
+        echo "fs-vuln-json=trivy-fs-vuln-${{ inputs.app-name }}.json" >> "$GITHUB_OUTPUT"
