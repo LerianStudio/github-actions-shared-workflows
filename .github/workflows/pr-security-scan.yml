@@ -170,7 +170,7 @@ jobs:
           exit-code: '1'
           hide-progress: true
           skip-dirs: '.git,node_modules,dist,build,.next,coverage,vendor'
-          version: 'v0.69.2'
+          version: 'v0.69.3'
 
       - name: Trivy Secret Scan - Component (SARIF Output)
         uses: aquasecurity/trivy-action@0.35.0
@@ -183,7 +183,7 @@ jobs:
           exit-code: '0'
           hide-progress: true
           skip-dirs: '.git,node_modules,dist,build,.next,coverage,vendor'
-          version: 'v0.69.2'
+          version: 'v0.69.3'
 
       # ----------------- Docker Build -----------------
       - name: Build Docker Image for Scanning
@@ -211,7 +211,7 @@ jobs:
           vuln-type: 'os,library'
           severity: 'CRITICAL,HIGH'
           exit-code: '0'
-          version: 'v0.69.2'
+          version: 'v0.69.3'
 
       - name: Trivy Vulnerability Scan - Docker Image (SARIF Output)
         if: always() && inputs.enable_docker_scan
@@ -224,7 +224,7 @@ jobs:
           vuln-type: os,library
           severity: UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL
           exit-code: '0'  # Do not fail; gate failures in the table step
-          version: 'v0.69.2'
+          version: 'v0.69.3'
 
       # ----------------- License Scanning -----------------
       - name: Trivy License Scan - Docker Image (JSON Output)
@@ -236,7 +236,7 @@ jobs:
           format: json
           output: 'trivy-license-scan-docker-${{ env.APP_NAME }}.json'
           exit-code: '0'
-          version: 'v0.69.2'
+          version: 'v0.69.3'
 
       # ----------------- CISA KEV Catalog -----------------
       - name: Download CISA Known Exploited Vulnerabilities catalog
@@ -271,7 +271,7 @@ jobs:
           exit-code: '0'
           hide-progress: true
           skip-dirs: '.git,node_modules,dist,build,.next,coverage,vendor'
-          version: 'v0.69.2'
+          version: 'v0.69.3'
 
       # ----------------- Results & Security Gate -----------------
       - name: Post Security Scan Results to PR
