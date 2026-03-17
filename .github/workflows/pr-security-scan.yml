@@ -73,7 +73,7 @@ jobs:
   prepare_matrix:
     runs-on: ${{ inputs.runner_type }}
     outputs:
-      matrix: ${{ steps.set-matrix.outputs.matrix }}
+      matrix: ${{ steps.changed-paths.outputs.matrix }}
     steps:
       # ----------------- Setup -----------------
       - name: Login to Docker Registry
@@ -83,9 +83,8 @@ jobs:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
 
-      # ----------------- Detect Changes -----------------
-      - name: Get changed paths (monorepo)
-        if: inputs.filter_paths != ''
+      # ----------------- Detect Changes & Build Matrix -----------------
+      - name: Get changed paths
         id: changed-paths
         uses: LerianStudio/github-actions-shared-workflows/src/config/changed-paths@fix/scout-html-output
         with:
@@ -95,39 +94,12 @@ jobs:
           app_name_prefix: ${{ inputs.app_name_prefix }}
           app_name_overrides: ${{ inputs.app_name_overrides }}
           normalize_to_filter: ${{ inputs.normalize_to_filter }}
-
-      # ----------------- Build Matrix -----------------
-      - name: Set matrix
-        id: set-matrix
-        run: |
-          if [ "${{ inputs.filter_paths }}" = "" ]; then
-            # Single app mode
-            echo 'matrix=[{"name": "${{ github.event.repository.name }}", "working_dir": "."}]' >> $GITHUB_OUTPUT
-          elif [ "${{ inputs.monorepo_type }}" = "type2" ]; then
-            # Type 2 monorepo: backend in root, frontend in folder
-            CHANGED_MATRIX='${{ steps.changed-paths.outputs.matrix }}'
-
-            # Process the matrix to handle Type 2 logic
-            PROCESSED_MATRIX=$(echo "$CHANGED_MATRIX" | jq -c '
-              map(
-                if .working_dir == "${{ inputs.frontend_folder }}" then
-                  # Frontend changes - keep as is
-                  .
-                elif (.working_dir == ".github" or .working_dir == ".githooks") then
-                  # Ignore .github and .githooks folders
-                  empty
-                else
-                  # Backend changes - consolidate to root
-                  {"name": "${{ github.event.repository.name }}", "working_dir": "."}
-                end
-              ) | unique_by(.working_dir)
-            ')
-
-            echo "matrix=$PROCESSED_MATRIX" >> $GITHUB_OUTPUT
-          else
-            # Type 1 monorepo mode (default)
-            echo 'matrix=${{ steps.changed-paths.outputs.matrix }}' >> $GITHUB_OUTPUT
-          fi
+          ignore_dirs: |
+            .github
+            .githooks
+          fallback_app_name: ${{ github.event.repository.name }}
+          consolidate_to_root: ${{ inputs.monorepo_type == 'type2' }}
+          consolidate_keep_dirs: ${{ inputs.frontend_folder }}
 
   security_scan:
     needs: prepare_matrix
@@ -159,31 +131,14 @@ jobs:
         if: inputs.enable_docker_scan
         uses: docker/setup-buildx-action@v4
 
-      # ----------------- Secret Scanning -----------------
-      - name: Trivy Secret Scan - Component (Table Output)
-        uses: aquasecurity/trivy-action@0.35.0
+      # ----------------- Filesystem Scanning (Secrets + Vulnerabilities) -----------------
+      - name: Trivy Filesystem Scan
+        id: fs-scan
         if: always()
+        uses: LerianStudio/github-actions-shared-workflows/src/security/trivy-fs-scan@fix/scout-html-output
         with:
-          scan-type: fs
           scan-ref: ${{ matrix.working_dir }}
-          format: table
-          exit-code: '1'
-          hide-progress: true
-          skip-dirs: '.git,node_modules,dist,build,.next,coverage,vendor'
-          version: 'v0.69.3'
-
-      - name: Trivy Secret Scan - Component (SARIF Output)
-        uses: aquasecurity/trivy-action@0.35.0
-        if: always()
-        with:
-          scan-type: fs
-          scan-ref: ${{ matrix.working_dir }}
-          format: sarif
-          output: 'trivy-secret-scan-${{ env.APP_NAME }}.sarif'
-          exit-code: '0'
-          hide-progress: true
-          skip-dirs: '.git,node_modules,dist,build,.next,coverage,vendor'
-          version: 'v0.69.3'
+          app-name: ${{ env.APP_NAME }}
 
       # ----------------- Docker Build -----------------
       - name: Build Docker Image for Scanning
@@ -200,78 +155,23 @@ jobs:
             ${{ secrets.MANAGE_TOKEN && format('github_token={0}', secrets.MANAGE_TOKEN) || '' }}
             ${{ secrets.NPMRC_TOKEN && format('npmrc=//npm.pkg.github.com/:_authToken={0}', secrets.NPMRC_TOKEN) || '' }}
 
-      # ----------------- Vulnerability Scanning -----------------
-      - name: Trivy Vulnerability Scan - Docker Image (Table Output)
+      # ----------------- Image Scanning (Vulnerabilities + Licenses) -----------------
+      - name: Trivy Image Scan
+        id: image-scan
         if: always() && inputs.enable_docker_scan
-        uses: aquasecurity/trivy-action@0.35.0
+        uses: LerianStudio/github-actions-shared-workflows/src/security/trivy-image-scan@fix/scout-html-output
         with:
           image-ref: '${{ env.DOCKERHUB_ORG }}/${{ env.APP_NAME }}:pr-scan-${{ github.sha }}'
-          format: 'table'
-          ignore-unfixed: true
-          vuln-type: 'os,library'
-          severity: 'CRITICAL,HIGH'
-          exit-code: '0'
-          version: 'v0.69.3'
+          app-name: ${{ env.APP_NAME }}
+          enable-license-scan: ${{ inputs.enable_health_score }}
 
-      - name: Trivy Vulnerability Scan - Docker Image (SARIF Output)
-        if: always() && inputs.enable_docker_scan
-        uses: aquasecurity/trivy-action@0.35.0
-        with:
-          image-ref: '${{ env.DOCKERHUB_ORG }}/${{ env.APP_NAME }}:pr-scan-${{ github.sha }}'
-          format: sarif
-          output: 'trivy-vulnerability-scan-docker-${{ env.APP_NAME }}.sarif'
-          ignore-unfixed: true
-          vuln-type: os,library
-          severity: UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL
-          exit-code: '0'  # Do not fail; gate failures in the table step
-          version: 'v0.69.3'
-
-      # ----------------- License Scanning -----------------
-      - name: Trivy License Scan - Docker Image (JSON Output)
+      # ----------------- Dockerfile Compliance Checks -----------------
+      - name: Dockerfile Compliance Checks
+        id: dockerfile-checks
         if: always() && inputs.enable_docker_scan && inputs.enable_health_score
-        uses: aquasecurity/trivy-action@0.35.0
+        uses: LerianStudio/github-actions-shared-workflows/src/security/dockerfile-checks@fix/scout-html-output
         with:
-          image-ref: '${{ env.DOCKERHUB_ORG }}/${{ env.APP_NAME }}:pr-scan-${{ github.sha }}'
-          scanners: 'license'
-          format: json
-          output: 'trivy-license-scan-docker-${{ env.APP_NAME }}.json'
-          exit-code: '0'
-          version: 'v0.69.3'
-
-      # ----------------- CISA KEV Catalog -----------------
-      - name: Download CISA Known Exploited Vulnerabilities catalog
-        if: always() && inputs.enable_docker_scan && inputs.enable_health_score
-        shell: bash
-        run: |
-          curl -sSfL -o cisa-kev.json \
-            https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json || echo '{"vulnerabilities":[]}' > cisa-kev.json
-
-      # ----------------- Dockerfile Checks -----------------
-      - name: Check Dockerfile for non-root user
-        id: check-user
-        if: always() && inputs.enable_docker_scan && inputs.enable_health_score
-        shell: bash
-        run: |
-          if grep -qiE '^\s*USER\s+\S+' "${{ env.DOCKERFILE_PATH }}"; then
-            echo "has_non_root_user=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "has_non_root_user=false" >> "$GITHUB_OUTPUT"
-          fi
-
-      # ----------------- Filesystem Vulnerability Scan -----------------
-      - name: Trivy Vulnerability Scan - Filesystem (JSON Output)
-        id: fs-vuln-scan
-        uses: aquasecurity/trivy-action@0.35.0
-        if: always()
-        with:
-          scan-type: fs
-          scan-ref: ${{ matrix.working_dir }}
-          format: json
-          output: 'trivy-fs-vuln-${{ env.APP_NAME }}.json'
-          exit-code: '0'
-          hide-progress: true
-          skip-dirs: '.git,node_modules,dist,build,.next,coverage,vendor'
-          version: 'v0.69.3'
+          dockerfile-path: ${{ env.DOCKERFILE_PATH }}
 
       # ----------------- Results & Security Gate -----------------
       - name: Post Security Scan Results to PR
@@ -283,18 +183,8 @@ jobs:
           app-name: ${{ env.APP_NAME }}
           enable-docker-scan: ${{ inputs.enable_docker_scan }}
           enable-health-score: ${{ inputs.enable_health_score && inputs.enable_docker_scan }}
-          dockerfile-has-non-root-user: ${{ steps.check-user.outputs.has_non_root_user || 'false' }}
-
-      - name: Gate - Fail on Security Findings
-        if: always() && github.event_name == 'pull_request'
-        run: |
-          if [ "${{ steps.post-results.outputs.has-errors }}" = "true" ]; then
-            echo "::warning::Some scan artifacts were missing or could not be parsed."
-          fi
-          if [ "${{ steps.post-results.outputs.has-findings }}" = "true" ]; then
-            echo "::error::Security vulnerabilities found. Check the PR comment for details."
-            exit 1
-          fi
+          dockerfile-has-non-root-user: ${{ steps.dockerfile-checks.outputs.has-non-root-user || 'false' }}
+          fail-on-findings: 'true'
 
       ## To be fixed
       # - name: Upload Secret Scan Results - Repository (SARIF) to GitHub Security Tab
@@ -316,10 +206,12 @@ jobs:
     name: Notify
     needs: [prepare_matrix, security_scan]
     if: always() && needs.prepare_matrix.outputs.matrix != '[]'
-    uses: ./.github/workflows/slack-notify.yml
-    with:
-      status: ${{ needs.security_scan.result }}
-      workflow_name: "PR Security Scan"
-      failed_jobs: ${{ needs.security_scan.result == 'failure' && 'Security Scan' || '' }}
-    secrets:
-      SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+    runs-on: ${{ inputs.runner_type }}
+    steps:
+      - name: Slack Notification
+        uses: LerianStudio/github-actions-shared-workflows/src/notify/slack-notify@fix/scout-html-output
+        with:
+          webhook-url: ${{ secrets.SLACK_WEBHOOK_URL }}
+          status: ${{ needs.security_scan.result }}
+          workflow-name: "PR Security Scan"
+          failed-jobs: ${{ needs.security_scan.result == 'failure' && 'Security Scan' || '' }}

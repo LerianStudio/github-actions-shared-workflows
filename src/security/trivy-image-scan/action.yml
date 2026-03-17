@@ -1,0 +1,95 @@
+name: Trivy Image Scan
+description: Runs Trivy vulnerability and license scans on a Docker image, producing table output and machine-readable artifacts.
+
+inputs:
+  image-ref:
+    description: 'Docker image reference to scan (e.g., "org/app:tag")'
+    required: true
+  app-name:
+    description: 'Application name used for artifact file naming'
+    required: true
+  severity-table:
+    description: 'Severity levels to show in table output'
+    required: false
+    default: 'CRITICAL,HIGH'
+  severity-sarif:
+    description: 'Severity levels to capture in SARIF artifact'
+    required: false
+    default: 'UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL'
+  ignore-unfixed:
+    description: 'Only report vulnerabilities with available fixes'
+    required: false
+    default: 'true'
+  vuln-type:
+    description: 'Vulnerability types to scan for (comma-separated)'
+    required: false
+    default: 'os,library'
+  enable-license-scan:
+    description: 'Run license compliance scan and produce JSON artifact'
+    required: false
+    default: 'false'
+  trivy-version:
+    description: 'Trivy version to install'
+    required: false
+    default: 'v0.69.3'
+
+outputs:
+  vuln-scan-sarif:
+    description: 'File path of the vulnerability scan SARIF artifact'
+    value: ${{ steps.set-outputs.outputs.vuln-scan-sarif }}
+  license-scan-json:
+    description: 'File path of the license scan JSON artifact (empty if license scan disabled)'
+    value: ${{ steps.set-outputs.outputs.license-scan-json }}
+
+runs:
+  using: composite
+  steps:
+    # ----------------- Vulnerability Scanning -----------------
+    - name: Trivy Vulnerability Scan (Table Output)
+      uses: aquasecurity/trivy-action@0.35.0
+      with:
+        image-ref: ${{ inputs.image-ref }}
+        format: table
+        ignore-unfixed: ${{ inputs.ignore-unfixed }}
+        vuln-type: ${{ inputs.vuln-type }}
+        severity: ${{ inputs.severity-table }}
+        exit-code: '0'
+        version: ${{ inputs.trivy-version }}
+
+    - name: Trivy Vulnerability Scan (SARIF Output)
+      uses: aquasecurity/trivy-action@0.35.0
+      if: always()
+      with:
+        image-ref: ${{ inputs.image-ref }}
+        format: sarif
+        output: 'trivy-vulnerability-scan-docker-${{ inputs.app-name }}.sarif'
+        ignore-unfixed: ${{ inputs.ignore-unfixed }}
+        vuln-type: ${{ inputs.vuln-type }}
+        severity: ${{ inputs.severity-sarif }}
+        exit-code: '0'
+        version: ${{ inputs.trivy-version }}
+
+    # ----------------- License Scanning -----------------
+    - name: Trivy License Scan (JSON Output)
+      uses: aquasecurity/trivy-action@0.35.0
+      if: always() && inputs.enable-license-scan == 'true'
+      with:
+        image-ref: ${{ inputs.image-ref }}
+        scanners: 'license'
+        format: json
+        output: 'trivy-license-scan-docker-${{ inputs.app-name }}.json'
+        exit-code: '0'
+        version: ${{ inputs.trivy-version }}
+
+    # ----------------- Outputs -----------------
+    - name: Set output paths
+      id: set-outputs
+      if: always()
+      shell: bash
+      run: |
+        echo "vuln-scan-sarif=trivy-vulnerability-scan-docker-${{ inputs.app-name }}.sarif" >> "$GITHUB_OUTPUT"
+        if [ "${{ inputs.enable-license-scan }}" = "true" ]; then
+          echo "license-scan-json=trivy-license-scan-docker-${{ inputs.app-name }}.json" >> "$GITHUB_OUTPUT"
+        else
+          echo "license-scan-json=" >> "$GITHUB_OUTPUT"
+        fi

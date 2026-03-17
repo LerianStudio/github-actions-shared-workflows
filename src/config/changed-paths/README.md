@@ -17,6 +17,10 @@ Composite action that detects changed files between commits and outputs a matrix
 | `app_name_prefix` | Prefix to add to each app name | No | `''` |
 | `app_name_overrides` | Newline-separated `path:name` mappings. Use `path:` for prefix-only | No | `''` |
 | `normalize_to_filter` | Use filter path as `working_dir` instead of actual trimmed path | No | `false` |
+| `ignore_dirs` | Newline-separated directories to exclude from the output matrix | No | `''` |
+| `fallback_app_name` | When `filter_paths` is empty, return single-item matrix with this name | No | `''` |
+| `consolidate_to_root` | Consolidate all entries (except `consolidate_keep_dirs`) to root | No | `false` |
+| `consolidate_keep_dirs` | Newline-separated dirs to keep as-is during consolidation | No | `''` |
 
 ## Outputs
 
@@ -79,6 +83,63 @@ with:
 [
   {"name": "midaz", "working_dir": "components/onboarding"},
   {"name": "midaz-tx", "working_dir": "components/transaction"}
+]
+```
+
+### With ignore_dirs
+
+```yaml
+with:
+  filter_paths: |-
+    components/api
+    components/web
+  ignore_dirs: |-
+    .github
+    .githooks
+  get_app_name: true
+```
+
+Directories matching `.github` or `.githooks` (exact or prefix) are excluded from the output matrix before app name generation.
+
+### Single app mode (fallback_app_name)
+
+When `filter_paths` is empty and `fallback_app_name` is set, the composite skips change detection and returns a single-item matrix:
+
+```yaml
+with:
+  get_app_name: true
+  fallback_app_name: 'my-service'
+```
+
+```json
+[{"name": "my-service", "working_dir": "."}]
+```
+
+### Type 2 monorepo (consolidate_to_root)
+
+When `consolidate_to_root: true`, all entries except those matching `consolidate_keep_dirs` are consolidated into a single root entry using `fallback_app_name`:
+
+```yaml
+with:
+  filter_paths: |-
+    components/api
+    components/worker
+    frontend
+  get_app_name: true
+  fallback_app_name: 'my-repo'
+  consolidate_to_root: true
+  consolidate_keep_dirs: 'frontend'
+  ignore_dirs: |-
+    .github
+    .githooks
+```
+
+If `components/api` and `frontend` both changed:
+
+```json
+[
+  {"name": "my-repo", "working_dir": "."},
+  {"name": "frontend", "working_dir": "frontend"}
 ]
 ```
 

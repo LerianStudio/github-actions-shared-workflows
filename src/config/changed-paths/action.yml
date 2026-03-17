@@ -26,6 +26,22 @@ inputs:
     description: 'If true, uses the filter path as working_dir instead of the actual trimmed directory path'
     required: false
     default: 'false'
+  ignore_dirs:
+    description: 'Newline-separated list of directories to exclude from the output matrix (e.g., ".github\n.githooks"). Matched by exact name or prefix.'
+    required: false
+    default: ''
+  fallback_app_name:
+    description: 'When filter_paths is empty, return a single-item matrix with this name and working_dir "." instead of detecting changes. Enables single-app mode.'
+    required: false
+    default: ''
+  consolidate_to_root:
+    description: 'When true, consolidate all entries (except those in consolidate_keep_dirs) to a single root entry using fallback_app_name. Requires get_app_name and fallback_app_name.'
+    required: false
+    default: 'false'
+  consolidate_keep_dirs:
+    description: 'Newline-separated list of working_dirs to keep as-is during consolidation (e.g., "frontend"). Only used when consolidate_to_root is true.'
+    required: false
+    default: ''
 
 outputs:
   matrix:
@@ -90,6 +106,19 @@ runs:
         APP_NAME_PREFIX="${{ inputs.app_name_prefix }}"
         APP_NAME_OVERRIDES="${{ inputs.app_name_overrides }}"
         NORMALIZE_TO_FILTER="${{ inputs.normalize_to_filter }}"
+        IGNORE_DIRS='${{ inputs.ignore_dirs }}'
+        FALLBACK_APP_NAME="${{ inputs.fallback_app_name }}"
+        CONSOLIDATE_TO_ROOT="${{ inputs.consolidate_to_root }}"
+        CONSOLIDATE_KEEP_DIRS='${{ inputs.consolidate_keep_dirs }}'
+
+        # Single app fallback: when filter_paths is empty and fallback_app_name is set,
+        # return a single-item matrix without detecting changes
+        if [[ ( -z "$FILTER_PATHS" || "$FILTER_PATHS" == "[]" ) && -n "$FALLBACK_APP_NAME" ]]; then
+          echo "Single app mode: using fallback name '$FALLBACK_APP_NAME'"
+          printf 'matrix=[{"name":"%s","working_dir":"."}]\n' "$FALLBACK_APP_NAME" >> "$GITHUB_OUTPUT"
+          printf "has_changes=true\n" >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
 
         # Parse app_name_overrides into associative array
         declare -A NAME_OVERRIDES
@@ -167,6 +196,25 @@ runs:
         # Deduplicate and remove empty lines
         DIRS=$(echo "$DIRS" | grep -v '^$' | sort -u)
 
+        # Exclude ignored directories
+        if [[ -n "$IGNORE_DIRS" ]]; then
+          KEPT=""
+          while read -r DIR; do
+            SHOULD_IGNORE=false
+            while IFS= read -r IGNORE; do
+              [[ -z "$IGNORE" ]] && continue
+              if [[ "$DIR" == "$IGNORE" ]] || [[ "$DIR" == "$IGNORE"/* ]]; then
+                SHOULD_IGNORE=true
+                break
+              fi
+            done <<< "$IGNORE_DIRS"
+            if [[ "$SHOULD_IGNORE" == "false" ]]; then
+              KEPT+="$DIR"$'\n'
+            fi
+          done <<< "$DIRS"
+          DIRS=$(echo "$KEPT" | grep -v '^$')
+        fi
+
         # Check if we have any directories
         if [[ -z "$DIRS" ]]; then
           echo "No directories found."
@@ -214,6 +262,31 @@ runs:
         else
           # Default: return just an array of paths
           MATRIX=$(echo "$DIRS" | jq -Rc . | jq -sc .)
+        fi
+
+        # Consolidate to root (type2 monorepo support):
+        # entries not in consolidate_keep_dirs are replaced with a single root entry
+        if [[ "$CONSOLIDATE_TO_ROOT" == "true" && "$GET_APP_NAME" == "true" && -n "$FALLBACK_APP_NAME" ]]; then
+          KEEP_PATTERN=""
+          while IFS= read -r KEEP_DIR; do
+            [[ -z "$KEEP_DIR" ]] && continue
+            if [[ -n "$KEEP_PATTERN" ]]; then
+              KEEP_PATTERN+=",$KEEP_DIR"
+            else
+              KEEP_PATTERN="$KEEP_DIR"
+            fi
+          done <<< "$CONSOLIDATE_KEEP_DIRS"
+
+          MATRIX=$(echo "$MATRIX" | jq -c --arg name "$FALLBACK_APP_NAME" --arg keep "$KEEP_PATTERN" '
+            ($keep | split(",") | map(select(. != ""))) as $keep_list |
+            map(
+              if (.working_dir as $wd | $keep_list | any(. == $wd)) then
+                .
+              else
+                {"name": $name, "working_dir": "."}
+              end
+            ) | unique_by(.working_dir)
+          ')
         fi
 
         echo "Changed directories matrix: $MATRIX"

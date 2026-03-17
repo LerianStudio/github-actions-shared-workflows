@@ -16,6 +16,7 @@ Composite action that posts a formatted security scan summary as a PR comment, c
 | `enable-docker-scan` | Whether Docker image scan artifacts are present and should be included | No | `true` |
 | `enable-health-score` | Whether Docker Hub Health Score compliance checks should be included | No | `false` |
 | `dockerfile-has-non-root-user` | Whether the Dockerfile sets a non-root USER directive | No | `false` |
+| `fail-on-findings` | Fail the step with exit code 1 when security findings are detected | No | `false` |
 
 ## Outputs
 
@@ -60,10 +61,27 @@ This composite expects the following files in the runner working directory, gene
     app-name: my-service
 ```
 
-### Gate on findings
+### With built-in gate (fail on findings)
 
 ```yaml
-- name: Gate - Fail on Security Findings
+- uses: LerianStudio/github-actions-shared-workflows/src/security/pr-security-reporter@v1.0.0
+  with:
+    github-token: ${{ secrets.GITHUB_TOKEN }}
+    app-name: my-service
+    fail-on-findings: 'true'
+```
+
+### Gate via outputs (manual control)
+
+```yaml
+- name: Post Security Scan Results to PR
+  id: post-results
+  uses: LerianStudio/github-actions-shared-workflows/src/security/pr-security-reporter@v1.0.0
+  with:
+    github-token: ${{ secrets.GITHUB_TOKEN }}
+    app-name: my-service
+
+- name: Custom gate logic
   if: always()
   run: |
     if [ "${{ steps.post-results.outputs.has-findings }}" = "true" ]; then
