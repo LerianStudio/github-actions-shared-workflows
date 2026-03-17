@@ -86,7 +86,7 @@ jobs:
       # ----------------- Detect Changes & Build Matrix -----------------
       - name: Get changed paths
         id: changed-paths
-        uses: LerianStudio/github-actions-shared-workflows/src/config/changed-paths@fix/scout-html-output
+        uses: LerianStudio/github-actions-shared-workflows/src/config/changed-paths@develop
         with:
           filter_paths: ${{ inputs.filter_paths }}
           get_app_name: true
@@ -135,7 +135,7 @@ jobs:
       - name: Trivy Filesystem Scan
         id: fs-scan
         if: always()
-        uses: LerianStudio/github-actions-shared-workflows/src/security/trivy-fs-scan@fix/scout-html-output
+        uses: LerianStudio/github-actions-shared-workflows/src/security/trivy-fs-scan@develop
         with:
           scan-ref: ${{ matrix.working_dir }}
           app-name: ${{ env.APP_NAME }}
@@ -159,7 +159,7 @@ jobs:
       - name: Trivy Image Scan
         id: image-scan
         if: always() && inputs.enable_docker_scan
-        uses: LerianStudio/github-actions-shared-workflows/src/security/trivy-image-scan@fix/scout-html-output
+        uses: LerianStudio/github-actions-shared-workflows/src/security/trivy-image-scan@develop
         with:
           image-ref: '${{ env.DOCKERHUB_ORG }}/${{ env.APP_NAME }}:pr-scan-${{ github.sha }}'
           app-name: ${{ env.APP_NAME }}
@@ -169,7 +169,7 @@ jobs:
       - name: Dockerfile Compliance Checks
         id: dockerfile-checks
         if: always() && inputs.enable_docker_scan && inputs.enable_health_score
-        uses: LerianStudio/github-actions-shared-workflows/src/security/dockerfile-checks@fix/scout-html-output
+        uses: LerianStudio/github-actions-shared-workflows/src/security/dockerfile-checks@develop
         with:
           dockerfile-path: ${{ env.DOCKERFILE_PATH }}
 
@@ -177,7 +177,7 @@ jobs:
       - name: Post Security Scan Results to PR
         id: post-results
         if: always() && github.event_name == 'pull_request'
-        uses: LerianStudio/github-actions-shared-workflows/src/security/pr-security-reporter@fix/scout-html-output
+        uses: LerianStudio/github-actions-shared-workflows/src/security/pr-security-reporter@develop
         with:
           github-token: ${{ secrets.MANAGE_TOKEN || secrets.GITHUB_TOKEN }}
           app-name: ${{ env.APP_NAME }}
@@ -209,7 +209,7 @@ jobs:
     runs-on: ${{ inputs.runner_type }}
     steps:
       - name: Slack Notification
-        uses: LerianStudio/github-actions-shared-workflows/src/notify/slack-notify@fix/scout-html-output
+        uses: LerianStudio/github-actions-shared-workflows/src/notify/slack-notify@develop
         with:
           webhook-url: ${{ secrets.SLACK_WEBHOOK_URL }}
           status: ${{ needs.security_scan.result }}
