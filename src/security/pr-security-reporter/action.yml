@@ -286,12 +286,7 @@ runs:
           // ── Useful Links ──
           const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
           body += `---\n\n`;
-          body += `<sub>`;
-          body += `[View full scan logs](${runUrl})`;
-          if (healthScoreEnabled && dockerScanEnabled) {
-            body += ` | [Docker Hub Health Score policies](https://docs.docker.com/docker-hub/repos/manage/hub-images/health-score/)`;
-          }
-          body += `</sub>\n\n`;
+          body += `<sub>[View full scan logs](${runUrl})</sub>\n\n`;
 
           // ── Post Comment ──
           const marker = `<!-- security-scan-${appName} -->`;
