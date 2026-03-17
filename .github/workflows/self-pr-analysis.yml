@@ -13,6 +13,7 @@ on:
 
 permissions:
   contents: read
+  pull-requests: read
 
 jobs:
   yamllint:
@@ -22,9 +23,25 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Get changed YAML files
+        id: changed
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            files=$(gh pr diff "${{ github.event.pull_request.number }}" --name-only \
+              | grep -E '\.yml$' \
+              | tr '\n' ' ' | sed 's/ $//')
+          else
+            files="."
+          fi
+          echo "files=${files}" >> "$GITHUB_OUTPUT"
+        env:
+          GH_TOKEN: ${{ github.token }}
+
       - name: Run yamllint
+        if: steps.changed.outputs.files != ''
         uses: ibiqlik/action-yamllint@v3.1.1
         with:
+          file_or_dir: ${{ steps.changed.outputs.files }}
           config_file: .yamllint.yml
 
   actionlint:
@@ -34,5 +51,22 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Get changed workflow files
+        id: changed
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            files=$(gh pr diff "${{ github.event.pull_request.number }}" --name-only \
+              | grep -E '^\.github/workflows/.*\.yml$' \
+              | tr '\n' ',' | sed 's/,$//')
+          else
+            files=".github/workflows/*.yml"
+          fi
+          echo "files=${files}" >> "$GITHUB_OUTPUT"
+        env:
+          GH_TOKEN: ${{ github.token }}
+
       - name: Run actionlint
+        if: steps.changed.outputs.files != ''
         uses: raven-actions/actionlint@v2.1.2
+        with:
+          files: ${{ steps.changed.outputs.files }}
