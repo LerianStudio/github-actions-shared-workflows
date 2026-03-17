@@ -1,0 +1,50 @@
+name: Detect Changed Workflow Files
+description: Categorize changed files in a PR by type (YAML, workflows, actions, markdown) for lint jobs.
+
+inputs:
+  github-token:
+    description: GitHub token for gh CLI access
+    required: false
+    default: ""
+
+outputs:
+  yaml-files:
+    description: Space-separated list of changed .yml files
+    value: ${{ steps.detect.outputs.yaml_files }}
+  workflow-files:
+    description: Comma-separated list of changed .github/workflows/*.yml files
+    value: ${{ steps.detect.outputs.workflow_files }}
+  action-files:
+    description: Space-separated list of changed workflow and composite .yml/.yaml files
+    value: ${{ steps.detect.outputs.action_files }}
+  markdown-files:
+    description: Comma-separated list of changed .md files
+    value: ${{ steps.detect.outputs.markdown_files }}
+
+runs:
+  using: composite
+  steps:
+    - name: Detect changed files
+      id: detect
+      shell: bash
+      run: |
+        if [ "${{ github.event_name }}" = "pull_request" ]; then
+          changed=$(gh pr diff "${{ github.event.pull_request.number }}" --name-only)
+
+          yaml_files=$(echo "$changed" | grep -E '\.yml$' | tr '\n' ' ' | sed 's/ $//' || true)
+          workflow_files=$(echo "$changed" | grep -E '^\.github/workflows/.*\.yml$' | tr '\n' ',' | sed 's/,$//' || true)
+          action_files=$(echo "$changed" | grep -E '\.(yml|yaml)$' | grep -E '(\.github/workflows/|src/)' | tr '\n' ' ' | sed 's/ $//' || true)
+          markdown_files=$(echo "$changed" | grep -E '\.md$' | tr '\n' ',' | sed 's/,$//' || true)
+        else
+          yaml_files="."
+          workflow_files=".github/workflows/*.yml"
+          action_files=$(find .github/workflows/ src/ -name '*.yml' -o -name '*.yaml' 2>/dev/null | tr '\n' ' ')
+          markdown_files=""
+        fi
+
+        echo "yaml_files=${yaml_files}" >> "$GITHUB_OUTPUT"
+        echo "workflow_files=${workflow_files}" >> "$GITHUB_OUTPUT"
+        echo "action_files=${action_files}" >> "$GITHUB_OUTPUT"
+        echo "markdown_files=${markdown_files}" >> "$GITHUB_OUTPUT"
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}

@@ -33,37 +33,19 @@ jobs:
     name: Detect Changed Files
     runs-on: blacksmith-4vcpu-ubuntu-2404
     outputs:
-      yaml_files: ${{ steps.detect.outputs.yaml_files }}
-      workflow_files: ${{ steps.detect.outputs.workflow_files }}
-      action_files: ${{ steps.detect.outputs.action_files }}
-      markdown_files: ${{ steps.detect.outputs.markdown_files }}
+      yaml_files: ${{ steps.detect.outputs.yaml-files }}
+      workflow_files: ${{ steps.detect.outputs.workflow-files }}
+      action_files: ${{ steps.detect.outputs.action-files }}
+      markdown_files: ${{ steps.detect.outputs.markdown-files }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
       - name: Detect changed files
         id: detect
-        run: |
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            changed=$(gh pr diff "${{ github.event.pull_request.number }}" --name-only)
-
-            yaml_files=$(echo "$changed" | grep -E '\.yml$' | tr '\n' ' ' | sed 's/ $//' || true)
-            workflow_files=$(echo "$changed" | grep -E '^\.github/workflows/.*\.yml$' | tr '\n' ',' | sed 's/,$//' || true)
-            action_files=$(echo "$changed" | grep -E '\.(yml|yaml)$' | grep -E '(\.github/workflows/|src/)' | tr '\n' ' ' | sed 's/ $//' || true)
-            markdown_files=$(echo "$changed" | grep -E '\.md$' | tr '\n' ',' | sed 's/,$//' || true)
-          else
-            yaml_files="."
-            workflow_files=".github/workflows/*.yml"
-            action_files=$(find .github/workflows/ src/ -name '*.yml' -o -name '*.yaml' 2>/dev/null | tr '\n' ' ')
-            markdown_files=""
-          fi
-
-          echo "yaml_files=${yaml_files}" >> "$GITHUB_OUTPUT"
-          echo "workflow_files=${workflow_files}" >> "$GITHUB_OUTPUT"
-          echo "action_files=${action_files}" >> "$GITHUB_OUTPUT"
-          echo "markdown_files=${markdown_files}" >> "$GITHUB_OUTPUT"
-        env:
-          GH_TOKEN: ${{ github.token }}
+        uses: ./src/config/changed-workflows
+        with:
+          github-token: ${{ github.token }}
 
   # ----------------- YAML Lint -----------------
   yamllint:
