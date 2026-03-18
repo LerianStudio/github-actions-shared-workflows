@@ -6,6 +6,10 @@ inputs:
     description: Path to a typos configuration file (_typos.toml)
     required: false
     default: ""
+  files:
+    description: Space-separated list of files to check (empty = entire repository)
+    required: false
+    default: ""
 
 runs:
   using: composite
@@ -16,11 +20,27 @@ runs:
         {
           echo "## Spelling Check"
           echo ""
-          echo "Scanning entire repository for typos."
+          if [ -z "${{ inputs.files }}" ]; then
+            echo "Scanning entire repository for typos."
+          else
+            count=$(echo "${{ inputs.files }}" | tr ' ' '\n' | sed '/^$/d' | wc -l | tr -d ' ')
+            echo "Scanning ${count} changed file(s) for typos."
+          fi
           echo ""
         } >> "$GITHUB_STEP_SUMMARY"
+
+    - name: Log files
+      if: inputs.files != ''
+      shell: bash
+      run: |
+        files=$(echo "${{ inputs.files }}" | tr ' ' '\n' | sed '/^$/d')
+        count=$(echo "$files" | wc -l | tr -d ' ')
+        echo "::group::Files analyzed by typos (${count})"
+        echo "$files" | sed 's/^/  - /'
+        echo "::endgroup::"
 
     - name: Run typos
       uses: crate-ci/typos@v1.44.0
       with:
+        files: ${{ inputs.files != '' && inputs.files || '.' }}
         config: ${{ inputs.config }}

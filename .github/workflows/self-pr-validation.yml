@@ -37,6 +37,7 @@ jobs:
       workflow_files: ${{ steps.detect.outputs.workflow-files }}
       action_files: ${{ steps.detect.outputs.action-files }}
       markdown_files: ${{ steps.detect.outputs.markdown-files }}
+      all_files: ${{ steps.detect.outputs.all-files }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -118,6 +119,8 @@ jobs:
 
       - name: Spelling Check
         uses: ./src/lint/typos
+        with:
+          files: ${{ needs.changed-files.outputs.all_files }}
 
   # ----------------- Lint Report -----------------
   lint-report:
@@ -142,3 +145,4 @@ jobs:
           markdown-result: ${{ needs.markdown-link-check.result }}
           markdown-files: ${{ needs.changed-files.outputs.markdown_files }}
           typos-result: ${{ needs.typos.result }}
+          typos-files: ${{ needs.changed-files.outputs.all_files }}

@@ -19,6 +19,9 @@ outputs:
   markdown-files:
     description: Comma-separated list of changed .md files
     value: ${{ steps.detect.outputs.markdown_files }}
+  all-files:
+    description: Space-separated list of all changed files
+    value: ${{ steps.detect.outputs.all_files }}
 
 runs:
   using: composite
@@ -34,17 +37,20 @@ runs:
           workflow_files=$(echo "$changed" | grep -E '^\.github/workflows/.*\.yml$' | tr '\n' ',' | sed 's/,$//' || true)
           action_files=$(echo "$changed" | grep -E '\.(yml|yaml)$' | grep -E '(\.github/workflows/|src/)' | tr '\n' ',' | sed 's/,$//' || true)
           markdown_files=$(echo "$changed" | grep -E '\.md$' | tr '\n' ',' | sed 's/,$//' || true)
+          all_files=$(echo "$changed" | tr '\n' ' ' | sed 's/ $//' || true)
         else
           yaml_files="."
           workflow_files=".github/workflows/*.yml"
           action_files=$(find .github/workflows/ src/ \( -name '*.yml' -o -name '*.yaml' \) 2>/dev/null | tr '\n' ',' | sed 's/,$//')
           markdown_files=""
+          all_files="."
         fi
 
         echo "yaml_files=${yaml_files}" >> "$GITHUB_OUTPUT"
         echo "workflow_files=${workflow_files}" >> "$GITHUB_OUTPUT"
         echo "action_files=${action_files}" >> "$GITHUB_OUTPUT"
         echo "markdown_files=${markdown_files}" >> "$GITHUB_OUTPUT"
+        echo "all_files=${all_files}" >> "$GITHUB_OUTPUT"
 
         log_files() {
           local label="$1"
@@ -62,6 +68,7 @@ runs:
         log_files "Workflow files"  "${workflow_files}"  ','
         log_files "Action files"    "${action_files}"    ','
         log_files "Markdown files"  "${markdown_files}"  ','
+        log_files "All files"       "${all_files}"       ' '
 
         {
           echo "## Changed Files Detected"
@@ -84,6 +91,7 @@ runs:
           print_files "Workflow files"  "${workflow_files}"  ','
           print_files "Action files"    "${action_files}"    ','
           print_files "Markdown files"  "${markdown_files}"  ','
+          print_files "All files"       "${all_files}"       ' '
         } >> "$GITHUB_STEP_SUMMARY"
       env:
         GH_TOKEN: ${{ inputs.github-token }}

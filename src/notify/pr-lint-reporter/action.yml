@@ -41,6 +41,10 @@ inputs:
     description: Result of the typos job (success/failure/skipped/cancelled)
     required: false
     default: "skipped"
+  typos-files:
+    description: Space-separated list of files checked for typos (empty = entire repository)
+    required: false
+    default: ""
 
 runs:
   using: composite
@@ -74,16 +78,17 @@ runs:
             {
               label: 'Spelling Check',
               result: '${{ inputs.typos-result }}',
-              files: null,
+              files: '${{ inputs.typos-files }}'.trim().split(' ').filter(Boolean),
+              entireRepo: '${{ inputs.typos-files }}'.trim() === '',
             },
           ];
 
           const icon = (r) => ({ success: '✅', failure: '❌', skipped: '⏭️' }[r] ?? '⚠️');
 
-          const filesSummary = (files, isRepo) => {
-            if (isRepo) return '_entire repository_';
-            if (!files || files.length === 0) return '_no changes_';
-            return `${files.length} file(s)`;
+          const filesSummary = (c) => {
+            if (c.entireRepo) return '_entire repository_';
+            if (!c.files || c.files.length === 0) return '_no changes_';
+            return `${c.files.length} file(s)`;
           };
 
           let body = '## 🔍 Lint Analysis\n\n';
@@ -91,16 +96,14 @@ runs:
           body += '|-------|:-------------:|:------:|\n';
 
           for (const c of checks) {
-            const isRepo = c.label === 'Spelling Check';
-            body += `| ${c.label} | ${filesSummary(c.files, isRepo)} | ${icon(c.result)} ${c.result} |\n`;
+            body += `| ${c.label} | ${filesSummary(c)} | ${icon(c.result)} ${c.result} |\n`;
           }
 
           const failed = checks.filter(c => c.result === 'failure');
           if (failed.length > 0) {
             body += `\n<details>\n<summary>❌ Failures (${failed.length})</summary>\n\n`;
             for (const c of failed) {
-              const isRepo = c.label === 'Spelling Check';
-              if (isRepo) {
+              if (c.entireRepo) {
                 body += `**${c.label}** — entire repository\n\n`;
               } else if (c.files && c.files.length > 0) {
                 body += `**${c.label}** — ${c.files.length} file(s)\n`;
