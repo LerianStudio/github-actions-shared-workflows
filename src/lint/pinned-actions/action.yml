@@ -6,8 +6,8 @@ inputs:
     description: Comma-separated list of workflow/composite files to check (empty = skip)
     required: false
     default: ""
-  ignore-patterns:
-    description: Pipe-separated org/owner prefixes to ignore (e.g. internal actions pinned to @main)
+  warn-patterns:
+    description: Pipe-separated org/owner prefixes to warn instead of fail (e.g. internal orgs not yet on a release tag)
     required: false
     default: "LerianStudio/"
 
@@ -31,10 +31,11 @@ runs:
       shell: bash
       env:
         FILES: ${{ inputs.files }}
-        IGNORE_PATTERNS_INPUT: ${{ inputs.ignore-patterns }}
+        WARN_PATTERNS_INPUT: ${{ inputs.warn-patterns }}
       run: |
-        IFS='|' read -ra IGNORE_PATTERNS <<< "$IGNORE_PATTERNS_INPUT"
+        IFS='|' read -ra WARN_PATTERNS <<< "$WARN_PATTERNS_INPUT"
         violations=0
+        warnings=0
 
         for file in $(printf '%s\n' "$FILES" | tr ',' ' '); do
           [ -f "$file" ] || continue
@@ -50,22 +51,30 @@ runs:
               continue
             fi
 
-            skip=false
-            for pattern in "${IGNORE_PATTERNS[@]}"; do
+            # Check if this matches a warn-only pattern (internal org)
+            is_internal=false
+            for pattern in "${WARN_PATTERNS[@]}"; do
               if printf '%s\n' "$content" | grep -Fq "$pattern"; then
-                skip=true
+                is_internal=true
                 break
               fi
             done
-            [ "$skip" = true ] && continue
 
-            echo "::error file=${file},line=${line_num}::Unpinned action found: $(echo "$content" | xargs)"
-            violations=$((violations + 1))
+            if [ "$is_internal" = true ]; then
+              echo "::warning file=${file},line=${line_num}::Internal action not pinned to a release version: $(echo "$content" | xargs)"
+              warnings=$((warnings + 1))
+            else
+              echo "::error file=${file},line=${line_num}::Unpinned action found: $(echo "$content" | xargs)"
+              violations=$((violations + 1))
+            fi
           done < <(grep -n 'uses:.*@' "$file" 2>/dev/null || true)
         done
 
+        if [ "$warnings" -gt 0 ]; then
+          echo "::warning::Found $warnings internal action(s) not pinned to a release version. Consider pinning to vX.Y.Z."
+        fi
         if [ "$violations" -gt 0 ]; then
-          echo "::error::Found $violations unpinned action(s). Pin to a specific version tag (vX.Y.Z, vX.Y.Z-beta.N, or vX.Y.Z-rc.N)."
+          echo "::error::Found $violations unpinned external action(s). Pin to a specific version tag (vX.Y.Z, vX.Y.Z-beta.N, or vX.Y.Z-rc.N)."
           exit 1
         fi
-        echo "All actions are properly pinned."
+        echo "All external actions are properly pinned."
