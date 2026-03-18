@@ -91,7 +91,7 @@ runs:
                     continue
 
                 step_name = step.get('name', 'unnamed')
-                script = '#!/usr/bin/env bash\n' + replace_gha_exprs(run_block)
+                script = f'#!/usr/bin/env {shell}\n' + replace_gha_exprs(run_block)
 
                 with tempfile.NamedTemporaryFile(mode='w', suffix='.sh', delete=False) as tmp:
                     tmp.write(script)
@@ -101,7 +101,7 @@ runs:
                     result = subprocess.run(
                         [
                             'shellcheck',
-                            '--shell=bash',
+                            f'--shell={shell}',
                             f'--severity={severity}',
                             '--exclude=SC1090,SC1091,SC2154',
                             '--format=json',
@@ -111,17 +111,21 @@ runs:
                         text=True,
                     )
 
-                    if result.returncode != 0 and result.stdout:
-                        issues = json.loads(result.stdout)
-                        for issue in issues:
-                            level   = issue.get('level', 'warning')
-                            msg     = issue.get('message', '')
-                            code    = issue.get('code', '')
-                            line    = issue.get('line', 1)
-                            ann     = 'error' if level == 'error' else 'warning'
-                            print(f'::{ann} file={filepath}::Step "{step_name}" (script line {line}): [SC{code}] {msg}')
-                            if level == 'error':
+                    if result.returncode != 0:
+                        if result.stdout:
+                            issues = json.loads(result.stdout)
+                            for issue in issues:
+                                level   = issue.get('level', 'warning')
+                                msg     = issue.get('message', '')
+                                code    = issue.get('code', '')
+                                line    = issue.get('line', 1)
+                                ann     = 'error' if level == 'error' else 'warning'
+                                print(f'::{ann} file={filepath}::Step "{step_name}" (script line {line}): [SC{code}] {msg}')
                                 violations += 1
+                        else:
+                            err = result.stderr.strip() or 'unknown error'
+                            print(f'::error file={filepath}::Step "{step_name}" shellcheck failed: {err}')
+                            violations += 1
                 finally:
                     os.unlink(tmp_path)
 
