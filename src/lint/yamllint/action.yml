@@ -24,10 +24,9 @@ runs:
       run: |
         files=$(echo "${{ inputs.file-or-dir }}" | tr ' ' '\n' | sed '/^$/d')
         count=$(echo "$files" | wc -l | tr -d ' ')
-        echo "Running yamllint on ${count} file(s):"
-        echo "$files" | while IFS= read -r f; do
-          echo "  - ${f}"
-        done
+        echo "::group::Files analyzed by yamllint (${count})"
+        echo "$files" | sed 's/^/  - /'
+        echo "::endgroup::"
 
     - name: Run yamllint
       if: inputs.file-or-dir != ''

@@ -20,10 +20,9 @@ runs:
       run: |
         files=$(echo "${{ inputs.file-path }}" | tr ',' '\n' | sed '/^$/d')
         count=$(echo "$files" | wc -l | tr -d ' ')
-        echo "Checking markdown links on ${count} file(s):"
-        echo "$files" | while IFS= read -r f; do
-          echo "  - ${f}"
-        done
+        echo "::group::Files analyzed by markdown-link-check (${count})"
+        echo "$files" | sed 's/^/  - /'
+        echo "::endgroup::"
 
     - name: Run markdown link check
       if: inputs.file-path != ''

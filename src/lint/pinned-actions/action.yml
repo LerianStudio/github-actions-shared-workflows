@@ -20,10 +20,9 @@ runs:
       run: |
         files=$(echo "${{ inputs.files }}" | tr ' ' '\n' | sed '/^$/d')
         count=$(echo "$files" | wc -l | tr -d ' ')
-        echo "Checking pinned actions on ${count} file(s):"
-        echo "$files" | while IFS= read -r f; do
-          echo "  - ${f}"
-        done
+        echo "::group::Files analyzed by pinned-actions check (${count})"
+        echo "$files" | sed 's/^/  - /'
+        echo "::endgroup::"
 
     - name: Check for unpinned actions
       if: inputs.files != ''

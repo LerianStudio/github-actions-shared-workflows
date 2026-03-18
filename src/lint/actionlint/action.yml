@@ -24,10 +24,9 @@ runs:
       run: |
         files=$(echo "${{ inputs.files }}" | tr ',' '\n' | sed '/^$/d')
         count=$(echo "$files" | wc -l | tr -d ' ')
-        echo "Running actionlint on ${count} file(s):"
-        echo "$files" | while IFS= read -r f; do
-          echo "  - ${f}"
-        done
+        echo "::group::Files analyzed by actionlint (${count})"
+        echo "$files" | sed 's/^/  - /'
+        echo "::endgroup::"
 
     - name: Run actionlint
       if: inputs.files != ''
