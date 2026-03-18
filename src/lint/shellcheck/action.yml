@@ -55,7 +55,7 @@ runs:
         violations = 0
 
         def replace_gha_exprs(text):
-            # Replace ${{ ... }} with a valid shell placeholder to avoid false positives
+            # Replace GHA expression syntax with a shell-safe placeholder to avoid false positives
             return re.sub(r'\$\{\{[^}]*\}\}', '"GHA_PLACEHOLDER"', text)
 
         for filepath in files:
