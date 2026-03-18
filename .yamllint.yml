@@ -1,9 +1,6 @@
 ---
 extends: default
 
-yaml-files:
-  - "**/*.yml"
-
 rules:
   # GitHub Actions uses bare `on:` as top-level key — avoid truthy false positives
   truthy:
@@ -14,9 +11,6 @@ rules:
   line-length:
     max: 200
     level: warning
-
-  comments:
-    min-spaces-from-content: 1
 
   indentation:
     spaces: 2

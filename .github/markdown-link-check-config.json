@@ -5,9 +5,11 @@
     },
     {
       "pattern": "^https://github\\.com/LerianStudio/.*/pull/"
+    },
+    {
+      "pattern": "^https://github\\.com/<"
     }
   ],
-  "replacementPatterns": [],
   "httpHeaders": [
     {
       "urls": ["https://github.com"],
@@ -20,5 +22,5 @@
   "retryOn429": true,
   "retryCount": 3,
   "fallbackRetryDelay": "5s",
-  "aliveStatusCodes": [200, 206, 301, 302, 308]
+  "aliveStatusCodes": [200, 206, 301, 302, 307, 308]
 }
