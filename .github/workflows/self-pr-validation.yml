@@ -13,13 +13,16 @@ on:
 
 permissions:
   contents: read
-  pull-requests: write
-  issues: write
   checks: read
 
 jobs:
   # ----------------- PR Validation -----------------
   validation:
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
+      checks: read
     uses: ./.github/workflows/pr-validation.yml
     with:
       check_changelog: false
@@ -127,6 +130,11 @@ jobs:
   lint-report:
     name: Lint Report
     runs-on: blacksmith-4vcpu-ubuntu-2404
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
+      checks: read
     needs: [changed-files, yamllint, actionlint, pinned-actions, markdown-link-check, typos]
     if: always() && github.event_name == 'pull_request' && needs.changed-files.result == 'success'
     steps:

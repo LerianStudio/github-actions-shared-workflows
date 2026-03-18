@@ -70,7 +70,7 @@ runs:
               echo "::error file=${file},line=${line_num}::Unpinned action found: $(echo "$content" | xargs)"
               violations=$((violations + 1))
             fi
-          done < <(grep -n '^\s*uses:.*@' "$file" 2>/dev/null || true)
+          done < <(grep -nE '^[[:space:]]*(-[[:space:]]*)?uses:[[:space:]].*@' "$file" 2>/dev/null || true)
         done
 
         if [ "$warnings" -gt 0 ]; then
