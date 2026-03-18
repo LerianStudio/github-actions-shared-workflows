@@ -56,7 +56,7 @@ runs:
 
         def replace_gha_exprs(text):
             # Replace GHA expression syntax with a shell-safe placeholder to avoid false positives
-            return re.sub(r'\$\{\{[^}]*\}\}', '"GHA_PLACEHOLDER"', text)
+            return re.sub(r'\$\{\{[^}]*\}\}', '${GHA_PLACEHOLDER}', text)
 
         for filepath in files:
             filepath = filepath.strip()
@@ -103,7 +103,7 @@ runs:
                             'shellcheck',
                             '--shell=bash',
                             f'--severity={severity}',
-                            '--exclude=SC1090,SC1091',
+                            '--exclude=SC1090,SC1091,SC2154',
                             '--format=json',
                             tmp_path,
                         ],
