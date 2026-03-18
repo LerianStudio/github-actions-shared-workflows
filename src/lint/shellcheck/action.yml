@@ -40,7 +40,7 @@ runs:
         echo "::endgroup::"
 
     # ----------------- Check -----------------
-    - name: Run shellcheck on run: blocks
+    - name: "Run shellcheck on run: blocks"
       if: inputs.files != ''
       shell: bash
       env:
