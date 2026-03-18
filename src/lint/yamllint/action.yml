@@ -21,8 +21,10 @@ runs:
     - name: Log files
       if: inputs.file-or-dir != ''
       shell: bash
+      env:
+        FILES: ${{ inputs.file-or-dir }}
       run: |
-        files=$(echo "${{ inputs.file-or-dir }}" | tr ' ' '\n' | sed '/^$/d')
+        files=$(printf '%s\n' "$FILES" | tr ' ' '\n' | sed '/^$/d')
         count=$(echo "$files" | wc -l | tr -d ' ')
         echo "::group::Files analyzed by yamllint (${count})"
         echo "$files" | sed 's/^/  - /'

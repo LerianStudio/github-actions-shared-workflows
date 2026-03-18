@@ -21,8 +21,10 @@ runs:
     - name: Log files
       if: inputs.files != ''
       shell: bash
+      env:
+        FILES: ${{ inputs.files }}
       run: |
-        files=$(echo "${{ inputs.files }}" | tr ',' '\n' | sed '/^$/d')
+        files=$(printf '%s\n' "$FILES" | tr ',' '\n' | sed '/^$/d')
         count=$(echo "$files" | wc -l | tr -d ' ')
         echo "::group::Files analyzed by actionlint (${count})"
         echo "$files" | sed 's/^/  - /'

@@ -17,8 +17,10 @@ runs:
     - name: Log files
       if: inputs.file-path != ''
       shell: bash
+      env:
+        FILE_PATH: ${{ inputs.file-path }}
       run: |
-        files=$(echo "${{ inputs.file-path }}" | tr ',' '\n' | sed '/^$/d')
+        files=$(printf '%s\n' "$FILE_PATH" | tr ',' '\n' | sed '/^$/d')
         count=$(echo "$files" | wc -l | tr -d ' ')
         echo "::group::Files analyzed by markdown-link-check (${count})"
         echo "$files" | sed 's/^/  - /'

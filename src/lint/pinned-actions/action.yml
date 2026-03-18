@@ -17,8 +17,10 @@ runs:
     - name: Log files
       if: inputs.files != ''
       shell: bash
+      env:
+        FILES: ${{ inputs.files }}
       run: |
-        files=$(echo "${{ inputs.files }}" | tr ',' '\n' | sed '/^$/d')
+        files=$(printf '%s\n' "$FILES" | tr ',' '\n' | sed '/^$/d')
         count=$(echo "$files" | wc -l | tr -d ' ')
         echo "::group::Files analyzed by pinned-actions check (${count})"
         echo "$files" | sed 's/^/  - /'
@@ -27,11 +29,14 @@ runs:
     - name: Check for unpinned actions
       if: inputs.files != ''
       shell: bash
+      env:
+        FILES: ${{ inputs.files }}
+        IGNORE_PATTERNS_INPUT: ${{ inputs.ignore-patterns }}
       run: |
-        IFS='|' read -ra IGNORE_PATTERNS <<< "${{ inputs.ignore-patterns }}"
+        IFS='|' read -ra IGNORE_PATTERNS <<< "$IGNORE_PATTERNS_INPUT"
         violations=0
 
-        for file in $(echo "${{ inputs.files }}" | tr ',' ' '); do
+        for file in $(printf '%s\n' "$FILES" | tr ',' ' '); do
           [ -f "$file" ] || continue
           while IFS= read -r line; do
             line_num=$(echo "$line" | cut -d: -f1)
@@ -39,7 +44,7 @@ runs:
 
             skip=false
             for pattern in "${IGNORE_PATTERNS[@]}"; do
-              if echo "$content" | grep -q "$pattern"; then
+              if printf '%s\n' "$content" | grep -Fq "$pattern"; then
                 skip=true
                 break
               fi
