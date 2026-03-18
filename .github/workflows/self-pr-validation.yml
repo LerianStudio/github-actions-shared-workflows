@@ -129,6 +129,36 @@ jobs:
         with:
           files: ${{ needs.changed-files.outputs.all_files }}
 
+  # ----------------- Shell Check -----------------
+  shellcheck:
+    name: Shell Check
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    needs: changed-files
+    if: needs.changed-files.outputs.action_files != ''
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Shell Check
+        uses: ./src/lint/shellcheck
+        with:
+          files: ${{ needs.changed-files.outputs.action_files }}
+
+  # ----------------- README Check -----------------
+  readme-check:
+    name: README Check
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    needs: changed-files
+    if: needs.changed-files.outputs.action_files != ''
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: README Check
+        uses: ./src/lint/readme-check
+        with:
+          files: ${{ needs.changed-files.outputs.action_files }}
+
   # ----------------- Lint Report -----------------
   lint-report:
     name: Lint Report
@@ -138,7 +168,7 @@ jobs:
       pull-requests: write
       issues: write
       checks: read
-    needs: [changed-files, yamllint, actionlint, pinned-actions, markdown-link-check, typos]
+    needs: [changed-files, yamllint, actionlint, pinned-actions, markdown-link-check, typos, shellcheck, readme-check]
     if: always() && github.event_name == 'pull_request' && needs.changed-files.result == 'success'
     steps:
       - name: Checkout
@@ -158,3 +188,7 @@ jobs:
           markdown-files: ${{ needs.changed-files.outputs.markdown_files }}
           typos-result: ${{ needs.typos.result }}
           typos-files: ${{ needs.changed-files.outputs.all_files }}
+          shellcheck-result: ${{ needs.shellcheck.result }}
+          shellcheck-files: ${{ needs.changed-files.outputs.action_files }}
+          readme-result: ${{ needs.readme-check.result }}
+          readme-files: ${{ needs.changed-files.outputs.action_files }}

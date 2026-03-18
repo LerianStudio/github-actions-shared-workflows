@@ -45,6 +45,22 @@ inputs:
     description: Space-separated list of files checked for typos (empty = entire repository)
     required: false
     default: ""
+  shellcheck-result:
+    description: Result of the shellcheck job (success/failure/skipped/cancelled)
+    required: false
+    default: "skipped"
+  shellcheck-files:
+    description: Comma-separated list of YAML files checked by shellcheck
+    required: false
+    default: ""
+  readme-result:
+    description: Result of the readme-check job (success/failure/skipped/cancelled)
+    required: false
+    default: "skipped"
+  readme-files:
+    description: Comma-separated list of files checked for README presence
+    required: false
+    default: ""
 
 runs:
   using: composite
@@ -85,6 +101,18 @@ runs:
               result:     '${{ inputs.typos-result }}',
               files:      '${{ inputs.typos-files }}'.trim().split(' ').filter(Boolean),
               entireRepo: '${{ inputs.typos-files }}'.trim() === '',
+            },
+            {
+              jobName: 'Shell Check',
+              label:   'Shell Check',
+              result:  '${{ inputs.shellcheck-result }}',
+              files:   '${{ inputs.shellcheck-files }}'.trim().split(',').filter(Boolean),
+            },
+            {
+              jobName: 'README Check',
+              label:   'README Check',
+              result:  '${{ inputs.readme-result }}',
+              files:   '${{ inputs.readme-files }}'.trim().split(',').filter(Boolean),
             },
           ];
 
