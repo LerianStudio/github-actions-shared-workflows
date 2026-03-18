@@ -3,7 +3,7 @@ description: Ensure all third-party action references use pinned versions (not @
 
 inputs:
   files:
-    description: Space-separated list of workflow/composite files to check (empty = skip)
+    description: Comma-separated list of workflow/composite files to check (empty = skip)
     required: false
     default: ""
   ignore-patterns:
@@ -18,7 +18,7 @@ runs:
       if: inputs.files != ''
       shell: bash
       run: |
-        files=$(echo "${{ inputs.files }}" | tr ' ' '\n' | sed '/^$/d')
+        files=$(echo "${{ inputs.files }}" | tr ',' '\n' | sed '/^$/d')
         count=$(echo "$files" | wc -l | tr -d ' ')
         echo "::group::Files analyzed by pinned-actions check (${count})"
         echo "$files" | sed 's/^/  - /'
@@ -31,7 +31,7 @@ runs:
         IFS='|' read -ra IGNORE_PATTERNS <<< "${{ inputs.ignore-patterns }}"
         violations=0
 
-        for file in ${{ inputs.files }}; do
+        for file in $(echo "${{ inputs.files }}" | tr ',' ' '); do
           [ -f "$file" ] || continue
           while IFS= read -r line; do
             line_num=$(echo "$line" | cut -d: -f1)
