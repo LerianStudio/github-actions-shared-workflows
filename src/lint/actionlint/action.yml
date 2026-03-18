@@ -18,20 +18,14 @@ inputs:
 runs:
   using: composite
   steps:
-    - name: Summary
+    - name: Log files
       if: inputs.files != ''
       shell: bash
       run: |
-        {
-          echo "## Action Lint"
-          echo ""
-          echo "### Files"
-          echo "${{ inputs.files }}" \
-            | tr ',' '\n' | sed '/^$/d' | while IFS= read -r f; do
-              echo "- \`${f}\`"
-            done
-          echo ""
-        } >> "$GITHUB_STEP_SUMMARY"
+        echo "Running actionlint on:"
+        echo "${{ inputs.files }}" | tr ',' '\n' | sed '/^$/d' | while IFS= read -r f; do
+          echo "  - ${f}"
+        done
 
     - name: Run actionlint
       if: inputs.files != ''

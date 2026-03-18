@@ -14,20 +14,14 @@ inputs:
 runs:
   using: composite
   steps:
-    - name: Summary
+    - name: Log files
       if: inputs.file-path != ''
       shell: bash
       run: |
-        {
-          echo "## Markdown Link Check"
-          echo ""
-          echo "### Files"
-          echo "${{ inputs.file-path }}" \
-            | tr ',' '\n' | sed '/^$/d' | while IFS= read -r f; do
-              echo "- \`${f}\`"
-            done
-          echo ""
-        } >> "$GITHUB_STEP_SUMMARY"
+        echo "Checking markdown links on:"
+        echo "${{ inputs.file-path }}" | tr ',' '\n' | sed '/^$/d' | while IFS= read -r f; do
+          echo "  - ${f}"
+        done
 
     - name: Run markdown link check
       if: inputs.file-path != ''
