@@ -70,13 +70,29 @@ runs:
           # Tag push or missing before ref
           CURRENT_TAG=$(git describe --tags --exact-match HEAD 2>/dev/null || echo "")
           if [[ -n "$CURRENT_TAG" ]]; then
-            # Compare against previous tag to capture all changes since last release
-            PREV_TAG=$(git tag --sort=-v:refname | grep -v "^${CURRENT_TAG}$" | head -1 || true)
+            # Detect channel from tag name: beta, rc, or release
+            if [[ "$CURRENT_TAG" == *"-beta"* ]]; then
+              CHANNEL="beta"
+            elif [[ "$CURRENT_TAG" == *"-rc"* ]]; then
+              CHANNEL="rc"
+            else
+              CHANNEL="release"
+            fi
+
+            # Find previous tag of the same channel to avoid cross-channel false negatives
+            # (e.g. rc.1 vs beta.N where beta is a parent commit → empty diff)
+            if [[ "$CHANNEL" == "release" ]]; then
+              PREV_TAG=$(git tag --sort=-v:refname | grep -v "^${CURRENT_TAG}$" | grep -v -- "-beta" | grep -v -- "-rc" | head -1 || true)
+            else
+              PREV_TAG=$(git tag --sort=-v:refname | grep -v "^${CURRENT_TAG}$" | grep -- "-${CHANNEL}" | head -1 || true)
+            fi
+
             if [[ -n "$PREV_TAG" ]]; then
-              echo "Tag push detected: comparing $PREV_TAG..$CURRENT_TAG"
+              echo "Tag push detected ($CHANNEL channel): comparing $PREV_TAG..$CURRENT_TAG"
               FILES=$(git diff --name-only "$PREV_TAG" HEAD)
             else
-              # First tag ever — list all files
+              # First tag of this channel — build everything
+              echo "First tag for channel '$CHANNEL': building all files"
               FILES=$(git ls-tree -r --name-only HEAD)
             fi
           else
