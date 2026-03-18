@@ -14,6 +14,21 @@ inputs:
 runs:
   using: composite
   steps:
+    - name: Summary
+      if: inputs.files != ''
+      shell: bash
+      run: |
+        {
+          echo "## Pinned Actions Check"
+          echo ""
+          echo "### Files"
+          echo "${{ inputs.files }}" \
+            | tr ' ' '\n' | sed '/^$/d' | while IFS= read -r f; do
+              echo "- \`${f}\`"
+            done
+          echo ""
+        } >> "$GITHUB_STEP_SUMMARY"
+
     - name: Check for unpinned actions
       if: inputs.files != ''
       shell: bash

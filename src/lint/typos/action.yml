@@ -10,6 +10,16 @@ inputs:
 runs:
   using: composite
   steps:
+    - name: Summary
+      shell: bash
+      run: |
+        {
+          echo "## Spelling Check"
+          echo ""
+          echo "Scanning entire repository for typos."
+          echo ""
+        } >> "$GITHUB_STEP_SUMMARY"
+
     - name: Run typos
       uses: crate-ci/typos@v1.44.0
       with:

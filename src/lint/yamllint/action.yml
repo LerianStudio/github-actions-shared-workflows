@@ -18,6 +18,21 @@ inputs:
 runs:
   using: composite
   steps:
+    - name: Summary
+      if: inputs.file-or-dir != ''
+      shell: bash
+      run: |
+        {
+          echo "## YAML Lint"
+          echo ""
+          echo "### Files"
+          echo "${{ inputs.file-or-dir }}" \
+            | tr ' ' '\n' | sed '/^$/d' | while IFS= read -r f; do
+              echo "- \`${f}\`"
+            done
+          echo ""
+        } >> "$GITHUB_STEP_SUMMARY"
+
     - name: Run yamllint
       if: inputs.file-or-dir != ''
       uses: ibiqlik/action-yamllint@v3.1.1

@@ -18,6 +18,21 @@ inputs:
 runs:
   using: composite
   steps:
+    - name: Summary
+      if: inputs.files != ''
+      shell: bash
+      run: |
+        {
+          echo "## Action Lint"
+          echo ""
+          echo "### Files"
+          echo "${{ inputs.files }}" \
+            | tr ',' '\n' | sed '/^$/d' | while IFS= read -r f; do
+              echo "- \`${f}\`"
+            done
+          echo ""
+        } >> "$GITHUB_STEP_SUMMARY"
+
     - name: Run actionlint
       if: inputs.files != ''
       uses: raven-actions/actionlint@v2.1.2

@@ -45,5 +45,30 @@ runs:
         echo "workflow_files=${workflow_files}" >> "$GITHUB_OUTPUT"
         echo "action_files=${action_files}" >> "$GITHUB_OUTPUT"
         echo "markdown_files=${markdown_files}" >> "$GITHUB_OUTPUT"
+
+        {
+          echo "## Changed Files Detected"
+          echo ""
+
+          print_files() {
+            local label="$1"
+            local files="$2"
+            local sep="$3"
+            echo "### ${label}"
+            if [ -z "$files" ]; then
+              echo "_No changes_"
+            else
+              echo "$files" | tr "${sep}" '\n' | sed '/^$/d' | while IFS= read -r f; do
+                echo "- \`${f}\`"
+              done
+            fi
+            echo ""
+          }
+
+          print_files "YAML files"      "${yaml_files}"     ' '
+          print_files "Workflow files"  "${workflow_files}"  ','
+          print_files "Action files"    "${action_files}"    ' '
+          print_files "Markdown files"  "${markdown_files}"  ','
+        } >> "$GITHUB_STEP_SUMMARY"
       env:
         GH_TOKEN: ${{ inputs.github-token }}
