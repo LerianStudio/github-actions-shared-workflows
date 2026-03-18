@@ -117,11 +117,11 @@ runs:
             for (const job of jobs) {
               if (!failed.find(c => c.jobName === job.name)) continue;
               try {
-                const { data: annotations } = await github.rest.checks.listAnnotations({
+                const annotations = await github.paginate(github.rest.checks.listAnnotations, {
                   owner:         context.repo.owner,
                   repo:          context.repo.repo,
                   check_run_id:  job.id,
-                  per_page:      50,
+                  per_page:      100,
                 });
                 jobAnnotations[job.name] = annotations.filter(a => a.annotation_level === 'failure');
               } catch (e) {

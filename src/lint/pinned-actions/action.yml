@@ -1,5 +1,5 @@
 name: Pinned Actions Check
-description: Ensure all third-party action references use pinned versions (vX.Y.Z, vX.Y.Z-beta.N, or vX.Y.Z-rc.N).
+description: Ensure external action references use final release versions (vX or vX.Y.Z); internal actions may use pre-releases with a warning.
 
 inputs:
   files:
@@ -77,7 +77,7 @@ runs:
           echo "::warning::Found $warnings internal action(s) not pinned to a release version. Consider pinning to vX.Y.Z."
         fi
         if [ "$violations" -gt 0 ]; then
-          echo "::error::Found $violations unpinned external action(s). Pin to a specific version tag (vX.Y.Z, vX.Y.Z-beta.N, or vX.Y.Z-rc.N)."
+          echo "::error::Found $violations unpinned external action(s). Pin to a final release version (vX or vX.Y.Z)."
           exit 1
         fi
         echo "All external actions are properly pinned."
