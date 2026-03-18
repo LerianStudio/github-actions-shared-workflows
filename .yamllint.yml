@@ -2,7 +2,7 @@
 extends: default
 
 yaml-files:
-  - "*.yml"
+  - "**/*.yml"
 
 rules:
   # GitHub Actions uses bare `on:` as top-level key — avoid truthy false positives

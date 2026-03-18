@@ -4,8 +4,7 @@ description: Categorize changed files in a PR by type (YAML, workflows, actions,
 inputs:
   github-token:
     description: GitHub token for gh CLI access
-    required: false
-    default: ""
+    required: true
 
 outputs:
   yaml-files:
@@ -38,7 +37,7 @@ runs:
         else
           yaml_files="."
           workflow_files=".github/workflows/*.yml"
-          action_files=$(find .github/workflows/ src/ -name '*.yml' -o -name '*.yaml' 2>/dev/null | tr '\n' ' ')
+          action_files=$(find .github/workflows/ src/ \( -name '*.yml' -o -name '*.yaml' \) 2>/dev/null | tr '\n' ' ')
           markdown_files=""
         fi
 
