@@ -58,9 +58,7 @@ runs:
             if [ -z "$files" ]; then
               echo "_No changes_"
             else
-              echo "$files" | tr "${sep}" '\n' | sed '/^$/d' | while IFS= read -r f; do
-                echo "- \`${f}\`"
-              done
+              echo "$files" | tr "${sep}" '\n' | sed '/^$/d' | sed 's/.*/- `&`/'
             fi
             echo ""
           }
