@@ -123,7 +123,7 @@ runs:
                   check_run_id:  job.id,
                   per_page:      50,
                 });
-                jobAnnotations[job.name] = annotations.filter(a => a.annotation_level !== 'notice');
+                jobAnnotations[job.name] = annotations.filter(a => a.annotation_level === 'failure');
               } catch (e) {
                 core.warning(`Could not fetch annotations for ${job.name}: ${e.message}`);
               }
