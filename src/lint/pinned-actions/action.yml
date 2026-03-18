@@ -46,12 +46,7 @@ runs:
             # Extract the ref (part after the last @)
             ref=$(printf '%s\n' "$content" | sed 's/.*@//' | xargs)
 
-            # Skip if ref matches a valid pinned version: vX.Y.Z, vX.Y.Z-beta.N, vX.Y.Z-rc.N
-            if printf '%s\n' "$ref" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+(-beta\.[0-9]+|-rc\.[0-9]+)?$'; then
-              continue
-            fi
-
-            # Check if this matches a warn-only pattern (internal org)
+            # Check if this is an internal org (warn-only)
             is_internal=false
             for pattern in "${WARN_PATTERNS[@]}"; do
               if printf '%s\n' "$content" | grep -Fq "$pattern"; then
@@ -61,9 +56,17 @@ runs:
             done
 
             if [ "$is_internal" = true ]; then
+              # Internal: allow vX, vX.Y.Z, vX.Y.Z-beta.N, vX.Y.Z-rc.N
+              if printf '%s\n' "$ref" | grep -Eq '^v[0-9]+$|^v[0-9]+\.[0-9]+\.[0-9]+(-beta\.[0-9]+|-rc\.[0-9]+)?$'; then
+                continue
+              fi
               echo "::warning file=${file},line=${line_num}::Internal action not pinned to a release version: $(echo "$content" | xargs)"
               warnings=$((warnings + 1))
             else
+              # External: only final releases allowed — vX or vX.Y.Z (no beta, no rc)
+              if printf '%s\n' "$ref" | grep -Eq '^v[0-9]+$|^v[0-9]+\.[0-9]+\.[0-9]+$'; then
+                continue
+              fi
               echo "::error file=${file},line=${line_num}::Unpinned action found: $(echo "$content" | xargs)"
               violations=$((violations + 1))
             fi
