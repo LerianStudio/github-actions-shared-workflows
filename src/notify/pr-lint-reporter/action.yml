@@ -1,0 +1,130 @@
+name: PR Lint Reporter
+description: Posts a formatted lint analysis summary comment on the pull request, updating it on subsequent runs.
+
+inputs:
+  github-token:
+    description: GitHub token with pull-requests:write and issues:write permissions
+    required: true
+  yamllint-result:
+    description: Result of the yamllint job (success/failure/skipped/cancelled)
+    required: false
+    default: "skipped"
+  yamllint-files:
+    description: Space-separated list of YAML files linted
+    required: false
+    default: ""
+  actionlint-result:
+    description: Result of the actionlint job (success/failure/skipped/cancelled)
+    required: false
+    default: "skipped"
+  actionlint-files:
+    description: Comma-separated list of action/workflow files linted
+    required: false
+    default: ""
+  pinned-actions-result:
+    description: Result of the pinned-actions job (success/failure/skipped/cancelled)
+    required: false
+    default: "skipped"
+  pinned-actions-files:
+    description: Comma-separated list of action/workflow files checked
+    required: false
+    default: ""
+  markdown-result:
+    description: Result of the markdown-link-check job (success/failure/skipped/cancelled)
+    required: false
+    default: "skipped"
+  markdown-files:
+    description: Comma-separated list of markdown files checked
+    required: false
+    default: ""
+  typos-result:
+    description: Result of the typos job (success/failure/skipped/cancelled)
+    required: false
+    default: "skipped"
+
+runs:
+  using: composite
+  steps:
+    - name: Post lint report to PR
+      uses: actions/github-script@v8
+      with:
+        github-token: ${{ inputs.github-token }}
+        script: |
+          const checks = [
+            {
+              label: 'YAML Lint',
+              result: '${{ inputs.yamllint-result }}',
+              files: '${{ inputs.yamllint-files }}'.trim().split(' ').filter(Boolean),
+            },
+            {
+              label: 'Action Lint',
+              result: '${{ inputs.actionlint-result }}',
+              files: '${{ inputs.actionlint-files }}'.trim().split(',').filter(Boolean),
+            },
+            {
+              label: 'Pinned Actions',
+              result: '${{ inputs.pinned-actions-result }}',
+              files: '${{ inputs.pinned-actions-files }}'.trim().split(',').filter(Boolean),
+            },
+            {
+              label: 'Markdown Link Check',
+              result: '${{ inputs.markdown-result }}',
+              files: '${{ inputs.markdown-files }}'.trim().split(',').filter(Boolean),
+            },
+            {
+              label: 'Spelling Check',
+              result: '${{ inputs.typos-result }}',
+              files: null,
+            },
+          ];
+
+          const icon = (r) => ({ success: '✅', failure: '❌', skipped: '⏭️' }[r] ?? '⚠️');
+
+          const filesSummary = (files, isRepo) => {
+            if (isRepo) return '_entire repository_';
+            if (!files || files.length === 0) return '_no changes_';
+            return `${files.length} file(s)`;
+          };
+
+          let body = '## 🔍 Lint Analysis\n\n';
+          body += '| Check | Files Scanned | Status |\n';
+          body += '|-------|:-------------:|:------:|\n';
+
+          for (const c of checks) {
+            const isRepo = c.label === 'Spelling Check';
+            body += `| ${c.label} | ${filesSummary(c.files, isRepo)} | ${icon(c.result)} ${c.result} |\n`;
+          }
+
+          const hasFiles = checks.some(c => c.files && c.files.length > 0);
+          if (hasFiles) {
+            body += '\n<details>\n<summary>Files analyzed per check</summary>\n\n';
+            for (const c of checks) {
+              if (!c.files || c.files.length === 0) continue;
+              body += `**${c.label}**\n`;
+              for (const f of c.files) body += `- \`${f}\`\n`;
+              body += '\n';
+            }
+            body += '</details>\n\n';
+          }
+
+          const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+          body += `---\n<sub>🔍 [View full scan logs](${runUrl})</sub>\n`;
+
+          const marker = '<!-- lint-analysis -->';
+          body = marker + '\n' + body;
+
+          const comments = await github.paginate(github.rest.issues.listComments, {
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            issue_number: context.issue.number,
+            per_page: 100,
+          });
+
+          const existing = comments.find(c => c.body?.includes(marker));
+          const params = { owner: context.repo.owner, repo: context.repo.repo, body };
+
+          if (existing) {
+            await github.rest.issues.updateComment({ ...params, comment_id: existing.id });
+          } else {
+            await github.rest.issues.createComment({ ...params, issue_number: context.issue.number });
+          }

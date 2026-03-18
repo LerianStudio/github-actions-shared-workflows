@@ -118,3 +118,27 @@ jobs:
 
       - name: Spelling Check
         uses: ./src/lint/typos
+
+  # ----------------- Lint Report -----------------
+  lint-report:
+    name: Lint Report
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    needs: [changed-files, yamllint, actionlint, pinned-actions, markdown-link-check, typos]
+    if: always() && github.event_name == 'pull_request'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Post Lint Report
+        uses: ./src/notify/pr-lint-reporter
+        with:
+          github-token: ${{ secrets.MANAGE_TOKEN || github.token }}
+          yamllint-result: ${{ needs.yamllint.result }}
+          yamllint-files: ${{ needs.changed-files.outputs.yaml_files }}
+          actionlint-result: ${{ needs.actionlint.result }}
+          actionlint-files: ${{ needs.changed-files.outputs.action_files }}
+          pinned-actions-result: ${{ needs.pinned-actions.result }}
+          pinned-actions-files: ${{ needs.changed-files.outputs.action_files }}
+          markdown-result: ${{ needs.markdown-link-check.result }}
+          markdown-files: ${{ needs.changed-files.outputs.markdown_files }}
+          typos-result: ${{ needs.typos.result }}
