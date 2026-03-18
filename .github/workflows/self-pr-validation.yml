@@ -35,6 +35,9 @@ jobs:
   changed-files:
     name: Detect Changed Files
     runs-on: blacksmith-4vcpu-ubuntu-2404
+    permissions:
+      contents: read
+      pull-requests: read
     outputs:
       yaml_files: ${{ steps.detect.outputs.yaml-files }}
       workflow_files: ${{ steps.detect.outputs.workflow-files }}

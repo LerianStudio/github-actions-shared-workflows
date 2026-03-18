@@ -43,13 +43,14 @@ runs:
             line_num=$(echo "$line" | cut -d: -f1)
             content=$(echo "$line" | cut -d: -f2-)
 
-            # Extract the ref (part after the last @)
-            ref=$(printf '%s\n' "$content" | sed 's/.*@//' | xargs)
+            # Strip inline YAML comments, then extract the ref (part after the last @)
+            normalized=$(printf '%s\n' "$content" | sed 's/[[:space:]]*#.*$//' | xargs)
+            ref=${normalized##*@}
 
             # Check if this is an internal org (warn-only)
             is_internal=false
             for pattern in "${WARN_PATTERNS[@]}"; do
-              if printf '%s\n' "$content" | grep -Fq "$pattern"; then
+              if printf '%s\n' "$normalized" | grep -Fq "$pattern"; then
                 is_internal=true
                 break
               fi
@@ -60,14 +61,14 @@ runs:
               if printf '%s\n' "$ref" | grep -Eq '^v[0-9]+$|^v[0-9]+\.[0-9]+\.[0-9]+$'; then
                 continue
               fi
-              echo "::warning file=${file},line=${line_num}::Internal action not pinned to a final release version: $(echo "$content" | xargs)"
+              echo "::warning file=${file},line=${line_num}::Internal action not pinned to a final release version: $normalized"
               warnings=$((warnings + 1))
             else
               # External: only final releases allowed — vX or vX.Y.Z (no beta, no rc)
               if printf '%s\n' "$ref" | grep -Eq '^v[0-9]+$|^v[0-9]+\.[0-9]+\.[0-9]+$'; then
                 continue
               fi
-              echo "::error file=${file},line=${line_num}::Unpinned action found: $(echo "$content" | xargs)"
+              echo "::error file=${file},line=${line_num}::Unpinned action found: $normalized"
               violations=$((violations + 1))
             fi
           done < <(grep -nE '^[[:space:]]*(-[[:space:]]*)?uses:[[:space:]].*@' "$file" 2>/dev/null || true)
