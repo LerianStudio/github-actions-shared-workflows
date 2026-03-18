@@ -18,8 +18,10 @@ runs:
       if: inputs.file-path != ''
       shell: bash
       run: |
-        echo "Checking markdown links on:"
-        echo "${{ inputs.file-path }}" | tr ',' '\n' | sed '/^$/d' | while IFS= read -r f; do
+        files=$(echo "${{ inputs.file-path }}" | tr ',' '\n' | sed '/^$/d')
+        count=$(echo "$files" | wc -l | tr -d ' ')
+        echo "Checking markdown links on ${count} file(s):"
+        echo "$files" | while IFS= read -r f; do
           echo "  - ${f}"
         done
 

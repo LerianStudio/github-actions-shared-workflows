@@ -22,8 +22,10 @@ runs:
       if: inputs.files != ''
       shell: bash
       run: |
-        echo "Running actionlint on:"
-        echo "${{ inputs.files }}" | tr ',' '\n' | sed '/^$/d' | while IFS= read -r f; do
+        files=$(echo "${{ inputs.files }}" | tr ',' '\n' | sed '/^$/d')
+        count=$(echo "$files" | wc -l | tr -d ' ')
+        echo "Running actionlint on ${count} file(s):"
+        echo "$files" | while IFS= read -r f; do
           echo "  - ${f}"
         done
 
