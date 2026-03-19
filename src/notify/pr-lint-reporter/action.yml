@@ -3,7 +3,7 @@ description: Posts a formatted lint analysis summary comment on the pull request
 
 inputs:
   github-token:
-    description: GitHub token with pull-requests:write, issues:write and checks:read permissions
+    description: GitHub token with pull-requests:write, issues:write, actions:read and checks:read permissions
     required: true
   yamllint-result:
     description: Result of the yamllint job (success/failure/skipped/cancelled)

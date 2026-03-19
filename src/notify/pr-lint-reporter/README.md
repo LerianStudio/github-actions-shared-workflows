@@ -11,7 +11,7 @@ Posts a formatted lint analysis summary as a PR comment, aggregating results fro
 
 | Input | Description | Required | Default |
 |-------|-------------|----------|---------|
-| `github-token` | GitHub token with `pull-requests:write`, `issues:write` and `checks:read` permissions | Yes | — |
+| `github-token` | GitHub token with `pull-requests:write`, `issues:write`, `actions:read` and `checks:read` permissions | Yes | — |
 | `yamllint-result` | Result of the yamllint job | No | `skipped` |
 | `yamllint-files` | Space-separated list of YAML files linted | No | `` |
 | `actionlint-result` | Result of the actionlint job | No | `skipped` |
@@ -35,7 +35,7 @@ Posts a formatted lint analysis summary as a PR comment, aggregating results fro
 jobs:
   lint-report:
     runs-on: blacksmith-4vcpu-ubuntu-2404
-    needs: [yamllint, actionlint, pinned-actions, markdown-link-check, typos, shellcheck, readme-check, composite-schema]
+    needs: [changed-files, yamllint, actionlint, pinned-actions, markdown-link-check, typos, shellcheck, readme-check, composite-schema]
     if: always() && github.event_name == 'pull_request'
     steps:
       - name: Checkout
@@ -67,6 +67,7 @@ jobs:
 
 ```yaml
 permissions:
+  actions: read
   pull-requests: write
   issues: write
   checks: read

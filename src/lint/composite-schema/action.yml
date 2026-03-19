@@ -67,9 +67,13 @@ runs:
                 continue
 
             if not isinstance(data, dict):
+                err(filepath, 'Action metadata must be a YAML mapping.')
                 continue
 
-            runs = data.get('runs') or {}
+            runs = data.get('runs')
+            if not isinstance(runs, dict):
+                err(filepath, '"runs" must be a mapping.')
+                continue
             if runs.get('using') != 'composite':
                 continue
 
@@ -79,14 +83,18 @@ runs:
                 err(filepath, f'Composite must live at src/<capability>/<name>/action.yml — got "{filepath}".')
 
             # ── Root-level name and description ──
-            if not str(data.get('name', '')).strip():
+            name_val = data.get('name')
+            if not isinstance(name_val, str) or not name_val.strip():
                 err(filepath, 'Missing top-level "name" field.')
-            if not str(data.get('description', '')).strip():
+            desc_val = data.get('description')
+            if not isinstance(desc_val, str) or not desc_val.strip():
                 err(filepath, 'Missing top-level "description" field.')
 
             # ── Steps must exist and be non-empty ──
-            steps = runs.get('steps') or []
-            if not steps:
+            steps = runs.get('steps')
+            if not isinstance(steps, list):
+                err(filepath, '"runs.steps" must be an array.')
+            elif not steps:
                 err(filepath, 'Composite has no steps defined under runs.steps.')
             elif len(steps) > MAX_STEPS:
                 err(filepath, f'Too many steps ({len(steps)}); maximum allowed is {MAX_STEPS}. Consider splitting into smaller composites.')
