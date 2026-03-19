@@ -59,6 +59,11 @@ runs:
             if not filepath or not os.path.isfile(filepath):
                 continue
 
+            # ── Directory structure: must be src/<capability>/<name>/action.yml ──
+            parts = filepath.replace('\\', '/').split('/')
+            if len(parts) != 4 or parts[0] != 'src':
+                err(filepath, f'Composite must live at src/<capability>/<name>/action.yml — got "{filepath}".')
+
             try:
                 with open(filepath) as f:
                     data = yaml.safe_load(f)

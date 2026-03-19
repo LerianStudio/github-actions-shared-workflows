@@ -7,6 +7,9 @@
 
 Validate that composite actions under `src/` follow project conventions. Checks performed:
 
+**Directory structure**
+- Must be exactly `src/<capability>/<name>/action.yml` (no shallower, no deeper)
+
 **Root level**
 - `name` field is present and non-empty
 - `description` field is present and non-empty
