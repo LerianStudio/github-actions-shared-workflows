@@ -78,55 +78,64 @@ runs:
       with:
         github-token: ${{ inputs.github-token }}
         script: |
+          const yamllintFiles        = ${{ toJSON(inputs['yamllint-files']) }};
+          const actionlintFiles      = ${{ toJSON(inputs['actionlint-files']) }};
+          const pinnedActionsFiles   = ${{ toJSON(inputs['pinned-actions-files']) }};
+          const markdownFiles        = ${{ toJSON(inputs['markdown-files']) }};
+          const typosFiles           = ${{ toJSON(inputs['typos-files']) }};
+          const shellcheckFiles      = ${{ toJSON(inputs['shellcheck-files']) }};
+          const readmeFiles          = ${{ toJSON(inputs['readme-files']) }};
+          const compositeSchemaFiles = ${{ toJSON(inputs['composite-schema-files']) }};
+
           const checks = [
             {
               jobName: 'YAML Lint',
               label:   'YAML Lint',
               result:  '${{ inputs.yamllint-result }}',
-              files:   '${{ inputs.yamllint-files }}'.trim().split(' ').filter(Boolean),
+              files:   yamllintFiles.trim().split(' ').filter(Boolean),
             },
             {
               jobName: 'Action Lint',
               label:   'Action Lint',
               result:  '${{ inputs.actionlint-result }}',
-              files:   '${{ inputs.actionlint-files }}'.trim().split(',').filter(Boolean),
+              files:   actionlintFiles.trim().split(',').filter(Boolean),
             },
             {
               jobName: 'Pinned Actions Check',
               label:   'Pinned Actions',
               result:  '${{ inputs.pinned-actions-result }}',
-              files:   '${{ inputs.pinned-actions-files }}'.trim().split(',').filter(Boolean),
+              files:   pinnedActionsFiles.trim().split(',').filter(Boolean),
             },
             {
               jobName: 'Markdown Link Check',
               label:   'Markdown Link Check',
               result:  '${{ inputs.markdown-result }}',
-              files:   '${{ inputs.markdown-files }}'.trim().split(',').filter(Boolean),
+              files:   markdownFiles.trim().split(',').filter(Boolean),
             },
             {
               jobName:    'Spelling Check',
               label:      'Spelling Check',
               result:     '${{ inputs.typos-result }}',
-              files:      '${{ inputs.typos-files }}'.trim().split(' ').filter(Boolean),
-              entireRepo: '${{ inputs.typos-files }}'.trim() === '',
+              files:      typosFiles.trim().split(' ').filter(Boolean),
+              entireRepo: typosFiles.trim() === '',
             },
             {
               jobName: 'Shell Check',
               label:   'Shell Check',
               result:  '${{ inputs.shellcheck-result }}',
-              files:   '${{ inputs.shellcheck-files }}'.trim().split(',').filter(Boolean),
+              files:   shellcheckFiles.trim().split(',').filter(Boolean),
             },
             {
               jobName: 'README Check',
               label:   'README Check',
               result:  '${{ inputs.readme-result }}',
-              files:   '${{ inputs.readme-files }}'.trim().split(',').filter(Boolean),
+              files:   readmeFiles.trim().split(',').filter(Boolean),
             },
             {
               jobName: 'Composite Schema Lint',
               label:   'Composite Schema',
               result:  '${{ inputs.composite-schema-result }}',
-              files:   '${{ inputs.composite-schema-files }}'.trim().split(',').filter(Boolean),
+              files:   compositeSchemaFiles.trim().split(',').filter(Boolean),
             },
           ];
 

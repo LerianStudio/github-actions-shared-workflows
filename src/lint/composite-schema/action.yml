@@ -93,12 +93,19 @@ runs:
 
             # ── Input conventions ──
             inputs = data.get('inputs') or {}
+            if not isinstance(inputs, dict):
+                err(filepath, '"inputs" must be a mapping.')
+                continue
+
             for name, spec in inputs.items():
                 if not isinstance(spec, dict):
+                    err(filepath, f'Input "{name}" definition must be a mapping.')
+                    violations += 1
                     continue
 
-                has_desc    = bool(str(spec.get('description', '')).strip())
-                required    = spec.get('required', False)
+                description = spec.get('description')
+                has_desc    = isinstance(description, str) and description.strip() != ''
+                required    = spec.get('required', False) is True
                 has_default = 'default' in spec
 
                 if not has_desc:

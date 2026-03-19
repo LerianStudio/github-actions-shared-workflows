@@ -46,10 +46,21 @@ jobs:
         with:
           github-token: ${{ secrets.MANAGE_TOKEN || github.token }}
           yamllint-result: ${{ needs.yamllint.result }}
+          yamllint-files: ${{ needs.changed-files.outputs.yaml_files }}
           actionlint-result: ${{ needs.actionlint.result }}
+          actionlint-files: ${{ needs.changed-files.outputs.workflow_files }}
+          pinned-actions-result: ${{ needs.pinned-actions.result }}
+          pinned-actions-files: ${{ needs.changed-files.outputs.action_files }}
+          markdown-result: ${{ needs.markdown-link-check.result }}
+          markdown-files: ${{ needs.changed-files.outputs.markdown_files }}
+          typos-result: ${{ needs.typos.result }}
+          typos-files: ${{ needs.changed-files.outputs.all_files }}
           shellcheck-result: ${{ needs.shellcheck.result }}
+          shellcheck-files: ${{ needs.changed-files.outputs.action_files }}
           readme-result: ${{ needs.readme-check.result }}
+          readme-files: ${{ needs.changed-files.outputs.action_files }}
           composite-schema-result: ${{ needs.composite-schema.result }}
+          composite-schema-files: ${{ needs.changed-files.outputs.composite_files }}
 ```
 
 ## Required permissions
