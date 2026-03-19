@@ -230,6 +230,7 @@ jobs:
           fi
           # Strips optional prefix from tags like "my-app-v1.0.0" → "v1.0.0"
           # For standard semver tags (v1.0.0, v1.0.0-beta.1) this is a no-op
+          # shellcheck disable=SC2001
           VERSION=$(echo "$TAG" | sed 's/.*-\(v[0-9]\)/\1/')
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 

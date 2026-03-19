@@ -55,10 +55,10 @@ jobs:
           # Skip if commit message contains [skip ci] or is a changelog update
           if echo "$COMMIT_MSG" | grep -qiE '\[skip ci\]|chore\(release\): Update CHANGELOGs'; then
             echo "Skipping release - changelog/skip-ci commit detected"
-            echo "should_skip=true" >> $GITHUB_OUTPUT
+            echo "should_skip=true" >> "$GITHUB_OUTPUT"
           else
             echo "Proceeding with release"
-            echo "should_skip=false" >> $GITHUB_OUTPUT
+            echo "should_skip=false" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Get changed paths (monorepo)
@@ -76,16 +76,16 @@ jobs:
           if [ -z "${{ inputs.filter_paths }}" ]; then
             # Single app mode - release from root
             APP_NAME="${{ github.event.repository.name }}"
-            echo "matrix=[{\"name\": \"${APP_NAME}\", \"working_dir\": \".\"}]" >> $GITHUB_OUTPUT
-            echo "has_changes=true" >> $GITHUB_OUTPUT
+            echo "matrix=[{\"name\": \"${APP_NAME}\", \"working_dir\": \".\"}]" >> "$GITHUB_OUTPUT"
+            echo "has_changes=true" >> "$GITHUB_OUTPUT"
           else
             MATRIX='${{ steps.changed-paths.outputs.matrix }}'
             if [ "$MATRIX" == "[]" ] || [ -z "$MATRIX" ]; then
-              echo "matrix=[]" >> $GITHUB_OUTPUT
-              echo "has_changes=false" >> $GITHUB_OUTPUT
+              echo "matrix=[]" >> "$GITHUB_OUTPUT"
+              echo "has_changes=false" >> "$GITHUB_OUTPUT"
             else
-              echo "matrix=$MATRIX" >> $GITHUB_OUTPUT
-              echo "has_changes=true" >> $GITHUB_OUTPUT
+              echo "matrix=$MATRIX" >> "$GITHUB_OUTPUT"
+              echo "has_changes=true" >> "$GITHUB_OUTPUT"
             fi
           fi
 

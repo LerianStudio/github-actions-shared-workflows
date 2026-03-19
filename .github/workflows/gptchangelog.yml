@@ -295,7 +295,7 @@ jobs:
           echo "📦 Processing apps from matrix: $MATRIX"
 
           # Initialize files
-          > /tmp/apps_updated.txt
+          : > /tmp/apps_updated.txt
 
           # Parse the matrix JSON and iterate through each app
           # Using process substitution to avoid subshell issues with file writes
@@ -545,7 +545,7 @@ jobs:
           echo "📄 Generated per-app CHANGELOGs:"
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
           if [ -f /tmp/apps_updated.txt ]; then
-            while IFS=: read -r APP_NAME VERSION WORKING_DIR; do
+            while IFS=: read -r APP_NAME _VERSION WORKING_DIR; do
               if [ "$WORKING_DIR" != "." ]; then
                 CHANGELOG_PATH="${WORKING_DIR}/CHANGELOG.md"
               else
@@ -564,6 +564,7 @@ jobs:
         if: steps.generate.outputs.apps_updated != ''
         run: |
           # Determine base branch - use default branch for tag triggers
+          # shellcheck disable=SC2193
           if [[ "${{ github.ref }}" == refs/tags/* ]]; then
             # For tags, get the default branch from the repo
             BASE_BRANCH=$(gh repo view --json defaultBranchRef -q '.defaultBranchRef.name')
@@ -606,7 +607,7 @@ jobs:
           git merge -X ours origin/"$BASE_BRANCH" --no-ff -m "Merge $BASE_BRANCH into ${BRANCH_NAME} [skip ci]" || {
             # Re-add changelog files after conflict resolution
             if [ -f /tmp/apps_updated.txt ]; then
-              while IFS=: read -r APP_NAME VERSION WORKING_DIR; do
+              while IFS=: read -r _APP_NAME _VERSION WORKING_DIR; do
                 if [ "$WORKING_DIR" != "." ]; then
                   CHANGELOG_PATH="${WORKING_DIR}/CHANGELOG.md"
                 else
@@ -655,7 +656,6 @@ jobs:
         if: steps.generate.outputs.apps_updated != ''
         run: |
           DEFAULT_BRANCH=$(gh repo view --json defaultBranchRef -q '.defaultBranchRef.name')
-          SYNC_PR_URL=""
 
           # Only sync to develop branch (release-candidate gets updated from develop)
           TARGET_BRANCH="develop"
