@@ -62,13 +62,13 @@ steps:
 
 ## Output formats
 
-### Default (get_app_name: false)
+### Default (get-app-name: false)
 
 ```json
 ["components/api", "components/web"]
 ```
 
-### With app names (get_app_name: true)
+### With app names (get-app-name: true)
 
 ```json
 [
@@ -77,7 +77,7 @@ steps:
 ]
 ```
 
-### With prefix (app_name_prefix: "myapp")
+### With prefix (app-name-prefix: "myapp")
 
 ```json
 [
@@ -103,7 +103,7 @@ with:
 ]
 ```
 
-### With ignore_dirs
+### With ignore-dirs
 
 ```yaml
 with:
@@ -118,9 +118,9 @@ with:
 
 Directories matching `.github` or `.githooks` (exact or prefix) are excluded from the output matrix before app name generation.
 
-### Single app mode (fallback_app_name)
+### Single app mode (fallback-app-name)
 
-When `filter_paths` is empty and `fallback_app_name` is set, the composite skips change detection and returns a single-item matrix:
+When `filter-paths` is empty and `fallback-app-name` is set, the composite skips change detection and returns a single-item matrix:
 
 ```yaml
 with:
@@ -132,9 +132,9 @@ with:
 [{"name": "my-service", "working_dir": "."}]
 ```
 
-### Type 2 monorepo (consolidate_to_root)
+### Type 2 monorepo (consolidate-to-root)
 
-When `consolidate_to_root: true`, all entries except those matching `consolidate_keep_dirs` are consolidated into a single root entry using `fallback_app_name`:
+When `consolidate-to-root: true`, all entries except those matching `consolidate-keep-dirs` are consolidated into a single root entry using `fallback-app-name`:
 
 ```yaml
 with:
@@ -188,7 +188,7 @@ Changed file `components/app/cmd/main.go` with `filter-paths: '["components/app"
 
 ## How path-level works
 
-| Original Path | path_level | Result |
+| Original Path | path-level | Result |
 |---|---|---|
 | `components/api/src/main.go` | 1 | `components` |
 | `components/api/src/main.go` | 2 | `components/api` |
