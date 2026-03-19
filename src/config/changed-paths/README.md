@@ -12,6 +12,7 @@ Composite action that detects changed files between commits and outputs a matrix
 | Input | Description | Required | Default |
 |---|---|:---:|---|
 | `filter_paths` | JSON array of path prefixes to filter results | No | `''` |
+| `shared_paths` | Newline-separated (or JSON array) path patterns that, when matched by any changed file, include ALL `filter_paths` components in the matrix (e.g., `go.mod`, `go.sum`, `libs/`) | No | `''` |
 | `path_level` | Limits the path to the first N segments | No | `0` (disabled) |
 | `get_app_name` | Output matrix with `name` and `working_dir` fields | No | `false` |
 | `app_name_prefix` | Prefix to add to each app name | No | `''` |
@@ -142,6 +143,26 @@ If `components/api` and `frontend` both changed:
   {"name": "frontend", "working_dir": "frontend"}
 ]
 ```
+
+### With shared_paths (monorepo root-level files)
+
+When root-level files like `go.mod` or `go.sum` change, all components should be rebuilt. Use `shared_paths` to trigger a full matrix whenever such files are touched:
+
+```yaml
+with:
+  filter_paths: |-
+    components/manager
+    components/worker
+  shared_paths: |-
+    go.mod
+    go.sum
+    libs/
+  path_level: 2
+  get_app_name: true
+```
+
+If only `go.mod` changes → both `components/manager` and `components/worker` are included in the matrix.
+If only `components/worker/cmd/main.go` changes → only `components/worker` is included (normal behaviour).
 
 ### With normalize_to_filter
 

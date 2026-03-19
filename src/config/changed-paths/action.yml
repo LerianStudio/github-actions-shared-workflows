@@ -6,6 +6,10 @@ inputs:
     description: 'Newline-separated list of path prefixes to filter results (e.g., "components/mdz\ncomponents/transaction"). Also accepts JSON array format.'
     required: false
     default: ''
+  shared_paths:
+    description: 'Newline-separated list of path patterns (e.g., "go.mod\ngo.sum\nlibs/") that, when matched by any changed file, trigger a build for ALL components in filter_paths. Also accepts JSON array format.'
+    required: false
+    default: ''
   path_level:
     description: 'Limits the path to the first N segments (e.g., 2 -> "components/transactions")'
     required: false
@@ -117,6 +121,7 @@ runs:
       run: |
         FILES="${{ steps.changed.outputs.files }}"
         FILTER_PATHS='${{ inputs.filter_paths }}'
+        SHARED_PATHS='${{ inputs.shared_paths }}'
         PATH_LEVEL="${{ inputs.path_level }}"
         GET_APP_NAME="${{ inputs.get_app_name }}"
         APP_NAME_PREFIX="${{ inputs.app_name_prefix }}"
@@ -154,58 +159,95 @@ runs:
           exit 0
         fi
 
-        # Get directory for each file
-        DIRS=$(echo "$FILES" | xargs -n1 dirname)
+        DIRS_FROM_SHARED=false
 
-        # Trim to first N path segments if specified
-        if [[ -n "$PATH_LEVEL" ]] && [[ "$PATH_LEVEL" -gt 0 ]]; then
-          echo "Trimming paths to first $PATH_LEVEL segments"
-          DIRS=$(echo "$DIRS" | cut -d'/' -f-"$PATH_LEVEL")
-        fi
-
-        # Filter paths if filter_paths is provided (supports both JSON array and newline-separated formats)
-        if [[ -n "$FILTER_PATHS" ]] && [[ "$FILTER_PATHS" != "[]" ]] && [[ "$FILTER_PATHS" != "" ]]; then
-          # Detect format and parse accordingly
-          if [[ "$FILTER_PATHS" == "["* ]]; then
-            # Input looks like JSON array — validate strictly
-            FILTER_LIST=$(echo "$FILTER_PATHS" | jq -er '.[]' 2>/dev/null)
+        # Check shared_paths: if any changed file matches, include ALL filter_paths entries
+        if [[ -n "$SHARED_PATHS" ]] && [[ "$SHARED_PATHS" != "[]" ]] && [[ -n "$FILTER_PATHS" ]] && [[ "$FILTER_PATHS" != "[]" ]]; then
+          if [[ "$SHARED_PATHS" == "["* ]]; then
+            SHARED_LIST=$(echo "$SHARED_PATHS" | jq -er '.[]' 2>/dev/null)
             if [[ $? -ne 0 ]]; then
-              echo "::error::filter_paths looks like a JSON array but is malformed: $FILTER_PATHS"
+              echo "::error::shared_paths looks like a JSON array but is malformed: $SHARED_PATHS"
               exit 1
             fi
           else
-            # Newline-separated input
-            FILTER_LIST="$FILTER_PATHS"
+            SHARED_LIST="$SHARED_PATHS"
           fi
 
-          if [[ -n "$FILTER_LIST" ]]; then
-            FILTERED=""
-            while read -r DIR; do
-              while read -r FILTER; do
-                [[ -z "$FILTER" ]] && continue
-                while [[ "$FILTER" == */ && "$FILTER" != "/" ]]; do
-                  FILTER="${FILTER%/}"
-                done
-                if [[ "$DIR" == "$FILTER" ]] || [[ "$DIR" == "$FILTER"/* ]]; then
-                  if [[ "$NORMALIZE_TO_FILTER" == "true" ]]; then
-                    FILTERED+="$FILTER"$'\n'
-                  else
-                    FILTERED+="$DIR"$'\n'
-                  fi
-                  break
-                fi
-              done <<< "$FILTER_LIST"
-            done <<< "$DIRS"
+          while IFS= read -r FILE; do
+            [[ -z "$FILE" ]] && continue
+            while IFS= read -r SHARED; do
+              [[ -z "$SHARED" ]] && continue
+              while [[ "$SHARED" == */ && "$SHARED" != "/" ]]; do SHARED="${SHARED%/}"; done
+              if [[ "$FILE" == "$SHARED" ]] || [[ "$FILE" == "$SHARED"/* ]]; then
+                echo "Shared path hit: '$FILE' matches '$SHARED' — including all filter_paths"
+                DIRS_FROM_SHARED=true
+                break 2
+              fi
+            done <<< "$SHARED_LIST"
+          done <<< "$FILES"
+        fi
 
-            # If nothing matched, exit
-            if [[ -z "$FILTERED" ]]; then
-              echo "No matching directories found after filtering."
-              printf "matrix=[]\n" >> "$GITHUB_OUTPUT"
-              printf "has_changes=false\n" >> "$GITHUB_OUTPUT"
-              exit 0
+        if [[ "$DIRS_FROM_SHARED" == "true" ]]; then
+          # Use all filter_paths as the build targets
+          if [[ "$FILTER_PATHS" == "["* ]]; then
+            DIRS=$(echo "$FILTER_PATHS" | jq -er '.[]')
+          else
+            DIRS="$FILTER_PATHS"
+          fi
+        else
+          # Get directory for each file
+          DIRS=$(echo "$FILES" | xargs -n1 dirname)
+
+          # Trim to first N path segments if specified
+          if [[ -n "$PATH_LEVEL" ]] && [[ "$PATH_LEVEL" -gt 0 ]]; then
+            echo "Trimming paths to first $PATH_LEVEL segments"
+            DIRS=$(echo "$DIRS" | cut -d'/' -f-"$PATH_LEVEL")
+          fi
+
+          # Filter paths if filter_paths is provided (supports both JSON array and newline-separated formats)
+          if [[ -n "$FILTER_PATHS" ]] && [[ "$FILTER_PATHS" != "[]" ]] && [[ "$FILTER_PATHS" != "" ]]; then
+            # Detect format and parse accordingly
+            if [[ "$FILTER_PATHS" == "["* ]]; then
+              # Input looks like JSON array — validate strictly
+              FILTER_LIST=$(echo "$FILTER_PATHS" | jq -er '.[]' 2>/dev/null)
+              if [[ $? -ne 0 ]]; then
+                echo "::error::filter_paths looks like a JSON array but is malformed: $FILTER_PATHS"
+                exit 1
+              fi
+            else
+              # Newline-separated input
+              FILTER_LIST="$FILTER_PATHS"
             fi
 
-            DIRS="$FILTERED"
+            if [[ -n "$FILTER_LIST" ]]; then
+              FILTERED=""
+              while read -r DIR; do
+                while read -r FILTER; do
+                  [[ -z "$FILTER" ]] && continue
+                  while [[ "$FILTER" == */ && "$FILTER" != "/" ]]; do
+                    FILTER="${FILTER%/}"
+                  done
+                  if [[ "$DIR" == "$FILTER" ]] || [[ "$DIR" == "$FILTER"/* ]]; then
+                    if [[ "$NORMALIZE_TO_FILTER" == "true" ]]; then
+                      FILTERED+="$FILTER"$'\n'
+                    else
+                      FILTERED+="$DIR"$'\n'
+                    fi
+                    break
+                  fi
+                done <<< "$FILTER_LIST"
+              done <<< "$DIRS"
+
+              # If nothing matched, exit
+              if [[ -z "$FILTERED" ]]; then
+                echo "No matching directories found after filtering."
+                printf "matrix=[]\n" >> "$GITHUB_OUTPUT"
+                printf "has_changes=false\n" >> "$GITHUB_OUTPUT"
+                exit 0
+              fi
+
+              DIRS="$FILTERED"
+            fi
           fi
         fi
 
