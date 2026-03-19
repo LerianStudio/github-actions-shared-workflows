@@ -582,7 +582,7 @@ jobs:
 
           # Add all per-app CHANGELOG files
           if [ -f /tmp/apps_updated.txt ]; then
-            while IFS=: read -r APP_NAME VERSION WORKING_DIR; do
+            while IFS=: read -r _APP_NAME _VERSION WORKING_DIR; do
               if [ "$WORKING_DIR" != "." ]; then
                 CHANGELOG_PATH="${WORKING_DIR}/CHANGELOG.md"
               else
