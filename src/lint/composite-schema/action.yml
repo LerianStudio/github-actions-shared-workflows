@@ -1,5 +1,5 @@
 name: Composite Schema Lint
-description: Validate composite action inputs follow project conventions (description, required/default consistency).
+description: Validate composite actions follow project conventions (inputs, steps, naming, reserved prefixes).
 
 inputs:
   files:
@@ -33,17 +33,26 @@ runs:
         echo "::endgroup::"
 
     # ----------------- Check -----------------
-    - name: Validate composite input conventions
+    - name: Validate composite conventions
       if: inputs.files != ''
       shell: bash
       env:
         FILES: ${{ inputs.files }}
       run: |
         python3 - <<'PYEOF'
-        import os, sys, yaml
+        import os, re, sys, yaml
+
+        RESERVED_PREFIXES = ('GITHUB_', 'ACTIONS_', 'RUNNER_')
+        KEBAB_RE          = re.compile(r'^[a-z0-9]+(-[a-z0-9]+)*$')
+        MAX_STEPS         = 15
 
         files      = os.environ.get('FILES', '').split(',')
         violations = 0
+
+        def err(filepath, msg):
+            global violations
+            print(f'::error file={filepath}::{msg}')
+            violations += 1
 
         for filepath in files:
             filepath = filepath.strip()
@@ -64,30 +73,47 @@ runs:
             if runs.get('using') != 'composite':
                 continue
 
+            # ── Root-level name and description ──
+            if not str(data.get('name', '')).strip():
+                err(filepath, 'Missing top-level "name" field.')
+            if not str(data.get('description', '')).strip():
+                err(filepath, 'Missing top-level "description" field.')
+
+            # ── Steps must exist and be non-empty ──
+            steps = runs.get('steps') or []
+            if not steps:
+                err(filepath, 'Composite has no steps defined under runs.steps.')
+            elif len(steps) > MAX_STEPS:
+                err(filepath, f'Too many steps ({len(steps)}); maximum allowed is {MAX_STEPS}. Consider splitting into smaller composites.')
+
+            # ── Input conventions ──
             inputs = data.get('inputs') or {}
             for name, spec in inputs.items():
                 if not isinstance(spec, dict):
                     continue
 
-                has_desc    = bool(spec.get('description', '').strip())
+                has_desc    = bool(str(spec.get('description', '')).strip())
                 required    = spec.get('required', False)
                 has_default = 'default' in spec
 
                 if not has_desc:
-                    print(f'::error file={filepath}::Input "{name}" is missing a description.')
-                    violations += 1
+                    err(filepath, f'Input "{name}" is missing a description.')
 
                 if required and has_default:
-                    print(f'::error file={filepath}::Input "{name}" is required: true but also has a default (should not have one).')
-                    violations += 1
+                    err(filepath, f'Input "{name}" is required: true but also defines a default (remove the default).')
 
                 if not required and not has_default:
-                    print(f'::error file={filepath}::Input "{name}" is required: false but has no default (must define one).')
-                    violations += 1
+                    err(filepath, f'Input "{name}" is required: false but has no default (add one).')
+
+                if any(name.upper().startswith(p) for p in RESERVED_PREFIXES):
+                    err(filepath, f'Input "{name}" uses a reserved prefix ({", ".join(RESERVED_PREFIXES)}); rename to avoid runtime conflicts.')
+
+                if not KEBAB_RE.match(name):
+                    err(filepath, f'Input "{name}" must be kebab-case (e.g. "github-token", "my-input").')
 
         if violations > 0:
             print(f'::error::Found {violations} composite schema violation(s).')
             sys.exit(1)
 
-        print('All composite action inputs passed schema validation.')
+        print('All composite actions passed schema validation.')
         PYEOF

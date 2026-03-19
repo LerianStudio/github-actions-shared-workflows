@@ -5,13 +5,24 @@
   </tr>
 </table>
 
-Validate that composite action `inputs` follow project conventions:
+Validate that composite actions under `src/` follow project conventions. Checks performed:
 
+**Root level**
+- `name` field is present and non-empty
+- `description` field is present and non-empty
+
+**Steps**
+- `runs.steps` is defined and non-empty
+- Step count does not exceed 15 (split into smaller composites if so)
+
+**Inputs**
 - Every input has a non-empty `description`
 - `required: true` inputs must **not** have a `default`
 - `required: false` inputs **must** have a `default`
+- Input names must be **kebab-case** (e.g. `github-token`, not `githubToken` or `github_token`)
+- Input names must not use reserved prefixes: `GITHUB_*`, `ACTIONS_*`, `RUNNER_*`
 
-Only files under `src/` whose `runs.using` is `composite` are validated; all others are silently skipped.
+Only files whose `runs.using` is `composite` are validated; all others are silently skipped.
 
 ## Inputs
 
