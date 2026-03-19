@@ -29,7 +29,7 @@ Composite action that detects changed files between commits and outputs a matrix
 |---|---|:---:|---|
 | `filter-paths` | Newline-separated list of path prefixes to filter results. Also accepts JSON array format. | No | `''` |
 | `shared-paths` | Newline-separated (or JSON array) path patterns that, when matched by any changed file, include ALL `filter-paths` components in the matrix (e.g., `go.mod`, `go.sum`, `libs/`) | No | `''` |
-| `path-level` | Limits the path to the first N segments | No | `0` (disabled) |
+| `path-level` | Limits the path to the first N segments (0 = disabled) | No | `0` |
 | `get-app-name` | Output matrix with `name` and `working_dir` fields | No | `false` |
 | `app-name-prefix` | Prefix to add to each app name | No | `''` |
 | `app-name-overrides` | Newline-separated `path:name` mappings. Use `path:` for prefix-only | No | `''` |
