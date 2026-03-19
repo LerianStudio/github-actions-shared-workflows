@@ -63,7 +63,7 @@ runs:
                 with open(filepath) as f:
                     data = yaml.safe_load(f)
             except Exception as e:
-                print(f'::warning file={filepath}::Could not parse YAML: {e}')
+                err(filepath, f'Could not parse YAML: {e}')
                 continue
 
             if not isinstance(data, dict):
@@ -79,7 +79,7 @@ runs:
 
             # ── Directory structure: must be src/<capability>/<name>/action.yml ──
             parts = filepath.replace('\\', '/').split('/')
-            if len(parts) != 4 or parts[0] != 'src':
+            if len(parts) != 4 or parts[0] != 'src' or parts[-1] != 'action.yml':
                 err(filepath, f'Composite must live at src/<capability>/<name>/action.yml — got "{filepath}".')
 
             # ── Root-level name and description ──
