@@ -1,0 +1,84 @@
+name: Pinned Actions Check
+description: Ensure external action references use final release versions (vX or vX.Y.Z); internal actions may use pre-releases with a warning.
+
+inputs:
+  files:
+    description: Comma-separated list of workflow/composite files to check (empty = skip)
+    required: false
+    default: ""
+  warn-patterns:
+    description: Pipe-separated org/owner prefixes to warn instead of fail (e.g. internal orgs not yet on a release tag)
+    required: false
+    default: "LerianStudio/"
+
+runs:
+  using: composite
+  steps:
+    - name: Log files
+      if: inputs.files != ''
+      shell: bash
+      env:
+        FILES: ${{ inputs.files }}
+      run: |
+        files=$(printf '%s\n' "$FILES" | tr ',' '\n' | sed '/^$/d')
+        count=$(echo "$files" | wc -l | tr -d ' ')
+        echo "::group::Files analyzed by pinned-actions check (${count})"
+        echo "$files" | sed 's/^/  - /'
+        echo "::endgroup::"
+
+    - name: Check for unpinned actions
+      if: inputs.files != ''
+      shell: bash
+      env:
+        FILES: ${{ inputs.files }}
+        WARN_PATTERNS_INPUT: ${{ inputs.warn-patterns }}
+      run: |
+        IFS='|' read -ra WARN_PATTERNS <<< "$WARN_PATTERNS_INPUT"
+        violations=0
+        warnings=0
+
+        for file in $(printf '%s\n' "$FILES" | tr ',' ' '); do
+          [ -f "$file" ] || continue
+          while IFS= read -r line; do
+            line_num=$(echo "$line" | cut -d: -f1)
+            content=$(echo "$line" | cut -d: -f2-)
+
+            # Strip inline YAML comments, then extract the ref (part after the last @)
+            normalized=$(printf '%s\n' "$content" | sed 's/[[:space:]]*#.*$//' | xargs)
+            ref=${normalized##*@}
+
+            # Check if this is an internal org (warn-only)
+            is_internal=false
+            for pattern in "${WARN_PATTERNS[@]}"; do
+              if printf '%s\n' "$normalized" | grep -Fq "$pattern"; then
+                is_internal=true
+                break
+              fi
+            done
+
+            if [ "$is_internal" = true ]; then
+              # Internal: final releases (vX, vX.Y.Z) pass silently; pre-releases (beta, rc) warn
+              if printf '%s\n' "$ref" | grep -Eq '^v[0-9]+$|^v[0-9]+\.[0-9]+\.[0-9]+$'; then
+                continue
+              fi
+              echo "::warning file=${file},line=${line_num}::Internal action not pinned to a final release version: $normalized"
+              warnings=$((warnings + 1))
+            else
+              # External: only final releases allowed — vX or vX.Y.Z (no beta, no rc)
+              if printf '%s\n' "$ref" | grep -Eq '^v[0-9]+$|^v[0-9]+\.[0-9]+\.[0-9]+$'; then
+                continue
+              fi
+              echo "::error file=${file},line=${line_num}::Unpinned action found: $normalized"
+              violations=$((violations + 1))
+            fi
+          done < <(grep -nE '^[[:space:]]*(-[[:space:]]*)?uses:[[:space:]].*@' "$file" 2>/dev/null || true)
+        done
+
+        if [ "$warnings" -gt 0 ]; then
+          echo "::warning::Found $warnings internal action(s) not pinned to a release version. Consider pinning to vX.Y.Z."
+        fi
+        if [ "$violations" -gt 0 ]; then
+          echo "::error::Found $violations unpinned external action(s). Pin to a final release version (vX or vX.Y.Z)."
+          exit 1
+        fi
+        echo "All external actions are properly pinned."

@@ -1,0 +1,214 @@
+name: Self — PR Validation
+
+on:
+  pull_request:
+    branches:
+      - develop
+      - main
+    types:
+      - opened
+      - synchronize
+      - reopened
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  checks: read
+
+jobs:
+  # ----------------- PR Validation -----------------
+  validation:
+    if: github.event_name == 'pull_request'
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
+      checks: read
+    uses: ./.github/workflows/pr-validation.yml
+    with:
+      check_changelog: false
+      enforce_source_branches: true
+      allowed_source_branches: "develop|hotfix/*"
+      target_branches_for_source_check: "main"
+    secrets: inherit
+
+  # ----------------- Changed Files Detection -----------------
+  changed-files:
+    name: Detect Changed Files
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      yaml_files: ${{ steps.detect.outputs.yaml-files }}
+      workflow_files: ${{ steps.detect.outputs.workflow-files }}
+      action_files: ${{ steps.detect.outputs.action-files }}
+      composite_files: ${{ steps.detect.outputs.composite-files }}
+      markdown_files: ${{ steps.detect.outputs.markdown-files }}
+      all_files: ${{ steps.detect.outputs.all-files }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Detect changed files
+        id: detect
+        uses: ./src/config/changed-workflows
+        with:
+          github-token: ${{ github.token }}
+
+  # ----------------- YAML Lint -----------------
+  yamllint:
+    name: YAML Lint
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    needs: changed-files
+    if: needs.changed-files.outputs.yaml_files != ''
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: YAML Lint
+        uses: ./src/lint/yamllint
+        with:
+          file-or-dir: ${{ needs.changed-files.outputs.yaml_files }}
+
+  # ----------------- Action Lint -----------------
+  actionlint:
+    name: Action Lint
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    needs: changed-files
+    if: needs.changed-files.outputs.workflow_files != ''
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Action Lint
+        uses: ./src/lint/actionlint
+        with:
+          files: ${{ needs.changed-files.outputs.workflow_files }}
+
+  # ----------------- Pinned Actions Check -----------------
+  pinned-actions:
+    name: Pinned Actions Check
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    needs: changed-files
+    if: needs.changed-files.outputs.action_files != ''
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Pinned Actions Check
+        uses: ./src/lint/pinned-actions
+        with:
+          files: ${{ needs.changed-files.outputs.action_files }}
+
+  # ----------------- Markdown Link Check -----------------
+  markdown-link-check:
+    name: Markdown Link Check
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    needs: changed-files
+    if: needs.changed-files.outputs.markdown_files != ''
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Markdown Link Check
+        uses: ./src/lint/markdown-link-check
+        with:
+          file-path: ${{ needs.changed-files.outputs.markdown_files }}
+
+  # ----------------- Spelling Check -----------------
+  typos:
+    name: Spelling Check
+    needs: changed-files
+    if: needs.changed-files.outputs.all_files != ''
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Spelling Check
+        uses: ./src/lint/typos
+        with:
+          files: ${{ needs.changed-files.outputs.all_files }}
+
+  # ----------------- Shell Check -----------------
+  shellcheck:
+    name: Shell Check
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    needs: changed-files
+    if: needs.changed-files.outputs.action_files != ''
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Shell Check
+        uses: ./src/lint/shellcheck
+        with:
+          files: ${{ needs.changed-files.outputs.action_files }}
+
+  # ----------------- README Check -----------------
+  readme-check:
+    name: README Check
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    needs: changed-files
+    if: needs.changed-files.outputs.action_files != ''
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: README Check
+        uses: ./src/lint/readme-check
+        with:
+          files: ${{ needs.changed-files.outputs.action_files }}
+
+  # ----------------- Composite Schema Lint -----------------
+  composite-schema:
+    name: Composite Schema Lint
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    needs: changed-files
+    if: needs.changed-files.outputs.composite_files != ''
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Composite Schema Lint
+        uses: ./src/lint/composite-schema
+        with:
+          files: ${{ needs.changed-files.outputs.composite_files }}
+
+  # ----------------- Lint Report -----------------
+  lint-report:
+    name: Lint Report
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    permissions:
+      actions: read
+      contents: read
+      pull-requests: write
+      issues: write
+      checks: read
+    needs: [changed-files, yamllint, actionlint, pinned-actions, markdown-link-check, typos, shellcheck, readme-check, composite-schema]
+    if: always() && github.event_name == 'pull_request' && needs.changed-files.result == 'success'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Post Lint Report
+        uses: ./src/notify/pr-lint-reporter
+        with:
+          github-token: ${{ secrets.MANAGE_TOKEN || github.token }}
+          yamllint-result: ${{ needs.yamllint.result }}
+          yamllint-files: ${{ needs.changed-files.outputs.yaml_files }}
+          actionlint-result: ${{ needs.actionlint.result }}
+          actionlint-files: ${{ needs.changed-files.outputs.workflow_files }}
+          pinned-actions-result: ${{ needs.pinned-actions.result }}
+          pinned-actions-files: ${{ needs.changed-files.outputs.action_files }}
+          markdown-result: ${{ needs.markdown-link-check.result }}
+          markdown-files: ${{ needs.changed-files.outputs.markdown_files }}
+          typos-result: ${{ needs.typos.result }}
+          typos-files: ${{ needs.changed-files.outputs.all_files }}
+          shellcheck-result: ${{ needs.shellcheck.result }}
+          shellcheck-files: ${{ needs.changed-files.outputs.action_files }}
+          readme-result: ${{ needs.readme-check.result }}
+          readme-files: ${{ needs.changed-files.outputs.action_files }}
+          composite-schema-result: ${{ needs.composite-schema.result }}
+          composite-schema-files: ${{ needs.changed-files.outputs.composite_files }}

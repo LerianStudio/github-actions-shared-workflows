@@ -1,0 +1,137 @@
+name: Shell Check
+description: "Run shellcheck on shell run: blocks embedded in GitHub Actions composite and workflow YAML files."
+
+inputs:
+  files:
+    description: Comma-separated list of YAML files to check (empty = skip)
+    required: false
+    default: ""
+  severity:
+    description: Minimum shellcheck severity to report and fail on (error, warning, info, style)
+    required: false
+    default: "warning"
+
+runs:
+  using: composite
+  steps:
+    # ----------------- Setup -----------------
+    - name: Install dependencies
+      if: inputs.files != ''
+      shell: bash
+      run: |
+        if ! command -v shellcheck &>/dev/null; then
+          sudo apt-get install -y --no-install-recommends shellcheck
+        fi
+        if ! python3 -c "import yaml" 2>/dev/null; then
+          sudo apt-get install -y --no-install-recommends python3-yaml
+        fi
+
+    # ----------------- Log -----------------
+    - name: Log files
+      if: inputs.files != ''
+      shell: bash
+      env:
+        FILES: ${{ inputs.files }}
+      run: |
+        files=$(printf '%s\n' "$FILES" | tr ',' '\n' | sed '/^$/d')
+        count=$(echo "$files" | wc -l | tr -d ' ')
+        echo "::group::Files analyzed by shellcheck (${count})"
+        echo "$files" | sed 's/^/  - /'
+        echo "::endgroup::"
+
+    # ----------------- Check -----------------
+    - name: "Run shellcheck on run: blocks"
+      if: inputs.files != ''
+      shell: bash
+      env:
+        FILES: ${{ inputs.files }}
+        SEVERITY: ${{ inputs.severity }}
+      run: |
+        python3 - <<'PYEOF'
+        import os, re, sys, json, yaml, tempfile, subprocess
+
+        files    = os.environ.get('FILES', '').split(',')
+        severity = os.environ.get('SEVERITY', 'warning')
+        violations = 0
+
+        def replace_gha_exprs(text):
+            # Replace GHA expression syntax with a shell-safe placeholder to avoid false positives
+            return re.sub(r'\$\{\{.*?\}\}', '${GHA_PLACEHOLDER}', text, flags=re.DOTALL)
+
+        for filepath in files:
+            filepath = filepath.strip()
+            if not filepath or not os.path.isfile(filepath):
+                continue
+
+            try:
+                with open(filepath) as f:
+                    data = yaml.safe_load(f)
+            except Exception as e:
+                print(f'::warning file={filepath}::Could not parse YAML: {e}')
+                continue
+
+            if not isinstance(data, dict):
+                continue
+
+            steps = []
+            runs = data.get('runs') or {}
+            steps.extend(runs.get('steps') or [])
+            for job in (data.get('jobs') or {}).values():
+                if isinstance(job, dict):
+                    steps.extend(job.get('steps') or [])
+
+            for step in steps:
+                if not isinstance(step, dict):
+                    continue
+                run_block = step.get('run')
+                if not run_block:
+                    continue
+                shell = step.get('shell', 'bash')
+                if shell not in ('bash', 'sh'):
+                    continue
+
+                step_name = step.get('name', 'unnamed')
+                script = f'#!/usr/bin/env {shell}\n' + replace_gha_exprs(run_block)
+
+                with tempfile.NamedTemporaryFile(mode='w', suffix='.sh', delete=False) as tmp:
+                    tmp.write(script)
+                    tmp_path = tmp.name
+
+                try:
+                    result = subprocess.run(
+                        [
+                            'shellcheck',
+                            f'--shell={shell}',
+                            f'--severity={severity}',
+                            '--exclude=SC1090,SC1091,SC2154',
+                            '--format=json',
+                            tmp_path,
+                        ],
+                        capture_output=True,
+                        text=True,
+                    )
+
+                    if result.returncode != 0:
+                        if result.stdout:
+                            issues = json.loads(result.stdout)
+                            for issue in issues:
+                                level   = issue.get('level', 'warning')
+                                msg     = issue.get('message', '')
+                                code    = issue.get('code', '')
+                                line    = max(1, issue.get('line', 1) - 1)
+                                ann     = 'error' if level == 'error' else 'warning'
+                                print(f'::{ann} file={filepath}::Step "{step_name}" (script line {line}): [SC{code}] {msg}')
+                                violations += 1
+                        else:
+                            err = result.stderr.strip() or 'unknown error'
+                            print(f'::error file={filepath}::Step "{step_name}" shellcheck failed: {err}')
+                            violations += 1
+                finally:
+                    os.unlink(tmp_path)
+
+        if violations > 0:
+            print(f'::error::Found {violations} shellcheck error(s) in run: blocks.')
+            sys.exit(1)
+
+        print('All shell run: blocks passed shellcheck.')
+        PYEOF

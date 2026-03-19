@@ -103,12 +103,23 @@ updates:
           - "minor"
           - "patch"
 
+      # Linting and code quality actions
+      linting:
+        patterns:
+          - "ibiqlik/action-yamllint"
+          - "raven-actions/actionlint"
+          - "crate-ci/typos"
+          - "tcort/github-action-markdown-link-check"
+        update-types:
+          - "major"
+          - "minor"
+          - "patch"
+
       # Miscellaneous third-party utilities
       utilities:
         patterns:
           - "amannn/action-semantic-pull-request"
           - "actions/labeler"
-          - "tcort/github-action-markdown-link-check"
           - "actions/github-script"
           - "mikefarah/yq"
         update-types:

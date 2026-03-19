@@ -1,0 +1,39 @@
+name: YAML Lint
+description: Validate YAML files using yamllint with configurable scope.
+
+inputs:
+  config-file:
+    description: Path to the yamllint configuration file
+    required: false
+    default: ".yamllint.yml"
+  file-or-dir:
+    description: Space-separated list of files or directories to lint (empty = skip)
+    required: false
+    default: "."
+  strict:
+    description: Treat warnings as errors
+    required: false
+    default: "false"
+
+runs:
+  using: composite
+  steps:
+    - name: Log files
+      if: inputs.file-or-dir != ''
+      shell: bash
+      env:
+        FILES: ${{ inputs.file-or-dir }}
+      run: |
+        files=$(printf '%s\n' "$FILES" | tr ' ' '\n' | sed '/^$/d')
+        count=$(echo "$files" | wc -l | tr -d ' ')
+        echo "::group::Files analyzed by yamllint (${count})"
+        echo "$files" | sed 's/^/  - /'
+        echo "::endgroup::"
+
+    - name: Run yamllint
+      if: inputs.file-or-dir != ''
+      uses: ibiqlik/action-yamllint@v3.1.1
+      with:
+        file_or_dir: ${{ inputs.file-or-dir }}
+        config_file: ${{ inputs.config-file }}
+        strict: ${{ inputs.strict }}
