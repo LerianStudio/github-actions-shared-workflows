@@ -90,7 +90,7 @@ jobs:
 
             if [ -z "$TAG_NAME" ]; then
               echo "⚠️ No stable tags found"
-              echo "is_stable=false" >> $GITHUB_OUTPUT
+              echo "is_stable=false" >> "$GITHUB_OUTPUT"
               exit 0
             fi
           fi
@@ -101,7 +101,7 @@ jobs:
           TAG_COMMIT=$(git rev-list -n 1 "$TAG_NAME" 2>/dev/null || echo "")
           if [ -z "$TAG_COMMIT" ]; then
             echo "❌ Could not find commit for tag: $TAG_NAME"
-            echo "is_stable=false" >> $GITHUB_OUTPUT
+            echo "is_stable=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
           echo "📌 Tag commit: $TAG_COMMIT"
@@ -114,19 +114,19 @@ jobs:
             echo "✅ Tag commit is on $DEFAULT_BRANCH branch"
           else
             echo "❌ Tag commit is NOT on $DEFAULT_BRANCH branch - skipping changelog"
-            echo "is_stable=false" >> $GITHUB_OUTPUT
+            echo "is_stable=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
           # Check if this is a prerelease tag (beta, rc, alpha)
           if [[ "$TAG_NAME" =~ -(beta|rc|alpha|dev|snapshot) ]]; then
-            echo "is_stable=false" >> $GITHUB_OUTPUT
+            echo "is_stable=false" >> "$GITHUB_OUTPUT"
             echo "⚠️ Prerelease tag detected: $TAG_NAME"
             if [ "${{ inputs.stable_releases_only }}" == "true" ]; then
               echo "🛑 stable_releases_only=true, skipping changelog generation"
             fi
           else
-            echo "is_stable=true" >> $GITHUB_OUTPUT
+            echo "is_stable=true" >> "$GITHUB_OUTPUT"
             echo "✅ Stable release tag on $DEFAULT_BRANCH: $TAG_NAME"
           fi
         env:
@@ -152,8 +152,8 @@ jobs:
         run: |
           # Skip if stable_releases_only is enabled and tag is not stable
           if [ "${{ inputs.stable_releases_only }}" == "true" ] && [ "${{ steps.check-tag.outputs.is_stable }}" != "true" ]; then
-            echo "matrix=[]" >> $GITHUB_OUTPUT
-            echo "has_changes=false" >> $GITHUB_OUTPUT
+            echo "matrix=[]" >> "$GITHUB_OUTPUT"
+            echo "has_changes=false" >> "$GITHUB_OUTPUT"
             echo "🛑 Skipping: prerelease tag with stable_releases_only=true"
             exit 0
           fi
@@ -170,8 +170,8 @@ jobs:
             if [ -z "$FILTER_PATHS" ]; then
               # Single app mode
               APP_NAME="${{ github.event.repository.name }}"
-              echo "matrix=[{\"name\": \"${APP_NAME}\", \"working_dir\": \".\"}]" >> $GITHUB_OUTPUT
-              echo "has_changes=true" >> $GITHUB_OUTPUT
+              echo "matrix=[{\"name\": \"${APP_NAME}\", \"working_dir\": \".\"}]" >> "$GITHUB_OUTPUT"
+              echo "has_changes=true" >> "$GITHUB_OUTPUT"
               echo "📦 Single app mode: ${APP_NAME}"
             else
               # Monorepo mode - find apps with recent stable tags
@@ -185,6 +185,7 @@ jobs:
 
                 # Check if this app has a recent stable tag
                 # Escape regex metacharacters in app name for grep
+                # shellcheck disable=SC2001,SC2016
                 APP_NAME_ESCAPED=$(echo "$APP_NAME" | sed 's/[.[\*^$()+?{}|\\]/\\&/g')
                 LATEST_TAG=$(git tag --sort=-creatordate | grep "^${APP_NAME_ESCAPED}-v" | grep -v -e "-beta" -e "-rc" -e "-alpha" -e "-dev" -e "-snapshot" | head -1)
 
@@ -204,12 +205,12 @@ jobs:
               MATRIX="$MATRIX]"
 
               if [ "$MATRIX" = "[]" ]; then
-                echo "matrix=[]" >> $GITHUB_OUTPUT
-                echo "has_changes=false" >> $GITHUB_OUTPUT
+                echo "matrix=[]" >> "$GITHUB_OUTPUT"
+                echo "has_changes=false" >> "$GITHUB_OUTPUT"
                 echo "⚠️ No apps with stable tags found"
               else
-                echo "matrix=$MATRIX" >> $GITHUB_OUTPUT
-                echo "has_changes=true" >> $GITHUB_OUTPUT
+                echo "matrix=$MATRIX" >> "$GITHUB_OUTPUT"
+                echo "has_changes=true" >> "$GITHUB_OUTPUT"
                 echo "📦 Monorepo mode - found apps: $MATRIX"
               fi
             fi
@@ -218,18 +219,18 @@ jobs:
             if [ -z "${{ inputs.filter_paths }}" ]; then
               # Single app mode - generate changelog from root
               APP_NAME="${{ github.event.repository.name }}"
-              echo "matrix=[{\"name\": \"${APP_NAME}\", \"working_dir\": \".\"}]" >> $GITHUB_OUTPUT
-              echo "has_changes=true" >> $GITHUB_OUTPUT
+              echo "matrix=[{\"name\": \"${APP_NAME}\", \"working_dir\": \".\"}]" >> "$GITHUB_OUTPUT"
+              echo "has_changes=true" >> "$GITHUB_OUTPUT"
               echo "📦 Single app mode: ${APP_NAME}"
             else
               MATRIX='${{ steps.changed-paths.outputs.matrix }}'
               if [ "$MATRIX" == "[]" ] || [ -z "$MATRIX" ]; then
-                echo "matrix=[]" >> $GITHUB_OUTPUT
-                echo "has_changes=false" >> $GITHUB_OUTPUT
+                echo "matrix=[]" >> "$GITHUB_OUTPUT"
+                echo "has_changes=false" >> "$GITHUB_OUTPUT"
                 echo "⚠️ No changes detected in filter_paths"
               else
-                echo "matrix=$MATRIX" >> $GITHUB_OUTPUT
-                echo "has_changes=true" >> $GITHUB_OUTPUT
+                echo "matrix=$MATRIX" >> "$GITHUB_OUTPUT"
+                echo "has_changes=true" >> "$GITHUB_OUTPUT"
                 echo "📦 Monorepo mode - detected changes: $MATRIX"
               fi
             fi
@@ -260,6 +261,7 @@ jobs:
       - name: Sync with remote ref
         run: |
           # Handle both branch and tag triggers
+          # shellcheck disable=SC2193
           if [[ "${{ github.ref }}" == refs/tags/* ]]; then
             echo "📌 Triggered by tag: ${{ github.ref_name }}"
             # For tags, checkout already positioned us at the correct commit
@@ -308,6 +310,7 @@ jobs:
 
             # Determine tag pattern based on app type (monorepo vs single-app)
             # Escape regex metacharacters in app name for grep patterns
+            # shellcheck disable=SC2001,SC2016
             APP_NAME_ESCAPED=$(echo "$APP_NAME" | sed 's/[.[\*^$()+?{}|\\]/\\&/g')
             if [ "$WORKING_DIR" != "." ]; then
               # Monorepo: tags are prefixed with app name (e.g., auth-v1.0.0)
@@ -350,6 +353,7 @@ jobs:
             fi
 
             # Extract version from tag (handles both monorepo and single-app formats)
+            # shellcheck disable=SC2001
             if [ "$WORKING_DIR" != "." ]; then
               # Monorepo: auth-v1.0.0 -> 1.0.0
               VERSION=$(echo "$LAST_TAG" | sed 's/.*-v//')
@@ -524,12 +528,13 @@ jobs:
 
           # Output results
           if [ -s /tmp/apps_updated.txt ]; then
+            # shellcheck disable=SC2002
             APPS_LIST=$(cat /tmp/apps_updated.txt 2>/dev/null | cut -d: -f1,2 | tr '\n' ', ' | sed 's/,$//')
-            echo "apps_updated=$APPS_LIST" >> $GITHUB_OUTPUT
+            echo "apps_updated=$APPS_LIST" >> "$GITHUB_OUTPUT"
             echo "✅ Per-app changelogs created for: $APPS_LIST"
           else
             echo "⚠️ No changelog content generated"
-            echo "apps_updated=" >> $GITHUB_OUTPUT
+            echo "apps_updated=" >> "$GITHUB_OUTPUT"
           fi
         env:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
@@ -658,7 +663,7 @@ jobs:
           # Check if develop branch exists
           if ! git ls-remote --heads origin develop | grep -q develop; then
             echo "⚠️ No develop branch found - skipping sync"
-            echo "sync_pr=" >> $GITHUB_OUTPUT
+            echo "sync_pr=" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
@@ -668,7 +673,7 @@ jobs:
           EXISTING_PR=$(gh pr list --state open --base "$TARGET_BRANCH" --head "$DEFAULT_BRANCH" --json number -q '.[0].number' 2>/dev/null || true)
           if [ -n "$EXISTING_PR" ]; then
             echo "⚠️ PR #$EXISTING_PR already exists for $DEFAULT_BRANCH → $TARGET_BRANCH"
-            echo "sync_pr=" >> $GITHUB_OUTPUT
+            echo "sync_pr=" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
@@ -687,12 +692,12 @@ jobs:
             --base "$TARGET_BRANCH" \
             --head "$DEFAULT_BRANCH" 2>&1) || {
             echo "⚠️ Could not create PR: $PR_URL"
-            echo "sync_pr=" >> $GITHUB_OUTPUT
+            echo "sync_pr=" >> "$GITHUB_OUTPUT"
             exit 0
           }
 
           echo "✅ Created PR: $PR_URL"
-          echo "sync_pr=$PR_URL" >> $GITHUB_OUTPUT
+          echo "sync_pr=$PR_URL" >> "$GITHUB_OUTPUT"
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
 

@@ -257,6 +257,7 @@ jobs:
           # Strip app prefix by finding -v and extracting from there
           # e.g., agent-v1.0.0-beta.1 -> v1.0.0-beta.1
           # e.g., control-plane-v1.0.0-beta.1 -> v1.0.0-beta.1
+          # shellcheck disable=SC2001
           VERSION=$(echo "$TAG" | sed 's/.*-\(v[0-9]\)/\1/')
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "Extracted version: $VERSION from tag: $TAG"
