@@ -61,6 +61,14 @@ inputs:
     description: Comma-separated list of files checked for README presence
     required: false
     default: ""
+  composite-schema-result:
+    description: Result of the composite-schema job (success/failure/skipped/cancelled)
+    required: false
+    default: "skipped"
+  composite-schema-files:
+    description: Comma-separated list of action files validated by composite-schema
+    required: false
+    default: ""
 
 runs:
   using: composite
@@ -113,6 +121,12 @@ runs:
               label:   'README Check',
               result:  '${{ inputs.readme-result }}',
               files:   '${{ inputs.readme-files }}'.trim().split(',').filter(Boolean),
+            },
+            {
+              jobName: 'Composite Schema Lint',
+              label:   'Composite Schema',
+              result:  '${{ inputs.composite-schema-result }}',
+              files:   '${{ inputs.composite-schema-files }}'.trim().split(',').filter(Boolean),
             },
           ];
 

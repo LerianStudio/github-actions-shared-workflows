@@ -26,6 +26,8 @@ Posts a formatted lint analysis summary as a PR comment, aggregating results fro
 | `shellcheck-files` | Comma-separated list of YAML files checked by shellcheck | No | `` |
 | `readme-result` | Result of the readme-check job | No | `skipped` |
 | `readme-files` | Comma-separated list of files checked for README presence | No | `` |
+| `composite-schema-result` | Result of the composite-schema job | No | `skipped` |
+| `composite-schema-files` | Comma-separated list of action files validated by composite-schema | No | `` |
 
 ## Usage as composite step
 
@@ -33,7 +35,7 @@ Posts a formatted lint analysis summary as a PR comment, aggregating results fro
 jobs:
   lint-report:
     runs-on: blacksmith-4vcpu-ubuntu-2404
-    needs: [yamllint, actionlint, pinned-actions, markdown-link-check, typos, shellcheck, readme-check]
+    needs: [yamllint, actionlint, pinned-actions, markdown-link-check, typos, shellcheck, readme-check, composite-schema]
     if: always() && github.event_name == 'pull_request'
     steps:
       - name: Checkout
@@ -47,6 +49,7 @@ jobs:
           actionlint-result: ${{ needs.actionlint.result }}
           shellcheck-result: ${{ needs.shellcheck.result }}
           readme-result: ${{ needs.readme-check.result }}
+          composite-schema-result: ${{ needs.composite-schema.result }}
 ```
 
 ## Required permissions

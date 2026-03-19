@@ -159,6 +159,21 @@ jobs:
         with:
           files: ${{ needs.changed-files.outputs.action_files }}
 
+  # ----------------- Composite Schema Lint -----------------
+  composite-schema:
+    name: Composite Schema Lint
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    needs: changed-files
+    if: needs.changed-files.outputs.action_files != ''
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Composite Schema Lint
+        uses: ./src/lint/composite-schema
+        with:
+          files: ${{ needs.changed-files.outputs.action_files }}
+
   # ----------------- Lint Report -----------------
   lint-report:
     name: Lint Report
@@ -168,7 +183,7 @@ jobs:
       pull-requests: write
       issues: write
       checks: read
-    needs: [changed-files, yamllint, actionlint, pinned-actions, markdown-link-check, typos, shellcheck, readme-check]
+    needs: [changed-files, yamllint, actionlint, pinned-actions, markdown-link-check, typos, shellcheck, readme-check, composite-schema]
     if: always() && github.event_name == 'pull_request' && needs.changed-files.result == 'success'
     steps:
       - name: Checkout
@@ -192,3 +207,5 @@ jobs:
           shellcheck-files: ${{ needs.changed-files.outputs.action_files }}
           readme-result: ${{ needs.readme-check.result }}
           readme-files: ${{ needs.changed-files.outputs.action_files }}
+          composite-schema-result: ${{ needs.composite-schema.result }}
+          composite-schema-files: ${{ needs.changed-files.outputs.action_files }}

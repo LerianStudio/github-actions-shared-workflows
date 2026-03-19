@@ -1,0 +1,99 @@
+name: Composite Schema Lint
+description: Validate composite action inputs follow project conventions (description, required/default consistency).
+
+inputs:
+  files:
+    description: Comma-separated list of YAML files to check (empty = skip)
+    required: false
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    # ----------------- Setup -----------------
+    - name: Install dependencies
+      if: inputs.files != ''
+      shell: bash
+      run: |
+        if ! python3 -c "import yaml" 2>/dev/null; then
+          sudo apt-get install -y --no-install-recommends python3-yaml
+        fi
+
+    # ----------------- Log -----------------
+    - name: Log files
+      if: inputs.files != ''
+      shell: bash
+      env:
+        FILES: ${{ inputs.files }}
+      run: |
+        files=$(printf '%s\n' "$FILES" | tr ',' '\n' | sed '/^$/d')
+        count=$(echo "$files" | wc -l | tr -d ' ')
+        echo "::group::Files analyzed by composite-schema (${count})"
+        echo "$files" | sed 's/^/  - /'
+        echo "::endgroup::"
+
+    # ----------------- Check -----------------
+    - name: Validate composite input conventions
+      if: inputs.files != ''
+      shell: bash
+      env:
+        FILES: ${{ inputs.files }}
+      run: |
+        python3 - <<'PYEOF'
+        import os, sys, yaml
+
+        files      = os.environ.get('FILES', '').split(',')
+        violations = 0
+
+        for filepath in files:
+            filepath = filepath.strip()
+            if not filepath or not os.path.isfile(filepath):
+                continue
+
+            # Only validate composite action.yml files under src/
+            if 'action.yml' not in filepath and 'action.yaml' not in filepath:
+                continue
+            if not filepath.startswith('src/'):
+                continue
+
+            try:
+                with open(filepath) as f:
+                    data = yaml.safe_load(f)
+            except Exception as e:
+                print(f'::warning file={filepath}::Could not parse YAML: {e}')
+                continue
+
+            if not isinstance(data, dict):
+                continue
+
+            runs = data.get('runs') or {}
+            if runs.get('using') != 'composite':
+                continue
+
+            inputs = data.get('inputs') or {}
+            for name, spec in inputs.items():
+                if not isinstance(spec, dict):
+                    continue
+
+                has_desc    = bool(spec.get('description', '').strip())
+                required    = spec.get('required', False)
+                has_default = 'default' in spec
+
+                if not has_desc:
+                    print(f'::error file={filepath}::Input "{name}" is missing a description.')
+                    violations += 1
+
+                if required and has_default:
+                    print(f'::error file={filepath}::Input "{name}" is required: true but also has a default (should not have one).')
+                    violations += 1
+
+                if not required and not has_default:
+                    print(f'::error file={filepath}::Input "{name}" is required: false but has no default (must define one).')
+                    violations += 1
+
+        if violations > 0:
+            print(f'::error::Found {violations} composite schema violation(s).')
+            sys.exit(1)
+
+        print('All composite action inputs passed schema validation.')
+        PYEOF
