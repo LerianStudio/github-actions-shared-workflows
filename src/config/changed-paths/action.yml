@@ -190,7 +190,11 @@ runs:
         if [[ "$DIRS_FROM_SHARED" == "true" ]]; then
           # Use all filter_paths as the build targets
           if [[ "$FILTER_PATHS" == "["* ]]; then
-            DIRS=$(echo "$FILTER_PATHS" | jq -er '.[]')
+            DIRS=$(echo "$FILTER_PATHS" | jq -er '.[]' 2>/dev/null)
+            if [[ $? -ne 0 ]]; then
+              echo "::error::filter-paths looks like a JSON array but is malformed: $FILTER_PATHS"
+              exit 1
+            fi
           else
             DIRS="$FILTER_PATHS"
           fi
