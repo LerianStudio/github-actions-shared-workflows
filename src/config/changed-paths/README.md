@@ -160,9 +160,9 @@ If `components/api` and `frontend` both changed:
 ]
 ```
 
-### With shared_paths (monorepo root-level files)
+### With shared-paths (monorepo root-level files)
 
-When root-level files like `go.mod` or `go.sum` change, all components should be rebuilt. Use `shared_paths` to trigger a full matrix whenever such files are touched:
+When root-level files like `go.mod` or `go.sum` change, all components should be rebuilt. Use `shared-paths` to trigger a full matrix whenever such files are touched:
 
 ```yaml
 with:

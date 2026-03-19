@@ -215,7 +215,7 @@ runs:
               # Input looks like JSON array — validate strictly
               FILTER_LIST=$(echo "$FILTER_PATHS" | jq -er '.[]' 2>/dev/null)
               if [[ $? -ne 0 ]]; then
-                echo "::error::filter_paths looks like a JSON array but is malformed: $FILTER_PATHS"
+                echo "::error::filter-paths looks like a JSON array but is malformed: $FILTER_PATHS"
                 exit 1
               fi
             else
