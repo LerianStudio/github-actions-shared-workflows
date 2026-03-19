@@ -155,12 +155,12 @@ jobs:
         id: changed-paths
         uses: LerianStudio/github-actions-shared-workflows/src/config/changed-paths@develop
         with:
-          filter_paths: ${{ inputs.filter_paths }}
-          path_level: ${{ inputs.path_level }}
-          get_app_name: 'true'
-          app_name_prefix: ${{ inputs.app_name_prefix }}
-          app_name_overrides: ${{ inputs.app_name_overrides }}
-          normalize_to_filter: ${{ inputs.normalize_to_filter }}
+          filter-paths: ${{ inputs.filter_paths }}
+          path-level: ${{ inputs.path_level }}
+          get-app-name: 'true'
+          app-name-prefix: ${{ inputs.app_name_prefix }}
+          app-name-overrides: ${{ inputs.app_name_overrides }}
+          normalize-to-filter: ${{ inputs.normalize_to_filter }}
 
       - name: Set matrix
         id: set-matrix

@@ -88,18 +88,18 @@ jobs:
         id: changed-paths
         uses: LerianStudio/github-actions-shared-workflows/src/config/changed-paths@develop
         with:
-          filter_paths: ${{ inputs.filter_paths }}
-          get_app_name: true
-          path_level: ${{ inputs.path_level }}
-          app_name_prefix: ${{ inputs.app_name_prefix }}
-          app_name_overrides: ${{ inputs.app_name_overrides }}
-          normalize_to_filter: ${{ inputs.normalize_to_filter }}
-          ignore_dirs: |
+          filter-paths: ${{ inputs.filter_paths }}
+          get-app-name: true
+          path-level: ${{ inputs.path_level }}
+          app-name-prefix: ${{ inputs.app_name_prefix }}
+          app-name-overrides: ${{ inputs.app_name_overrides }}
+          normalize-to-filter: ${{ inputs.normalize_to_filter }}
+          ignore-dirs: |
             .github
             .githooks
-          fallback_app_name: ${{ github.event.repository.name }}
-          consolidate_to_root: ${{ inputs.monorepo_type == 'type2' }}
-          consolidate_keep_dirs: ${{ inputs.frontend_folder }}
+          fallback-app-name: ${{ github.event.repository.name }}
+          consolidate-to-root: ${{ inputs.monorepo_type == 'type2' }}
+          consolidate-keep-dirs: ${{ inputs.frontend_folder }}
 
   security_scan:
     needs: prepare_matrix

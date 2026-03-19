@@ -57,9 +57,9 @@ jobs:
         id: changed-paths
         uses: LerianStudio/github-actions-shared-workflows/src/config/changed-paths@develop
         with:
-          filter_paths: ${{ inputs.filter_paths }}
-          path_level: ${{ inputs.path_level }}
-          get_app_name: 'true'
+          filter-paths: ${{ inputs.filter_paths }}
+          path-level: ${{ inputs.path_level }}
+          get-app-name: 'true'
 
       - name: Set matrix
         id: set-matrix

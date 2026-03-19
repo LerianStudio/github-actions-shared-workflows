@@ -2,47 +2,47 @@ name: Get Changed Paths
 description: Detects changed files between commits and outputs a matrix of changed directories for monorepo CI/CD pipelines.
 
 inputs:
-  filter_paths:
+  filter-paths:
     description: 'Newline-separated list of path prefixes to filter results (e.g., "components/mdz\ncomponents/transaction"). Also accepts JSON array format.'
     required: false
     default: ''
-  shared_paths:
+  shared-paths:
     description: 'Newline-separated list of path patterns (e.g., "go.mod\ngo.sum\nlibs/") that, when matched by any changed file, trigger a build for ALL components in filter_paths. Also accepts JSON array format.'
     required: false
     default: ''
-  path_level:
+  path-level:
     description: 'Limits the path to the first N segments (e.g., 2 -> "components/transactions")'
     required: false
     default: '0'
-  get_app_name:
+  get-app-name:
     description: 'If true, outputs a matrix of objects with app name and working directory. Otherwise, outputs a list of changed directories'
     required: false
     default: 'false'
-  app_name_prefix:
+  app-name-prefix:
     description: 'Prefix to add to each app name when get_app_name is true'
     required: false
     default: ''
-  app_name_overrides:
+  app-name-overrides:
     description: 'Newline-separated list of explicit app name mappings in "path:name" format. Use "path:" for prefix-only. Overrides default segment extraction'
     required: false
     default: ''
-  normalize_to_filter:
+  normalize-to-filter:
     description: 'If true, uses the filter path as working_dir instead of the actual trimmed directory path'
     required: false
     default: 'false'
-  ignore_dirs:
+  ignore-dirs:
     description: 'Newline-separated list of directories to exclude from the output matrix (e.g., ".github\n.githooks"). Matched by exact name or prefix.'
     required: false
     default: ''
-  fallback_app_name:
+  fallback-app-name:
     description: 'When filter_paths is empty, return a single-item matrix with this name and working_dir "." instead of detecting changes. Enables single-app mode.'
     required: false
     default: ''
-  consolidate_to_root:
+  consolidate-to-root:
     description: 'When true, consolidate all entries (except those in consolidate_keep_dirs) to a single root entry using fallback_app_name. Requires get_app_name and fallback_app_name.'
     required: false
     default: 'false'
-  consolidate_keep_dirs:
+  consolidate-keep-dirs:
     description: 'Newline-separated list of working_dirs to keep as-is during consolidation (e.g., "frontend"). Only used when consolidate_to_root is true.'
     required: false
     default: ''
@@ -120,17 +120,17 @@ runs:
       shell: bash
       run: |
         FILES="${{ steps.changed.outputs.files }}"
-        FILTER_PATHS='${{ inputs.filter_paths }}'
-        SHARED_PATHS='${{ inputs.shared_paths }}'
-        PATH_LEVEL="${{ inputs.path_level }}"
-        GET_APP_NAME="${{ inputs.get_app_name }}"
-        APP_NAME_PREFIX="${{ inputs.app_name_prefix }}"
-        APP_NAME_OVERRIDES="${{ inputs.app_name_overrides }}"
-        NORMALIZE_TO_FILTER="${{ inputs.normalize_to_filter }}"
-        IGNORE_DIRS='${{ inputs.ignore_dirs }}'
-        FALLBACK_APP_NAME="${{ inputs.fallback_app_name }}"
-        CONSOLIDATE_TO_ROOT="${{ inputs.consolidate_to_root }}"
-        CONSOLIDATE_KEEP_DIRS='${{ inputs.consolidate_keep_dirs }}'
+        FILTER_PATHS='${{ inputs.filter-paths }}'
+        SHARED_PATHS='${{ inputs.shared-paths }}'
+        PATH_LEVEL="${{ inputs.path-level }}"
+        GET_APP_NAME="${{ inputs.get-app-name }}"
+        APP_NAME_PREFIX="${{ inputs.app-name-prefix }}"
+        APP_NAME_OVERRIDES="${{ inputs.app-name-overrides }}"
+        NORMALIZE_TO_FILTER="${{ inputs.normalize-to-filter }}"
+        IGNORE_DIRS='${{ inputs.ignore-dirs }}'
+        FALLBACK_APP_NAME="${{ inputs.fallback-app-name }}"
+        CONSOLIDATE_TO_ROOT="${{ inputs.consolidate-to-root }}"
+        CONSOLIDATE_KEEP_DIRS='${{ inputs.consolidate-keep-dirs }}'
 
         # Single app fallback: when filter_paths is empty and fallback_app_name is set,
         # return a single-item matrix without detecting changes
