@@ -50,12 +50,6 @@ runs:
             if not filepath or not os.path.isfile(filepath):
                 continue
 
-            # Only validate composite action.yml files under src/
-            if 'action.yml' not in filepath and 'action.yaml' not in filepath:
-                continue
-            if not filepath.startswith('src/'):
-                continue
-
             try:
                 with open(filepath) as f:
                     data = yaml.safe_load(f)

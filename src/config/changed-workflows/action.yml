@@ -16,6 +16,9 @@ outputs:
   action-files:
     description: Comma-separated list of changed workflow and composite .yml/.yaml files
     value: ${{ steps.detect.outputs.action_files }}
+  composite-files:
+    description: Comma-separated list of changed composite action.yml files under src/
+    value: ${{ steps.detect.outputs.composite_files }}
   markdown-files:
     description: Comma-separated list of changed .md files
     value: ${{ steps.detect.outputs.markdown_files }}
@@ -36,12 +39,14 @@ runs:
           yaml_files=$(echo "$changed" | grep -E '\.yml$' | tr '\n' ' ' | sed 's/ $//' || true)
           workflow_files=$(echo "$changed" | grep -E '^\.github/workflows/.*\.yml$' | tr '\n' ',' | sed 's/,$//' || true)
           action_files=$(echo "$changed" | grep -E '\.(yml|yaml)$' | grep -E '(\.github/workflows/|src/)' | tr '\n' ',' | sed 's/,$//' || true)
+          composite_files=$(echo "$changed" | grep -E '^src/.*/action\.(yml|yaml)$' | tr '\n' ',' | sed 's/,$//' || true)
           markdown_files=$(echo "$changed" | grep -E '\.md$' | tr '\n' ',' | sed 's/,$//' || true)
           all_files=$(echo "$changed" | tr '\n' ' ' | sed 's/ $//' || true)
         else
           yaml_files="."
           workflow_files=".github/workflows/*.yml"
           action_files=$(find .github/workflows/ src/ \( -name '*.yml' -o -name '*.yaml' \) 2>/dev/null | tr '\n' ',' | sed 's/,$//')
+          composite_files=$(find src/ \( -name 'action.yml' -o -name 'action.yaml' \) 2>/dev/null | tr '\n' ',' | sed 's/,$//')
           markdown_files=""
           all_files="."
         fi
@@ -49,6 +54,7 @@ runs:
         echo "yaml_files=${yaml_files}" >> "$GITHUB_OUTPUT"
         echo "workflow_files=${workflow_files}" >> "$GITHUB_OUTPUT"
         echo "action_files=${action_files}" >> "$GITHUB_OUTPUT"
+        echo "composite_files=${composite_files}" >> "$GITHUB_OUTPUT"
         echo "markdown_files=${markdown_files}" >> "$GITHUB_OUTPUT"
         echo "all_files=${all_files}" >> "$GITHUB_OUTPUT"
 
@@ -67,6 +73,7 @@ runs:
         log_files "YAML files"      "${yaml_files}"     ' '
         log_files "Workflow files"  "${workflow_files}"  ','
         log_files "Action files"    "${action_files}"    ','
+        log_files "Composite files" "${composite_files}" ','
         log_files "Markdown files"  "${markdown_files}"  ','
         log_files "All files"       "${all_files}"       ' '
 
@@ -90,6 +97,7 @@ runs:
           print_files "YAML files"      "${yaml_files}"     ' '
           print_files "Workflow files"  "${workflow_files}"  ','
           print_files "Action files"    "${action_files}"    ','
+          print_files "Composite files" "${composite_files}" ','
           print_files "Markdown files"  "${markdown_files}"  ','
           print_files "All files"       "${all_files}"       ' '
         } >> "$GITHUB_STEP_SUMMARY"

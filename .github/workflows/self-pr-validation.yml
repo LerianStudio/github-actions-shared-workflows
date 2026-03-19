@@ -42,6 +42,7 @@ jobs:
       yaml_files: ${{ steps.detect.outputs.yaml-files }}
       workflow_files: ${{ steps.detect.outputs.workflow-files }}
       action_files: ${{ steps.detect.outputs.action-files }}
+      composite_files: ${{ steps.detect.outputs.composite-files }}
       markdown_files: ${{ steps.detect.outputs.markdown-files }}
       all_files: ${{ steps.detect.outputs.all-files }}
     steps:
@@ -164,7 +165,7 @@ jobs:
     name: Composite Schema Lint
     runs-on: blacksmith-4vcpu-ubuntu-2404
     needs: changed-files
-    if: needs.changed-files.outputs.action_files != ''
+    if: needs.changed-files.outputs.composite_files != ''
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -172,7 +173,7 @@ jobs:
       - name: Composite Schema Lint
         uses: ./src/lint/composite-schema
         with:
-          files: ${{ needs.changed-files.outputs.action_files }}
+          files: ${{ needs.changed-files.outputs.composite_files }}
 
   # ----------------- Lint Report -----------------
   lint-report:
@@ -208,4 +209,4 @@ jobs:
           readme-result: ${{ needs.readme-check.result }}
           readme-files: ${{ needs.changed-files.outputs.action_files }}
           composite-schema-result: ${{ needs.composite-schema.result }}
-          composite-schema-files: ${{ needs.changed-files.outputs.action_files }}
+          composite-schema-files: ${{ needs.changed-files.outputs.composite_files }}
