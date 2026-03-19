@@ -9,19 +9,35 @@ Composite action that detects changed files between commits and outputs a matrix
 
 ## Inputs
 
+> **Breaking change (kebab-case):** All input names were renamed from `snake_case` to `kebab-case`. Update any callers that used the old names:
+>
+> | Old (snake_case) | New (kebab-case) |
+> |---|---|
+> | `filter_paths` | `filter-paths` |
+> | `shared_paths` | `shared-paths` |
+> | `path_level` | `path-level` |
+> | `get_app_name` | `get-app-name` |
+> | `app_name_prefix` | `app-name-prefix` |
+> | `app_name_overrides` | `app-name-overrides` |
+> | `normalize_to_filter` | `normalize-to-filter` |
+> | `ignore_dirs` | `ignore-dirs` |
+> | `fallback_app_name` | `fallback-app-name` |
+> | `consolidate_to_root` | `consolidate-to-root` |
+> | `consolidate_keep_dirs` | `consolidate-keep-dirs` |
+
 | Input | Description | Required | Default |
 |---|---|:---:|---|
-| `filter_paths` | JSON array of path prefixes to filter results | No | `''` |
-| `shared_paths` | Newline-separated (or JSON array) path patterns that, when matched by any changed file, include ALL `filter_paths` components in the matrix (e.g., `go.mod`, `go.sum`, `libs/`) | No | `''` |
-| `path_level` | Limits the path to the first N segments | No | `0` (disabled) |
-| `get_app_name` | Output matrix with `name` and `working_dir` fields | No | `false` |
-| `app_name_prefix` | Prefix to add to each app name | No | `''` |
-| `app_name_overrides` | Newline-separated `path:name` mappings. Use `path:` for prefix-only | No | `''` |
-| `normalize_to_filter` | Use filter path as `working_dir` instead of actual trimmed path | No | `false` |
-| `ignore_dirs` | Newline-separated directories to exclude from the output matrix | No | `''` |
-| `fallback_app_name` | When `filter_paths` is empty, return single-item matrix with this name | No | `''` |
-| `consolidate_to_root` | Consolidate all entries (except `consolidate_keep_dirs`) to root | No | `false` |
-| `consolidate_keep_dirs` | Newline-separated dirs to keep as-is during consolidation | No | `''` |
+| `filter-paths` | Newline-separated list of path prefixes to filter results. Also accepts JSON array format. | No | `''` |
+| `shared-paths` | Newline-separated (or JSON array) path patterns that, when matched by any changed file, include ALL `filter-paths` components in the matrix (e.g., `go.mod`, `go.sum`, `libs/`) | No | `''` |
+| `path-level` | Limits the path to the first N segments | No | `0` (disabled) |
+| `get-app-name` | Output matrix with `name` and `working_dir` fields | No | `false` |
+| `app-name-prefix` | Prefix to add to each app name | No | `''` |
+| `app-name-overrides` | Newline-separated `path:name` mappings. Use `path:` for prefix-only | No | `''` |
+| `normalize-to-filter` | Use filter path as `working_dir` instead of actual trimmed path | No | `false` |
+| `ignore-dirs` | Newline-separated directories to exclude from the output matrix | No | `''` |
+| `fallback-app-name` | When `filter-paths` is empty, return single-item matrix with this name | No | `''` |
+| `consolidate-to-root` | Consolidate all entries (except `consolidate-keep-dirs`) to root | No | `false` |
+| `consolidate-keep-dirs` | Newline-separated dirs to keep as-is during consolidation | No | `''` |
 
 ## Outputs
 
@@ -38,10 +54,10 @@ steps:
     id: changed-paths
     uses: LerianStudio/github-actions-shared-workflows/src/config/changed-paths@v1.0.0
     with:
-      filter_paths: '["components/api", "components/web"]'
-      path_level: 2
-      get_app_name: true
-      app_name_prefix: 'myapp'
+      filter-paths: '["components/api", "components/web"]'
+      path-level: 2
+      get-app-name: true
+      app-name-prefix: 'myapp'
 ```
 
 ## Output formats
@@ -74,10 +90,10 @@ steps:
 
 ```yaml
 with:
-  app_name_overrides: |-
+  app-name-overrides: |-
     components/onboarding:
     components/transaction:tx
-  app_name_prefix: 'midaz'
+  app-name-prefix: 'midaz'
 ```
 
 ```json
@@ -91,13 +107,13 @@ with:
 
 ```yaml
 with:
-  filter_paths: |-
+  filter-paths: |-
     components/api
     components/web
-  ignore_dirs: |-
+  ignore-dirs: |-
     .github
     .githooks
-  get_app_name: true
+  get-app-name: true
 ```
 
 Directories matching `.github` or `.githooks` (exact or prefix) are excluded from the output matrix before app name generation.
@@ -108,8 +124,8 @@ When `filter_paths` is empty and `fallback_app_name` is set, the composite skips
 
 ```yaml
 with:
-  get_app_name: true
-  fallback_app_name: 'my-service'
+  get-app-name: true
+  fallback-app-name: 'my-service'
 ```
 
 ```json
@@ -122,15 +138,15 @@ When `consolidate_to_root: true`, all entries except those matching `consolidate
 
 ```yaml
 with:
-  filter_paths: |-
+  filter-paths: |-
     components/api
     components/worker
     frontend
-  get_app_name: true
-  fallback_app_name: 'my-repo'
-  consolidate_to_root: true
-  consolidate_keep_dirs: 'frontend'
-  ignore_dirs: |-
+  get-app-name: true
+  fallback-app-name: 'my-repo'
+  consolidate-to-root: true
+  consolidate-keep-dirs: 'frontend'
+  ignore-dirs: |-
     .github
     .githooks
 ```
@@ -150,27 +166,27 @@ When root-level files like `go.mod` or `go.sum` change, all components should be
 
 ```yaml
 with:
-  filter_paths: |-
+  filter-paths: |-
     components/manager
     components/worker
-  shared_paths: |-
+  shared-paths: |-
     go.mod
     go.sum
     libs/
-  path_level: 2
-  get_app_name: true
+  path-level: 2
+  get-app-name: true
 ```
 
 If only `go.mod` changes → both `components/manager` and `components/worker` are included in the matrix.
 If only `components/worker/cmd/main.go` changes → only `components/worker` is included (normal behaviour).
 
-### With normalize_to_filter
+### With normalize-to-filter
 
-When `normalize_to_filter: true`, deeper changed paths are normalized back to the matching filter path.
+When `normalize-to-filter: true`, deeper changed paths are normalized back to the matching filter path.
 
-Changed file `components/app/cmd/main.go` with `filter_paths: '["components/app"]'` outputs `working_dir: "components/app"` instead of `components/app/cmd`.
+Changed file `components/app/cmd/main.go` with `filter-paths: '["components/app"]'` outputs `working_dir: "components/app"` instead of `components/app/cmd`.
 
-## How path_level works
+## How path-level works
 
 | Original Path | path_level | Result |
 |---|---|---|
