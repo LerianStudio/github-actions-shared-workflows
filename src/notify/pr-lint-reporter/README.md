@@ -36,7 +36,7 @@ jobs:
   lint-report:
     runs-on: blacksmith-4vcpu-ubuntu-2404
     needs: [changed-files, yamllint, actionlint, pinned-actions, markdown-link-check, typos, shellcheck, readme-check, composite-schema]
-    if: always() && github.event_name == 'pull_request'
+    if: always() && github.event_name == 'pull_request' && needs.changed-files.result == 'success'
     steps:
       - name: Checkout
         uses: actions/checkout@v6

@@ -100,15 +100,16 @@ runs:
                 err(filepath, f'Too many steps ({len(steps)}); maximum allowed is {MAX_STEPS}. Consider splitting into smaller composites.')
 
             # ── Input conventions ──
-            inputs = data.get('inputs') or {}
-            if not isinstance(inputs, dict):
+            inputs = data.get('inputs')
+            if inputs is None:
+                inputs = {}
+            elif not isinstance(inputs, dict):
                 err(filepath, '"inputs" must be a mapping.')
                 continue
 
             for name, spec in inputs.items():
                 if not isinstance(spec, dict):
                     err(filepath, f'Input "{name}" definition must be a mapping.')
-                    violations += 1
                     continue
 
                 description = spec.get('description')
