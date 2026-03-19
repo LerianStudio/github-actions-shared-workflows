@@ -528,8 +528,7 @@ jobs:
 
           # Output results
           if [ -s /tmp/apps_updated.txt ]; then
-            # shellcheck disable=SC2002
-            APPS_LIST=$(cat /tmp/apps_updated.txt 2>/dev/null | cut -d: -f1,2 | tr '\n' ', ' | sed 's/,$//')
+            APPS_LIST=$(cut -d: -f1,2 < /tmp/apps_updated.txt | tr '\n' ', ' | sed 's/,$//')
             echo "apps_updated=$APPS_LIST" >> "$GITHUB_OUTPUT"
             echo "✅ Per-app changelogs created for: $APPS_LIST"
           else
