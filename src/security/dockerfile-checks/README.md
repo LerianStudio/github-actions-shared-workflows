@@ -41,7 +41,7 @@ jobs:
 
       - name: Dockerfile Compliance Checks
         id: dockerfile-checks
-        uses: LerianStudio/github-actions-shared-workflows/src/security/dockerfile-checks@develop
+        uses: LerianStudio/github-actions-shared-workflows/src/security/dockerfile-checks@v1.x.x
         with:
           dockerfile-path: './Dockerfile'
 

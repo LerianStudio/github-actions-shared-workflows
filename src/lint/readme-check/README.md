@@ -24,7 +24,7 @@ jobs:
         uses: actions/checkout@v6
 
       - name: README Check
-        uses: LerianStudio/github-actions-shared-workflows/src/lint/readme-check@develop
+        uses: LerianStudio/github-actions-shared-workflows/src/lint/readme-check@v1.x.x
         with:
           files: "src/lint/my-check/action.yml,src/build/my-build/action.yml"
 ```

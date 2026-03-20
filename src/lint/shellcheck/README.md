@@ -25,7 +25,7 @@ jobs:
         uses: actions/checkout@v6
 
       - name: Shell Check
-        uses: LerianStudio/github-actions-shared-workflows/src/lint/shellcheck@develop
+        uses: LerianStudio/github-actions-shared-workflows/src/lint/shellcheck@v1.x.x
         with:
           files: ".github/workflows/ci.yml,src/lint/my-check/action.yml"
 ```

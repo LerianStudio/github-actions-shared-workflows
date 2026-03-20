@@ -55,7 +55,7 @@ jobs:
 ### Dry run (preview only)
 
 ```yaml
-- uses: LerianStudio/github-actions-shared-workflows/src/notify/discord-release@develop
+- uses: LerianStudio/github-actions-shared-workflows/src/notify/discord-release@v1.x.x
   with:
     webhook-url: ${{ secrets.DISCORD_WEBHOOK_URL }}
     release-tag: ${{ github.event.release.tag_name }}

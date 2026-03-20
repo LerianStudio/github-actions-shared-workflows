@@ -43,7 +43,7 @@ This composite expects the following files in the runner working directory, gene
 - name: Post Security Scan Results to PR
   id: post-results
   if: always() && github.event_name == 'pull_request'
-  uses: LerianStudio/github-actions-shared-workflows/src/security/pr-security-reporter@develop
+  uses: LerianStudio/github-actions-shared-workflows/src/security/pr-security-reporter@v1.x.x
   with:
     github-token: ${{ secrets.GITHUB_TOKEN }}
     app-name: ${{ env.APP_NAME }}

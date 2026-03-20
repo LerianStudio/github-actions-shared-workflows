@@ -54,7 +54,7 @@ jobs:
 ### Dry run (preview only)
 
 ```yaml
-- uses: LerianStudio/github-actions-shared-workflows/src/notify/slack-release@develop
+- uses: LerianStudio/github-actions-shared-workflows/src/notify/slack-release@v1.x.x
   with:
     webhook-url: ${{ secrets.SLACK_WEBHOOK_URL }}
     channel: "releases"

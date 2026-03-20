@@ -46,7 +46,7 @@ jobs:
 
       - name: Trivy Filesystem Scan
         id: fs-scan
-        uses: LerianStudio/github-actions-shared-workflows/src/security/trivy-fs-scan@develop
+        uses: LerianStudio/github-actions-shared-workflows/src/security/trivy-fs-scan@v1.x.x
         with:
           scan-ref: '.'
           app-name: 'my-service'
@@ -56,7 +56,7 @@ jobs:
 
 ```yaml
 - name: Trivy Filesystem Scan
-  uses: LerianStudio/github-actions-shared-workflows/src/security/trivy-fs-scan@develop
+  uses: LerianStudio/github-actions-shared-workflows/src/security/trivy-fs-scan@v1.x.x
   with:
     scan-ref: ${{ matrix.working_dir }}
     app-name: ${{ matrix.name }}

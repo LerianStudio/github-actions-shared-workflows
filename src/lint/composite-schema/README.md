@@ -44,7 +44,7 @@ jobs:
         uses: actions/checkout@v6
 
       - name: Composite Schema Lint
-        uses: LerianStudio/github-actions-shared-workflows/src/lint/composite-schema@develop
+        uses: LerianStudio/github-actions-shared-workflows/src/lint/composite-schema@v1.x.x
         with:
           files: "src/lint/my-check/action.yml,src/build/my-build/action.yml"
 ```

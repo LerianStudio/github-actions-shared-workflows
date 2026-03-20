@@ -35,7 +35,7 @@ jobs:
     runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
       - name: Slack Notification
-        uses: LerianStudio/github-actions-shared-workflows/src/notify/slack-notify@develop
+        uses: LerianStudio/github-actions-shared-workflows/src/notify/slack-notify@v1.x.x
         with:
           webhook-url: ${{ secrets.SLACK_WEBHOOK_URL }}
           status: ${{ needs.build.result }}
