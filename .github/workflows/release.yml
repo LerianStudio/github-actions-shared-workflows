@@ -60,7 +60,7 @@ jobs:
       - name: Get changed paths (monorepo)
         if: inputs.filter_paths != ''
         id: changed-paths
-        uses: LerianStudio/github-actions-shared-workflows/src/config/changed-paths@develop
+        uses: LerianStudio/github-actions-shared-workflows/src/config/changed-paths@feat/changed-paths-shared-paths
         with:
           filter-paths: ${{ inputs.filter_paths }}
           shared-paths: ${{ inputs.shared_paths }}
