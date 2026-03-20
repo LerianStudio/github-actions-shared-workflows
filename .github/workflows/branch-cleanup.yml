@@ -51,7 +51,7 @@ jobs:
         uses: actions/checkout@v6
 
       - name: Run branch cleanup
-        uses: LerianStudio/github-actions-shared-workflows/src/config/branch-cleanup@develop
+        uses: LerianStudio/github-actions-shared-workflows/src/config/branch-cleanup@v1.18.0
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           stale-days: ${{ inputs.stale_days }}
