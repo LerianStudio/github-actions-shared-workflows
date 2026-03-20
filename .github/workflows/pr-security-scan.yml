@@ -18,6 +18,11 @@ on:
         description: 'Paths to monitor for changes (newline separated). If not provided, treats as single app repo'
         type: string
         required: false
+      shared_paths:
+        description: 'Newline-separated path patterns (e.g., "go.mod\ngo.sum") that trigger a build for ALL components when matched by any changed file.'
+        type: string
+        required: false
+        default: ''
       path_level:
         description: 'Directory depth level to extract app name (only used for monorepo)'
         type: string
@@ -89,6 +94,7 @@ jobs:
         uses: LerianStudio/github-actions-shared-workflows/src/config/changed-paths@develop
         with:
           filter-paths: ${{ inputs.filter_paths }}
+          shared-paths: ${{ inputs.shared_paths }}
           get-app-name: true
           path-level: ${{ inputs.path_level }}
           app-name-prefix: ${{ inputs.app_name_prefix }}

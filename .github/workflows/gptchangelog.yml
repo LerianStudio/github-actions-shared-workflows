@@ -27,6 +27,11 @@ on:
         type: string
         required: false
         default: ''
+      shared_paths:
+        description: 'Newline-separated path patterns (e.g., "go.mod\ngo.sum") that trigger a build for ALL components when matched by any changed file.'
+        type: string
+        required: false
+        default: ''
       path_level:
         description: 'Limits the path to the first N segments (e.g., 2 -> "charts/agent")'
         type: string
@@ -144,6 +149,7 @@ jobs:
         uses: LerianStudio/github-actions-shared-workflows/src/config/changed-paths@develop
         with:
           filter-paths: ${{ inputs.filter_paths }}
+          shared-paths: ${{ inputs.shared_paths }}
           path-level: ${{ inputs.path_level }}
           get-app-name: 'true'
 
