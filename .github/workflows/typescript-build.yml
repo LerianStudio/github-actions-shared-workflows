@@ -35,6 +35,11 @@ on:
         type: string
         required: false
         default: ''
+      shared_paths:
+        description: 'Newline-separated path patterns (e.g., "go.mod\ngo.sum") that trigger a build for ALL components when matched by any changed file.'
+        type: string
+        required: false
+        default: ''
       path_level:
         description: 'Limits the path to the first N segments (e.g., 2 -> "apps/agent")'
         type: string
@@ -155,12 +160,13 @@ jobs:
         id: changed-paths
         uses: LerianStudio/github-actions-shared-workflows/src/config/changed-paths@develop
         with:
-          filter_paths: ${{ inputs.filter_paths }}
-          path_level: ${{ inputs.path_level }}
-          get_app_name: 'true'
-          app_name_prefix: ${{ inputs.app_name_prefix }}
-          app_name_overrides: ${{ inputs.app_name_overrides }}
-          normalize_to_filter: ${{ inputs.normalize_to_filter }}
+          filter-paths: ${{ inputs.filter_paths }}
+          shared-paths: ${{ inputs.shared_paths }}
+          path-level: ${{ inputs.path_level }}
+          get-app-name: 'true'
+          app-name-prefix: ${{ inputs.app_name_prefix }}
+          app-name-overrides: ${{ inputs.app_name_overrides }}
+          normalize-to-filter: ${{ inputs.normalize_to_filter }}
 
       - name: Set matrix
         id: set-matrix
@@ -176,21 +182,21 @@ jobs:
               printf '%s\n' "$COMPONENTS_JSON"
               echo EOF
             } >> "$GITHUB_OUTPUT"
-            echo "has_builds=true" >> $GITHUB_OUTPUT
+            echo "has_builds=true" >> "$GITHUB_OUTPUT"
           elif [ -z "$FILTER_PATHS" ]; then
-            echo "matrix=[{\"name\": \"${REPO_NAME}\", \"working_dir\": \".\"}]" >> $GITHUB_OUTPUT
-            echo "has_builds=true" >> $GITHUB_OUTPUT
+            echo "matrix=[{\"name\": \"${REPO_NAME}\", \"working_dir\": \".\"}]" >> "$GITHUB_OUTPUT"
+            echo "has_builds=true" >> "$GITHUB_OUTPUT"
           else
             if [ "$CHANGED_MATRIX" == "[]" ] || [ -z "$CHANGED_MATRIX" ]; then
-              echo "matrix=[]" >> $GITHUB_OUTPUT
-              echo "has_builds=false" >> $GITHUB_OUTPUT
+              echo "matrix=[]" >> "$GITHUB_OUTPUT"
+              echo "has_builds=false" >> "$GITHUB_OUTPUT"
             else
               {
                 echo 'matrix<<EOF'
                 printf '%s\n' "$CHANGED_MATRIX"
                 echo EOF
               } >> "$GITHUB_OUTPUT"
-              echo "has_builds=true" >> $GITHUB_OUTPUT
+              echo "has_builds=true" >> "$GITHUB_OUTPUT"
             fi
           fi
 
@@ -206,11 +212,11 @@ jobs:
           fi
           TAG="${GITHUB_REF#refs/tags/}"
           if [[ "$TAG" == *"-beta"* ]] || [[ "$TAG" == *"-rc"* ]]; then
-            echo "platforms=linux/amd64" >> $GITHUB_OUTPUT
-            echo "is_release=false" >> $GITHUB_OUTPUT
+            echo "platforms=linux/amd64" >> "$GITHUB_OUTPUT"
+            echo "is_release=false" >> "$GITHUB_OUTPUT"
           else
-            echo "platforms=linux/amd64,linux/arm64" >> $GITHUB_OUTPUT
-            echo "is_release=true" >> $GITHUB_OUTPUT
+            echo "platforms=linux/amd64,linux/arm64" >> "$GITHUB_OUTPUT"
+            echo "is_release=true" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Extract version from tag
@@ -222,7 +228,7 @@ jobs:
           TAG="${GITHUB_REF#refs/tags/}"
           if [ "$REF_TYPE" != "tag" ]; then
             if [ "$DRY_RUN" == "true" ]; then
-              echo "version=v0.0.0-dry-run" >> $GITHUB_OUTPUT
+              echo "version=v0.0.0-dry-run" >> "$GITHUB_OUTPUT"
               exit 0
             fi
             echo "::error::Cannot extract version — ref is not a tag."
@@ -230,8 +236,9 @@ jobs:
           fi
           # Strips optional prefix from tags like "my-app-v1.0.0" → "v1.0.0"
           # For standard semver tags (v1.0.0, v1.0.0-beta.1) this is a no-op
+          # shellcheck disable=SC2001
           VERSION=$(echo "$TAG" | sed 's/.*-\(v[0-9]\)/\1/')
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
   build:
     needs: prepare

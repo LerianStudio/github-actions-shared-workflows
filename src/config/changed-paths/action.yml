@@ -2,43 +2,47 @@ name: Get Changed Paths
 description: Detects changed files between commits and outputs a matrix of changed directories for monorepo CI/CD pipelines.
 
 inputs:
-  filter_paths:
+  filter-paths:
     description: 'Newline-separated list of path prefixes to filter results (e.g., "components/mdz\ncomponents/transaction"). Also accepts JSON array format.'
     required: false
     default: ''
-  path_level:
+  shared-paths:
+    description: 'Newline-separated list of path patterns (e.g., "go.mod\ngo.sum\nlibs/") that, when matched by any changed file, trigger a build for ALL components in filter_paths. Also accepts JSON array format.'
+    required: false
+    default: ''
+  path-level:
     description: 'Limits the path to the first N segments (e.g., 2 -> "components/transactions")'
     required: false
     default: '0'
-  get_app_name:
+  get-app-name:
     description: 'If true, outputs a matrix of objects with app name and working directory. Otherwise, outputs a list of changed directories'
     required: false
     default: 'false'
-  app_name_prefix:
+  app-name-prefix:
     description: 'Prefix to add to each app name when get_app_name is true'
     required: false
     default: ''
-  app_name_overrides:
+  app-name-overrides:
     description: 'Newline-separated list of explicit app name mappings in "path:name" format. Use "path:" for prefix-only. Overrides default segment extraction'
     required: false
     default: ''
-  normalize_to_filter:
+  normalize-to-filter:
     description: 'If true, uses the filter path as working_dir instead of the actual trimmed directory path'
     required: false
     default: 'false'
-  ignore_dirs:
+  ignore-dirs:
     description: 'Newline-separated list of directories to exclude from the output matrix (e.g., ".github\n.githooks"). Matched by exact name or prefix.'
     required: false
     default: ''
-  fallback_app_name:
+  fallback-app-name:
     description: 'When filter_paths is empty, return a single-item matrix with this name and working_dir "." instead of detecting changes. Enables single-app mode.'
     required: false
     default: ''
-  consolidate_to_root:
+  consolidate-to-root:
     description: 'When true, consolidate all entries (except those in consolidate_keep_dirs) to a single root entry using fallback_app_name. Requires get_app_name and fallback_app_name.'
     required: false
     default: 'false'
-  consolidate_keep_dirs:
+  consolidate-keep-dirs:
     description: 'Newline-separated list of working_dirs to keep as-is during consolidation (e.g., "frontend"). Only used when consolidate_to_root is true.'
     required: false
     default: ''
@@ -116,16 +120,17 @@ runs:
       shell: bash
       run: |
         FILES="${{ steps.changed.outputs.files }}"
-        FILTER_PATHS='${{ inputs.filter_paths }}'
-        PATH_LEVEL="${{ inputs.path_level }}"
-        GET_APP_NAME="${{ inputs.get_app_name }}"
-        APP_NAME_PREFIX="${{ inputs.app_name_prefix }}"
-        APP_NAME_OVERRIDES="${{ inputs.app_name_overrides }}"
-        NORMALIZE_TO_FILTER="${{ inputs.normalize_to_filter }}"
-        IGNORE_DIRS='${{ inputs.ignore_dirs }}'
-        FALLBACK_APP_NAME="${{ inputs.fallback_app_name }}"
-        CONSOLIDATE_TO_ROOT="${{ inputs.consolidate_to_root }}"
-        CONSOLIDATE_KEEP_DIRS='${{ inputs.consolidate_keep_dirs }}'
+        FILTER_PATHS='${{ inputs.filter-paths }}'
+        SHARED_PATHS='${{ inputs.shared-paths }}'
+        PATH_LEVEL="${{ inputs.path-level }}"
+        GET_APP_NAME="${{ inputs.get-app-name }}"
+        APP_NAME_PREFIX="${{ inputs.app-name-prefix }}"
+        APP_NAME_OVERRIDES="${{ inputs.app-name-overrides }}"
+        NORMALIZE_TO_FILTER="${{ inputs.normalize-to-filter }}"
+        IGNORE_DIRS='${{ inputs.ignore-dirs }}'
+        FALLBACK_APP_NAME="${{ inputs.fallback-app-name }}"
+        CONSOLIDATE_TO_ROOT="${{ inputs.consolidate-to-root }}"
+        CONSOLIDATE_KEEP_DIRS='${{ inputs.consolidate-keep-dirs }}'
 
         # Single app fallback: when filter_paths is empty and fallback_app_name is set,
         # return a single-item matrix without detecting changes
@@ -154,58 +159,99 @@ runs:
           exit 0
         fi
 
-        # Get directory for each file
-        DIRS=$(echo "$FILES" | xargs -n1 dirname)
+        DIRS_FROM_SHARED=false
 
-        # Trim to first N path segments if specified
-        if [[ -n "$PATH_LEVEL" ]] && [[ "$PATH_LEVEL" -gt 0 ]]; then
-          echo "Trimming paths to first $PATH_LEVEL segments"
-          DIRS=$(echo "$DIRS" | cut -d'/' -f-"$PATH_LEVEL")
-        fi
-
-        # Filter paths if filter_paths is provided (supports both JSON array and newline-separated formats)
-        if [[ -n "$FILTER_PATHS" ]] && [[ "$FILTER_PATHS" != "[]" ]] && [[ "$FILTER_PATHS" != "" ]]; then
-          # Detect format and parse accordingly
-          if [[ "$FILTER_PATHS" == "["* ]]; then
-            # Input looks like JSON array — validate strictly
-            FILTER_LIST=$(echo "$FILTER_PATHS" | jq -er '.[]' 2>/dev/null)
+        # Check shared_paths: if any changed file matches, include ALL filter_paths entries
+        if [[ -n "$SHARED_PATHS" ]] && [[ "$SHARED_PATHS" != "[]" ]] && [[ -n "$FILTER_PATHS" ]] && [[ "$FILTER_PATHS" != "[]" ]]; then
+          if [[ "$SHARED_PATHS" == "["* ]]; then
+            SHARED_LIST=$(echo "$SHARED_PATHS" | jq -er '.[]' 2>/dev/null)
             if [[ $? -ne 0 ]]; then
-              echo "::error::filter_paths looks like a JSON array but is malformed: $FILTER_PATHS"
+              echo "::error::shared_paths looks like a JSON array but is malformed: $SHARED_PATHS"
               exit 1
             fi
           else
-            # Newline-separated input
-            FILTER_LIST="$FILTER_PATHS"
+            SHARED_LIST="$SHARED_PATHS"
           fi
 
-          if [[ -n "$FILTER_LIST" ]]; then
-            FILTERED=""
-            while read -r DIR; do
-              while read -r FILTER; do
-                [[ -z "$FILTER" ]] && continue
-                while [[ "$FILTER" == */ && "$FILTER" != "/" ]]; do
-                  FILTER="${FILTER%/}"
-                done
-                if [[ "$DIR" == "$FILTER" ]] || [[ "$DIR" == "$FILTER"/* ]]; then
-                  if [[ "$NORMALIZE_TO_FILTER" == "true" ]]; then
-                    FILTERED+="$FILTER"$'\n'
-                  else
-                    FILTERED+="$DIR"$'\n'
-                  fi
-                  break
-                fi
-              done <<< "$FILTER_LIST"
-            done <<< "$DIRS"
+          while IFS= read -r FILE; do
+            [[ -z "$FILE" ]] && continue
+            while IFS= read -r SHARED; do
+              [[ -z "$SHARED" ]] && continue
+              while [[ "$SHARED" == */ && "$SHARED" != "/" ]]; do SHARED="${SHARED%/}"; done
+              if [[ "$FILE" == "$SHARED" ]] || [[ "$FILE" == "$SHARED"/* ]]; then
+                echo "Shared path hit: '$FILE' matches '$SHARED' — including all filter_paths"
+                DIRS_FROM_SHARED=true
+                break 2
+              fi
+            done <<< "$SHARED_LIST"
+          done <<< "$FILES"
+        fi
 
-            # If nothing matched, exit
-            if [[ -z "$FILTERED" ]]; then
-              echo "No matching directories found after filtering."
-              printf "matrix=[]\n" >> "$GITHUB_OUTPUT"
-              printf "has_changes=false\n" >> "$GITHUB_OUTPUT"
-              exit 0
+        if [[ "$DIRS_FROM_SHARED" == "true" ]]; then
+          # Use all filter_paths as the build targets
+          if [[ "$FILTER_PATHS" == "["* ]]; then
+            DIRS=$(echo "$FILTER_PATHS" | jq -er '.[]' 2>/dev/null)
+            if [[ $? -ne 0 ]]; then
+              echo "::error::filter-paths looks like a JSON array but is malformed: $FILTER_PATHS"
+              exit 1
+            fi
+          else
+            DIRS="$FILTER_PATHS"
+          fi
+        else
+          # Get directory for each file
+          DIRS=$(echo "$FILES" | xargs -n1 dirname)
+
+          # Trim to first N path segments if specified
+          if [[ -n "$PATH_LEVEL" ]] && [[ "$PATH_LEVEL" -gt 0 ]]; then
+            echo "Trimming paths to first $PATH_LEVEL segments"
+            DIRS=$(echo "$DIRS" | cut -d'/' -f-"$PATH_LEVEL")
+          fi
+
+          # Filter paths if filter_paths is provided (supports both JSON array and newline-separated formats)
+          if [[ -n "$FILTER_PATHS" ]] && [[ "$FILTER_PATHS" != "[]" ]] && [[ "$FILTER_PATHS" != "" ]]; then
+            # Detect format and parse accordingly
+            if [[ "$FILTER_PATHS" == "["* ]]; then
+              # Input looks like JSON array — validate strictly
+              FILTER_LIST=$(echo "$FILTER_PATHS" | jq -er '.[]' 2>/dev/null)
+              if [[ $? -ne 0 ]]; then
+                echo "::error::filter-paths looks like a JSON array but is malformed: $FILTER_PATHS"
+                exit 1
+              fi
+            else
+              # Newline-separated input
+              FILTER_LIST="$FILTER_PATHS"
             fi
 
-            DIRS="$FILTERED"
+            if [[ -n "$FILTER_LIST" ]]; then
+              FILTERED=""
+              while read -r DIR; do
+                while read -r FILTER; do
+                  [[ -z "$FILTER" ]] && continue
+                  while [[ "$FILTER" == */ && "$FILTER" != "/" ]]; do
+                    FILTER="${FILTER%/}"
+                  done
+                  if [[ "$DIR" == "$FILTER" ]] || [[ "$DIR" == "$FILTER"/* ]]; then
+                    if [[ "$NORMALIZE_TO_FILTER" == "true" ]]; then
+                      FILTERED+="$FILTER"$'\n'
+                    else
+                      FILTERED+="$DIR"$'\n'
+                    fi
+                    break
+                  fi
+                done <<< "$FILTER_LIST"
+              done <<< "$DIRS"
+
+              # If nothing matched, exit
+              if [[ -z "$FILTERED" ]]; then
+                echo "No matching directories found after filtering."
+                printf "matrix=[]\n" >> "$GITHUB_OUTPUT"
+                printf "has_changes=false\n" >> "$GITHUB_OUTPUT"
+                exit 0
+              fi
+
+              DIRS="$FILTERED"
+            fi
           fi
         fi
 

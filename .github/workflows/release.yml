@@ -23,6 +23,11 @@ on:
         type: string
         required: false
         default: ''
+      shared_paths:
+        description: 'Newline-separated path patterns (e.g., "go.mod\ngo.sum") that trigger a build for ALL components when matched by any changed file.'
+        type: string
+        required: false
+        default: ''
       path_level:
         description: 'Limits the path to the first N segments (e.g., 2 -> "apps/agent")'
         type: string
@@ -42,14 +47,14 @@ jobs:
           COMMIT_MSG: ${{ github.event.head_commit.message }}
         run: |
           echo "📌 Checking commit message for skip patterns"
-          
+
           # Skip if commit message contains [skip ci] or is a changelog update
           if echo "$COMMIT_MSG" | grep -qiE '\[skip ci\]|chore\(release\): Update CHANGELOGs'; then
             echo "🛑 Skipping release - changelog/skip-ci commit detected"
-            echo "should_skip=true" >> $GITHUB_OUTPUT
+            echo "should_skip=true" >> "$GITHUB_OUTPUT"
           else
             echo "✅ Proceeding with release"
-            echo "should_skip=false" >> $GITHUB_OUTPUT
+            echo "should_skip=false" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Get changed paths (monorepo)
@@ -57,9 +62,10 @@ jobs:
         id: changed-paths
         uses: LerianStudio/github-actions-shared-workflows/src/config/changed-paths@develop
         with:
-          filter_paths: ${{ inputs.filter_paths }}
-          path_level: ${{ inputs.path_level }}
-          get_app_name: 'true'
+          filter-paths: ${{ inputs.filter_paths }}
+          shared-paths: ${{ inputs.shared_paths }}
+          path-level: ${{ inputs.path_level }}
+          get-app-name: 'true'
 
       - name: Set matrix
         id: set-matrix
@@ -67,16 +73,16 @@ jobs:
           if [ -z "${{ inputs.filter_paths }}" ]; then
             # Single app mode - release from root
             APP_NAME="${{ github.event.repository.name }}"
-            echo "matrix=[{\"name\": \"${APP_NAME}\", \"working_dir\": \".\"}]" >> $GITHUB_OUTPUT
-            echo "has_changes=true" >> $GITHUB_OUTPUT
+            echo "matrix=[{\"name\": \"${APP_NAME}\", \"working_dir\": \".\"}]" >> "$GITHUB_OUTPUT"
+            echo "has_changes=true" >> "$GITHUB_OUTPUT"
           else
             MATRIX='${{ steps.changed-paths.outputs.matrix }}'
             if [ "$MATRIX" == "[]" ] || [ -z "$MATRIX" ]; then
-              echo "matrix=[]" >> $GITHUB_OUTPUT
-              echo "has_changes=false" >> $GITHUB_OUTPUT
+              echo "matrix=[]" >> "$GITHUB_OUTPUT"
+              echo "has_changes=false" >> "$GITHUB_OUTPUT"
             else
-              echo "matrix=$MATRIX" >> $GITHUB_OUTPUT
-              echo "has_changes=true" >> $GITHUB_OUTPUT
+              echo "matrix=$MATRIX" >> "$GITHUB_OUTPUT"
+              echo "has_changes=true" >> "$GITHUB_OUTPUT"
             fi
           fi
 
