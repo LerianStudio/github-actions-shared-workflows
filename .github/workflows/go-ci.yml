@@ -126,7 +126,7 @@ jobs:
           name: coverage-report
 
       - name: Go Coverage Comment
-        uses: fgrosse/go-coverage-report@v1.2.0
+        uses: fgrosse/go-coverage-report@v1.3.0
         with:
           coverage-artifact-name: coverage-report
           coverage-file-name: coverage.txt
