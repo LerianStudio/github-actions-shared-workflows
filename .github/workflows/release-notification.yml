@@ -138,7 +138,7 @@ jobs:
             exit 1
           fi
           echo "Resolved release tag: $TAG"
-          echo "tag=$TAG" >> $GITHUB_OUTPUT
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
 
       - name: Dry run summary
         if: ${{ inputs.dry_run }}
