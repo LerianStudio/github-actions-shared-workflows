@@ -1,0 +1,59 @@
+name: README Check
+description: Ensure every composite action in src/ has a sibling README.md file.
+
+inputs:
+  files:
+    description: Comma-separated list of changed files to check (empty = skip)
+    required: false
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    # ----------------- Log -----------------
+    - name: Log files
+      if: inputs.files != ''
+      shell: bash
+      env:
+        FILES: ${{ inputs.files }}
+      run: |
+        files=$(printf '%s\n' "$FILES" | tr ',' '\n' | grep 'src/.*action\.yml$' | sed '/^$/d' || true)
+        if [ -z "$files" ]; then
+          echo "No composite action.yml files in changeset — skipping."
+          exit 0
+        fi
+        count=$(echo "$files" | wc -l | tr -d ' ')
+        echo "::group::Composite action files checked for README (${count})"
+        echo "$files" | sed 's/^/  - /'
+        echo "::endgroup::"
+
+    # ----------------- Check -----------------
+    - name: Check for missing README.md
+      if: inputs.files != ''
+      shell: bash
+      env:
+        FILES: ${{ inputs.files }}
+      run: |
+        violations=0
+
+        for file in $(printf '%s\n' "$FILES" | tr ',' ' '); do
+          file=$(printf '%s' "$file" | xargs)
+          [ -f "$file" ] || continue
+
+          case "$file" in
+            src/*/action.yml)
+              dir=$(dirname "$file")
+              if [ ! -f "$dir/README.md" ]; then
+                echo "::error file=$file::Missing README.md in $dir — every composite action must have a README.md"
+                violations=$((violations + 1))
+              fi
+              ;;
+          esac
+        done
+
+        if [ "$violations" -gt 0 ]; then
+          echo "::error::Found $violations composite action(s) missing README.md."
+          exit 1
+        fi
+
+        echo "All composite actions have README.md."

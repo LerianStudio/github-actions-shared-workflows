@@ -136,6 +136,33 @@ This will:
 - ✅ Run Trivy filesystem secret scanning
 - ❌ Skip Docker image build
 - ❌ Skip Docker vulnerability scanning
+- ❌ Skip Docker Scout analysis
+
+### Docker Scout Analysis
+
+Enable Docker Scout for additional vulnerability scoring and CVE analysis on your Docker images:
+
+```yaml
+name: PR Security Scan
+on:
+  pull_request:
+    branches: [develop, release-candidate, main]
+
+jobs:
+  security-scan:
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/pr-security-scan.yml@v1.0.0
+    with:
+      runner_type: "blacksmith-4vcpu-ubuntu-2404"
+      enable_docker_scout: true
+    secrets: inherit
+```
+
+This will run all standard scans plus Docker Scout quickview and CVE analysis.
+
+**Requirements:**
+- Docker Hub account with Scout access (Free, Team, or Business)
+- `DOCKER_USERNAME` and `DOCKER_PASSWORD` secrets configured
+- `enable_docker_scan` must also be `true` (default) — Scout reuses the same image built for Trivy scanning
 
 ## Inputs
 
@@ -150,6 +177,7 @@ This will:
 | `docker_registry` | string | `docker.io` | Docker registry URL |
 | `dockerfile_name` | string | `Dockerfile` | Name of the Dockerfile |
 | `enable_docker_scan` | boolean | `true` | Enable Docker image build and vulnerability scanning. Set to `false` for projects without Dockerfile (e.g., CLI tools) |
+| `enable_docker_scout` | boolean | `false` | Enable Docker Scout image analysis for vulnerability scoring. Requires Docker Hub with Scout access |
 
 ## Secrets
 
@@ -196,6 +224,7 @@ For each component in the matrix:
 6. **Build Docker Image**: Build image for vulnerability scanning *(skipped if `enable_docker_scan: false`)*
 7. **Trivy Vulnerability Scan (Table)**: Scan image for vulnerabilities *(skipped if `enable_docker_scan: false`)*
 8. **Trivy Vulnerability Scan (SARIF)**: Generate SARIF report *(skipped if `enable_docker_scan: false`)*
+9. **Docker Scout Analysis**: Quickview and CVE analysis *(skipped unless `enable_docker_scout: true` AND `enable_docker_scan: true`)*
 
 > **Note**: When `enable_docker_scan: false`, only filesystem secret scanning runs. This is useful for CLI tools and projects without Dockerfiles.
 

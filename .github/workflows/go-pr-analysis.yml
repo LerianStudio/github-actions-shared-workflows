@@ -68,6 +68,22 @@ on:
         description: 'GOPRIVATE pattern for private Go modules (e.g., github.com/LerianStudio/*)'
         type: string
         default: ''
+      enable_integration_tests:
+        description: 'Enable integration tests (requires make test-integration target)'
+        type: boolean
+        default: false
+      integration_test_command:
+        description: 'Command to run integration tests'
+        type: string
+        default: 'make test-integration'
+      enable_test_determinism:
+        description: 'Enable test determinism check (runs tests multiple times with shuffle)'
+        type: boolean
+        default: false
+      test_determinism_runs:
+        description: 'Number of times to run tests for determinism check'
+        type: number
+        default: 3
 
 permissions:
   contents: read
@@ -317,7 +333,7 @@ jobs:
 
       - name: Run Gosec for SARIF
         id: gosec-sarif
-        uses: securego/gosec@v2.22.11
+        uses: securego/gosec@v2.24.7
         with:
           args: -no-fail -fmt sarif -out gosec-${{ matrix.app.name }}.sarif ./${{ matrix.app.working_dir }}/...
 
@@ -460,7 +476,7 @@ jobs:
           echo "$PACKAGES" | xargs go test -v -race -coverprofile=coverage.txt -covermode=atomic
 
       - name: Upload coverage artifact
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: coverage-${{ matrix.app.name }}
           path: ${{ matrix.app.working_dir }}/coverage.txt
@@ -496,7 +512,7 @@ jobs:
           GOPRIVATE: ${{ inputs.go_private_modules }}
 
       - name: Download coverage artifact
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           name: coverage-${{ matrix.app.name }}
           path: ${{ matrix.app.working_dir }}
@@ -605,7 +621,7 @@ jobs:
           fi
 
       - name: Upload coverage report
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: coverage-report-${{ matrix.app.name }}
           path: |
@@ -770,6 +786,90 @@ jobs:
         run: go build -v ./...
 
   # ============================================
+  # INTEGRATION TESTS
+  # ============================================
+  integration-tests:
+    name: Integration Tests (${{ matrix.app.name }})
+    needs: detect-changes
+    if: needs.detect-changes.outputs.has_changes == 'true' && inputs.enable_integration_tests
+    runs-on: ${{ inputs.runner_type }}
+    strategy:
+      fail-fast: false
+      matrix:
+        app: ${{ fromJson(needs.detect-changes.outputs.matrix) }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: ${{ inputs.go_version }}
+          cache: true
+
+      - name: Configure private Go modules
+        if: inputs.go_private_modules != ''
+        run: |
+          git config --global url."https://${{ secrets.MANAGE_TOKEN }}@github.com/".insteadOf "https://github.com/"
+        env:
+          GOPRIVATE: ${{ inputs.go_private_modules }}
+
+      - name: Run integration tests
+        working-directory: ${{ matrix.app.working_dir }}
+        run: ${{ inputs.integration_test_command }}
+
+  # ============================================
+  # TEST DETERMINISM
+  # ============================================
+  test-determinism:
+    name: Test Determinism (${{ matrix.app.name }})
+    needs: detect-changes
+    if: needs.detect-changes.outputs.has_changes == 'true' && inputs.enable_test_determinism
+    runs-on: ${{ inputs.runner_type }}
+    strategy:
+      fail-fast: false
+      matrix:
+        app: ${{ fromJson(needs.detect-changes.outputs.matrix) }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: ${{ inputs.go_version }}
+          cache: true
+
+      - name: Configure private Go modules
+        if: inputs.go_private_modules != ''
+        run: |
+          git config --global url."https://${{ secrets.MANAGE_TOKEN }}@github.com/".insteadOf "https://github.com/"
+        env:
+          GOPRIVATE: ${{ inputs.go_private_modules }}
+
+      - name: Run tests ${{ inputs.test_determinism_runs }} times
+        working-directory: ${{ matrix.app.working_dir }}
+        run: |
+          echo "Running tests ${{ inputs.test_determinism_runs }} times to verify determinism..."
+
+          # Always use go test with shuffle for determinism, regardless of Makefile
+          # The tests job validates that tests pass; this job validates they're deterministic
+          PACKAGES=$(go list ./... | awk '!/\/tests($|\/)/' | awk '!/\/api($|\/)/')
+          if [[ -z "$PACKAGES" ]]; then
+            echo "No packages found after filtering /tests/ and /api/"
+            exit 0
+          fi
+
+          for i in $(seq 1 ${{ inputs.test_determinism_runs }}); do
+            echo "Run $i/${{ inputs.test_determinism_runs }}"
+            if ! echo $PACKAGES | xargs go test -count=1 -shuffle=on; then
+              echo "Tests failed on run $i"
+              exit 1
+            fi
+          done
+          echo "All ${{ inputs.test_determinism_runs }} test runs passed (deterministic)"
+
+  # ============================================
   # NO CHANGES DETECTED
   # ============================================
   no-changes:
@@ -788,12 +888,12 @@ jobs:
   # ============================================
   notify:
     name: Notify
-    needs: [detect-changes, lint, security, tests, build]
+    needs: [detect-changes, lint, security, tests, build, integration-tests, test-determinism]
     if: always() && needs.detect-changes.outputs.has_changes == 'true'
     uses: ./.github/workflows/slack-notify.yml
     with:
-      status: ${{ (needs.lint.result == 'failure' || needs.security.result == 'failure' || needs.tests.result == 'failure' || needs.build.result == 'failure') && 'failure' || 'success' }}
+      status: ${{ (needs.lint.result == 'failure' || needs.security.result == 'failure' || needs.tests.result == 'failure' || needs.build.result == 'failure' || needs.integration-tests.result == 'failure' || needs.test-determinism.result == 'failure') && 'failure' || 'success' }}
       workflow_name: "Go PR Analysis"
-      failed_jobs: ${{ needs.lint.result == 'failure' && 'Lint, ' || '' }}${{ needs.security.result == 'failure' && 'Security, ' || '' }}${{ needs.tests.result == 'failure' && 'Tests, ' || '' }}${{ needs.build.result == 'failure' && 'Build' || '' }}
+      failed_jobs: ${{ needs.lint.result == 'failure' && 'Lint, ' || '' }}${{ needs.security.result == 'failure' && 'Security, ' || '' }}${{ needs.tests.result == 'failure' && 'Tests, ' || '' }}${{ needs.build.result == 'failure' && 'Build, ' || '' }}${{ needs.integration-tests.result == 'failure' && 'Integration Tests, ' || '' }}${{ needs.test-determinism.result == 'failure' && 'Test Determinism' || '' }}
     secrets:
       SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}

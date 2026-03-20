@@ -4,7 +4,7 @@ name: "Build and Push Docker Images"
 # Supports both DockerHub and GHCR (GitHub Container Registry)
 #
 # Features:
-# - Monorepo support with optional change detection via LerianStudio/github-actions-changed-paths
+# - Monorepo support with optional change detection via internal changed-paths composite
 # - Multi-registry support (DockerHub and/or GHCR)
 # - Platform strategy: beta/rc builds amd64 only, release builds amd64+arm64
 # - Semantic versioning tags
@@ -13,6 +13,10 @@ name: "Build and Push Docker Images"
 
 on:
   workflow_call:
+    outputs:
+      has_builds:
+        description: 'Whether any components were detected for building (true/false). Use this to skip downstream jobs when no paths changed.'
+        value: ${{ jobs.prepare.outputs.has_builds }}
     inputs:
       runner_type:
         description: 'Runner to use for the workflow'
@@ -20,6 +24,11 @@ on:
         default: 'blacksmith-4vcpu-ubuntu-2404'
       filter_paths:
         description: 'Newline-separated list of path prefixes to filter. If not provided, builds from root.'
+        type: string
+        required: false
+        default: ''
+      shared_paths:
+        description: 'Newline-separated path patterns (e.g., "go.mod\ngo.sum") that trigger a build for ALL components when matched by any changed file.'
         type: string
         required: false
         default: ''
@@ -109,6 +118,10 @@ on:
         description: 'Normalize changed paths to their filter path (e.g., components/app/cmd -> components/app). Recommended for monorepos to avoid duplicate builds.'
         type: boolean
         default: true
+      force_multiplatform:
+        description: 'Force multi-platform build (amd64+arm64) even for beta/rc tags'
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -126,14 +139,15 @@ jobs:
       - name: Get changed paths (monorepo)
         if: inputs.filter_paths != ''
         id: changed-paths
-        uses: LerianStudio/github-actions-changed-paths@main
+        uses: LerianStudio/github-actions-shared-workflows/src/config/changed-paths@develop
         with:
-          filter_paths: ${{ inputs.filter_paths }}
-          path_level: ${{ inputs.path_level }}
-          get_app_name: 'true'
-          app_name_prefix: ${{ inputs.app_name_prefix }}
-          app_name_overrides: ${{ inputs.app_name_overrides }}
-          normalize_to_filter: ${{ inputs.normalize_to_filter }}
+          filter-paths: ${{ inputs.filter_paths }}
+          shared-paths: ${{ inputs.shared_paths }}
+          path-level: ${{ inputs.path_level }}
+          get-app-name: 'true'
+          app-name-prefix: ${{ inputs.app_name_prefix }}
+          app-name-overrides: ${{ inputs.app_name_overrides }}
+          normalize-to-filter: ${{ inputs.normalize_to_filter }}
 
       - name: Set matrix
         id: set-matrix
@@ -141,16 +155,16 @@ jobs:
           if [ -z "${{ inputs.filter_paths }}" ]; then
             # Single app mode - build from root
             APP_NAME="${{ github.event.repository.name }}"
-            echo "matrix=[{\"name\": \"${APP_NAME}\", \"working_dir\": \".\"}]" >> $GITHUB_OUTPUT
-            echo "has_builds=true" >> $GITHUB_OUTPUT
+            echo "matrix=[{\"name\": \"${APP_NAME}\", \"working_dir\": \".\"}]" >> "$GITHUB_OUTPUT"
+            echo "has_builds=true" >> "$GITHUB_OUTPUT"
           else
             MATRIX='${{ steps.changed-paths.outputs.matrix }}'
             if [ "$MATRIX" == "[]" ] || [ -z "$MATRIX" ]; then
-              echo "matrix=[]" >> $GITHUB_OUTPUT
-              echo "has_builds=false" >> $GITHUB_OUTPUT
+              echo "matrix=[]" >> "$GITHUB_OUTPUT"
+              echo "has_builds=false" >> "$GITHUB_OUTPUT"
             else
-              echo "matrix=$MATRIX" >> $GITHUB_OUTPUT
-              echo "has_builds=true" >> $GITHUB_OUTPUT
+              echo "matrix=$MATRIX" >> "$GITHUB_OUTPUT"
+              echo "has_builds=true" >> "$GITHUB_OUTPUT"
             fi
           fi
 
@@ -160,12 +174,18 @@ jobs:
           TAG="${GITHUB_REF#refs/tags/}"
 
           if [[ "$TAG" == *"-beta"* ]] || [[ "$TAG" == *"-rc"* ]]; then
-            echo "platforms=linux/amd64" >> $GITHUB_OUTPUT
-            echo "is_release=false" >> $GITHUB_OUTPUT
-            echo "Building for amd64 only (beta/rc tag)"
+            if [ "${{ inputs.force_multiplatform }}" == "true" ]; then
+              echo "platforms=linux/amd64,linux/arm64" >> "$GITHUB_OUTPUT"
+              echo "is_release=false" >> "$GITHUB_OUTPUT"
+              echo "Building for amd64 and arm64 (beta/rc tag with force_multiplatform)"
+            else
+              echo "platforms=linux/amd64" >> "$GITHUB_OUTPUT"
+              echo "is_release=false" >> "$GITHUB_OUTPUT"
+              echo "Building for amd64 only (beta/rc tag)"
+            fi
           else
-            echo "platforms=linux/amd64,linux/arm64" >> $GITHUB_OUTPUT
-            echo "is_release=true" >> $GITHUB_OUTPUT
+            echo "platforms=linux/amd64,linux/arm64" >> "$GITHUB_OUTPUT"
+            echo "is_release=true" >> "$GITHUB_OUTPUT"
             echo "Building for amd64 and arm64 (release tag)"
           fi
 
@@ -185,22 +205,22 @@ jobs:
         uses: actions/checkout@v6
 
       - name: Set up QEMU
-        if: needs.prepare.outputs.is_release == 'true'
-        uses: docker/setup-qemu-action@v3
+        if: contains(needs.prepare.outputs.platforms, 'arm64')
+        uses: docker/setup-qemu-action@v4
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
 
       - name: Log in to DockerHub
         if: inputs.enable_dockerhub
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
 
       - name: Log in to GHCR
         if: inputs.enable_ghcr
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -209,7 +229,7 @@ jobs:
       - name: Normalize repository owner to lowercase
         id: normalize
         run: |
-          echo "owner_lower=$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')" >> $GITHUB_OUTPUT
+          echo "owner_lower=$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_OUTPUT"
 
       - name: Set image names
         id: image-names
@@ -221,11 +241,11 @@ jobs:
           else
             GHCR_ORG=$(echo "$GHCR_ORG" | tr '[:upper:]' '[:lower:]')
           fi
-          
+
           if [ "${{ inputs.enable_dockerhub }}" == "true" ]; then
             IMAGES="${{ inputs.dockerhub_org }}/${{ matrix.app.name }}"
           fi
-          
+
           if [ "${{ inputs.enable_ghcr }}" == "true" ]; then
             if [ -n "$IMAGES" ]; then
               IMAGES="${IMAGES},ghcr.io/${GHCR_ORG}/${{ matrix.app.name }}"
@@ -233,8 +253,8 @@ jobs:
               IMAGES="ghcr.io/${GHCR_ORG}/${{ matrix.app.name }}"
             fi
           fi
-          
-          echo "images=$IMAGES" >> $GITHUB_OUTPUT
+
+          echo "images=$IMAGES" >> "$GITHUB_OUTPUT"
 
       - name: Extract version from tag
         id: version
@@ -243,13 +263,14 @@ jobs:
           # Strip app prefix by finding -v and extracting from there
           # e.g., agent-v1.0.0-beta.1 -> v1.0.0-beta.1
           # e.g., control-plane-v1.0.0-beta.1 -> v1.0.0-beta.1
+          # shellcheck disable=SC2001
           VERSION=$(echo "$TAG" | sed 's/.*-\(v[0-9]\)/\1/')
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "Extracted version: $VERSION from tag: $TAG"
 
       - name: Docker metadata
         id: meta
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@v6
         with:
           images: ${{ steps.image-names.outputs.images }}
           tags: |
@@ -258,7 +279,7 @@ jobs:
             type=semver,pattern={{major}},value=${{ steps.version.outputs.version }},enable=${{ needs.prepare.outputs.is_release }}
 
       - name: Build and push Docker image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: ${{ inputs.build_context }}
           file: ${{ matrix.app.working_dir }}/${{ inputs.dockerfile_name }}
@@ -266,6 +287,8 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          sbom: generator=docker/scout-sbom-indexer:latest
+          provenance: mode=max
           cache-from: type=gha
           cache-to: type=gha,mode=max
           secrets: |
@@ -285,7 +308,7 @@ jobs:
 
       - name: Upload GitOps tag artifact
         if: inputs.enable_gitops_artifacts
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: gitops-tags-${{ matrix.app.name }}
           path: gitops-tags/

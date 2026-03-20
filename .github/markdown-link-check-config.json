@@ -1,0 +1,26 @@
+{
+  "ignorePatterns": [
+    {
+      "pattern": "^https://github\\.com/LerianStudio/github-actions-shared-workflows/actions/runs/"
+    },
+    {
+      "pattern": "^https://github\\.com/LerianStudio/github-actions-shared-workflows/pull/"
+    },
+    {
+      "pattern": "^https://github\\.com/<"
+    }
+  ],
+  "httpHeaders": [
+    {
+      "urls": ["https://github.com"],
+      "headers": {
+        "Accept-Encoding": "br, gzip, deflate"
+      }
+    }
+  ],
+  "timeout": "10s",
+  "retryOn429": true,
+  "retryCount": 3,
+  "fallbackRetryDelay": "5s",
+  "aliveStatusCodes": [200, 206, 301, 302, 307, 308]
+}

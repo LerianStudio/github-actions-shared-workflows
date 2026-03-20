@@ -36,18 +36,57 @@ Full rules:
 - Reusable workflows → `.cursor/rules/reusable-workflows.mdc` or `/workflow`
 - Modifying existing files → `.cursor/rules/refactoring.mdc` or `/refactor`
 
-### Local path rule for composites
+### Composite action references in reusable workflows
 
-Inside a reusable workflow, always reference composite actions with a **local path**:
+In reusable workflows (`workflow_call`), `uses: ./path` resolves to the **caller's workspace**, not this repository. This means `./src/...` only works when the caller IS this repo (i.e., `self-*` workflows).
+
+- **Workflows called by external repos** — use an external ref pinned to a release tag:
+
+  ```yaml
+  uses: LerianStudio/github-actions-shared-workflows/src/notify/discord-release@v1.2.3  # ✅ pinned
+  uses: LerianStudio/github-actions-shared-workflows/src/notify/discord-release@develop # ⚠️ testing only
+  uses: ./src/notify/discord-release  # ❌ resolves to caller's workspace
+  ```
+
+- **`self-*` workflows (internal only)** — use a local path:
+
+  ```yaml
+  uses: ./.github/workflows/labels-sync.yml  # ✅ caller is this repo
+  ```
+
+### Skip-enabling outputs
+
+Every reusable workflow and composite action that performs conditional work (e.g. change detection, feature-flag checks) **must expose boolean outputs** so callers can skip downstream jobs when there is nothing to do.
 
 ```yaml
-uses: ./src/config/labels-sync      # ✅ version-safe
-uses: LerianStudio/...@main         # ❌ breaks versioning for callers on older tags
+# Reusable workflow example
+outputs:
+  has_builds:
+    description: 'Whether any components were detected for building (true/false)'
+    value: ${{ jobs.prepare.outputs.has_builds }}
+
+# Composite action example
+outputs:
+  has_changes:
+    description: 'Whether any changes were detected (true/false)'
+    value: ${{ steps.detect.outputs.has_changes }}
+```
+
+Callers use these outputs to gate dependent jobs:
+
+```yaml
+jobs:
+  build:
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/build.yml@v1.2.3
+  deploy:
+    needs: build
+    if: needs.build.outputs.has_builds == 'true'
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/deploy.yml@v1.2.3
 ```
 
 ### dry_run
 
-Every reusable workflow must include a `dry_run` input (`boolean`, `default: false`).  
+Every reusable workflow must include a `dry_run` input (`boolean`, `default: false`).
 `dry_run: true` must be verbose (print all resolved values, use tool debug flags). `dry_run: false` must be silent (no extra echo, no debug flags).
 
 ### Branches and commits

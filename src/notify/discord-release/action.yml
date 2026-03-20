@@ -1,0 +1,83 @@
+name: Discord Release Notification
+description: Sends a release notification to Discord using SethCohen/github-releases-to-discord.
+
+inputs:
+  webhook-url:
+    description: Discord webhook URL
+    required: true
+  color:
+    description: Embed color (decimal)
+    required: false
+    default: "2105893"
+  username:
+    description: Bot username displayed in Discord
+    required: false
+    default: "Release Changelog"
+  content:
+    description: Message content (e.g. role mentions)
+    required: false
+    default: ""
+  footer-timestamp:
+    description: Show timestamp in embed footer
+    required: false
+    default: "true"
+  release-tag:
+    description: Release tag (e.g. v1.2.3 or v1.0.0-beta.1)
+    required: true
+  skip-beta:
+    description: Skip notification for beta releases
+    required: false
+    default: "true"
+  dry-run:
+    description: Preview changes without sending the notification
+    required: false
+    default: "false"
+
+runs:
+  using: composite
+  steps:
+    # ----------------- Pre-flight Check -----------------
+    - name: Detect beta release
+      id: beta
+      shell: bash
+      run: |
+        if [[ "${{ inputs.release-tag }}" == *"-beta."* ]]; then
+          echo "is_beta=true" >> $GITHUB_OUTPUT
+        else
+          echo "is_beta=false" >> $GITHUB_OUTPUT
+        fi
+
+    # ----------------- Dry Run -----------------
+    - name: Dry run summary
+      if: inputs.dry-run == 'true'
+      shell: bash
+      run: |
+        echo "::notice::DRY RUN — Discord notification will not be sent"
+        echo "  webhook      : (configured)"
+        echo "  release-tag  : ${{ inputs.release-tag }}"
+        echo "  color        : ${{ inputs.color }}"
+        echo "  username     : ${{ inputs.username }}"
+        echo "  content      : ${{ inputs.content }}"
+        echo "  skip-beta    : ${{ inputs.skip-beta }}"
+        echo "  is_beta      : ${{ steps.beta.outputs.is_beta }}"
+
+    # ----------------- Notification -----------------
+    - name: Send Discord notification
+      if: >-
+        inputs.dry-run != 'true'
+        && !(inputs.skip-beta == 'true' && steps.beta.outputs.is_beta == 'true')
+      uses: SethCohen/github-releases-to-discord@v1.16.2
+      with:
+        webhook_url: ${{ inputs.webhook-url }}
+        color: ${{ inputs.color }}
+        username: ${{ inputs.username }}
+        content: ${{ inputs.content }}
+        footer_timestamp: ${{ inputs.footer-timestamp }}
+
+    - name: Skipped (beta release)
+      if: >-
+        inputs.dry-run != 'true'
+        && inputs.skip-beta == 'true'
+        && steps.beta.outputs.is_beta == 'true'
+      shell: bash
+      run: echo "::notice::Skipped Discord notification — beta release detected"

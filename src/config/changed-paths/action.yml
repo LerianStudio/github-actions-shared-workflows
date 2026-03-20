@@ -1,0 +1,356 @@
+name: Get Changed Paths
+description: Detects changed files between commits and outputs a matrix of changed directories for monorepo CI/CD pipelines.
+
+inputs:
+  filter-paths:
+    description: 'Newline-separated list of path prefixes to filter results (e.g., "components/mdz\ncomponents/transaction"). Also accepts JSON array format.'
+    required: false
+    default: ''
+  shared-paths:
+    description: 'Newline-separated list of path patterns (e.g., "go.mod\ngo.sum\nlibs/") that, when matched by any changed file, trigger a build for ALL components in filter_paths. Also accepts JSON array format.'
+    required: false
+    default: ''
+  path-level:
+    description: 'Limits the path to the first N segments (e.g., 2 -> "components/transactions")'
+    required: false
+    default: '0'
+  get-app-name:
+    description: 'If true, outputs a matrix of objects with app name and working directory. Otherwise, outputs a list of changed directories'
+    required: false
+    default: 'false'
+  app-name-prefix:
+    description: 'Prefix to add to each app name when get_app_name is true'
+    required: false
+    default: ''
+  app-name-overrides:
+    description: 'Newline-separated list of explicit app name mappings in "path:name" format. Use "path:" for prefix-only. Overrides default segment extraction'
+    required: false
+    default: ''
+  normalize-to-filter:
+    description: 'If true, uses the filter path as working_dir instead of the actual trimmed directory path'
+    required: false
+    default: 'false'
+  ignore-dirs:
+    description: 'Newline-separated list of directories to exclude from the output matrix (e.g., ".github\n.githooks"). Matched by exact name or prefix.'
+    required: false
+    default: ''
+  fallback-app-name:
+    description: 'When filter_paths is empty, return a single-item matrix with this name and working_dir "." instead of detecting changes. Enables single-app mode.'
+    required: false
+    default: ''
+  consolidate-to-root:
+    description: 'When true, consolidate all entries (except those in consolidate_keep_dirs) to a single root entry using fallback_app_name. Requires get_app_name and fallback_app_name.'
+    required: false
+    default: 'false'
+  consolidate-keep-dirs:
+    description: 'Newline-separated list of working_dirs to keep as-is during consolidation (e.g., "frontend"). Only used when consolidate_to_root is true.'
+    required: false
+    default: ''
+
+outputs:
+  matrix:
+    description: 'JSON array of changed directories (or objects with name and working_dir if get_app_name is true)'
+    value: ${{ steps.dirs.outputs.matrix }}
+  has_changes:
+    description: 'Boolean indicating if there are any changes'
+    value: ${{ steps.dirs.outputs.has_changes }}
+
+runs:
+  using: composite
+  steps:
+    - name: Checkout code
+      uses: actions/checkout@v6
+      with:
+        fetch-depth: 0
+
+    - name: Get changed files
+      id: changed
+      shell: bash
+      run: |
+        if [[ "${{ github.event_name }}" == "pull_request" || "${{ github.event_name }}" == "pull_request_target" ]]; then
+          # For PRs, diff between the base branch and current HEAD
+          FILES=$(git diff --name-only ${{ github.event.pull_request.base.sha }} HEAD)
+        elif [[ "${{ github.event.before }}" == "0000000000000000000000000000000000000000" ]] || [[ -z "${{ github.event.before }}" ]]; then
+          # Tag push or missing before ref
+          CURRENT_TAG=$(git describe --tags --exact-match HEAD 2>/dev/null || echo "")
+          if [[ -n "$CURRENT_TAG" ]]; then
+            # Detect channel from tag name: beta, rc, or release
+            if [[ "$CURRENT_TAG" == *"-beta"* ]]; then
+              CHANNEL="beta"
+            elif [[ "$CURRENT_TAG" == *"-rc"* ]]; then
+              CHANNEL="rc"
+            else
+              CHANNEL="release"
+            fi
+
+            # Find previous tag of the same channel to avoid cross-channel false negatives
+            # (e.g. rc.1 vs beta.N where beta is a parent commit → empty diff)
+            if [[ "$CHANNEL" == "release" ]]; then
+              PREV_TAG=$(git tag --sort=-v:refname | grep -v "^${CURRENT_TAG}$" | grep -v -- "-beta" | grep -v -- "-rc" | head -1 || true)
+            else
+              PREV_TAG=$(git tag --sort=-v:refname | grep -v "^${CURRENT_TAG}$" | grep -- "-${CHANNEL}" | head -1 || true)
+            fi
+
+            if [[ -n "$PREV_TAG" ]]; then
+              echo "Tag push detected ($CHANNEL channel): comparing $PREV_TAG..$CURRENT_TAG"
+              FILES=$(git diff --name-only "$PREV_TAG" HEAD)
+            else
+              # First tag of this channel — build everything
+              echo "First tag for channel '$CHANNEL': building all files"
+              FILES=$(git ls-tree -r --name-only HEAD)
+            fi
+          else
+            # Not a tag — compare with previous commit
+            PREV_COMMIT=$(git rev-parse HEAD^)
+            if [[ $? -eq 0 ]]; then
+              FILES=$(git diff --name-only $PREV_COMMIT HEAD)
+            else
+              # Fallback for first commit
+              FILES=$(git ls-tree -r --name-only HEAD)
+            fi
+          fi
+        else
+          # Normal case - diff between commits
+          FILES=$(git diff --name-only ${{ github.event.before }} ${{ github.sha }})
+        fi
+        printf "files<<EOF\n%s\nEOF\n" "$FILES" >> "$GITHUB_OUTPUT"
+
+    - name: Extract changed directories
+      id: dirs
+      shell: bash
+      run: |
+        FILES="${{ steps.changed.outputs.files }}"
+        FILTER_PATHS='${{ inputs.filter-paths }}'
+        SHARED_PATHS='${{ inputs.shared-paths }}'
+        PATH_LEVEL="${{ inputs.path-level }}"
+        GET_APP_NAME="${{ inputs.get-app-name }}"
+        APP_NAME_PREFIX="${{ inputs.app-name-prefix }}"
+        APP_NAME_OVERRIDES="${{ inputs.app-name-overrides }}"
+        NORMALIZE_TO_FILTER="${{ inputs.normalize-to-filter }}"
+        IGNORE_DIRS='${{ inputs.ignore-dirs }}'
+        FALLBACK_APP_NAME="${{ inputs.fallback-app-name }}"
+        CONSOLIDATE_TO_ROOT="${{ inputs.consolidate-to-root }}"
+        CONSOLIDATE_KEEP_DIRS='${{ inputs.consolidate-keep-dirs }}'
+
+        # Single app fallback: when filter_paths is empty and fallback_app_name is set,
+        # return a single-item matrix without detecting changes
+        if [[ ( -z "$FILTER_PATHS" || "$FILTER_PATHS" == "[]" ) && -n "$FALLBACK_APP_NAME" ]]; then
+          echo "Single app mode: using fallback name '$FALLBACK_APP_NAME'"
+          printf 'matrix=[{"name":"%s","working_dir":"."}]\n' "$FALLBACK_APP_NAME" >> "$GITHUB_OUTPUT"
+          printf "has_changes=true\n" >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
+
+        # Parse app_name_overrides into associative array
+        declare -A NAME_OVERRIDES
+        if [[ -n "$APP_NAME_OVERRIDES" ]]; then
+          while IFS= read -r line; do
+            [[ -z "$line" ]] && continue
+            OVERRIDE_PATH="${line%%:*}"
+            OVERRIDE_NAME="${line#*:}"
+            NAME_OVERRIDES["$OVERRIDE_PATH"]="$OVERRIDE_NAME"
+          done <<< "$APP_NAME_OVERRIDES"
+        fi
+
+        if [[ -z "$FILES" ]]; then
+          echo "No files changed."
+          printf "matrix=[]\n" >> "$GITHUB_OUTPUT"
+          printf "has_changes=false\n" >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
+
+        DIRS_FROM_SHARED=false
+
+        # Check shared_paths: if any changed file matches, include ALL filter_paths entries
+        if [[ -n "$SHARED_PATHS" ]] && [[ "$SHARED_PATHS" != "[]" ]] && [[ -n "$FILTER_PATHS" ]] && [[ "$FILTER_PATHS" != "[]" ]]; then
+          if [[ "$SHARED_PATHS" == "["* ]]; then
+            SHARED_LIST=$(echo "$SHARED_PATHS" | jq -er '.[]' 2>/dev/null)
+            if [[ $? -ne 0 ]]; then
+              echo "::error::shared_paths looks like a JSON array but is malformed: $SHARED_PATHS"
+              exit 1
+            fi
+          else
+            SHARED_LIST="$SHARED_PATHS"
+          fi
+
+          while IFS= read -r FILE; do
+            [[ -z "$FILE" ]] && continue
+            while IFS= read -r SHARED; do
+              [[ -z "$SHARED" ]] && continue
+              while [[ "$SHARED" == */ && "$SHARED" != "/" ]]; do SHARED="${SHARED%/}"; done
+              if [[ "$FILE" == "$SHARED" ]] || [[ "$FILE" == "$SHARED"/* ]]; then
+                echo "Shared path hit: '$FILE' matches '$SHARED' — including all filter_paths"
+                DIRS_FROM_SHARED=true
+                break 2
+              fi
+            done <<< "$SHARED_LIST"
+          done <<< "$FILES"
+        fi
+
+        if [[ "$DIRS_FROM_SHARED" == "true" ]]; then
+          # Use all filter_paths as the build targets
+          if [[ "$FILTER_PATHS" == "["* ]]; then
+            DIRS=$(echo "$FILTER_PATHS" | jq -er '.[]' 2>/dev/null)
+            if [[ $? -ne 0 ]]; then
+              echo "::error::filter-paths looks like a JSON array but is malformed: $FILTER_PATHS"
+              exit 1
+            fi
+          else
+            DIRS="$FILTER_PATHS"
+          fi
+        else
+          # Get directory for each file
+          DIRS=$(echo "$FILES" | xargs -n1 dirname)
+
+          # Trim to first N path segments if specified
+          if [[ -n "$PATH_LEVEL" ]] && [[ "$PATH_LEVEL" -gt 0 ]]; then
+            echo "Trimming paths to first $PATH_LEVEL segments"
+            DIRS=$(echo "$DIRS" | cut -d'/' -f-"$PATH_LEVEL")
+          fi
+
+          # Filter paths if filter_paths is provided (supports both JSON array and newline-separated formats)
+          if [[ -n "$FILTER_PATHS" ]] && [[ "$FILTER_PATHS" != "[]" ]] && [[ "$FILTER_PATHS" != "" ]]; then
+            # Detect format and parse accordingly
+            if [[ "$FILTER_PATHS" == "["* ]]; then
+              # Input looks like JSON array — validate strictly
+              FILTER_LIST=$(echo "$FILTER_PATHS" | jq -er '.[]' 2>/dev/null)
+              if [[ $? -ne 0 ]]; then
+                echo "::error::filter-paths looks like a JSON array but is malformed: $FILTER_PATHS"
+                exit 1
+              fi
+            else
+              # Newline-separated input
+              FILTER_LIST="$FILTER_PATHS"
+            fi
+
+            if [[ -n "$FILTER_LIST" ]]; then
+              FILTERED=""
+              while read -r DIR; do
+                while read -r FILTER; do
+                  [[ -z "$FILTER" ]] && continue
+                  while [[ "$FILTER" == */ && "$FILTER" != "/" ]]; do
+                    FILTER="${FILTER%/}"
+                  done
+                  if [[ "$DIR" == "$FILTER" ]] || [[ "$DIR" == "$FILTER"/* ]]; then
+                    if [[ "$NORMALIZE_TO_FILTER" == "true" ]]; then
+                      FILTERED+="$FILTER"$'\n'
+                    else
+                      FILTERED+="$DIR"$'\n'
+                    fi
+                    break
+                  fi
+                done <<< "$FILTER_LIST"
+              done <<< "$DIRS"
+
+              # If nothing matched, exit
+              if [[ -z "$FILTERED" ]]; then
+                echo "No matching directories found after filtering."
+                printf "matrix=[]\n" >> "$GITHUB_OUTPUT"
+                printf "has_changes=false\n" >> "$GITHUB_OUTPUT"
+                exit 0
+              fi
+
+              DIRS="$FILTERED"
+            fi
+          fi
+        fi
+
+        # Deduplicate and remove empty lines
+        DIRS=$(echo "$DIRS" | grep -v '^$' | sort -u)
+
+        # Exclude ignored directories
+        if [[ -n "$IGNORE_DIRS" ]]; then
+          KEPT=""
+          while read -r DIR; do
+            SHOULD_IGNORE=false
+            while IFS= read -r IGNORE; do
+              [[ -z "$IGNORE" ]] && continue
+              if [[ "$DIR" == "$IGNORE" ]] || [[ "$DIR" == "$IGNORE"/* ]]; then
+                SHOULD_IGNORE=true
+                break
+              fi
+            done <<< "$IGNORE_DIRS"
+            if [[ "$SHOULD_IGNORE" == "false" ]]; then
+              KEPT+="$DIR"$'\n'
+            fi
+          done <<< "$DIRS"
+          DIRS=$(echo "$KEPT" | grep -v '^$')
+        fi
+
+        # Check if we have any directories
+        if [[ -z "$DIRS" ]]; then
+          echo "No directories found."
+          printf "matrix=[]\n" >> "$GITHUB_OUTPUT"
+          printf "has_changes=false\n" >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
+
+        if [[ "$GET_APP_NAME" == "true" ]]; then
+          echo "Generating object matrix with app names"
+          MATRIX="["
+          FIRST=true
+          while read -r DIR; do
+            # Check if there's an explicit override for this path
+            if [[ -n "${NAME_OVERRIDES[$DIR]+set}" ]]; then
+              OVERRIDE_VALUE="${NAME_OVERRIDES[$DIR]}"
+              if [[ -z "$OVERRIDE_VALUE" ]]; then
+                APP_NAME="$APP_NAME_PREFIX"
+              else
+                if [[ -n "$APP_NAME_PREFIX" ]]; then
+                  APP_NAME="${APP_NAME_PREFIX}-${OVERRIDE_VALUE}"
+                else
+                  APP_NAME="$OVERRIDE_VALUE"
+                fi
+              fi
+            else
+              # No override - extract app name from second path segment
+              EXTRACTED_NAME="$(echo "$DIR" | cut -d'/' -f2)"
+              if [[ -n "$APP_NAME_PREFIX" ]]; then
+                APP_NAME="${APP_NAME_PREFIX}-${EXTRACTED_NAME}"
+              else
+                APP_NAME="$EXTRACTED_NAME"
+              fi
+            fi
+
+            ENTRY="{\"name\":\"$APP_NAME\",\"working_dir\":\"$DIR\"}"
+            if $FIRST; then
+              MATRIX+="$ENTRY"
+              FIRST=false
+            else
+              MATRIX+=",$ENTRY"
+            fi
+          done <<< "$DIRS"
+          MATRIX+="]"
+        else
+          # Default: return just an array of paths
+          MATRIX=$(echo "$DIRS" | jq -Rc . | jq -sc .)
+        fi
+
+        # Consolidate to root (type2 monorepo support):
+        # entries not in consolidate_keep_dirs are replaced with a single root entry
+        if [[ "$CONSOLIDATE_TO_ROOT" == "true" && "$GET_APP_NAME" == "true" && -n "$FALLBACK_APP_NAME" ]]; then
+          KEEP_PATTERN=""
+          while IFS= read -r KEEP_DIR; do
+            [[ -z "$KEEP_DIR" ]] && continue
+            if [[ -n "$KEEP_PATTERN" ]]; then
+              KEEP_PATTERN+=",$KEEP_DIR"
+            else
+              KEEP_PATTERN="$KEEP_DIR"
+            fi
+          done <<< "$CONSOLIDATE_KEEP_DIRS"
+
+          MATRIX=$(echo "$MATRIX" | jq -c --arg name "$FALLBACK_APP_NAME" --arg keep "$KEEP_PATTERN" '
+            ($keep | split(",") | map(select(. != ""))) as $keep_list |
+            map(
+              if (.working_dir as $wd | $keep_list | any(. == $wd)) then
+                .
+              else
+                {"name": $name, "working_dir": "."}
+              end
+            ) | unique_by(.working_dir)
+          ')
+        fi
+
+        echo "Changed directories matrix: $MATRIX"
+        printf "matrix=%s\n" "$MATRIX" >> "$GITHUB_OUTPUT"
+        printf "has_changes=true\n" >> "$GITHUB_OUTPUT"

@@ -83,3 +83,11 @@
 - name: config
   color: "c5def5"
   description: Changes to repository configuration composite actions (src/config/)
+
+- name: notify
+  color: "fbca04"
+  description: Changes to notification composite actions (src/notify/)
+
+- name: lint
+  color: "7c3aed"
+  description: Changes to linting and code quality checks

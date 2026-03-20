@@ -18,9 +18,6 @@ on:
         type: boolean
         required: false
         default: false
-    secrets:
-      GITHUB_TOKEN:
-        required: false
   workflow_dispatch:
     inputs:
       config:
@@ -44,10 +41,10 @@ permissions:
 jobs:
   sync:
     name: Sync labels to repository
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
       - name: Sync labels
-        uses: ./src/labels-sync
+        uses: LerianStudio/github-actions-shared-workflows/src/config/labels-sync@develop
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           config: ${{ inputs.config || '.github/labels.yml' }}

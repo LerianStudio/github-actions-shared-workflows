@@ -23,9 +23,6 @@ on:
         required: false
         type: string
         default: ""
-    secrets:
-      GITHUB_TOKEN:
-        required: false
   workflow_dispatch:
     inputs:
       stale_days:
@@ -48,13 +45,13 @@ permissions:
 jobs:
   cleanup:
     name: Clean up branches
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Run branch cleanup
-        uses: ./src/config/branch-cleanup
+        uses: LerianStudio/github-actions-shared-workflows/src/config/branch-cleanup@develop
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           stale-days: ${{ inputs.stale_days }}

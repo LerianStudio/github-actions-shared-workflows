@@ -18,10 +18,27 @@ on:
         description: 'Paths to monitor for changes (newline separated). If not provided, treats as single app repo'
         type: string
         required: false
+      shared_paths:
+        description: 'Newline-separated path patterns (e.g., "go.mod\ngo.sum") that trigger a build for ALL components when matched by any changed file.'
+        type: string
+        required: false
+        default: ''
       path_level:
         description: 'Directory depth level to extract app name (only used for monorepo)'
         type: string
         default: '2'
+      app_name_prefix:
+        description: 'Prefix for app names in monorepo (e.g., "midaz" results in "midaz-agent"). Must match build workflow config.'
+        type: string
+        default: ''
+      app_name_overrides:
+        description: 'Explicit app name mappings in "path:name" format. Must match build workflow config.'
+        type: string
+        default: ''
+      normalize_to_filter:
+        description: 'Normalize changed paths to their filter path. Recommended for monorepos to match build workflow behavior.'
+        type: boolean
+        default: true
       monorepo_type:
         description: 'Type of monorepo: "type1" (components in folders) or "type2" (backend in root, frontend in folder)'
         type: string
@@ -46,6 +63,10 @@ on:
         description: 'Enable Docker image build and vulnerability scanning. Set to false for projects without Dockerfile (e.g., CLI tools)'
         type: boolean
         default: true
+      enable_health_score:
+        description: 'Enable Docker Hub Health Score compliance checks (non-root user, CVEs, licenses)'
+        type: boolean
+        default: true
 
 permissions:
   id-token: write       # Required for OIDC authentication
@@ -57,55 +78,34 @@ jobs:
   prepare_matrix:
     runs-on: ${{ inputs.runner_type }}
     outputs:
-      matrix: ${{ steps.set-matrix.outputs.matrix }}
+      matrix: ${{ steps.changed-paths.outputs.matrix }}
     steps:
+      # ----------------- Setup -----------------
       - name: Login to Docker Registry
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           registry: ${{ inputs.docker_registry }}
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
 
-      - name: Get changed paths (monorepo)
-        if: inputs.filter_paths != ''
+      # ----------------- Detect Changes & Build Matrix -----------------
+      - name: Get changed paths
         id: changed-paths
-        uses: LerianStudio/github-actions-changed-paths@main
+        uses: LerianStudio/github-actions-shared-workflows/src/config/changed-paths@develop
         with:
-          filter_paths: ${{ inputs.filter_paths }}
-          get_app_name: true
-          path_level: ${{ inputs.path_level }}
-
-      - name: Set matrix
-        id: set-matrix
-        run: |
-          if [ "${{ inputs.filter_paths }}" = "" ]; then
-            # Single app mode
-            echo 'matrix=[{"name": "${{ github.event.repository.name }}", "working_dir": "."}]' >> $GITHUB_OUTPUT
-          elif [ "${{ inputs.monorepo_type }}" = "type2" ]; then
-            # Type 2 monorepo: backend in root, frontend in folder
-            CHANGED_MATRIX='${{ steps.changed-paths.outputs.matrix }}'
-
-            # Process the matrix to handle Type 2 logic
-            PROCESSED_MATRIX=$(echo "$CHANGED_MATRIX" | jq -c '
-              map(
-                if .working_dir == "${{ inputs.frontend_folder }}" then
-                  # Frontend changes - keep as is
-                  .
-                elif (.working_dir == ".github" or .working_dir == ".githooks") then
-                  # Ignore .github and .githooks folders
-                  empty
-                else
-                  # Backend changes - consolidate to root
-                  {"name": "${{ github.event.repository.name }}", "working_dir": "."}
-                end
-              ) | unique_by(.working_dir)
-            ')
-
-            echo "matrix=$PROCESSED_MATRIX" >> $GITHUB_OUTPUT
-          else
-            # Type 1 monorepo mode (default)
-            echo 'matrix=${{ steps.changed-paths.outputs.matrix }}' >> $GITHUB_OUTPUT
-          fi
+          filter-paths: ${{ inputs.filter_paths }}
+          shared-paths: ${{ inputs.shared_paths }}
+          get-app-name: true
+          path-level: ${{ inputs.path_level }}
+          app-name-prefix: ${{ inputs.app_name_prefix }}
+          app-name-overrides: ${{ inputs.app_name_overrides }}
+          normalize-to-filter: ${{ inputs.normalize_to_filter }}
+          ignore-dirs: |
+            .github
+            .githooks
+          fallback-app-name: ${{ github.event.repository.name }}
+          consolidate-to-root: ${{ inputs.monorepo_type == 'type2' }}
+          consolidate-keep-dirs: ${{ inputs.frontend_folder }}
 
   security_scan:
     needs: prepare_matrix
@@ -122,8 +122,9 @@ jobs:
       DOCKERFILE_PATH: ${{ matrix.working_dir == '.' && format('./{0}', inputs.dockerfile_name) || format('{0}/{1}', matrix.working_dir, inputs.dockerfile_name) }}
 
     steps:
+      # ----------------- Setup -----------------
       - name: Login to Docker Registry
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           registry: ${{ inputs.docker_registry }}
           username: ${{ secrets.DOCKER_USERNAME }}
@@ -134,37 +135,21 @@ jobs:
 
       - name: Set up Docker Buildx
         if: inputs.enable_docker_scan
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
 
-      # ----------------- Security Scans -----------------
-      - name: Trivy Secret Scan - Component (Table Output)
-        uses: aquasecurity/trivy-action@0.34.1
+      # ----------------- Filesystem Scanning (Secrets + Vulnerabilities) -----------------
+      - name: Trivy Filesystem Scan
+        id: fs-scan
         if: always()
+        uses: LerianStudio/github-actions-shared-workflows/src/security/trivy-fs-scan@develop
         with:
-          scan-type: fs
           scan-ref: ${{ matrix.working_dir }}
-          format: table
-          exit-code: '1'
-          hide-progress: true
-          skip-dirs: '.git,node_modules,dist,build,.next,coverage,vendor'
-          version: 'v0.69.2'
+          app-name: ${{ env.APP_NAME }}
 
-      - name: Trivy Secret Scan - Component (SARIF Output)
-        uses: aquasecurity/trivy-action@0.34.1
-        if: always()
-        with:
-          scan-type: fs
-          scan-ref: ${{ matrix.working_dir }}
-          format: sarif
-          output: 'trivy-secret-scan-${{ env.APP_NAME }}.sarif'
-          exit-code: '0'
-          hide-progress: true
-          skip-dirs: '.git,node_modules,dist,build,.next,coverage,vendor'
-          version: 'v0.69.2'
-
+      # ----------------- Docker Build -----------------
       - name: Build Docker Image for Scanning
         if: always() && inputs.enable_docker_scan
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: ${{ inputs.monorepo_type == 'type2' && matrix.working_dir == inputs.frontend_folder && inputs.frontend_folder || '.' }}
           file: ${{ env.DOCKERFILE_PATH }}
@@ -176,227 +161,36 @@ jobs:
             ${{ secrets.MANAGE_TOKEN && format('github_token={0}', secrets.MANAGE_TOKEN) || '' }}
             ${{ secrets.NPMRC_TOKEN && format('npmrc=//npm.pkg.github.com/:_authToken={0}', secrets.NPMRC_TOKEN) || '' }}
 
-      - name: Trivy Vulnerability Scan - Docker Image (Table Output)
+      # ----------------- Image Scanning (Vulnerabilities + Licenses) -----------------
+      - name: Trivy Image Scan
+        id: image-scan
         if: always() && inputs.enable_docker_scan
-        uses: aquasecurity/trivy-action@0.34.1
+        uses: LerianStudio/github-actions-shared-workflows/src/security/trivy-image-scan@develop
         with:
           image-ref: '${{ env.DOCKERHUB_ORG }}/${{ env.APP_NAME }}:pr-scan-${{ github.sha }}'
-          format: 'table'
-          ignore-unfixed: true
-          vuln-type: 'os,library'
-          severity: 'CRITICAL,HIGH'
-          exit-code: '0'
-          version: 'v0.69.2'
+          app-name: ${{ env.APP_NAME }}
+          enable-license-scan: ${{ inputs.enable_health_score }}
 
-      - name: Trivy Vulnerability Scan - Docker Image (SARIF Output)
-        if: always() && inputs.enable_docker_scan
-        uses: aquasecurity/trivy-action@0.34.1
+      # ----------------- Dockerfile Compliance Checks -----------------
+      - name: Dockerfile Compliance Checks
+        id: dockerfile-checks
+        if: always() && inputs.enable_docker_scan && inputs.enable_health_score
+        uses: LerianStudio/github-actions-shared-workflows/src/security/dockerfile-checks@develop
         with:
-          image-ref: '${{ env.DOCKERHUB_ORG }}/${{ env.APP_NAME }}:pr-scan-${{ github.sha }}'
-          format: sarif
-          output: 'trivy-vulnerability-scan-docker-${{ env.APP_NAME }}.sarif'
-          ignore-unfixed: true
-          vuln-type: os,library
-          severity: UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL
-          exit-code: '0'  # Do not fail; gate failures in the table step
-          version: 'v0.69.2'
+          dockerfile-path: ${{ env.DOCKERFILE_PATH }}
 
-      # ----------------- Filesystem Vulnerability Scan -----------------
-      - name: Trivy Vulnerability Scan - Filesystem (JSON Output)
-        id: fs-vuln-scan
-        uses: aquasecurity/trivy-action@0.34.1
-        if: always()
-        with:
-          scan-type: fs
-          scan-ref: ${{ matrix.working_dir }}
-          format: json
-          output: 'trivy-fs-vuln-${{ env.APP_NAME }}.json'
-          exit-code: '0'
-          hide-progress: true
-          skip-dirs: '.git,node_modules,dist,build,.next,coverage,vendor'
-          version: 'v0.69.2'
-
-      # ----------------- PR Comment with Security Findings -----------------
+      # ----------------- Results & Security Gate -----------------
       - name: Post Security Scan Results to PR
         id: post-results
         if: always() && github.event_name == 'pull_request'
-        uses: actions/github-script@v7
+        uses: LerianStudio/github-actions-shared-workflows/src/security/pr-security-reporter@develop
         with:
-          script: |
-            const fs = require('fs');
-            const appName = process.env.APP_NAME;
-            const dockerScanEnabled = ${{ inputs.enable_docker_scan }};
-
-            let body = `## 🔒 Security Scan Results — \`${appName}\`\n\n`;
-            let hasFindings = false;
-            let hasScanErrors = false;
-
-            // Helper to escape markdown table cell content
-            const md = (value) =>
-              String(value ?? '')
-                .replace(/\|/g, '\\|')
-                .replace(/\r?\n/g, ' ')
-                .replace(/`/g, '\\`');
-
-            // Parse filesystem vulnerability scan
-            try {
-              const fsVulnFile = `trivy-fs-vuln-${appName}.json`;
-              if (fs.existsSync(fsVulnFile)) {
-                const data = JSON.parse(fs.readFileSync(fsVulnFile, 'utf8'));
-                const results = data.Results || [];
-                const vulns = [];
-
-                for (const result of results) {
-                  for (const v of (result.Vulnerabilities || [])) {
-                    vulns.push({
-                      library: v.PkgName || 'Unknown',
-                      id: v.VulnerabilityID || 'N/A',
-                      severity: v.Severity || 'UNKNOWN',
-                      installed: v.InstalledVersion || 'N/A',
-                      fixed: v.FixedVersion || 'N/A',
-                      title: v.Title || v.Description || 'No description'
-                    });
-                  }
-                  for (const s of (result.Secrets || [])) {
-                    vulns.push({
-                      library: s.RuleID || 'Secret',
-                      id: s.Category || 'SECRET',
-                      severity: s.Severity || 'HIGH',
-                      installed: '[REDACTED]',
-                      fixed: 'Remove/rotate',
-                      title: s.Title || 'Secret detected'
-                    });
-                  }
-                }
-
-                if (vulns.length > 0) {
-                  hasFindings = true;
-                  body += `### Filesystem Scan\n\n`;
-                  body += `| Severity | Library | Vulnerability | Installed | Fixed | Title |\n`;
-                  body += `|----------|---------|---------------|-----------|-------|-------|\n`;
-
-                  const severityOrder = { CRITICAL: 0, HIGH: 1, MEDIUM: 2, LOW: 3, UNKNOWN: 4 };
-                  vulns.sort((a, b) => (severityOrder[a.severity] ?? 5) - (severityOrder[b.severity] ?? 5));
-
-                  const maxFsFindings = 50;
-                  for (const v of vulns.slice(0, maxFsFindings)) {
-                    const icon = { CRITICAL: '🔴', HIGH: '🟠', MEDIUM: '🟡', LOW: '🔵', UNKNOWN: '⚪' }[v.severity] || '⚪';
-                    const title = v.title.length > 60 ? v.title.substring(0, 57) + '...' : v.title;
-                    body += `| ${icon} ${md(v.severity)} | \`${md(v.library)}\` | ${md(v.id)} | ${md(v.installed)} | ${md(v.fixed)} | ${md(title)} |\n`;
-                  }
-                  if (vulns.length > maxFsFindings) {
-                    body += `\n_... and ${vulns.length - maxFsFindings} more findings._\n`;
-                  }
-                  body += `\n`;
-                } else {
-                  body += `### Filesystem Scan\n\n✅ No vulnerabilities or secrets found.\n\n`;
-                }
-              } else {
-                hasScanErrors = true;
-                body += `### Filesystem Scan\n\n⚠️ Scan artifact not found.\n\n`;
-              }
-            } catch (e) {
-              hasScanErrors = true;
-              body += `### Filesystem Scan\n\n⚠️ Could not parse scan results: ${e.message}\n\n`;
-            }
-
-            // Parse Docker image vulnerability scan
-            if (dockerScanEnabled) {
-              try {
-                const dockerSarifFile = `trivy-vulnerability-scan-docker-${appName}.sarif`;
-                if (fs.existsSync(dockerSarifFile)) {
-                  const sarif = JSON.parse(fs.readFileSync(dockerSarifFile, 'utf8'));
-                  const runs = sarif.runs || [];
-                  const dockerVulns = [];
-
-                  for (const run of runs) {
-                    for (const result of (run.results || [])) {
-                      const rule = (run.tool?.driver?.rules || []).find(r => r.id === result.ruleId);
-                      dockerVulns.push({
-                        id: result.ruleId || 'N/A',
-                        severity: result.level === 'error' ? 'CRITICAL/HIGH' : result.level === 'warning' ? 'MEDIUM' : 'LOW',
-                        title: rule?.shortDescription?.text || result.message?.text || 'No description'
-                      });
-                    }
-                  }
-
-                  if (dockerVulns.length > 0) {
-                    hasFindings = true;
-                    const dockerSeverityOrder = { 'CRITICAL/HIGH': 0, CRITICAL: 0, HIGH: 1, MEDIUM: 2, LOW: 3, UNKNOWN: 4 };
-                    dockerVulns.sort((a, b) => (dockerSeverityOrder[a.severity] ?? 5) - (dockerSeverityOrder[b.severity] ?? 5));
-                    body += `### Docker Image Scan\n\n`;
-                    body += `| Severity | Vulnerability | Title |\n`;
-                    body += `|----------|---------------|-------|\n`;
-                    for (const v of dockerVulns.slice(0, 20)) {
-                      const title = v.title.length > 80 ? v.title.substring(0, 77) + '...' : v.title;
-                      body += `| ${md(v.severity)} | ${md(v.id)} | ${md(title)} |\n`;
-                    }
-                    if (dockerVulns.length > 20) {
-                      body += `\n_... and ${dockerVulns.length - 20} more findings._\n`;
-                    }
-                    body += `\n`;
-                  } else {
-                    body += `### Docker Image Scan\n\n✅ No vulnerabilities found.\n\n`;
-                  }
-                } else {
-                  hasScanErrors = true;
-                  body += `### Docker Image Scan\n\n⚠️ Scan artifact not found.\n\n`;
-                }
-              } catch (e) {
-                hasScanErrors = true;
-                body += `### Docker Image Scan\n\n⚠️ Could not parse scan results: ${e.message}\n\n`;
-              }
-            }
-
-            if (!hasFindings && !hasScanErrors) {
-              body += `\n✅ **All security checks passed.**\n`;
-            }
-
-            // Export findings flag for the gate step (before API calls to ensure they're always set)
-            core.setOutput('has_findings', hasFindings);
-            core.setOutput('has_errors', hasScanErrors);
-
-            // Find and update existing comment or create new one
-            const marker = `<!-- security-scan-${appName} -->`;
-            body = marker + '\n' + body;
-            try {
-              const comments = await github.paginate(github.rest.issues.listComments, {
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: context.issue.number,
-                per_page: 100
-              });
-
-              const existing = comments.find(c => c.body?.includes(marker));
-              if (existing) {
-                await github.rest.issues.updateComment({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  comment_id: existing.id,
-                  body
-                });
-              } else {
-                await github.rest.issues.createComment({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  issue_number: context.issue.number,
-                  body
-                });
-              }
-            } catch (e) {
-              core.warning(`Could not post PR security comment: ${e.message}`);
-            }
-
-      - name: Gate - Fail on Security Findings
-        if: always() && github.event_name == 'pull_request'
-        run: |
-          if [ "${{ steps.post-results.outputs.has_errors }}" = "true" ]; then
-            echo "::warning::Some scan artifacts were missing or could not be parsed."
-          fi
-          if [ "${{ steps.post-results.outputs.has_findings }}" = "true" ]; then
-            echo "::error::Security vulnerabilities found. Check the PR comment for details."
-            exit 1
-          fi
+          github-token: ${{ secrets.MANAGE_TOKEN || secrets.GITHUB_TOKEN }}
+          app-name: ${{ env.APP_NAME }}
+          enable-docker-scan: ${{ inputs.enable_docker_scan }}
+          enable-health-score: ${{ inputs.enable_health_score && inputs.enable_docker_scan }}
+          dockerfile-has-non-root-user: ${{ steps.dockerfile-checks.outputs.has-non-root-user || 'false' }}
+          fail-on-findings: 'true'
 
       ## To be fixed
       # - name: Upload Secret Scan Results - Repository (SARIF) to GitHub Security Tab
@@ -413,15 +207,17 @@ jobs:
       #   with:
       #     sarif_file: 'trivy-vulnerability-scan-docker-${{ env.APP_NAME }}.sarif'
 
-  # Slack notification
+  # ----------------- Slack Notification -----------------
   notify:
     name: Notify
     needs: [prepare_matrix, security_scan]
     if: always() && needs.prepare_matrix.outputs.matrix != '[]'
-    uses: ./.github/workflows/slack-notify.yml
-    with:
-      status: ${{ needs.security_scan.result }}
-      workflow_name: "PR Security Scan"
-      failed_jobs: ${{ needs.security_scan.result == 'failure' && 'Security Scan' || '' }}
-    secrets:
-      SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+    runs-on: ${{ inputs.runner_type }}
+    steps:
+      - name: Slack Notification
+        uses: LerianStudio/github-actions-shared-workflows/src/notify/slack-notify@develop
+        with:
+          webhook-url: ${{ secrets.SLACK_WEBHOOK_URL }}
+          status: ${{ needs.security_scan.result }}
+          workflow-name: "PR Security Scan"
+          failed-jobs: ${{ needs.security_scan.result == 'failure' && 'Security Scan' || '' }}

@@ -103,6 +103,24 @@ jobs:
 
 ---
 
+## Runner
+
+All jobs in reusable workflows must use `blacksmith-4vcpu-ubuntu-2404` as the runner:
+
+```yaml
+jobs:
+  build:
+    runs-on: blacksmith-4vcpu-ubuntu-2404   # ✅ required runner
+    # ...
+```
+
+```yaml
+# ❌ Never use other runners
+runs-on: ubuntu-latest
+runs-on: ubuntu-22.04
+runs-on: self-hosted
+```
+
 ## Workflow structure
 
 Every reusable workflow must:
@@ -177,14 +195,121 @@ The two modes have opposite goals — design them accordingly:
 - Let failures surface naturally via non-zero exit codes
 - Add a single `::notice::` summary line only after successful completion if useful
 
-## Local path rule (critical)
+## Configurability — expose composite toggles as workflow inputs
 
-Inside a reusable workflow, always reference composites with a local path:
+Reusable workflows act as a **configuration bridge** between callers and composites. Every optional feature in a composite must be surfaceable as an input in the reusable workflow, so callers can enable or disable it without forking the workflow.
+
+**Rules:**
+- For every optional feature in a composite (e.g. `enable-recommendations`), declare a matching input in the workflow
+- Pass the workflow input explicitly to the composite step via `with:`
+- Use `if: inputs.enable_xxx` at the **step or job level** in the workflow to skip the entire composite call when the feature is disabled — do not gate this inside the composite
+- Keep input names consistent: workflow inputs use `snake_case`, composite inputs use `kebab-case`
 
 ```yaml
-uses: ./src/setup/setup-go      # ✅ composite version matches workflow version
-uses: LerianStudio/...@main     # ❌ breaks versioning for callers on older tags
+# reusable workflow — exposes composite features as inputs
+on:
+  workflow_call:
+    inputs:
+      enable_docker_scout:
+        description: Run Docker Scout vulnerability scan
+        required: false
+        type: boolean
+        default: true
+      enable_docker_scout_recommendations:
+        description: Include Docker Scout recommendations in the PR comment
+        required: false
+        type: boolean
+        default: true
+
+jobs:
+  scan:
+    steps:
+      # entire step skipped when disabled — never reaches the composite
+      - name: Docker Scout
+        if: inputs.enable_docker_scout
+        uses: LerianStudio/github-actions-shared-workflows/src/security/docker-scout@v1.2.3
+        with:
+          enable-recommendations: ${{ inputs.enable_docker_scout_recommendations }}
+          # ↑ override composite default; composite still has its own fallback
 ```
+
+**Three-layer configurability flow:**
+
+```
+Caller repo                   Reusable workflow              Composite
+─────────────────────────     ─────────────────────────────  ────────────────────
+enable_docker_scout: false →  if: inputs.enable_docker_scout → step is skipped
+enable_docker_scout_         →  enable-recommendations:      →  ${{ inputs.enable-
+  recommendations: false          ${{ inputs.... }}                recommendations }}
+                                  (passes value down)            (runs conditionally)
+```
+
+## Skip-enabling outputs
+
+Every reusable workflow that performs conditional work (change detection, feature flags, environment checks) **must expose boolean outputs** so callers can skip downstream jobs when there is nothing to do.
+
+```yaml
+on:
+  workflow_call:
+    outputs:
+      has_builds:
+        description: 'Whether any components were detected for building (true/false)'
+        value: ${{ jobs.prepare.outputs.has_builds }}
+```
+
+Naming convention: `has_<noun>` (e.g. `has_builds`, `has_changes`, `has_releases`). Value must be the string `'true'` or `'false'`.
+
+Callers use these outputs to gate dependent jobs:
+
+```yaml
+jobs:
+  build:
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/build.yml@v1.2.3
+  deploy:
+    needs: build
+    if: needs.build.outputs.has_builds == 'true'
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/deploy.yml@v1.2.3
+```
+
+## Step section titles
+
+When a job has more than one logical group of steps, separate each group with a titled section comment:
+
+```yaml
+# ----------------- Security Scans -----------------
+- name: Trivy Secret Scan
+  ...
+
+# ----------------- Docker Scout Analysis -----------------
+- name: Docker Scout
+  ...
+
+# ----------------- PR Comment with Security Findings -----------------
+- name: Post Security Scan Results to PR
+  ...
+```
+
+**Rules:**
+- Use the exact format: `# ----------------- Title -----------------`
+- Title must be short, action-oriented, and describe the group's purpose (e.g. "Build & Push", "Security Scans", "Notifications")
+- Add a section title whenever there are 2 or more logical groups within the same job
+- Single-group jobs or jobs with 2–3 tightly related steps do not need a section title
+- Place the comment on the line immediately before the first step of the group (no blank line between comment and step)
+
+## Composite action references (critical)
+
+In reusable workflows (`workflow_call`), `uses: ./path` resolves to the **caller's workspace**, not this repository. This means `./src/...` only works when the caller IS this repo (i.e., `self-*` workflows).
+
+- **Workflows called by external repos** — must use an external ref pinned to a release tag:
+  ```yaml
+  uses: LerianStudio/github-actions-shared-workflows/src/notify/discord-release@v1.2.3  # ✅ pinned
+  uses: LerianStudio/github-actions-shared-workflows/src/notify/discord-release@develop # ⚠️ testing only
+  uses: ./src/notify/discord-release  # ❌ resolves to caller's workspace, will fail
+  ```
+- **`self-*` workflows (internal only)** — use a local path:
+  ```yaml
+  uses: ./.github/workflows/labels-sync.yml  # ✅ caller is this repo
+  ```
 
 ## Secrets management
 
@@ -274,8 +399,8 @@ runs:
   jobs:          # invalid — composites have steps, not jobs
     build: ...
 
-# ❌ External ref for composite inside a reusable workflow
-uses: LerianStudio/github-actions-shared-workflows/src/setup-go@main  # breaks versioning
+# ❌ Local path for composite in a workflow called by external repos
+uses: ./src/setup-go  # resolves to caller's workspace, not this repo
 
 # ❌ Mutable ref on third-party actions
 uses: some-action/tool@main    # use a specific tag or SHA
@@ -288,3 +413,33 @@ uses: some-action/tool@main    # use a specific tag or SHA
 - Never interpolate untrusted user input directly into `run:` commands
 - Never print secrets via `echo`, env dumps, or step summaries
 - Complex conditional logic belongs in the workflow (not in composites) — full log visibility
+
+### Reserved names — never use as custom secret or input names
+
+GitHub reserves the `GITHUB_*` prefix for all built-in variables and the `ACTIONS_*` prefix for runner internals. Declaring a custom secret or input with these names causes the job to fail silently or be ignored:
+
+```yaml
+# ❌ Breaks jobs — GitHub does not allow passing GITHUB_TOKEN as a named secret
+on:
+  workflow_call:
+    secrets:
+      GITHUB_TOKEN:   # reserved — each job already receives it automatically
+        required: true
+
+# ✅ Use a different name for custom tokens
+on:
+  workflow_call:
+    secrets:
+      MANAGE_TOKEN:   # custom PAT passed by the caller
+        required: false
+```
+
+**Reserved prefixes to never use in custom secrets, inputs, or env vars:**
+
+| Prefix | Owner | Examples |
+|---|---|---|
+| `GITHUB_*` | GitHub Actions runtime | `GITHUB_TOKEN`, `GITHUB_SHA`, `GITHUB_REF` |
+| `ACTIONS_*` | GitHub runner internals | `ACTIONS_RUNTIME_TOKEN`, `ACTIONS_CACHE_URL` |
+| `RUNNER_*` | Runner metadata | `RUNNER_OS`, `RUNNER_TEMP` |
+
+If a caller needs to pass a GitHub token with elevated permissions, use a distinct name like `MANAGE_TOKEN`, `BOT_TOKEN`, or `GH_PAT`.

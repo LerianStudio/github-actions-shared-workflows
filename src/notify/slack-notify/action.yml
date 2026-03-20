@@ -1,0 +1,129 @@
+name: Slack Notification
+description: Sends a workflow status notification to Slack with rich formatting including repo, workflow, failed jobs, and author info.
+
+inputs:
+  webhook-url:
+    description: 'Slack webhook URL for notifications'
+    required: true
+  status:
+    description: 'Workflow status (success, failure, cancelled)'
+    required: true
+  workflow-name:
+    description: 'Name of the calling workflow'
+    required: true
+  failed-jobs:
+    description: 'Comma-separated list of failed job names (for failure notifications)'
+    required: false
+    default: ''
+  custom-message:
+    description: 'Optional custom message to include'
+    required: false
+    default: ''
+
+runs:
+  using: composite
+  steps:
+    # ----------------- Webhook Check -----------------
+    - name: Check if Slack webhook is configured
+      id: check-webhook
+      shell: bash
+      run: |
+        if [ -z "${{ inputs.webhook-url }}" ]; then
+          echo "skip=true" >> $GITHUB_OUTPUT
+          echo "::notice::SLACK_WEBHOOK_URL not configured — skipping notification"
+        else
+          echo "skip=false" >> $GITHUB_OUTPUT
+        fi
+
+    # ----------------- Build Notification -----------------
+    - name: Determine notification settings
+      if: steps.check-webhook.outputs.skip != 'true'
+      id: settings
+      shell: bash
+      run: |
+        STATUS="${{ inputs.status }}"
+
+        case "$STATUS" in
+          success)
+            COLOR="good"
+            EMOJI="✅"
+            STATUS_TEXT="succeeded"
+            ;;
+          failure)
+            COLOR="danger"
+            EMOJI="❌"
+            STATUS_TEXT="failed"
+            ;;
+          cancelled)
+            COLOR="#808080"
+            EMOJI="⚪"
+            STATUS_TEXT="was cancelled"
+            ;;
+          *)
+            COLOR="warning"
+            EMOJI="⚠️"
+            STATUS_TEXT="completed with status: $STATUS"
+            ;;
+        esac
+
+        echo "color=$COLOR" >> $GITHUB_OUTPUT
+        echo "emoji=$EMOJI" >> $GITHUB_OUTPUT
+        echo "status_text=$STATUS_TEXT" >> $GITHUB_OUTPUT
+
+    - name: Build notification message
+      if: steps.check-webhook.outputs.skip != 'true'
+      id: message
+      shell: bash
+      run: |
+        REPO="${{ github.repository }}"
+        REPO_NAME="${REPO##*/}"
+        WORKFLOW="${{ inputs.workflow-name }}"
+        STATUS="${{ inputs.status }}"
+        STATUS_TEXT="${{ steps.settings.outputs.status_text }}"
+        EMOJI="${{ steps.settings.outputs.emoji }}"
+        ACTOR="${{ github.actor }}"
+        RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+        COMMIT_SHA="${{ github.sha }}"
+        SHORT_SHA="${COMMIT_SHA:0:7}"
+
+        if [ "${{ github.event_name }}" = "pull_request" ]; then
+          REF="PR #${{ github.event.pull_request.number }}"
+          BRANCH="${{ github.head_ref }}"
+        else
+          REF="${{ github.ref_name }}"
+          BRANCH="$REF"
+        fi
+
+        MESSAGE="$EMOJI *$WORKFLOW* $STATUS_TEXT in *$REPO_NAME*"
+
+        FAILED_JOBS="${{ inputs.failed-jobs }}"
+        if [ "$STATUS" = "failure" ] && [ -n "$FAILED_JOBS" ]; then
+          MESSAGE="$MESSAGE\n💥 *Failed jobs:* $FAILED_JOBS"
+        fi
+
+        MESSAGE="$MESSAGE\n👤 *Author:* $ACTOR"
+        MESSAGE="$MESSAGE\n📌 *Branch:* \`$BRANCH\` | *Commit:* \`$SHORT_SHA\`"
+
+        if [ -n "${{ inputs.custom-message }}" ]; then
+          MESSAGE="$MESSAGE\n\n${{ inputs.custom-message }}"
+        fi
+
+        MESSAGE="$MESSAGE\n\n<$RUN_URL|🔗 View Workflow Run>"
+
+        echo "message<<EOF" >> $GITHUB_OUTPUT
+        echo -e "$MESSAGE" >> $GITHUB_OUTPUT
+        echo "EOF" >> $GITHUB_OUTPUT
+
+    # ----------------- Send Notification -----------------
+    - name: Send Slack notification
+      if: steps.check-webhook.outputs.skip != 'true'
+      uses: rtCamp/action-slack-notify@v2
+      env:
+        SLACK_WEBHOOK: ${{ inputs.webhook-url }}
+        SLACK_COLOR: ${{ steps.settings.outputs.color }}
+        SLACK_USERNAME: GitHub Actions
+        SLACK_ICON: https://github.githubassets.com/assets/GitHub-Mark-ea2971cee799.png
+        SLACK_TITLE: ${{ github.repository }}
+        SLACK_MESSAGE: ${{ steps.message.outputs.message }}
+        SLACK_FOOTER: "Workflow: ${{ inputs.workflow-name }}"
+        MSG_MINIMAL: true

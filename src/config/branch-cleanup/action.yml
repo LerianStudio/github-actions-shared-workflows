@@ -25,6 +25,7 @@ inputs:
 runs:
   using: composite
   steps:
+    # ----------------- Merged Branch Mode -----------------
     - name: Delete merged branch
       if: ${{ inputs.merged-branch != '' }}
       shell: bash
@@ -60,6 +61,7 @@ runs:
           && echo "::notice::Deleted merged branch '$MERGED_BRANCH'" \
           || echo "::warning::Branch '$MERGED_BRANCH' not found or already deleted"
 
+    # ----------------- Stale Branch Mode -----------------
     - name: Scan and delete stale branches
       if: ${{ inputs.merged-branch == '' }}
       shell: bash

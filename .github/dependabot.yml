@@ -83,11 +83,12 @@ updates:
           - "minor"
           - "patch"
 
-      # Slack notification actions
+      # Notification actions (Slack, Discord)
       notifications:
         patterns:
           - "rtCamp/action-slack-notify"
           - "slackapi/slack-github-action"
+          - "SethCohen/github-releases-to-discord"
         update-types:
           - "major"
           - "minor"
@@ -102,12 +103,23 @@ updates:
           - "minor"
           - "patch"
 
+      # Linting and code quality actions
+      linting:
+        patterns:
+          - "ibiqlik/action-yamllint"
+          - "raven-actions/actionlint"
+          - "crate-ci/typos"
+          - "tcort/github-action-markdown-link-check"
+        update-types:
+          - "major"
+          - "minor"
+          - "patch"
+
       # Miscellaneous third-party utilities
       utilities:
         patterns:
           - "amannn/action-semantic-pull-request"
           - "actions/labeler"
-          - "gaurav-nelson/github-action-markdown-link-check"
           - "actions/github-script"
           - "mikefarah/yq"
         update-types:
