@@ -42,7 +42,7 @@ jobs:
         uses: actions/checkout@v6
 
       - name: Post Lint Report
-        uses: LerianStudio/github-actions-shared-workflows/src/notify/pr-lint-reporter@develop
+        uses: LerianStudio/github-actions-shared-workflows/src/notify/pr-lint-reporter@v1.x.x
         with:
           github-token: ${{ secrets.MANAGE_TOKEN || github.token }}
           yamllint-result: ${{ needs.yamllint.result }}

@@ -56,7 +56,7 @@ jobs:
           tags: myorg/myapp:scan
 
       - name: Trivy Image Scan
-        uses: LerianStudio/github-actions-shared-workflows/src/security/trivy-image-scan@develop
+        uses: LerianStudio/github-actions-shared-workflows/src/security/trivy-image-scan@v1.x.x
         with:
           image-ref: 'myorg/myapp:scan'
           app-name: 'my-service'
