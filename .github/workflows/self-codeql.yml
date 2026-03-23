@@ -5,13 +5,16 @@ on:
     branches:
       - develop
       - main
+    paths:
+      - '**.yml'
+      - '**.yaml'
   pull_request:
     branches:
       - develop
       - main
-  schedule:
-    # Run every Monday at 06:00 UTC
-    - cron: '0 6 * * 1'
+    paths:
+      - '**.yml'
+      - '**.yaml'
   workflow_dispatch:
 
 permissions:
@@ -24,22 +27,16 @@ jobs:
     name: CodeQL Analysis
     runs-on: blacksmith-4vcpu-ubuntu-2404
 
-    strategy:
-      fail-fast: false
-      matrix:
-        language:
-          - actions
-
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
 
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@v4
+        uses: ./src/security/codeql-init
         with:
-          languages: ${{ matrix.language }}
+          languages: actions
 
       - name: Perform CodeQL Analysis
-        uses: github/codeql-action/analyze@v4
+        uses: ./src/security/codeql-analyze
         with:
-          category: '/language:${{ matrix.language }}'
+          category: '/language:actions'
