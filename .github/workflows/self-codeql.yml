@@ -1,13 +1,6 @@
 name: Self — CodeQL
 
 on:
-  push:
-    branches:
-      - develop
-      - main
-    paths:
-      - '**.yml'
-      - '**.yaml'
   pull_request:
     branches:
       - develop
@@ -23,8 +16,30 @@ permissions:
   actions: read
 
 jobs:
+  # ----------------- Changed Files Detection -----------------
+  changed-files:
+    name: Detect Changed Files
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      action_files: ${{ steps.detect.outputs.action-files }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Detect changed files
+        id: detect
+        uses: ./src/config/changed-workflows
+        with:
+          github-token: ${{ github.token }}
+
+  # ----------------- CodeQL Analysis -----------------
   analyze:
     name: CodeQL Analysis
+    needs: changed-files
+    if: needs.changed-files.outputs.action_files != ''
     runs-on: blacksmith-4vcpu-ubuntu-2404
 
     steps:
