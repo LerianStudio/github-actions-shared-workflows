@@ -67,6 +67,10 @@ on:
         description: 'Enable Docker Hub Health Score compliance checks (non-root user, CVEs, licenses)'
         type: boolean
         default: true
+      build_context_from_working_dir:
+        description: 'Use the component working_dir as Docker build context instead of repo root. Useful for independent modules (e.g., tools with their own go.mod).'
+        type: boolean
+        default: false
 
 permissions:
   id-token: write       # Required for OIDC authentication
@@ -151,7 +155,7 @@ jobs:
         if: always() && inputs.enable_docker_scan
         uses: docker/build-push-action@v7
         with:
-          context: ${{ inputs.monorepo_type == 'type2' && matrix.working_dir == inputs.frontend_folder && inputs.frontend_folder || '.' }}
+          context: ${{ inputs.build_context_from_working_dir == true && matrix.working_dir || (inputs.monorepo_type == 'type2' && matrix.working_dir == inputs.frontend_folder && inputs.frontend_folder || '.') }}
           file: ${{ env.DOCKERFILE_PATH }}
           platforms: linux/amd64
           load: true
