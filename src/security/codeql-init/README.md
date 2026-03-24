@@ -5,7 +5,7 @@
   </tr>
 </table>
 
-Composite action that initializes CodeQL analysis for specified languages. Uses the `security-extended` query suite by default for broader coverage. Designed to be paired with [`codeql-analyze`](../codeql-analyze/).
+Composite action that wraps [`github/codeql-action/init`](https://github.com/github/codeql-action) to initialize CodeQL analysis for specified languages. Uses the `security-extended` query suite by default for broader coverage. Designed to be paired with [`codeql-analyze`](../codeql-analyze/).
 
 ## Inputs
 

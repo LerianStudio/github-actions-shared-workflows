@@ -5,7 +5,7 @@
   </tr>
 </table>
 
-Composite action that performs CodeQL analysis and uploads SARIF results to the GitHub Security tab. Designed to be paired with [`codeql-init`](../codeql-init/).
+Composite action that wraps [`github/codeql-action/analyze`](https://github.com/github/codeql-action) to perform CodeQL analysis and upload SARIF results to the GitHub Security tab. Designed to be paired with [`codeql-init`](../codeql-init/).
 
 ## Inputs
 
