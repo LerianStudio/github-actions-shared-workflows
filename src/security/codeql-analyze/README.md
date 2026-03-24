@@ -39,4 +39,5 @@ steps:
 permissions:
   contents: read
   security-events: write  # required for SARIF upload to GitHub Security tab
+  actions: read            # required for workflows using private repositories
 ```
