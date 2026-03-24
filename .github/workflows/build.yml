@@ -122,6 +122,10 @@ on:
         description: 'Force multi-platform build (amd64+arm64) even for beta/rc tags'
         type: boolean
         default: false
+      build_context_from_working_dir:
+        description: 'Use the component working_dir as Docker build context instead of build_context. Useful for independent modules (e.g., tools with their own go.mod).'
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -281,7 +285,7 @@ jobs:
       - name: Build and push Docker image
         uses: docker/build-push-action@v7
         with:
-          context: ${{ inputs.build_context }}
+          context: ${{ inputs.build_context_from_working_dir == true && matrix.app.working_dir || inputs.build_context }}
           file: ${{ matrix.app.working_dir }}/${{ inputs.dockerfile_name }}
           platforms: ${{ needs.prepare.outputs.platforms }}
           push: true
