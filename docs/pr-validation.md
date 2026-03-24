@@ -53,7 +53,7 @@ permissions:
 
 jobs:
   validate:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/pr-validation.yml@v1.x.x
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/pr-validation.yml@v1.2.3
     secrets: inherit
 ```
 
@@ -62,7 +62,7 @@ jobs:
 ```yaml
 jobs:
   validate:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/pr-validation.yml@v1.x.x
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/pr-validation.yml@v1.2.3
     with:
       pr_title_types: |
         feat
@@ -83,7 +83,7 @@ jobs:
 ```yaml
 jobs:
   validate:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/pr-validation.yml@v1.x.x
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/pr-validation.yml@v1.2.3
     with:
       enforce_source_branches: true
       allowed_source_branches: 'develop|release-candidate|hotfix/*'
@@ -96,7 +96,7 @@ jobs:
 ```yaml
 jobs:
   validate:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/pr-validation.yml@v1.x.x
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/pr-validation.yml@v1.2.3
     with:
       dry_run: true
     secrets: inherit
@@ -136,15 +136,15 @@ feat fix docs style refactor perf test chore ci build revert
 
 | Job | Condition | Composite |
 |-----|-----------|-----------|
-| `pr-source-branch` | `enforce_source_branches` | `src/validate/pr-source-branch` |
-| `pr-title` | always (non-draft) | `src/validate/pr-title` |
-| `pr-size` | always (non-draft) | `src/validate/pr-size` |
-| `pr-description` | always (non-draft) | `src/validate/pr-description` |
-| `pr-labels` | `enable_auto_labeler && !dry_run` | `src/validate/pr-labels` |
-| `pr-metadata` | always (non-draft) | `src/validate/pr-metadata` |
-| `pr-changelog` | `check_changelog` | `src/validate/pr-changelog` |
+| `pr-source-branch` | non-draft, `enforce_source_branches` | `src/validate/pr-source-branch` |
+| `pr-title` | non-draft | `src/validate/pr-title` |
+| `pr-size` | non-draft | `src/validate/pr-size` |
+| `pr-description` | non-draft | `src/validate/pr-description` |
+| `pr-labels` | non-draft, `enable_auto_labeler && !dry_run` | `src/validate/pr-labels` |
+| `pr-metadata` | non-draft | `src/validate/pr-metadata` |
+| `pr-changelog` | non-draft, `check_changelog` | `src/validate/pr-changelog` |
 | `pr-checks-summary` | always | inline |
-| `notify` | `!dry_run` | `slack-notify.yml` |
+| `notify` | non-draft, `!dry_run` | `slack-notify.yml` |
 
 ## Dry Run Behavior
 
@@ -189,9 +189,9 @@ To skip the changelog check, add one of these labels:
 
 ## Related Workflows
 
-- [Go CI](./go-ci.md) — Continuous integration testing
-- [Go Security](./go-security.md) — Security scanning
-- [PR Security Scan](./pr-security-scan.md) — Security scanning for PRs
+- [Go CI](./go-ci-workflow.md) — Continuous integration testing
+- [Go Security](./go-security-workflow.md) — Security scanning
+- [PR Security Scan](./pr-security-scan-workflow.md) — Security scanning for PRs
 
 ---
 

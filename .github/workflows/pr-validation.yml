@@ -155,7 +155,7 @@ jobs:
       - name: Auto-label based on files
         uses: LerianStudio/github-actions-shared-workflows/src/validate/pr-labels@develop
         with:
-          github-token: ${{ github.token }}
+          github-token: ${{ secrets.MANAGE_TOKEN || github.token }}
           config-path: ${{ inputs.labeler_config_path }}
 
   # ----------------- PR Metadata Check -----------------
@@ -199,21 +199,30 @@ jobs:
     steps:
       - name: Summary
         uses: actions/github-script@v8
+        env:
+          SOURCE_BRANCH_RESULT: ${{ needs.pr-source-branch.result }}
+          TITLE_RESULT: ${{ needs.pr-title.result }}
+          SIZE_RESULT: ${{ needs.pr-size.result }}
+          DESCRIPTION_RESULT: ${{ needs.pr-description.result }}
+          LABEL_RESULT: ${{ needs.pr-labels.result }}
+          METADATA_RESULT: ${{ needs.pr-metadata.result }}
+          CHANGELOG_RESULT: ${{ needs.pr-changelog.result }}
+          DRY_RUN: ${{ inputs.dry_run }}
         with:
           github-token: ${{ secrets.MANAGE_TOKEN || github.token }}
           script: |
             const checks = {
-              'Source Branch': '${{ needs.pr-source-branch.result }}',
-              'PR Title': '${{ needs.pr-title.result }}',
-              'PR Size': '${{ needs.pr-size.result }}',
-              'PR Description': '${{ needs.pr-description.result }}',
-              'Auto-label': '${{ needs.pr-labels.result }}',
-              'Metadata': '${{ needs.pr-metadata.result }}',
-              'Changelog': '${{ needs.pr-changelog.result }}'
+              'Source Branch': process.env.SOURCE_BRANCH_RESULT,
+              'PR Title': process.env.TITLE_RESULT,
+              'PR Size': process.env.SIZE_RESULT,
+              'PR Description': process.env.DESCRIPTION_RESULT,
+              'Auto-label': process.env.LABEL_RESULT,
+              'Metadata': process.env.METADATA_RESULT,
+              'Changelog': process.env.CHANGELOG_RESULT
             };
 
             let summary = '## PR Checks Summary\n\n';
-            if ('${{ inputs.dry_run }}' === 'true') {
+            if (process.env.DRY_RUN === 'true') {
               summary += '> **DRY RUN** — no comments, labels, or reviews were posted\n\n';
             }
             for (const [check, result] of Object.entries(checks)) {
@@ -231,8 +240,8 @@ jobs:
     if: always() && github.event.pull_request.draft != true && !inputs.dry_run
     uses: LerianStudio/github-actions-shared-workflows/.github/workflows/slack-notify.yml@develop
     with:
-      status: ${{ (needs.pr-source-branch.result == 'failure' || needs.pr-title.result == 'failure' || needs.pr-description.result == 'failure') && 'failure' || 'success' }}
+      status: ${{ (needs.pr-source-branch.result == 'failure' || needs.pr-title.result == 'failure' || needs.pr-description.result == 'failure' || needs.pr-changelog.result == 'failure') && 'failure' || 'success' }}
       workflow_name: "PR Validation"
-      failed_jobs: ${{ needs.pr-source-branch.result == 'failure' && 'Source Branch, ' || '' }}${{ needs.pr-title.result == 'failure' && 'PR Title, ' || '' }}${{ needs.pr-description.result == 'failure' && 'PR Description' || '' }}
+      failed_jobs: ${{ needs.pr-source-branch.result == 'failure' && 'Source Branch, ' || '' }}${{ needs.pr-title.result == 'failure' && 'PR Title, ' || '' }}${{ needs.pr-description.result == 'failure' && 'PR Description, ' || '' }}${{ needs.pr-changelog.result == 'failure' && 'Changelog' || '' }}
     secrets:
       SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}

@@ -33,6 +33,7 @@ runs:
       run: |
         CHANGED_LINES=$(git diff --shortstat "origin/${BASE_REF}...HEAD" | \
           awk '{print $4+$6}')
+        CHANGED_LINES=${CHANGED_LINES:-0}
         echo "changed_lines=$CHANGED_LINES" >> "$GITHUB_OUTPUT"
 
         if [ "$CHANGED_LINES" -lt 50 ]; then

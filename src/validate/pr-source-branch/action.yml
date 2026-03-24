@@ -46,7 +46,7 @@ runs:
 
           let isAllowed = false;
           for (const pattern of allowedBranches) {
-            if (pattern.endsWith('/*')) {
+            if (pattern.endsWith('*')) {
               const prefix = pattern.slice(0, -1);
               if (sourceBranch.startsWith(prefix)) {
                 isAllowed = true;
