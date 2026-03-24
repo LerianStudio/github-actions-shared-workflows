@@ -1,0 +1,239 @@
+name: CodeQL Reporter
+description: Reads CodeQL SARIF output and posts a formatted security report as a PR comment.
+
+inputs:
+  github-token:
+    description: GitHub token with pull-requests:write and issues:write permissions
+    required: true
+  sarif-path:
+    description: Path to the CodeQL SARIF output directory
+    required: false
+    default: '../results'
+  languages:
+    description: Comma-separated list of languages analyzed (for display purposes)
+    required: true
+  fail-on-findings:
+    description: 'Fail the step with exit code 1 when security findings are detected (true/false)'
+    required: false
+    default: 'false'
+
+outputs:
+  has-findings:
+    description: True if any CodeQL findings were detected
+    value: ${{ steps.parse-outputs.outputs.has_findings }}
+  findings-count:
+    description: Total number of CodeQL findings
+    value: ${{ steps.parse-outputs.outputs.findings_count }}
+
+runs:
+  using: composite
+  steps:
+    - name: Post CodeQL report to PR
+      id: report
+      uses: actions/github-script@v8
+      env:
+        SARIF_PATH: ${{ inputs.sarif-path }}
+        LANGUAGES: ${{ inputs.languages }}
+      with:
+        github-token: ${{ inputs.github-token }}
+        result-encoding: string
+        script: |
+          const fs = require('fs');
+          const path = require('path');
+
+          const sarifDir = process.env.SARIF_PATH;
+          const languages = process.env.LANGUAGES;
+
+          let body = '';
+          let hasFindings = false;
+          let findingsCount = 0;
+          let sarifAvailable = true;
+          let hadParseErrors = false;
+
+          // ── Helpers ──
+          const SEVERITY_ICONS = {
+            error: '\u{1F534}',
+            warning: '\u{1F7E1}',
+            note: '\u{1F535}',
+            none: '\u26AA'
+          };
+
+          const SEVERITY_LABELS = {
+            error: 'High/Critical',
+            warning: 'Medium',
+            note: 'Low',
+            none: 'Info'
+          };
+
+          const SEVERITY_ORDER = { error: 0, warning: 1, note: 2, none: 3 };
+
+          const md = (value) =>
+            String(value ?? '').replace(/\|/g, '\\|').replace(/\r?\n/g, ' ').replace(/`/g, '\\`');
+
+          const truncate = (str, max) =>
+            str.length > max ? str.substring(0, max - 3) + '...' : str;
+
+          // ── Read SARIF files ──
+          function readSarifFiles() {
+            const findings = [];
+
+            if (!fs.existsSync(sarifDir)) {
+              sarifAvailable = false;
+              core.warning(`SARIF directory not found: ${sarifDir}`);
+              return findings;
+            }
+
+            const files = fs.readdirSync(sarifDir).filter(f => f.endsWith('.sarif'));
+
+            if (files.length === 0) {
+              sarifAvailable = false;
+              core.warning('No SARIF files found in output directory');
+              return findings;
+            }
+
+            for (const file of files) {
+              try {
+                const sarif = JSON.parse(fs.readFileSync(path.join(sarifDir, file), 'utf8'));
+
+                for (const run of (sarif.runs || [])) {
+                  const rules = new Map();
+                  for (const rule of (run.tool?.driver?.rules || [])) {
+                    rules.set(rule.id, rule);
+                  }
+
+                  for (const result of (run.results || [])) {
+                    const rule = rules.get(result.ruleId) || {};
+                    const location = result.locations?.[0]?.physicalLocation;
+
+                    findings.push({
+                      rule: result.ruleId || 'unknown',
+                      severity: result.level || 'warning',
+                      message: result.message?.text || rule.shortDescription?.text || 'No description',
+                      file: location?.artifactLocation?.uri || 'unknown',
+                      line: location?.region?.startLine || 0,
+                      description: rule.fullDescription?.text || rule.shortDescription?.text || '',
+                      tags: rule.properties?.tags || [],
+                    });
+                  }
+                }
+              } catch (e) {
+                hadParseErrors = true;
+                core.warning(`Failed to parse SARIF file ${file}: ${e.message}`);
+              }
+            }
+
+            return findings;
+          }
+
+          // ── Build Report ──
+          const findings = readSarifFiles();
+          findingsCount = findings.length;
+
+          body += `## \u{1F6E1}\uFE0F CodeQL Analysis Results\n\n`;
+          body += `**Languages analyzed:** \`${languages}\`\n\n`;
+
+          if (!sarifAvailable) {
+            body += `\u26A0\uFE0F CodeQL did not produce readable SARIF output. Check the analysis step logs.\n\n`;
+          } else if (hadParseErrors && findings.length === 0) {
+            body += `\u26A0\uFE0F Some SARIF files could not be parsed and no findings were recovered. Check the analysis step logs.\n\n`;
+          } else if (findings.length === 0) {
+            body += `\u2705 No security issues found.\n\n`;
+          } else {
+            hasFindings = true;
+
+            if (hadParseErrors) {
+              body += `\u26A0\uFE0F Some SARIF files could not be parsed. Findings below may be incomplete.\n\n`;
+            }
+
+            findings.sort((a, b) => (SEVERITY_ORDER[a.severity] ?? 3) - (SEVERITY_ORDER[b.severity] ?? 3));
+
+            // Summary counts
+            const counts = {};
+            for (const f of findings) {
+              const label = SEVERITY_LABELS[f.severity] || 'Info';
+              counts[label] = (counts[label] || 0) + 1;
+            }
+
+            body += `**Found ${findings.length} issue(s):** `;
+            body += Object.entries(counts).map(([k, v]) => `${v} ${k}`).join(', ');
+            body += `\n\n`;
+
+            // Findings table
+            const MAX = 30;
+            body += `| Severity | Rule | File | Message |\n`;
+            body += `|----------|------|------|----------|\n`;
+
+            for (const f of findings.slice(0, MAX)) {
+              const icon = SEVERITY_ICONS[f.severity] || '\u26AA';
+              const label = SEVERITY_LABELS[f.severity] || 'Info';
+              const fileLink = f.line > 0 ? `\`${md(f.file)}:${f.line}\`` : `\`${md(f.file)}\``;
+              body += `| ${icon} ${label} | \`${md(f.rule)}\` | ${fileLink} | ${md(truncate(f.message, 80))} |\n`;
+            }
+
+            if (findings.length > MAX) {
+              body += `\n_... and ${findings.length - MAX} more findings._\n`;
+            }
+
+            body += '\n';
+          }
+
+          // ── Useful Links ──
+          const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+          const securityUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/security/code-scanning?query=pr%3A${context.issue.number}+is%3Aopen`;
+          body += `---\n\n`;
+          body += `<sub>\u{1F50D} [View full scan logs](${runUrl}) | \u{1F6E1}\uFE0F [Security tab](${securityUrl})</sub>\n\n`;
+
+          // ── Post Comment ──
+          const marker = `<!-- codeql-scan -->`;
+          body = marker + '\n' + body;
+
+          try {
+            const comments = await github.paginate(github.rest.issues.listComments, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              per_page: 100,
+            });
+
+            const existing = comments.find(c => c.body?.includes(marker));
+            const params = {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body,
+            };
+
+            if (existing) {
+              await github.rest.issues.updateComment({ ...params, comment_id: existing.id });
+            } else {
+              await github.rest.issues.createComment({ ...params, issue_number: context.issue.number });
+            }
+          } catch (e) {
+            core.warning(`Could not post PR CodeQL comment: ${e.message}`);
+          }
+
+          return JSON.stringify({ has_findings: hasFindings, findings_count: findingsCount });
+
+    - name: Parse outputs
+      id: parse-outputs
+      shell: bash
+      env:
+        RESULT: ${{ steps.report.outputs.result }}
+      run: |
+        HAS_FINDINGS=$(echo "$RESULT" | jq -r '.has_findings // false')
+        FINDINGS_COUNT=$(echo "$RESULT" | jq -r '.findings_count // 0')
+        echo "has_findings=$HAS_FINDINGS" >> "$GITHUB_OUTPUT"
+        echo "findings_count=$FINDINGS_COUNT" >> "$GITHUB_OUTPUT"
+        echo "Parsed outputs: has_findings=$HAS_FINDINGS, findings_count=$FINDINGS_COUNT"
+
+    # ----------------- Security Gate -----------------
+    - name: Gate - Fail on CodeQL Findings
+      if: inputs.fail-on-findings == 'true'
+      shell: bash
+      env:
+        HAS_FINDINGS: ${{ steps.parse-outputs.outputs.has_findings }}
+        FINDINGS_COUNT: ${{ steps.parse-outputs.outputs.findings_count }}
+      run: |
+        if [ "$HAS_FINDINGS" = "true" ]; then
+          echo "::error::CodeQL found $FINDINGS_COUNT security issue(s). Check the PR comment for details."
+          exit 1
+        fi
