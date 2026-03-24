@@ -104,7 +104,7 @@ jobs:
           # Determine which servers to deploy to
           DEPLOY_FIRMINO="${{ inputs.deploy_in_firmino }}"
           DEPLOY_CLOTILDE="${{ inputs.deploy_in_clotilde }}"
-          
+
           echo "deploy_firmino=$DEPLOY_FIRMINO" >> "$GITHUB_OUTPUT"
           echo "deploy_clotilde=$DEPLOY_CLOTILDE" >> "$GITHUB_OUTPUT"
           echo "Deploy to Firmino: $DEPLOY_FIRMINO"
@@ -144,7 +144,7 @@ jobs:
         shell: bash
         run: |
           set -e
-          cd gitops
+          cd gitops || exit 1
           git pull origin main
 
       - name: Cleanup old artifacts (self-hosted runner safety)
@@ -179,17 +179,17 @@ jobs:
         shell: bash
         run: |
           echo "Checking for downloaded artifacts..."
-          
+
           # Check if directory exists and has files
           if [[ ! -d ".gitops-tags" ]]; then
             echo "::error::No artifacts directory found. Build job may have been skipped or failed to produce artifacts."
             echo "artifacts_valid=false" >> "$GITHUB_OUTPUT"
             exit 1
           fi
-          
+
           # Count actual artifact files (not directories)
           ARTIFACT_COUNT=$(find .gitops-tags -type f -name "*.tag" 2>/dev/null | wc -l || echo "0")
-          
+
           if [[ "$ARTIFACT_COUNT" -eq 0 ]]; then
             echo "::error::No artifact files found in .gitops-tags/. Build job may have been skipped or failed."
             echo "Directory contents:"
@@ -197,7 +197,7 @@ jobs:
             echo "artifacts_valid=false" >> "$GITHUB_OUTPUT"
             exit 1
           fi
-          
+
           echo "Found $ARTIFACT_COUNT artifact file(s):"
           ls -la .gitops-tags/
           echo "artifacts_valid=true" >> "$GITHUB_OUTPUT"
@@ -210,7 +210,7 @@ jobs:
 
           # Get app name
           APP_NAME="${{ steps.setup.outputs.app_name }}"
-          
+
           # Determine environments to update based on tag type
           if [[ "${{ env.IS_BETA }}" == "true" ]]; then
             ENVIRONMENTS="dev"
@@ -244,7 +244,7 @@ jobs:
               SERVERS="clotilde"
             fi
           fi
-          
+
           if [[ -z "$SERVERS" ]]; then
             echo "No servers selected for deployment. Enable deploy_in_firmino or deploy_in_clotilde."
             exit 1
@@ -262,7 +262,7 @@ jobs:
               AVAILABLE_ARTIFACTS="${AVAILABLE_ARTIFACTS}${artifact_name} "
             fi
           done
-          
+
           if [[ -z "$AVAILABLE_ARTIFACTS" ]]; then
             echo "No artifacts found in .gitops-tags/"
             echo "sync_matrix=[]" >> "$GITHUB_OUTPUT"
@@ -280,10 +280,10 @@ jobs:
             local file="$1"
             local yaml_path="$2"
             local new_tag="$3"
-            
+
             # Extract the key name from yaml path (e.g., ".image.tag" -> "tag")
             local key_name="${yaml_path##*.}"
-            
+
             # Use sed to replace only the tag value, preserving all formatting
             # This handles patterns like "tag: v1.0.0" or "tag: 'v1.0.0'" or 'tag: "v1.0.0"'
             if grep -q "^[[:space:]]*${key_name}:" "$file"; then
@@ -298,21 +298,21 @@ jobs:
           for SERVER in $SERVERS; do
             for ENV in $ENVIRONMENTS; do
               VALUES_FILE="gitops/environments/${SERVER}/helmfile/applications/${ENV}/${APP_NAME}/values.yaml"
-              
+
               echo ""
               echo "Processing: $SERVER/$ENV"
               echo "  Path: $VALUES_FILE"
-              
+
               # Check if file exists
               if [[ ! -f "$VALUES_FILE" ]]; then
                 echo "  WARNING: Values file not found for ${SERVER}/${ENV}: ${VALUES_FILE}"
                 MISSING_FILES="${MISSING_FILES}${SERVER}/${ENV}:${VALUES_FILE}\n"
                 continue
               fi
-              
+
               # Track if any changes were made to this file
               FILE_CHANGED=false
-              
+
               # Apply mappings from inputs - only if artifact exists
               MAPPINGS='${{ inputs.yaml_key_mappings }}'
               while IFS='|' read -r artifact_key yaml_key; do
@@ -334,7 +334,7 @@ jobs:
                   fi
                 fi
               done < <(echo "$MAPPINGS" | jq -r 'to_entries[] | "\(.key)|\(.value)"')
-              
+
               # Apply configmap updates if configured - only if artifact exists
               if [[ -n "${{ inputs.configmap_updates }}" ]]; then
                 CONFIGMAP_MAPPINGS='${{ inputs.configmap_updates }}'
@@ -356,7 +356,7 @@ jobs:
                   fi
                 done < <(echo "$CONFIGMAP_MAPPINGS" | jq -r 'to_entries[] | "\(.key)|\(.value)"')
               fi
-              
+
               # Only track as updated if changes were actually made
               if [[ "$FILE_CHANGED" == "true" ]]; then
                 UPDATED_FILES="${UPDATED_FILES}${VALUES_FILE}\n"
@@ -378,7 +378,7 @@ jobs:
           else
             echo "No files were updated"
           fi
-          
+
           if [[ -n "$MISSING_FILES" ]]; then
             echo ""
             echo "Missing files (skipped):"
@@ -388,7 +388,7 @@ jobs:
           # Save updated servers/envs for ArgoCD sync - only include files that actually changed
           if [[ -n "$UPDATED_SERVERS_ENVS" ]]; then
             echo -e "$UPDATED_SERVERS_ENVS" | grep -v '^$' > /tmp/updated_servers_envs.txt
-            
+
             # Output sync targets as JSON array for matrix job
             SYNC_MATRIX=$(echo -e "$UPDATED_SERVERS_ENVS" | grep -v '^$' | while IFS=: read -r s e; do
               [[ -n "$s" && -n "$e" ]] && echo "{\"server\":\"$s\",\"env\":\"$e\"}"
@@ -400,7 +400,7 @@ jobs:
             echo "sync_matrix=[]" >> "$GITHUB_OUTPUT"
             echo "has_sync_targets=false" >> "$GITHUB_OUTPUT"
           fi
-          
+
           COUNT=0
           if [[ -n "$UPDATED_FILES" ]]; then
             COUNT=$(echo -e "$UPDATED_FILES" | grep -c -v '^$' || true)
@@ -410,7 +410,7 @@ jobs:
       - name: Show git diff
         shell: bash
         run: |
-          cd gitops
+          cd gitops || exit 1
           echo "Changes to be committed:"
           git diff --stat
           echo ""
@@ -432,17 +432,17 @@ jobs:
       - name: Commit & push (GitOps)
         run: |
           set -e
-          cd gitops
-          
+          cd gitops || exit 1
+
           # Get env label from apply_tags step
           ENV_LABEL="${{ steps.apply_tags.outputs.env_label }}"
-          
+
           # Check if there are changes to commit
           if git diff --quiet; then
             echo "No changes to commit"
             exit 0
           fi
-          
+
           git commit -am "ci(${{ steps.setup.outputs.commit_prefix }}): update image tags ($ENV_LABEL)" || echo "No changes to commit"
           git push origin main
 
