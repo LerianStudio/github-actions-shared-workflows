@@ -175,7 +175,7 @@ runs:
 
           // ── Useful Links ──
           const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
-          const securityUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/security/code-scanning`;
+          const securityUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/security/code-scanning?query=pr%3A${context.issue.number}+is%3Aopen`;
           body += `---\n\n`;
           body += `<sub>\u{1F50D} [View full scan logs](${runUrl}) | \u{1F6E1}\uFE0F [Security tab](${securityUrl})</sub>\n\n`;
 
