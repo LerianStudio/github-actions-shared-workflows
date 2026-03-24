@@ -48,6 +48,7 @@ runs:
           let hasFindings = false;
           let findingsCount = 0;
           let sarifAvailable = true;
+          let hadParseErrors = false;
 
           // ── Helpers ──
           const SEVERITY_ICONS = {
@@ -116,7 +117,7 @@ runs:
                   }
                 }
               } catch (e) {
-                sarifAvailable = false;
+                hadParseErrors = true;
                 core.warning(`Failed to parse SARIF file ${file}: ${e.message}`);
               }
             }
@@ -133,6 +134,8 @@ runs:
 
           if (!sarifAvailable) {
             body += `\u26A0\uFE0F CodeQL did not produce readable SARIF output. Check the analysis step logs.\n\n`;
+          } else if (hadParseErrors && findings.length === 0) {
+            body += `\u26A0\uFE0F Some SARIF files could not be parsed and no findings were recovered. Check the analysis step logs.\n\n`;
           } else if (findings.length === 0) {
             body += `\u2705 No security issues found.\n\n`;
           } else {
