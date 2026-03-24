@@ -10,7 +10,7 @@ inputs:
     required: false
     default: '.github/codeql-config-pr.yml'
   path-mode:
-    description: 'How to interpret changed-paths: "files" extracts parent directories, "dirs" uses paths as-is'
+    description: 'How to interpret changed-paths: "files" uses exact file paths, "dirs" uses paths as directories'
     required: false
     default: 'files'
 
@@ -40,13 +40,6 @@ runs:
           echo "skip=true" >> "$GITHUB_OUTPUT"
           echo "No paths provided — skipping CodeQL config generation"
           exit 0
-        fi
-
-        # Extract parent directories if path-mode is "files"
-        if [ "$PATH_MODE" = "files" ]; then
-          PATHS=$(echo "$PATHS" | while IFS= read -r file; do
-            dirname "$file"
-          done | sort -u)
         fi
 
         # Remove duplicates and empty lines
