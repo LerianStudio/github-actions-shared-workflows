@@ -141,6 +141,10 @@ runs:
           } else {
             hasFindings = true;
 
+            if (hadParseErrors) {
+              body += `\u26A0\uFE0F Some SARIF files could not be parsed. Findings below may be incomplete.\n\n`;
+            }
+
             findings.sort((a, b) => (SEVERITY_ORDER[a.severity] ?? 3) - (SEVERITY_ORDER[b.severity] ?? 3));
 
             // Summary counts

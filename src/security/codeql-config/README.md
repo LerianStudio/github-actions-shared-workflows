@@ -11,9 +11,8 @@ Composite action that generates a dynamic CodeQL configuration file scoped to ch
 
 | Input | Description | Required | Default |
 |---|---|:---:|---|
-| `changed-paths` | Comma or newline-separated list of changed file paths or directories | Yes | — |
+| `changed-paths` | Comma or newline-separated list of changed file paths | Yes | — |
 | `output-file` | Path where the generated config file will be written | No | `.github/codeql-config-pr.yml` |
-| `path-mode` | How to interpret paths: `files` extracts parent directories, `dirs` uses paths as-is | No | `files` |
 
 ## Outputs
 
@@ -39,17 +38,6 @@ Composite action that generates a dynamic CodeQL configuration file scoped to ch
   with:
     languages: actions
     config-file: ${{ steps.codeql-config.outputs.config-file }}
-```
-
-### With monorepo matrix directories
-
-```yaml
-- name: Generate CodeQL config
-  id: codeql-config
-  uses: LerianStudio/github-actions-shared-workflows/src/security/codeql-config@v1.x.x
-  with:
-    changed-paths: ${{ steps.extract-dirs.outputs.dirs }}
-    path-mode: dirs
 ```
 
 ## Permissions required
