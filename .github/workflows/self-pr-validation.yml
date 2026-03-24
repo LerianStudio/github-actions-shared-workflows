@@ -14,6 +14,9 @@ on:
 permissions:
   contents: read
   checks: read
+  security-events: write
+  pull-requests: write
+  actions: read
 
 jobs:
   # ----------------- PR Validation -----------------
@@ -175,6 +178,38 @@ jobs:
         uses: ./src/lint/composite-schema
         with:
           files: ${{ needs.changed-files.outputs.composite_files }}
+
+  # ----------------- CodeQL Analysis -----------------
+  codeql:
+    name: CodeQL Analysis
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    needs: changed-files
+    if: needs.changed-files.outputs.action_files != ''
+    permissions:
+      contents: read
+      security-events: write
+      pull-requests: write
+      actions: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Initialize CodeQL
+        uses: ./src/security/codeql-init
+        with:
+          languages: actions
+
+      - name: Perform CodeQL Analysis
+        uses: ./src/security/codeql-analyze
+        with:
+          category: '/language:actions'
+
+      - name: Post CodeQL Results to PR
+        if: always() && github.event_name == 'pull_request'
+        uses: ./src/security/codeql-reporter
+        with:
+          github-token: ${{ secrets.MANAGE_TOKEN || github.token }}
+          languages: actions
 
   # ----------------- Lint Report -----------------
   lint-report:

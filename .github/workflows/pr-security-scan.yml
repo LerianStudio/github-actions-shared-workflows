@@ -67,12 +67,25 @@ on:
         description: 'Enable Docker Hub Health Score compliance checks (non-root user, CVEs, licenses)'
         type: boolean
         default: true
+      enable_codeql:
+        description: 'Enable CodeQL static analysis. Runs as a separate job in parallel with other security scans'
+        type: boolean
+        default: false
+      codeql_languages:
+        description: 'Comma-separated CodeQL languages to analyze (e.g., go, javascript-typescript, actions). Required when enable_codeql is true'
+        type: string
+        default: ''
+      codeql_queries:
+        description: 'CodeQL query suite to use (security-standard, security-extended, security-and-quality)'
+        type: string
+        default: 'security-extended'
 
 permissions:
   id-token: write       # Required for OIDC authentication
   contents: read        # Required to checkout the repository
   pull-requests: write  # Allows commenting on PRs
   security-events: write # Required for security scanning
+  actions: read          # Required for CodeQL on private repositories
 
 jobs:
   prepare_matrix:
@@ -207,17 +220,50 @@ jobs:
       #   with:
       #     sarif_file: 'trivy-vulnerability-scan-docker-${{ env.APP_NAME }}.sarif'
 
+  # ----------------- CodeQL Analysis -----------------
+  codeql_analysis:
+    name: CodeQL Analysis
+    if: inputs.enable_codeql && inputs.codeql_languages != ''
+    runs-on: ${{ inputs.runner_type }}
+    permissions:
+      contents: read
+      security-events: write
+      pull-requests: write
+      actions: read
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v6
+
+      - name: Initialize CodeQL
+        uses: LerianStudio/github-actions-shared-workflows/src/security/codeql-init@v1.18.0
+        with:
+          languages: ${{ inputs.codeql_languages }}
+          queries: ${{ inputs.codeql_queries }}
+
+      - name: Perform CodeQL Analysis
+        uses: LerianStudio/github-actions-shared-workflows/src/security/codeql-analyze@v1.18.0
+        with:
+          category: '/language:${{ inputs.codeql_languages }}'
+
+      - name: Post CodeQL Results to PR
+        if: always() && github.event_name == 'pull_request'
+        uses: LerianStudio/github-actions-shared-workflows/src/security/codeql-reporter@v1.18.0
+        with:
+          github-token: ${{ secrets.MANAGE_TOKEN || secrets.GITHUB_TOKEN }}
+          languages: ${{ inputs.codeql_languages }}
+          fail-on-findings: 'false'
+
   # ----------------- Slack Notification -----------------
   notify:
     name: Notify
-    needs: [prepare_matrix, security_scan]
-    if: always() && needs.prepare_matrix.outputs.matrix != '[]'
+    needs: [prepare_matrix, security_scan, codeql_analysis]
+    if: always() && (needs.prepare_matrix.outputs.matrix != '[]' || needs.codeql_analysis.result != 'skipped')
     runs-on: ${{ inputs.runner_type }}
     steps:
       - name: Slack Notification
         uses: LerianStudio/github-actions-shared-workflows/src/notify/slack-notify@v1.18.0
         with:
           webhook-url: ${{ secrets.SLACK_WEBHOOK_URL }}
-          status: ${{ needs.security_scan.result }}
+          status: ${{ (needs.security_scan.result == 'failure' || needs.codeql_analysis.result == 'failure') && 'failure' || 'success' }}
           workflow-name: "PR Security Scan"
-          failed-jobs: ${{ needs.security_scan.result == 'failure' && 'Security Scan' || '' }}
+          failed-jobs: ${{ needs.security_scan.result == 'failure' && 'Security Scan' || '' }}${{ needs.codeql_analysis.result == 'failure' && ', CodeQL Analysis' || '' }}
