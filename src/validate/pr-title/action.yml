@@ -1,0 +1,47 @@
+name: Validate PR Title
+description: "Validates PR title follows semantic commit format using conventional commits."
+
+inputs:
+  github-token:
+    description: GitHub token for PR status checks
+    required: true
+  types:
+    description: Allowed commit types (newline-separated)
+    required: false
+    default: |
+      feat
+      fix
+      docs
+      style
+      refactor
+      perf
+      test
+      chore
+      ci
+      build
+      revert
+  scopes:
+    description: Allowed scopes (newline-separated, empty = any scope allowed)
+    required: false
+    default: ""
+  require-scope:
+    description: Require scope in PR title
+    required: false
+    default: "false"
+
+runs:
+  using: composite
+  steps:
+    - name: Validate PR title format
+      uses: amannn/action-semantic-pull-request@v6
+      env:
+        GITHUB_TOKEN: ${{ inputs.github-token }}
+      with:
+        types: ${{ inputs.types }}
+        scopes: ${{ inputs.scopes }}
+        requireScope: ${{ inputs.require-scope }}
+        subjectPattern: ^[a-z].+$
+        subjectPatternError: |
+          The subject "{subject}" found in the pull request title "{title}"
+          didn't match the configured pattern. Please ensure that the subject
+          starts with a lowercase character.

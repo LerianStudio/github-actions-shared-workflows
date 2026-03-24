@@ -1,0 +1,21 @@
+name: Auto-label PR
+description: "Automatically adds labels to PR based on changed files using labeler configuration."
+
+inputs:
+  github-token:
+    description: GitHub token with pull-requests write permission
+    required: true
+  config-path:
+    description: Path to labeler configuration file
+    required: false
+    default: ".github/labeler.yml"
+
+runs:
+  using: composite
+  steps:
+    - name: Auto-label based on files
+      uses: actions/labeler@v6
+      with:
+        repo-token: ${{ inputs.github-token }}
+        configuration-path: ${{ inputs.config-path }}
+        sync-labels: true

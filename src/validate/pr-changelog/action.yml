@@ -1,0 +1,55 @@
+name: Check Changelog Update
+description: "Checks if CHANGELOG.md was updated and comments if not."
+
+inputs:
+  github-token:
+    description: GitHub token with pull-requests write permission
+    required: true
+  base-ref:
+    description: Base branch for diff comparison
+    required: true
+  dry-run:
+    description: "When true, check without posting comments"
+    required: false
+    default: "false"
+
+outputs:
+  updated:
+    description: "Whether CHANGELOG.md was updated (true/false)"
+    value: ${{ steps.changelog.outputs.updated }}
+
+runs:
+  using: composite
+  steps:
+    # ----------------- Check -----------------
+    - name: Check if CHANGELOG updated
+      id: changelog
+      shell: bash
+      env:
+        BASE_REF: ${{ inputs.base-ref }}
+      run: |
+        if git diff --name-only "origin/${BASE_REF}...HEAD" | grep -q "CHANGELOG.md"; then
+          echo "updated=true" >> "$GITHUB_OUTPUT"
+        else
+          echo "updated=false" >> "$GITHUB_OUTPUT"
+        fi
+
+    # ----------------- Comment -----------------
+    - name: Comment if CHANGELOG not updated
+      if: steps.changelog.outputs.updated == 'false' && inputs.dry-run != 'true'
+      uses: actions/github-script@v8
+      with:
+        github-token: ${{ inputs.github-token }}
+        script: |
+          const labels = context.payload.pull_request.labels.map(l => l.name);
+
+          if (labels.includes('skip-changelog') || labels.includes('dependencies')) {
+            return;
+          }
+
+          await github.rest.issues.createComment({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            issue_number: context.issue.number,
+            body: 'Consider updating CHANGELOG.md to document this change. If this change doesn\'t need a changelog entry, add the `skip-changelog` label.'
+          });

@@ -1,0 +1,49 @@
+name: Validate PR Description
+description: "Checks PR description length and recommended sections."
+
+inputs:
+  github-token:
+    description: GitHub token for API access
+    required: true
+  min-length:
+    description: Minimum PR description length in characters
+    required: false
+    default: "50"
+
+runs:
+  using: composite
+  steps:
+    # ----------------- Length Check -----------------
+    - name: Check description length
+      uses: actions/github-script@v8
+      env:
+        MIN_LENGTH: ${{ inputs.min-length }}
+      with:
+        github-token: ${{ inputs.github-token }}
+        script: |
+          const body = context.payload.pull_request.body || '';
+          const minLength = parseInt(process.env.MIN_LENGTH, 10);
+
+          if (body.length < minLength) {
+            core.setFailed(`PR description is too short (${body.length} chars). Please provide a detailed description (minimum ${minLength} chars).`);
+          }
+
+    # ----------------- Required Sections -----------------
+    - name: Check for required sections
+      uses: actions/github-script@v8
+      with:
+        github-token: ${{ inputs.github-token }}
+        script: |
+          const body = context.payload.pull_request.body || '';
+          const requiredSections = ['Description', 'Type of Change'];
+          const missingSections = [];
+
+          for (const section of requiredSections) {
+            if (!body.includes(section)) {
+              missingSections.push(section);
+            }
+          }
+
+          if (missingSections.length > 0) {
+            core.warning(`PR description is missing recommended sections: ${missingSections.join(', ')}`);
+          }

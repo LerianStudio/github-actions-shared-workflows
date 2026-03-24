@@ -1,0 +1,42 @@
+name: Validate PR Metadata
+description: "Checks PR assignee and linked issues."
+
+inputs:
+  github-token:
+    description: GitHub token for API access
+    required: true
+
+runs:
+  using: composite
+  steps:
+    # ----------------- Assignee -----------------
+    - name: Check for assignee
+      uses: actions/github-script@v8
+      with:
+        github-token: ${{ inputs.github-token }}
+        script: |
+          const pr = context.payload.pull_request;
+          if (pr.assignees.length === 0) {
+            core.warning('This PR has no assignees. Consider assigning someone to review.');
+          }
+
+    # ----------------- Linked Issues -----------------
+    - name: Check for linked issues
+      uses: actions/github-script@v8
+      with:
+        github-token: ${{ inputs.github-token }}
+        script: |
+          const body = context.payload.pull_request.body || '';
+          const issueKeywords = ['closes', 'fixes', 'resolves', 'relates to'];
+
+          let hasLinkedIssue = false;
+          for (const keyword of issueKeywords) {
+            if (body.toLowerCase().includes(keyword)) {
+              hasLinkedIssue = true;
+              break;
+            }
+          }
+
+          if (!hasLinkedIssue) {
+            core.warning('This PR does not appear to be linked to any issues. Consider linking related issues using keywords like "Closes #123" or "Fixes #456".');
+          }

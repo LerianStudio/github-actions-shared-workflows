@@ -1,0 +1,79 @@
+name: Validate PR Source Branch
+description: "Validates that PRs to protected branches come from allowed source branches."
+
+inputs:
+  github-token:
+    description: GitHub token with pull-requests write permission
+    required: true
+  allowed-branches:
+    description: "Allowed source branches (pipe-separated, supports prefix matching with *)"
+    required: false
+    default: "develop|release-candidate|hotfix/*"
+  target-branches:
+    description: "Target branches that require source branch validation (pipe-separated)"
+    required: false
+    default: "main"
+  dry-run:
+    description: "When true, validate without posting REQUEST_CHANGES review"
+    required: false
+    default: "false"
+
+runs:
+  using: composite
+  steps:
+    - name: Validate source branch
+      uses: actions/github-script@v8
+      env:
+        ALLOWED_BRANCHES: ${{ inputs.allowed-branches }}
+        TARGET_BRANCHES: ${{ inputs.target-branches }}
+        DRY_RUN: ${{ inputs.dry-run }}
+      with:
+        github-token: ${{ inputs.github-token }}
+        script: |
+          const sourceBranch = context.payload.pull_request.head.ref;
+          const targetBranch = context.payload.pull_request.base.ref;
+          const allowedBranches = process.env.ALLOWED_BRANCHES.split('|').map(b => b.trim());
+          const targetBranchesForCheck = process.env.TARGET_BRANCHES.split('|').map(b => b.trim());
+          const dryRun = process.env.DRY_RUN === 'true';
+
+          if (!targetBranchesForCheck.includes(targetBranch)) {
+            console.log(`Target branch '${targetBranch}' does not require source branch validation`);
+            return;
+          }
+
+          console.log(`Checking if source branch '${sourceBranch}' is allowed for target '${targetBranch}'`);
+          console.log(`Allowed patterns: ${allowedBranches.join(', ')}`);
+
+          let isAllowed = false;
+          for (const pattern of allowedBranches) {
+            if (pattern.endsWith('/*')) {
+              const prefix = pattern.slice(0, -1);
+              if (sourceBranch.startsWith(prefix)) {
+                isAllowed = true;
+                break;
+              }
+            } else if (pattern === sourceBranch) {
+              isAllowed = true;
+              break;
+            }
+          }
+
+          if (!isAllowed) {
+            if (dryRun) {
+              core.notice(`DRY RUN — would post REQUEST_CHANGES review: source '${sourceBranch}' not allowed for target '${targetBranch}'`);
+            } else {
+              const message = `⚠️ **Invalid Source Branch**\n\nPull requests to **${targetBranch}** can only come from:\n${allowedBranches.map(b => `- \`${b}\``).join('\n')}\n\nYour source branch: \`${sourceBranch}\`\n\nPlease **change the base branch** or create a PR from an allowed branch.`;
+
+              await github.rest.pulls.createReview({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: context.issue.number,
+                body: message,
+                event: 'REQUEST_CHANGES'
+              });
+            }
+
+            core.setFailed(`Source branch '${sourceBranch}' is not allowed for PRs to '${targetBranch}'`);
+          } else {
+            console.log(`✅ Source branch '${sourceBranch}' is allowed`);
+          }

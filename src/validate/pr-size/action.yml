@@ -1,0 +1,99 @@
+name: Check PR Size
+description: "Calculates PR size, adds size label, and comments on large PRs."
+
+inputs:
+  github-token:
+    description: GitHub token with pull-requests write permission
+    required: true
+  base-ref:
+    description: Base branch for diff comparison
+    required: true
+  dry-run:
+    description: "When true, calculate size without adding labels or comments"
+    required: false
+    default: "false"
+
+outputs:
+  size:
+    description: "PR size category (XS, S, M, L, XL)"
+    value: ${{ steps.size.outputs.size }}
+  changed-lines:
+    description: "Number of changed lines"
+    value: ${{ steps.size.outputs.changed_lines }}
+
+runs:
+  using: composite
+  steps:
+    # ----------------- Calculate -----------------
+    - name: Calculate PR size
+      id: size
+      shell: bash
+      env:
+        BASE_REF: ${{ inputs.base-ref }}
+      run: |
+        CHANGED_LINES=$(git diff --shortstat "origin/${BASE_REF}...HEAD" | \
+          awk '{print $4+$6}')
+        echo "changed_lines=$CHANGED_LINES" >> "$GITHUB_OUTPUT"
+
+        if [ "$CHANGED_LINES" -lt 50 ]; then
+          SIZE="XS"
+        elif [ "$CHANGED_LINES" -lt 200 ]; then
+          SIZE="S"
+        elif [ "$CHANGED_LINES" -lt 500 ]; then
+          SIZE="M"
+        elif [ "$CHANGED_LINES" -lt 1000 ]; then
+          SIZE="L"
+        else
+          SIZE="XL"
+        fi
+        echo "size=$SIZE" >> "$GITHUB_OUTPUT"
+        echo "::notice::PR size: $SIZE ($CHANGED_LINES lines changed)"
+
+    # ----------------- Label -----------------
+    - name: Add size label
+      if: inputs.dry-run != 'true'
+      uses: actions/github-script@v8
+      env:
+        PR_SIZE: ${{ steps.size.outputs.size }}
+      with:
+        github-token: ${{ inputs.github-token }}
+        script: |
+          const size = process.env.PR_SIZE;
+          const labels = ['size/XS', 'size/S', 'size/M', 'size/L', 'size/XL'];
+
+          for (const label of labels) {
+            try {
+              await github.rest.issues.removeLabel({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                name: label
+              });
+            } catch (error) {
+              // Label doesn't exist, ignore
+            }
+          }
+
+          await github.rest.issues.addLabels({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            issue_number: context.issue.number,
+            labels: [`size/${size}`]
+          });
+
+    # ----------------- Comment on XL -----------------
+    - name: Comment on large PR
+      if: steps.size.outputs.size == 'XL' && inputs.dry-run != 'true'
+      uses: actions/github-script@v8
+      env:
+        CHANGED_LINES: ${{ steps.size.outputs.changed_lines }}
+      with:
+        github-token: ${{ inputs.github-token }}
+        script: |
+          const changedLines = process.env.CHANGED_LINES;
+          await github.rest.issues.createComment({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            issue_number: context.issue.number,
+            body: `This PR is very large (${context.payload.pull_request.changed_files} files, ${changedLines} lines changed). Consider breaking it into smaller PRs for easier review.`
+          });
