@@ -194,18 +194,27 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
+      - name: Generate CodeQL config for changed files
+        id: codeql-config
+        uses: ./src/security/codeql-config
+        with:
+          changed-paths: ${{ needs.changed-files.outputs.action_files }}
+
       - name: Initialize CodeQL
+        if: steps.codeql-config.outputs.skip != 'true'
         uses: ./src/security/codeql-init
         with:
           languages: actions
+          config-file: ${{ steps.codeql-config.outputs.config-file }}
 
       - name: Perform CodeQL Analysis
+        if: steps.codeql-config.outputs.skip != 'true'
         uses: ./src/security/codeql-analyze
         with:
           category: '/language:actions'
 
       - name: Post CodeQL Results to PR
-        if: always() && github.event_name == 'pull_request'
+        if: always() && github.event_name == 'pull_request' && steps.codeql-config.outputs.skip != 'true'
         uses: ./src/security/codeql-reporter
         with:
           github-token: ${{ secrets.MANAGE_TOKEN || github.token }}

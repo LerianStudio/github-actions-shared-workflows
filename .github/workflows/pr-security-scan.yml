@@ -223,6 +223,7 @@ jobs:
   # ----------------- CodeQL Analysis -----------------
   codeql_analysis:
     name: CodeQL Analysis
+    needs: prepare_matrix
     if: inputs.enable_codeql && inputs.codeql_languages != ''
     runs-on: ${{ inputs.runner_type }}
     permissions:
@@ -233,20 +234,48 @@ jobs:
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Extract changed directories from matrix
+        id: extract-dirs
+        shell: bash
+        run: |
+          MATRIX='${{ needs.prepare_matrix.outputs.matrix }}'
+          if [ "$MATRIX" != "[]" ] && [ -n "$MATRIX" ]; then
+            DIRS=$(echo "$MATRIX" | jq -r '.[].working_dir' 2>/dev/null | tr '\n' ',' | sed 's/,$//')
+          fi
+
+          # Fallback for single-app repos (working_dir is ".")
+          if [ -z "$DIRS" ] || [ "$DIRS" = "." ]; then
+            DIRS=$(git diff --name-only --diff-filter=ACMR origin/${{ github.event.pull_request.base.ref || 'develop' }}...HEAD | head -200 | tr '\n' ',' | sed 's/,$//')
+          fi
+
+          echo "paths=$DIRS" >> "$GITHUB_OUTPUT"
+
+      - name: Generate CodeQL config for changed paths
+        id: codeql-config
+        uses: LerianStudio/github-actions-shared-workflows/src/security/codeql-config@v1.18.0
+        with:
+          changed-paths: ${{ steps.extract-dirs.outputs.paths }}
+          path-mode: ${{ needs.prepare_matrix.outputs.matrix != '[]' && 'dirs' || 'files' }}
 
       - name: Initialize CodeQL
+        if: steps.codeql-config.outputs.skip != 'true'
         uses: LerianStudio/github-actions-shared-workflows/src/security/codeql-init@v1.18.0
         with:
           languages: ${{ inputs.codeql_languages }}
           queries: ${{ inputs.codeql_queries }}
+          config-file: ${{ steps.codeql-config.outputs.config-file }}
 
       - name: Perform CodeQL Analysis
+        if: steps.codeql-config.outputs.skip != 'true'
         uses: LerianStudio/github-actions-shared-workflows/src/security/codeql-analyze@v1.18.0
         with:
           category: '/language:${{ inputs.codeql_languages }}'
 
       - name: Post CodeQL Results to PR
-        if: always() && github.event_name == 'pull_request'
+        if: always() && github.event_name == 'pull_request' && steps.codeql-config.outputs.skip != 'true'
         uses: LerianStudio/github-actions-shared-workflows/src/security/codeql-reporter@v1.18.0
         with:
           github-token: ${{ secrets.MANAGE_TOKEN || secrets.GITHUB_TOKEN }}
