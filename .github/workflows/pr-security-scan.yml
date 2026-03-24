@@ -67,25 +67,12 @@ on:
         description: 'Enable Docker Hub Health Score compliance checks (non-root user, CVEs, licenses)'
         type: boolean
         default: true
-      enable_codeql:
-        description: 'Enable CodeQL static analysis. Runs as a separate job in parallel with other security scans'
-        type: boolean
-        default: false
-      codeql_languages:
-        description: 'Comma-separated CodeQL languages to analyze (e.g., go, javascript-typescript, actions). Required when enable_codeql is true'
-        type: string
-        default: ''
-      codeql_queries:
-        description: 'CodeQL query suite to use (security-standard, security-extended, security-and-quality)'
-        type: string
-        default: 'security-extended'
 
 permissions:
   id-token: write       # Required for OIDC authentication
   contents: read        # Required to checkout the repository
   pull-requests: write  # Allows commenting on PRs
   security-events: write # Required for security scanning
-  actions: read          # Required for CodeQL on private repositories
 
 jobs:
   prepare_matrix:
@@ -220,84 +207,17 @@ jobs:
       #   with:
       #     sarif_file: 'trivy-vulnerability-scan-docker-${{ env.APP_NAME }}.sarif'
 
-  # ----------------- CodeQL Analysis -----------------
-  codeql_analysis:
-    name: CodeQL Analysis
-    needs: prepare_matrix
-    if: inputs.enable_codeql && inputs.codeql_languages != ''
-    runs-on: ${{ inputs.runner_type }}
-    permissions:
-      contents: read
-      security-events: write
-      pull-requests: write
-      actions: read
-    steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-
-      - name: Extract changed directories from matrix
-        id: extract-dirs
-        shell: bash
-        env:
-          MATRIX: ${{ needs.prepare_matrix.outputs.matrix }}
-          BASE_REF: ${{ github.event.pull_request.base.ref || 'develop' }}
-        run: |
-          PATH_MODE=dirs
-          if [ "$MATRIX" != "[]" ] && [ -n "$MATRIX" ]; then
-            DIRS=$(printf '%s' "$MATRIX" | jq -r '.[].working_dir' 2>/dev/null | tr '\n' ',' | sed 's/,$//')
-          fi
-
-          # Fallback for single-app repos (working_dir is ".")
-          if [ -z "$DIRS" ] || [ "$DIRS" = "." ]; then
-            PATH_MODE=files
-            DIRS=$(git diff --name-only --diff-filter=ACMR "origin/$BASE_REF"...HEAD | head -200 | tr '\n' ',' | sed 's/,$//')
-          fi
-
-          echo "paths=$DIRS" >> "$GITHUB_OUTPUT"
-          echo "path-mode=$PATH_MODE" >> "$GITHUB_OUTPUT"
-
-      - name: Generate CodeQL config for changed paths
-        id: codeql-config
-        uses: LerianStudio/github-actions-shared-workflows/src/security/codeql-config@v1.18.0
-        with:
-          changed-paths: ${{ steps.extract-dirs.outputs.paths }}
-          path-mode: ${{ steps.extract-dirs.outputs.path-mode }}
-
-      - name: Initialize CodeQL
-        if: steps.codeql-config.outputs.skip != 'true'
-        uses: LerianStudio/github-actions-shared-workflows/src/security/codeql-init@v1.18.0
-        with:
-          languages: ${{ inputs.codeql_languages }}
-          queries: ${{ inputs.codeql_queries }}
-          config-file: ${{ steps.codeql-config.outputs.config-file }}
-
-      - name: Perform CodeQL Analysis
-        if: steps.codeql-config.outputs.skip != 'true'
-        uses: LerianStudio/github-actions-shared-workflows/src/security/codeql-analyze@v1.18.0
-        with:
-          category: '/language:${{ inputs.codeql_languages }}'
-
-      - name: Post CodeQL Results to PR
-        if: always() && github.event_name == 'pull_request' && steps.codeql-config.outputs.skip != 'true'
-        uses: LerianStudio/github-actions-shared-workflows/src/security/codeql-reporter@v1.18.0
-        with:
-          github-token: ${{ secrets.MANAGE_TOKEN || secrets.GITHUB_TOKEN }}
-          languages: ${{ inputs.codeql_languages }}
-          fail-on-findings: 'false'
-
   # ----------------- Slack Notification -----------------
   notify:
     name: Notify
-    needs: [prepare_matrix, security_scan, codeql_analysis]
-    if: always() && (needs.prepare_matrix.outputs.matrix != '[]' || needs.codeql_analysis.result != 'skipped')
+    needs: [prepare_matrix, security_scan]
+    if: always() && needs.prepare_matrix.outputs.matrix != '[]'
     runs-on: ${{ inputs.runner_type }}
     steps:
       - name: Slack Notification
         uses: LerianStudio/github-actions-shared-workflows/src/notify/slack-notify@v1.18.0
         with:
           webhook-url: ${{ secrets.SLACK_WEBHOOK_URL }}
-          status: ${{ (needs.security_scan.result == 'failure' || needs.codeql_analysis.result == 'failure') && 'failure' || 'success' }}
+          status: ${{ needs.security_scan.result }}
           workflow-name: "PR Security Scan"
-          failed-jobs: ${{ needs.security_scan.result == 'failure' && 'Security Scan' || '' }}${{ needs.codeql_analysis.result == 'failure' && ', CodeQL Analysis' || '' }}
+          failed-jobs: ${{ needs.security_scan.result == 'failure' && 'Security Scan' || '' }}
