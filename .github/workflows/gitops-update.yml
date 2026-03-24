@@ -52,9 +52,9 @@ on:
         type: string
         default: 'v4.44.3'
       enable_docker_login:
-        description: 'Enable Docker Hub login to avoid rate limits'
+        description: 'Enable Docker Hub login to avoid rate limits. Disabled by default since GitOps updates do not require Docker registry access.'
         type: boolean
-        default: true
+        default: false
       configmap_updates:
         description: 'JSON object mapping artifact names to configmap keys (e.g., {"pix.tag": ".pix.configmap.VERSION"})'
         type: string
