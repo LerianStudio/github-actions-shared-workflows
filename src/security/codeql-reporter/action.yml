@@ -116,6 +116,7 @@ runs:
                   }
                 }
               } catch (e) {
+                sarifAvailable = false;
                 core.warning(`Failed to parse SARIF file ${file}: ${e.message}`);
               }
             }
@@ -208,8 +209,9 @@ runs:
     - name: Parse outputs
       id: parse-outputs
       shell: bash
+      env:
+        RESULT: ${{ steps.report.outputs.result }}
       run: |
-        RESULT='${{ steps.report.outputs.result }}'
         HAS_FINDINGS=$(echo "$RESULT" | jq -r '.has_findings // false')
         FINDINGS_COUNT=$(echo "$RESULT" | jq -r '.findings_count // 0')
         echo "has_findings=$HAS_FINDINGS" >> "$GITHUB_OUTPUT"
@@ -220,8 +222,11 @@ runs:
     - name: Gate - Fail on CodeQL Findings
       if: inputs.fail-on-findings == 'true'
       shell: bash
+      env:
+        HAS_FINDINGS: ${{ steps.parse-outputs.outputs.has_findings }}
+        FINDINGS_COUNT: ${{ steps.parse-outputs.outputs.findings_count }}
       run: |
-        if [ "${{ steps.parse-outputs.outputs.has_findings }}" = "true" ]; then
-          echo "::error::CodeQL found ${{ steps.parse-outputs.outputs.findings_count }} security issue(s). Check the PR comment for details."
+        if [ "$HAS_FINDINGS" = "true" ]; then
+          echo "::error::CodeQL found $FINDINGS_COUNT security issue(s). Check the PR comment for details."
           exit 1
         fi
