@@ -1,0 +1,20 @@
+name: CodeQL Analyze
+description: Perform CodeQL analysis and upload SARIF results to GitHub Security tab
+
+inputs:
+  category:
+    description: 'Category for SARIF results used for deduplication (e.g., /language:actions)'
+    required: true
+  output:
+    description: 'Output directory for SARIF files'
+    required: false
+    default: '../results'
+
+runs:
+  using: composite
+  steps:
+    - name: Perform CodeQL Analysis
+      uses: github/codeql-action/analyze@v4
+      with:
+        category: ${{ inputs.category }}
+        output: ${{ inputs.output }}

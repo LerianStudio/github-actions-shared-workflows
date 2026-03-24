@@ -1,0 +1,62 @@
+name: CodeQL Config Generator
+description: Generates a dynamic CodeQL configuration file scoped to changed paths for PR-only analysis.
+
+inputs:
+  changed-paths:
+    description: 'Comma or newline-separated list of changed file paths or directories to scope the analysis'
+    required: true
+  output-file:
+    description: 'Path where the generated CodeQL config file will be written'
+    required: false
+    default: '.github/codeql-config-pr.yml'
+outputs:
+  config-file:
+    description: 'Path to the generated CodeQL config file'
+    value: ${{ steps.generate.outputs.config-file }}
+  skip:
+    description: 'true if no paths were resolved and CodeQL should be skipped'
+    value: ${{ steps.generate.outputs.skip }}
+
+runs:
+  using: composite
+  steps:
+    - name: Generate CodeQL config
+      id: generate
+      shell: bash
+      env:
+        CONFIG_FILE: ${{ inputs.output-file }}
+        RAW_PATHS: ${{ inputs.changed-paths }}
+      run: |
+        # Normalize separators (comma or newline) to newline
+        PATHS=$(printf '%s' "$RAW_PATHS" | tr ',' '\n' | sed '/^[[:space:]]*$/d' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+
+        if [ -z "$PATHS" ]; then
+          echo "skip=true" >> "$GITHUB_OUTPUT"
+          echo "No paths provided — skipping CodeQL config generation"
+          exit 0
+        fi
+
+        # Remove duplicates and empty lines
+        PATHS=$(echo "$PATHS" | sort -u | sed '/^[[:space:]]*$/d')
+
+        if [ -z "$PATHS" ]; then
+          echo "skip=true" >> "$GITHUB_OUTPUT"
+          echo "No paths resolved — skipping CodeQL config generation"
+          exit 0
+        fi
+
+        # Generate config
+        {
+          echo "paths:"
+          echo "$PATHS" | while IFS= read -r p; do
+            echo "  - '$p'"
+          done
+        } > "$CONFIG_FILE"
+
+        echo "skip=false" >> "$GITHUB_OUTPUT"
+        echo "config-file=$CONFIG_FILE" >> "$GITHUB_OUTPUT"
+
+        count=$(echo "$PATHS" | wc -l | tr -d ' ')
+        echo "::group::CodeQL config — $count path(s)"
+        cat "$CONFIG_FILE"
+        echo "::endgroup::"
