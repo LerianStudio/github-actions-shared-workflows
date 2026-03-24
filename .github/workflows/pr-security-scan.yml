@@ -240,25 +240,30 @@ jobs:
       - name: Extract changed directories from matrix
         id: extract-dirs
         shell: bash
+        env:
+          MATRIX: ${{ needs.prepare_matrix.outputs.matrix }}
+          BASE_REF: ${{ github.event.pull_request.base.ref || 'develop' }}
         run: |
-          MATRIX='${{ needs.prepare_matrix.outputs.matrix }}'
+          PATH_MODE=dirs
           if [ "$MATRIX" != "[]" ] && [ -n "$MATRIX" ]; then
-            DIRS=$(echo "$MATRIX" | jq -r '.[].working_dir' 2>/dev/null | tr '\n' ',' | sed 's/,$//')
+            DIRS=$(printf '%s' "$MATRIX" | jq -r '.[].working_dir' 2>/dev/null | tr '\n' ',' | sed 's/,$//')
           fi
 
           # Fallback for single-app repos (working_dir is ".")
           if [ -z "$DIRS" ] || [ "$DIRS" = "." ]; then
-            DIRS=$(git diff --name-only --diff-filter=ACMR origin/${{ github.event.pull_request.base.ref || 'develop' }}...HEAD | head -200 | tr '\n' ',' | sed 's/,$//')
+            PATH_MODE=files
+            DIRS=$(git diff --name-only --diff-filter=ACMR "origin/$BASE_REF"...HEAD | head -200 | tr '\n' ',' | sed 's/,$//')
           fi
 
           echo "paths=$DIRS" >> "$GITHUB_OUTPUT"
+          echo "path-mode=$PATH_MODE" >> "$GITHUB_OUTPUT"
 
       - name: Generate CodeQL config for changed paths
         id: codeql-config
         uses: LerianStudio/github-actions-shared-workflows/src/security/codeql-config@v1.18.0
         with:
           changed-paths: ${{ steps.extract-dirs.outputs.paths }}
-          path-mode: ${{ needs.prepare_matrix.outputs.matrix != '[]' && 'dirs' || 'files' }}
+          path-mode: ${{ steps.extract-dirs.outputs.path-mode }}
 
       - name: Initialize CodeQL
         if: steps.codeql-config.outputs.skip != 'true'

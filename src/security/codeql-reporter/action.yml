@@ -47,6 +47,7 @@ runs:
           let body = '';
           let hasFindings = false;
           let findingsCount = 0;
+          let sarifAvailable = true;
 
           // ── Helpers ──
           const SEVERITY_ICONS = {
@@ -76,11 +77,18 @@ runs:
             const findings = [];
 
             if (!fs.existsSync(sarifDir)) {
+              sarifAvailable = false;
               core.warning(`SARIF directory not found: ${sarifDir}`);
               return findings;
             }
 
             const files = fs.readdirSync(sarifDir).filter(f => f.endsWith('.sarif'));
+
+            if (files.length === 0) {
+              sarifAvailable = false;
+              core.warning('No SARIF files found in output directory');
+              return findings;
+            }
 
             for (const file of files) {
               try {
@@ -122,7 +130,9 @@ runs:
           body += `## \u{1F6E1}\uFE0F CodeQL Analysis Results\n\n`;
           body += `**Languages analyzed:** \`${languages}\`\n\n`;
 
-          if (findings.length === 0) {
+          if (!sarifAvailable) {
+            body += `\u26A0\uFE0F CodeQL did not produce readable SARIF output. Check the analysis step logs.\n\n`;
+          } else if (findings.length === 0) {
             body += `\u2705 No security issues found.\n\n`;
           } else {
             hasFindings = true;

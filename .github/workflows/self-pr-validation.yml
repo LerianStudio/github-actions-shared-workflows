@@ -14,9 +14,6 @@ on:
 permissions:
   contents: read
   checks: read
-  security-events: write
-  pull-requests: write
-  actions: read
 
 jobs:
   # ----------------- PR Validation -----------------

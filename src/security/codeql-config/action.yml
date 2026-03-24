@@ -28,13 +28,13 @@ runs:
     - name: Generate CodeQL config
       id: generate
       shell: bash
+      env:
+        CONFIG_FILE: ${{ inputs.output-file }}
+        PATH_MODE: ${{ inputs.path-mode }}
+        RAW_PATHS: ${{ inputs.changed-paths }}
       run: |
-        CONFIG_FILE="${{ inputs.output-file }}"
-        PATH_MODE="${{ inputs.path-mode }}"
-        RAW_PATHS="${{ inputs.changed-paths }}"
-
         # Normalize separators (comma or newline) to newline
-        PATHS=$(echo "$RAW_PATHS" | tr ',' '\n' | sed '/^[[:space:]]*$/d' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+        PATHS=$(printf '%s' "$RAW_PATHS" | tr ',' '\n' | sed '/^[[:space:]]*$/d' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
 
         if [ -z "$PATHS" ]; then
           echo "skip=true" >> "$GITHUB_OUTPUT"
