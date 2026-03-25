@@ -119,7 +119,6 @@ jobs:
         continue-on-error: true
         uses: LerianStudio/github-actions-shared-workflows/src/validate/pr-description@refactor/modularize-pr-validation
         with:
-          github-token: ${{ secrets.MANAGE_TOKEN || github.token }}
           min-length: ${{ inputs.min_description_length }}
 
       - name: Collect results and enforce blocking

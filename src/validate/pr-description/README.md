@@ -5,14 +5,16 @@
   </tr>
 </table>
 
-Validates PR description quality by checking minimum length and recommended sections (`Description`, `Type of Change`).
+Validates that the PR description has real content beyond template boilerplate:
+
+- **Description section**: extracts content under `## Description`, strips HTML comments, and checks minimum length
+- **Type of Change**: verifies at least one checkbox is checked (`- [x]`)
 
 ## Inputs
 
 | Input | Description | Required | Default |
 |-------|-------------|----------|---------|
-| `github-token` | GitHub token for API access | Yes | |
-| `min-length` | Minimum PR description length in characters | No | `50` |
+| `min-length` | Minimum content length in characters (after stripping template boilerplate) | No | `30` |
 
 ## Usage as composite step
 
@@ -24,8 +26,7 @@ jobs:
       - name: Validate PR Description
         uses: LerianStudio/github-actions-shared-workflows/src/validate/pr-description@v1.x.x
         with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          min-length: "100"
+          min-length: "50"
 ```
 
 ## Required permissions

@@ -1,49 +1,56 @@
 name: Validate PR Description
-description: "Checks PR description length and recommended sections."
+description: "Validates that the PR description has real content beyond template boilerplate."
 
 inputs:
-  github-token:
-    description: GitHub token for API access
-    required: true
   min-length:
-    description: Minimum PR description length in characters
+    description: Minimum content length in characters (after stripping template boilerplate)
     required: false
-    default: "50"
+    default: "30"
 
 runs:
   using: composite
   steps:
-    # ----------------- Length Check -----------------
-    - name: Check description length
+    - name: Validate PR description
       uses: actions/github-script@v8
       env:
         MIN_LENGTH: ${{ inputs.min-length }}
       with:
-        github-token: ${{ inputs.github-token }}
         script: |
           const body = context.payload.pull_request.body || '';
           const minLength = parseInt(process.env.MIN_LENGTH, 10);
+          const errors = [];
+          const warnings = [];
 
-          if (body.length < minLength) {
-            core.setFailed(`PR description is too short (${body.length} chars). Please provide a detailed description (minimum ${minLength} chars).`);
+          // --- Extract content under "## Description" heading ---
+          const descriptionMatch = body.match(/## Description\s*\n([\s\S]*?)(?=\n## |\n---\s*$|$)/);
+          const descriptionContent = descriptionMatch ? descriptionMatch[1].trim() : '';
+
+          // Strip HTML comments <!-- ... -->
+          const cleaned = descriptionContent.replace(/<!--[\s\S]*?-->/g, '').trim();
+
+          if (cleaned.length === 0) {
+            errors.push('The "Description" section is empty. Please summarize what this PR does and why.');
+          } else if (cleaned.length < minLength) {
+            errors.push(`The "Description" section is too short (${cleaned.length} chars, minimum ${minLength}). Please provide more detail.`);
           }
 
-    # ----------------- Required Sections -----------------
-    - name: Check for required sections
-      uses: actions/github-script@v8
-      with:
-        github-token: ${{ inputs.github-token }}
-        script: |
-          const body = context.payload.pull_request.body || '';
-          const requiredSections = ['Description', 'Type of Change'];
-          const missingSections = [];
-
-          for (const section of requiredSections) {
-            if (!body.includes(section)) {
-              missingSections.push(section);
+          // --- Check that at least one "Type of Change" checkbox is checked ---
+          const typeMatch = body.match(/## Type of Change\s*\n([\s\S]*?)(?=\n## |$)/);
+          if (typeMatch) {
+            const typeSection = typeMatch[1];
+            const checked = typeSection.match(/- \[x\]/gi);
+            if (!checked) {
+              errors.push('No "Type of Change" checkbox is checked. Please mark at least one.');
             }
+          } else {
+            warnings.push('Missing "Type of Change" section.');
           }
 
-          if (missingSections.length > 0) {
-            core.warning(`PR description is missing recommended sections: ${missingSections.join(', ')}`);
+          // --- Report ---
+          for (const w of warnings) {
+            core.warning(w);
+          }
+
+          if (errors.length > 0) {
+            core.setFailed(errors.join('\n'));
           }
