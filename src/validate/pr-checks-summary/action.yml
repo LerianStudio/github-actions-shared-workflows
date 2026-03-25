@@ -1,5 +1,5 @@
 name: PR Checks Summary
-description: "Generates a summary table of all PR validation check results."
+description: "Generates a summary table of all PR validation check results, grouped by tier."
 
 inputs:
   source-branch-result:
@@ -49,7 +49,7 @@ runs:
           case "$1" in
             success) echo "✅" ;;
             failure) echo "❌" ;;
-            *)       echo "⚠️" ;;
+            *)       echo "⏭️" ;;
           esac
         }
 
@@ -60,10 +60,19 @@ runs:
             echo "> **DRY RUN** — no comments, labels, or reviews were posted"
             echo ""
           fi
-          echo "$(icon "$SOURCE_BRANCH_RESULT") Source Branch: $SOURCE_BRANCH_RESULT"
-          echo "$(icon "$TITLE_RESULT") PR Title: $TITLE_RESULT"
-          echo "$(icon "$SIZE_RESULT") PR Size: $SIZE_RESULT"
-          echo "$(icon "$DESCRIPTION_RESULT") PR Description: $DESCRIPTION_RESULT"
-          echo "$(icon "$LABEL_RESULT") Auto-label: $LABEL_RESULT"
-          echo "$(icon "$METADATA_RESULT") Metadata: $METADATA_RESULT"
+          echo "### Blocking"
+          echo ""
+          echo "| Check | Result |"
+          echo "|-------|--------|"
+          echo "| Source Branch | $(icon "$SOURCE_BRANCH_RESULT") ${SOURCE_BRANCH_RESULT} |"
+          echo "| PR Title | $(icon "$TITLE_RESULT") ${TITLE_RESULT} |"
+          echo "| PR Description | $(icon "$DESCRIPTION_RESULT") ${DESCRIPTION_RESULT} |"
+          echo ""
+          echo "### Advisory"
+          echo ""
+          echo "| Check | Result |"
+          echo "|-------|--------|"
+          echo "| PR Size | $(icon "$SIZE_RESULT") ${SIZE_RESULT} |"
+          echo "| Auto-label | $(icon "$LABEL_RESULT") ${LABEL_RESULT} |"
+          echo "| Metadata | $(icon "$METADATA_RESULT") ${METADATA_RESULT} |"
         } >> "$GITHUB_STEP_SUMMARY"
