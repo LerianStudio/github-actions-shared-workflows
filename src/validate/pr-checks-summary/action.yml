@@ -26,10 +26,6 @@ inputs:
     description: Result of PR metadata check
     required: false
     default: skipped
-  changelog-result:
-    description: Result of changelog check
-    required: false
-    default: skipped
   dry-run:
     description: Whether this is a dry run
     required: false
@@ -47,7 +43,6 @@ runs:
         DESCRIPTION_RESULT: ${{ inputs.description-result }}
         LABEL_RESULT: ${{ inputs.label-result }}
         METADATA_RESULT: ${{ inputs.metadata-result }}
-        CHANGELOG_RESULT: ${{ inputs.changelog-result }}
         DRY_RUN: ${{ inputs.dry-run }}
       run: |
         icon() {
@@ -71,5 +66,4 @@ runs:
           echo "$(icon "$DESCRIPTION_RESULT") PR Description: $DESCRIPTION_RESULT"
           echo "$(icon "$LABEL_RESULT") Auto-label: $LABEL_RESULT"
           echo "$(icon "$METADATA_RESULT") Metadata: $METADATA_RESULT"
-          echo "$(icon "$CHANGELOG_RESULT") Changelog: $CHANGELOG_RESULT"
         } >> "$GITHUB_STEP_SUMMARY"

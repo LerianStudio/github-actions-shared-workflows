@@ -45,10 +45,6 @@ on:
         description: 'Minimum PR description length'
         type: number
         default: 50
-      check_changelog:
-        description: 'Check if CHANGELOG.md is updated'
-        type: boolean
-        default: true
       enable_auto_labeler:
         description: 'Enable automatic labeling based on changed files'
         type: boolean
@@ -155,11 +151,10 @@ jobs:
       metadata-result: ${{ steps.collect.outputs.metadata }}
       size-result: ${{ steps.collect.outputs.size }}
       label-result: ${{ steps.collect.outputs.label }}
-      changelog-result: ${{ steps.collect.outputs.changelog }}
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
           fetch-depth: 0
 
@@ -188,14 +183,6 @@ jobs:
           github-token: ${{ secrets.MANAGE_TOKEN || github.token }}
           config-path: ${{ inputs.labeler_config_path }}
 
-      - name: Check changelog
-        id: changelog
-        if: inputs.check_changelog
-        continue-on-error: true
-        uses: LerianStudio/github-actions-shared-workflows/src/validate/pr-changelog@refactor/modularize-pr-validation
-        with:
-          base-ref: ${{ github.base_ref }}
-
       - name: Collect results
         id: collect
         run: |
@@ -203,7 +190,6 @@ jobs:
             echo "metadata=${{ steps.metadata.outcome }}"
             echo "size=${{ steps.size.outcome }}"
             echo "label=${{ steps.labels.outcome || 'skipped' }}"
-            echo "changelog=${{ steps.changelog.outcome || 'skipped' }}"
           } >> "$GITHUB_OUTPUT"
 
   # ----------------- PR Checks Summary -----------------
@@ -223,7 +209,6 @@ jobs:
           size-result: ${{ needs.advisory-checks.outputs.size-result || 'skipped' }}
           label-result: ${{ needs.advisory-checks.outputs.label-result || 'skipped' }}
           metadata-result: ${{ needs.advisory-checks.outputs.metadata-result || 'skipped' }}
-          changelog-result: ${{ needs.advisory-checks.outputs.changelog-result || 'skipped' }}
           dry-run: ${{ inputs.dry_run && 'true' || 'false' }}
 
   # ----------------- Slack Notification -----------------
