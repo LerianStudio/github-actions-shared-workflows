@@ -86,7 +86,7 @@ jobs:
 
     steps:
       - name: Validate source branch
-        uses: LerianStudio/github-actions-shared-workflows/src/validate/pr-source-branch@develop
+        uses: LerianStudio/github-actions-shared-workflows/src/validate/pr-source-branch@refactor/modularize-pr-validation
         with:
           github-token: ${{ secrets.MANAGE_TOKEN || github.token }}
           allowed-branches: ${{ inputs.allowed_source_branches }}
@@ -101,7 +101,7 @@ jobs:
 
     steps:
       - name: Validate PR title format
-        uses: LerianStudio/github-actions-shared-workflows/src/validate/pr-title@develop
+        uses: LerianStudio/github-actions-shared-workflows/src/validate/pr-title@refactor/modularize-pr-validation
         with:
           github-token: ${{ github.token }}
           types: ${{ inputs.pr_title_types }}
@@ -121,7 +121,7 @@ jobs:
           fetch-depth: 0
 
       - name: Check PR size
-        uses: LerianStudio/github-actions-shared-workflows/src/validate/pr-size@develop
+        uses: LerianStudio/github-actions-shared-workflows/src/validate/pr-size@refactor/modularize-pr-validation
         with:
           github-token: ${{ secrets.MANAGE_TOKEN || github.token }}
           base-ref: ${{ github.base_ref }}
@@ -135,7 +135,7 @@ jobs:
 
     steps:
       - name: Validate PR description
-        uses: LerianStudio/github-actions-shared-workflows/src/validate/pr-description@develop
+        uses: LerianStudio/github-actions-shared-workflows/src/validate/pr-description@refactor/modularize-pr-validation
         with:
           github-token: ${{ secrets.MANAGE_TOKEN || github.token }}
           min-length: ${{ inputs.min_description_length }}
@@ -153,7 +153,7 @@ jobs:
           fetch-depth: 0
 
       - name: Auto-label based on files
-        uses: LerianStudio/github-actions-shared-workflows/src/validate/pr-labels@develop
+        uses: LerianStudio/github-actions-shared-workflows/src/validate/pr-labels@refactor/modularize-pr-validation
         with:
           github-token: ${{ secrets.MANAGE_TOKEN || github.token }}
           config-path: ${{ inputs.labeler_config_path }}
@@ -166,7 +166,7 @@ jobs:
 
     steps:
       - name: Check assignee and linked issues
-        uses: LerianStudio/github-actions-shared-workflows/src/validate/pr-metadata@develop
+        uses: LerianStudio/github-actions-shared-workflows/src/validate/pr-metadata@refactor/modularize-pr-validation
         with:
           github-token: ${{ secrets.MANAGE_TOKEN || github.token }}
 
@@ -183,7 +183,7 @@ jobs:
           fetch-depth: 0
 
       - name: Check changelog
-        uses: LerianStudio/github-actions-shared-workflows/src/validate/pr-changelog@develop
+        uses: LerianStudio/github-actions-shared-workflows/src/validate/pr-changelog@refactor/modularize-pr-validation
         with:
           github-token: ${{ secrets.MANAGE_TOKEN || github.token }}
           base-ref: ${{ github.base_ref }}
@@ -197,48 +197,24 @@ jobs:
     if: always()
 
     steps:
-      - name: Summary
-        uses: actions/github-script@v8
-        env:
-          SOURCE_BRANCH_RESULT: ${{ needs.pr-source-branch.result }}
-          TITLE_RESULT: ${{ needs.pr-title.result }}
-          SIZE_RESULT: ${{ needs.pr-size.result }}
-          DESCRIPTION_RESULT: ${{ needs.pr-description.result }}
-          LABEL_RESULT: ${{ needs.pr-labels.result }}
-          METADATA_RESULT: ${{ needs.pr-metadata.result }}
-          CHANGELOG_RESULT: ${{ needs.pr-changelog.result }}
-          DRY_RUN: ${{ inputs.dry_run }}
+      - name: PR Checks Summary
+        uses: LerianStudio/github-actions-shared-workflows/src/validate/pr-checks-summary@refactor/modularize-pr-validation
         with:
-          github-token: ${{ secrets.MANAGE_TOKEN || github.token }}
-          script: |
-            const checks = {
-              'Source Branch': process.env.SOURCE_BRANCH_RESULT,
-              'PR Title': process.env.TITLE_RESULT,
-              'PR Size': process.env.SIZE_RESULT,
-              'PR Description': process.env.DESCRIPTION_RESULT,
-              'Auto-label': process.env.LABEL_RESULT,
-              'Metadata': process.env.METADATA_RESULT,
-              'Changelog': process.env.CHANGELOG_RESULT
-            };
-
-            let summary = '## PR Checks Summary\n\n';
-            if (process.env.DRY_RUN === 'true') {
-              summary += '> **DRY RUN** — no comments, labels, or reviews were posted\n\n';
-            }
-            for (const [check, result] of Object.entries(checks)) {
-              const icon = result === 'success' ? '✅' : result === 'failure' ? '❌' : '⚠️';
-              summary += `${icon} ${check}: ${result}\n`;
-            }
-
-            core.summary.addRaw(summary);
-            await core.summary.write();
+          source-branch-result: ${{ needs.pr-source-branch.result }}
+          title-result: ${{ needs.pr-title.result }}
+          size-result: ${{ needs.pr-size.result }}
+          description-result: ${{ needs.pr-description.result }}
+          label-result: ${{ needs.pr-labels.result }}
+          metadata-result: ${{ needs.pr-metadata.result }}
+          changelog-result: ${{ needs.pr-changelog.result }}
+          dry-run: ${{ inputs.dry_run && 'true' || 'false' }}
 
   # ----------------- Slack Notification -----------------
   notify:
     name: Notify
     needs: [pr-source-branch, pr-title, pr-size, pr-description, pr-labels, pr-metadata, pr-changelog, pr-checks-summary]
     if: always() && github.event.pull_request.draft != true && !inputs.dry_run
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/slack-notify.yml@develop
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/slack-notify.yml@refactor/modularize-pr-validation
     with:
       status: ${{ (needs.pr-source-branch.result == 'failure' || needs.pr-title.result == 'failure' || needs.pr-description.result == 'failure' || needs.pr-changelog.result == 'failure') && 'failure' || 'success' }}
       workflow_name: "PR Validation"
