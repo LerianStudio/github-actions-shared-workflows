@@ -1,7 +1,10 @@
 name: "PR Validation"
 
 # Reusable workflow for comprehensive pull request validation
-# Checks PR title, size, description, labels, and best practices
+# Uses a 2-tier fail-fast model:
+#   Tier 1 (blocking-checks): lightweight validations that block merge — title, source branch, description
+#   Tier 2 (advisory-checks): informational checks — size, labels, metadata, changelog (only runs if Tier 1 passes)
+# Followed by a summary job and optional Slack notification
 
 on:
   workflow_call:
@@ -78,14 +81,21 @@ permissions:
   issues: write
 
 jobs:
-  # ----------------- Source Branch Validation -----------------
-  pr-source-branch:
-    name: Validate Source Branch
+  # ----------------- Tier 1: Blocking Checks (no checkout, fail-fast) -----------------
+  blocking-checks:
+    name: Blocking Checks
     runs-on: ${{ inputs.runner_type }}
-    if: github.event.pull_request.draft != true && inputs.enforce_source_branches
+    if: github.event.pull_request.draft != true
+    outputs:
+      source-branch-result: ${{ steps.collect.outputs.source_branch }}
+      title-result: ${{ steps.collect.outputs.title }}
+      description-result: ${{ steps.collect.outputs.description }}
 
     steps:
       - name: Validate source branch
+        id: source-branch
+        if: inputs.enforce_source_branches
+        continue-on-error: true
         uses: LerianStudio/github-actions-shared-workflows/src/validate/pr-source-branch@refactor/modularize-pr-validation
         with:
           github-token: ${{ secrets.MANAGE_TOKEN || github.token }}
@@ -93,14 +103,9 @@ jobs:
           target-branches: ${{ inputs.target_branches_for_source_check }}
           dry-run: ${{ inputs.dry_run && 'true' || 'false' }}
 
-  # ----------------- PR Title Validation -----------------
-  pr-title:
-    name: Validate PR Title
-    runs-on: ${{ inputs.runner_type }}
-    if: github.event.pull_request.draft != true
-
-    steps:
-      - name: Validate PR title format
+      - name: Validate PR title
+        id: title
+        continue-on-error: true
         uses: LerianStudio/github-actions-shared-workflows/src/validate/pr-title@refactor/modularize-pr-validation
         with:
           github-token: ${{ github.token }}
@@ -108,11 +113,49 @@ jobs:
           scopes: ${{ inputs.pr_title_scopes }}
           require-scope: ${{ inputs.require_scope && 'true' || 'false' }}
 
-  # ----------------- PR Size Check -----------------
-  pr-size:
-    name: Check PR Size
+      - name: Validate PR description
+        id: description
+        continue-on-error: true
+        uses: LerianStudio/github-actions-shared-workflows/src/validate/pr-description@refactor/modularize-pr-validation
+        with:
+          github-token: ${{ secrets.MANAGE_TOKEN || github.token }}
+          min-length: ${{ inputs.min_description_length }}
+
+      - name: Collect results and enforce blocking
+        id: collect
+        run: |
+          SOURCE_BRANCH="${{ steps.source-branch.outcome || 'skipped' }}"
+          TITLE="${{ steps.title.outcome }}"
+          DESCRIPTION="${{ steps.description.outcome }}"
+
+          {
+            echo "source_branch=${SOURCE_BRANCH}"
+            echo "title=${TITLE}"
+            echo "description=${DESCRIPTION}"
+          } >> "$GITHUB_OUTPUT"
+
+          # Fail the job if any blocking check failed
+          FAILED=""
+          if [ "${SOURCE_BRANCH}" = "failure" ]; then FAILED="${FAILED} source-branch"; fi
+          if [ "${TITLE}" = "failure" ]; then FAILED="${FAILED} title"; fi
+          if [ "${DESCRIPTION}" = "failure" ]; then FAILED="${FAILED} description"; fi
+
+          if [ -n "${FAILED}" ]; then
+            echo "::error::Blocking checks failed:${FAILED}"
+            exit 1
+          fi
+
+  # ----------------- Tier 2: Advisory Checks (shared checkout, depends on Tier 1) -----------------
+  advisory-checks:
+    name: Advisory Checks
     runs-on: ${{ inputs.runner_type }}
-    if: github.event.pull_request.draft != true
+    needs: [blocking-checks]
+    if: always() && needs.blocking-checks.result == 'success' && github.event.pull_request.draft != true
+    outputs:
+      metadata-result: ${{ steps.collect.outputs.metadata }}
+      size-result: ${{ steps.collect.outputs.size }}
+      label-result: ${{ steps.collect.outputs.label }}
+      changelog-result: ${{ steps.collect.outputs.changelog }}
 
     steps:
       - name: Checkout code
@@ -120,104 +163,80 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Check PR metadata
+        id: metadata
+        continue-on-error: true
+        uses: LerianStudio/github-actions-shared-workflows/src/validate/pr-metadata@refactor/modularize-pr-validation
+        with:
+          github-token: ${{ secrets.MANAGE_TOKEN || github.token }}
+
       - name: Check PR size
+        id: size
+        continue-on-error: true
         uses: LerianStudio/github-actions-shared-workflows/src/validate/pr-size@refactor/modularize-pr-validation
         with:
           github-token: ${{ secrets.MANAGE_TOKEN || github.token }}
           base-ref: ${{ github.base_ref }}
           dry-run: ${{ inputs.dry_run && 'true' || 'false' }}
 
-  # ----------------- PR Description Check -----------------
-  pr-description:
-    name: Check PR Description
-    runs-on: ${{ inputs.runner_type }}
-    if: github.event.pull_request.draft != true
-
-    steps:
-      - name: Validate PR description
-        uses: LerianStudio/github-actions-shared-workflows/src/validate/pr-description@refactor/modularize-pr-validation
-        with:
-          github-token: ${{ secrets.MANAGE_TOKEN || github.token }}
-          min-length: ${{ inputs.min_description_length }}
-
-  # ----------------- Auto-label PR -----------------
-  pr-labels:
-    name: Auto-label PR
-    runs-on: ${{ inputs.runner_type }}
-    if: github.event.pull_request.draft != true && inputs.enable_auto_labeler && !inputs.dry_run
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-
-      - name: Auto-label based on files
+      - name: Auto-label PR
+        id: labels
+        if: inputs.enable_auto_labeler && !inputs.dry_run
+        continue-on-error: true
         uses: LerianStudio/github-actions-shared-workflows/src/validate/pr-labels@refactor/modularize-pr-validation
         with:
           github-token: ${{ secrets.MANAGE_TOKEN || github.token }}
           config-path: ${{ inputs.labeler_config_path }}
 
-  # ----------------- PR Metadata Check -----------------
-  pr-metadata:
-    name: Check PR Metadata
-    runs-on: ${{ inputs.runner_type }}
-    if: github.event.pull_request.draft != true
-
-    steps:
-      - name: Check assignee and linked issues
-        uses: LerianStudio/github-actions-shared-workflows/src/validate/pr-metadata@refactor/modularize-pr-validation
-        with:
-          github-token: ${{ secrets.MANAGE_TOKEN || github.token }}
-
-  # ----------------- Changelog Check -----------------
-  pr-changelog:
-    name: Check Changelog Update
-    runs-on: ${{ inputs.runner_type }}
-    if: github.event.pull_request.draft != true && inputs.check_changelog
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-
       - name: Check changelog
+        id: changelog
+        if: inputs.check_changelog
+        continue-on-error: true
         uses: LerianStudio/github-actions-shared-workflows/src/validate/pr-changelog@refactor/modularize-pr-validation
         with:
           github-token: ${{ secrets.MANAGE_TOKEN || github.token }}
           base-ref: ${{ github.base_ref }}
           dry-run: ${{ inputs.dry_run && 'true' || 'false' }}
 
+      - name: Collect results
+        id: collect
+        run: |
+          {
+            echo "metadata=${{ steps.metadata.outcome }}"
+            echo "size=${{ steps.size.outcome }}"
+            echo "label=${{ steps.labels.outcome || 'skipped' }}"
+            echo "changelog=${{ steps.changelog.outcome || 'skipped' }}"
+          } >> "$GITHUB_OUTPUT"
+
   # ----------------- PR Checks Summary -----------------
   pr-checks-summary:
     name: PR Checks Summary
     runs-on: ${{ inputs.runner_type }}
-    needs: [pr-source-branch, pr-title, pr-size, pr-description, pr-labels, pr-metadata, pr-changelog]
+    needs: [blocking-checks, advisory-checks]
     if: always()
 
     steps:
       - name: PR Checks Summary
         uses: LerianStudio/github-actions-shared-workflows/src/validate/pr-checks-summary@refactor/modularize-pr-validation
         with:
-          source-branch-result: ${{ needs.pr-source-branch.result }}
-          title-result: ${{ needs.pr-title.result }}
-          size-result: ${{ needs.pr-size.result }}
-          description-result: ${{ needs.pr-description.result }}
-          label-result: ${{ needs.pr-labels.result }}
-          metadata-result: ${{ needs.pr-metadata.result }}
-          changelog-result: ${{ needs.pr-changelog.result }}
+          source-branch-result: ${{ needs.blocking-checks.outputs.source-branch-result || 'skipped' }}
+          title-result: ${{ needs.blocking-checks.outputs.title-result || 'skipped' }}
+          description-result: ${{ needs.blocking-checks.outputs.description-result || 'skipped' }}
+          size-result: ${{ needs.advisory-checks.outputs.size-result || 'skipped' }}
+          label-result: ${{ needs.advisory-checks.outputs.label-result || 'skipped' }}
+          metadata-result: ${{ needs.advisory-checks.outputs.metadata-result || 'skipped' }}
+          changelog-result: ${{ needs.advisory-checks.outputs.changelog-result || 'skipped' }}
           dry-run: ${{ inputs.dry_run && 'true' || 'false' }}
 
   # ----------------- Slack Notification -----------------
   notify:
     name: Notify
-    needs: [pr-source-branch, pr-title, pr-size, pr-description, pr-labels, pr-metadata, pr-changelog, pr-checks-summary]
+    needs: [blocking-checks, advisory-checks, pr-checks-summary]
     if: always() && github.event.pull_request.draft != true && !inputs.dry_run
     uses: LerianStudio/github-actions-shared-workflows/.github/workflows/slack-notify.yml@refactor/modularize-pr-validation
     with:
-      status: ${{ (needs.pr-source-branch.result == 'failure' || needs.pr-title.result == 'failure' || needs.pr-description.result == 'failure' || needs.pr-changelog.result == 'failure') && 'failure' || 'success' }}
+      status: ${{ (needs.blocking-checks.outputs.source-branch-result == 'failure' || needs.blocking-checks.outputs.title-result == 'failure' || needs.blocking-checks.outputs.description-result == 'failure') && 'failure' || 'success' }}
       workflow_name: "PR Validation"
-      failed_jobs: ${{ needs.pr-source-branch.result == 'failure' && 'Source Branch, ' || '' }}${{ needs.pr-title.result == 'failure' && 'PR Title, ' || '' }}${{ needs.pr-description.result == 'failure' && 'PR Description, ' || '' }}${{ needs.pr-changelog.result == 'failure' && 'Changelog' || '' }}
+      failed_jobs: ${{ needs.blocking-checks.outputs.source-branch-result == 'failure' && 'Source Branch, ' || '' }}${{ needs.blocking-checks.outputs.title-result == 'failure' && 'PR Title, ' || '' }}${{ needs.blocking-checks.outputs.description-result == 'failure' && 'PR Description' || '' }}
     secrets:
       SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}

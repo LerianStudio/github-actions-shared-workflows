@@ -22,17 +22,28 @@ Comprehensive pull request validation workflow that enforces best practices, cod
 
 ## Architecture
 
+Uses a **2-tier fail-fast model** to minimize runner cost and provide fast feedback:
+
 ```
 pr-validation.yml (reusable workflow)
+
+  Tier 1 — blocking-checks (no checkout, ~5s)
     ├── src/validate/pr-source-branch   (source branch check)
     ├── src/validate/pr-title           (semantic title check)
-    ├── src/validate/pr-size            (size calculation + labeling)
-    ├── src/validate/pr-description     (description quality)
-    ├── src/validate/pr-labels          (auto-label by files)
+    └── src/validate/pr-description     (description quality)
+              ↓ (only continues if all pass)
+  Tier 2 — advisory-checks (shared checkout)
     ├── src/validate/pr-metadata        (assignee + linked issues)
-    ├── src/validate/pr-changelog       (changelog check)
-    └── slack-notify.yml                (optional notification)
+    ├── src/validate/pr-size            (size calculation + labeling)
+    ├── src/validate/pr-labels          (auto-label by files)
+    └── src/validate/pr-changelog       (changelog check)
+              ↓
+  Summary — pr-checks-summary (always runs)
+              ↓
+  Notify  — slack-notify.yml (optional)
 ```
+
+**Cost optimization:** 4 runners instead of 9, 1 checkout instead of 3.
 
 ## Usage
 
@@ -134,17 +145,22 @@ feat fix docs style refactor perf test chore ci build revert
 
 ## Jobs
 
-| Job | Condition | Composite |
-|-----|-----------|-----------|
-| `pr-source-branch` | non-draft, `enforce_source_branches` | `src/validate/pr-source-branch` |
-| `pr-title` | non-draft | `src/validate/pr-title` |
-| `pr-size` | non-draft | `src/validate/pr-size` |
-| `pr-description` | non-draft | `src/validate/pr-description` |
-| `pr-labels` | non-draft, `enable_auto_labeler && !dry_run` | `src/validate/pr-labels` |
-| `pr-metadata` | non-draft | `src/validate/pr-metadata` |
-| `pr-changelog` | non-draft, `check_changelog` | `src/validate/pr-changelog` |
-| `pr-checks-summary` | always | inline |
-| `notify` | non-draft, `!dry_run` | `slack-notify.yml` |
+| Job | Tier | Composites | Condition |
+|-----|------|------------|-----------|
+| `blocking-checks` | 1 (fail-fast) | `pr-source-branch`, `pr-title`, `pr-description` | non-draft |
+| `advisory-checks` | 2 (informational) | `pr-metadata`, `pr-size`, `pr-labels`, `pr-changelog` | non-draft, blocking-checks passed |
+| `pr-checks-summary` | — | `pr-checks-summary` | always |
+| `notify` | — | `slack-notify.yml` | non-draft, `!dry_run` |
+
+### Blocking checks (Tier 1)
+- Run without checkout (lightweight, ~5 seconds)
+- All three run even if one fails (`continue-on-error` per step)
+- Job fails if **any** blocking check fails, preventing advisory checks from running
+
+### Advisory checks (Tier 2)
+- Share a single `checkout` with `fetch-depth: 0`
+- Only run if all blocking checks passed
+- Never block merge — informational only
 
 ## Dry Run Behavior
 
@@ -195,5 +211,5 @@ To skip the changelog check, add one of these labels:
 
 ---
 
-**Last Updated:** 2026-03-24
-**Version:** 2.0.0
+**Last Updated:** 2026-03-25
+**Version:** 3.0.0
