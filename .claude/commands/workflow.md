@@ -18,7 +18,9 @@ Before implementing custom steps inside a workflow, search the [Marketplace](htt
 
 - Prefer a well-maintained action over custom shell scripting for non-trivial logic
 - If the action needs wrapping (normalization, extra steps), create a composite in `src/` and call it from the workflow — don't inline complex shell in the workflow itself
-- Pin to a specific tag or SHA — never `@main` or `@master`
+- **Third-party actions (outside `LerianStudio` org) must be pinned by commit SHA**, not by tag — add a `# vX.Y.Z` comment for readability (e.g., `uses: actions/checkout@abc123 # v6`). Tags are mutable and can be force-pushed by upstream maintainers. Dependabot proposes SHA bumps automatically.
+- `LerianStudio/*` actions are pinned by **release tag** (`@v1.2.3`) or branch (`@develop` for testing)
+- Never use `@main` or `@master` for third-party actions
 - Document in `docs/<workflow-name>.md` why that action was chosen
 
 Only implement from scratch when no suitable action exists or when existing ones don't meet security or customization requirements.
@@ -340,11 +342,18 @@ uses: ./src/setup-go  # resolves to caller's workspace, not this repo
 
 # ❌ Mutable ref on third-party actions
 uses: some-action/tool@main
+
+# ❌ Third-party action pinned by tag (tags are mutable)
+uses: actions/checkout@v6
+
+# ✅ Third-party action pinned by commit SHA
+uses: actions/checkout@abc123def456 # v6
 ```
 
 ## Security rules
 
-- Pin all third-party actions to a specific tag or SHA — Dependabot keeps them updated
+- **Third-party actions (outside `LerianStudio` org) must be pinned by commit SHA** — tags are mutable and can be force-pushed. Add a `# vX.Y.Z` comment for readability. Dependabot keeps SHA pins updated automatically.
+- `LerianStudio/*` actions use release tags (`@v1.2.3`) — no SHA pinning needed for org-owned actions
 - Never use `@main` or `@master` for third-party actions
 - Never interpolate untrusted user input directly into `run:` commands
 - Never print secrets via `echo`, env dumps, or step summaries
