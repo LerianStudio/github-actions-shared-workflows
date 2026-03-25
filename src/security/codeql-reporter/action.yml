@@ -125,8 +125,12 @@ runs:
             return findings;
           }
 
+          // ── Filter suppressed rules ──
+          // unpinned-tag is handled by our own pinned-actions lint check with org-aware logic
+          const SUPPRESSED_RULES = ['actions/unpinned-tag'];
+
           // ── Build Report ──
-          const findings = readSarifFiles();
+          const findings = readSarifFiles().filter(f => !SUPPRESSED_RULES.includes(f.rule));
           findingsCount = findings.length;
 
           body += `## \u{1F6E1}\uFE0F CodeQL Analysis Results\n\n`;
