@@ -57,11 +57,11 @@ runs:
             done
 
             if [ "$is_internal" = true ]; then
-              # Internal: final releases (vX, vX.Y.Z) pass silently; pre-releases (beta, rc) warn
-              if printf '%s\n' "$ref" | grep -Eq '^v[0-9]+$|^v[0-9]+\.[0-9]+\.[0-9]+$'; then
+              # Internal: any semver ref passes — vX, vX.Y.Z, vX.Y.Z-beta.N, vX.Y.Z-rc.N
+              if printf '%s\n' "$ref" | grep -Eq '^v[0-9]+(\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.]+)?)?$'; then
                 continue
               fi
-              echo "::warning file=${file},line=${line_num}::Internal action not pinned to a final release version: $normalized"
+              echo "::warning file=${file},line=${line_num}::Internal action not pinned to a version: $normalized"
               warnings=$((warnings + 1))
             else
               # External: only final releases allowed — vX or vX.Y.Z (no beta, no rc)
