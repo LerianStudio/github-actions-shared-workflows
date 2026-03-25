@@ -18,6 +18,10 @@ runs:
         script: |
           const body = context.payload.pull_request.body || '';
           const minLength = parseInt(process.env.MIN_LENGTH, 10);
+          if (isNaN(minLength) || minLength <= 0) {
+            core.setFailed(`Invalid min-length input: '${process.env.MIN_LENGTH}'`);
+            return;
+          }
           const errors = [];
           const warnings = [];
 

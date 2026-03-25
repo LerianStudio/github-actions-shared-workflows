@@ -13,7 +13,7 @@ Comprehensive pull request validation workflow that enforces best practices, cod
 - **PR size tracking** — Automatic labeling (XS, S, M, L, XL)
 - **Description quality** — Minimum length and required sections
 - **Auto-labeling** — Based on changed files
-- **Metadata checks** — Warns if no assignee or linked issues
+- **Auto-assign** — Assigns PR author when no assignee is set (skips bots)
 - **Draft PR support** — Skips validations for draft PRs
 - **Source branch validation** — Enforce PRs to protected branches come from specific source branches
 - **Dry run mode** — Preview validations without posting comments or labels

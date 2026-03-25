@@ -42,9 +42,9 @@ on:
         type: boolean
         default: false
       min_description_length:
-        description: 'Minimum PR description length'
+        description: 'Minimum PR description content length (after stripping template boilerplate)'
         type: number
-        default: 50
+        default: 30
       enable_auto_labeler:
         description: 'Enable automatic labeling based on changed files'
         type: boolean
