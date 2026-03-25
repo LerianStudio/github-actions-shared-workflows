@@ -169,7 +169,7 @@ The slack-notify workflow is automatically integrated into:
 - [Build Workflow](build-workflow.md)
 - [Release Workflow](release-workflow.md)
 - [Go PR Analysis](go-pr-analysis-workflow.md)
-- [PR Validation](pr-validation-workflow.md)
+- [PR Validation](pr-validation.md)
 - [PR Security Scan](pr-security-scan-workflow.md)
 
 ## Best Practices

