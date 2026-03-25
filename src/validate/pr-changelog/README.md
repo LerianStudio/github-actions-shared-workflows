@@ -5,15 +5,13 @@
   </tr>
 </table>
 
-Checks if `CHANGELOG.md` was updated in the PR. If not, posts a reminder comment (skipped for PRs with `skip-changelog` or `dependencies` labels).
+Checks if `CHANGELOG.md` was updated in the PR diff. Outputs the result for use by downstream jobs (e.g., summary reporting).
 
 ## Inputs
 
 | Input | Description | Required | Default |
 |-------|-------------|----------|---------|
-| `github-token` | GitHub token with pull-requests write permission | Yes | |
 | `base-ref` | Base branch for diff comparison | Yes | |
-| `dry-run` | When true, check without posting comments | No | `false` |
 
 ## Outputs
 
@@ -36,7 +34,6 @@ jobs:
       - name: Check Changelog
         uses: LerianStudio/github-actions-shared-workflows/src/validate/pr-changelog@v1.x.x
         with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
           base-ref: ${{ github.base_ref }}
 ```
 
@@ -45,5 +42,4 @@ jobs:
 ```yaml
 permissions:
   contents: read
-  pull-requests: write
 ```

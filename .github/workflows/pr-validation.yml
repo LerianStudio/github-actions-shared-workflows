@@ -194,9 +194,7 @@ jobs:
         continue-on-error: true
         uses: LerianStudio/github-actions-shared-workflows/src/validate/pr-changelog@refactor/modularize-pr-validation
         with:
-          github-token: ${{ secrets.MANAGE_TOKEN || github.token }}
           base-ref: ${{ github.base_ref }}
-          dry-run: ${{ inputs.dry_run && 'true' || 'false' }}
 
       - name: Collect results
         id: collect

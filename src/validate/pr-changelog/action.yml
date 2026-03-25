@@ -1,17 +1,10 @@
 name: Check Changelog Update
-description: "Checks if CHANGELOG.md was updated and comments if not."
+description: "Checks if CHANGELOG.md was updated in the PR diff."
 
 inputs:
-  github-token:
-    description: GitHub token with pull-requests write permission
-    required: true
   base-ref:
     description: Base branch for diff comparison
     required: true
-  dry-run:
-    description: "When true, check without posting comments"
-    required: false
-    default: "false"
 
 outputs:
   updated:
@@ -34,22 +27,3 @@ runs:
           echo "updated=false" >> "$GITHUB_OUTPUT"
         fi
 
-    # ----------------- Comment -----------------
-    - name: Comment if CHANGELOG not updated
-      if: steps.changelog.outputs.updated == 'false' && inputs.dry-run != 'true'
-      uses: actions/github-script@v8
-      with:
-        github-token: ${{ inputs.github-token }}
-        script: |
-          const labels = context.payload.pull_request.labels.map(l => l.name);
-
-          if (labels.includes('skip-changelog') || labels.includes('dependencies')) {
-            return;
-          }
-
-          await github.rest.issues.createComment({
-            owner: context.repo.owner,
-            repo: context.repo.repo,
-            issue_number: context.issue.number,
-            body: 'Consider updating CHANGELOG.md to document this change. If this change doesn\'t need a changelog entry, add the `skip-changelog` label.'
-          });
