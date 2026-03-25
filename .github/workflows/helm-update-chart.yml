@@ -149,6 +149,9 @@ jobs:
           # Save components array to file for processing
           jq -c '.components' /tmp/payload.json > /tmp/components.json
 
+      # CodeQL: untrusted-checkout — false positive. This is a workflow_call
+      # triggered by internal dispatch, not a PR event. The ref is a controlled
+      # branch name (develop/main), not an untrusted PR head.
       - name: Checkout
         uses: actions/checkout@v6
         with:
@@ -158,7 +161,7 @@ jobs:
 
       - name: Import GPG key
         if: ${{ inputs.gpg_sign_commits }}
-        uses: crazy-max/ghaction-import-gpg@v7
+        uses: crazy-max/ghaction-import-gpg@2dc316deee8e90f13e1a351ab510b4d5bc0c82cd # v7
         with:
           gpg_private_key: ${{ secrets.GPG_KEY }}
           passphrase: ${{ secrets.GPG_KEY_PASSWORD }}
@@ -196,7 +199,7 @@ jobs:
           go build -o update-chart-version-readme update-chart-version-readme.go
 
       - name: Setup yq
-        uses: mikefarah/yq@v4
+        uses: mikefarah/yq@5a7e72a743649b1b3a47d1a1d8214f3453173c51 # v4
 
       - name: Process all components
         id: process
@@ -470,6 +473,8 @@ jobs:
           echo "pr_url=${PR_URL}" >> "$GITHUB_OUTPUT"
 
       - name: Summary
+        env:
+          BASE_BRANCH: ${{ inputs.base_branch }}
         run: |
           COMPONENTS=$(cat /tmp/components.json)
           CHART="${{ steps.payload.outputs.chart }}"
@@ -480,7 +485,7 @@ jobs:
           echo "" >> "$GITHUB_STEP_SUMMARY"
           echo "**Chart:** \`${CHART}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "**Branch:** \`${BRANCH_NAME}\`" >> "$GITHUB_STEP_SUMMARY"
-          echo "**Base:** \`${{ inputs.base_branch }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "**Base:** \`${BASE_BRANCH}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
 
           if [ "${HAS_CHANGES}" = "true" ]; then
