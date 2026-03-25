@@ -136,13 +136,15 @@ jobs:
           TIMESTAMP=$(date +%Y%m%d%H%M%S)
           BRANCH_NAME="update/${CHART}/${SOURCE_REF}-${TIMESTAMP}"
 
-          echo "chart=${CHART}" >> $GITHUB_OUTPUT
-          echo "has_new_env_vars=${HAS_NEW_ENV_VARS}" >> $GITHUB_OUTPUT
-          echo "source_ref=${SOURCE_REF}" >> $GITHUB_OUTPUT
-          echo "source_repo=${SOURCE_REPO}" >> $GITHUB_OUTPUT
-          echo "source_actor=${SOURCE_ACTOR}" >> $GITHUB_OUTPUT
-          echo "source_sha=${SOURCE_SHA}" >> $GITHUB_OUTPUT
-          echo "branch_name=${BRANCH_NAME}" >> $GITHUB_OUTPUT
+          {
+            echo "chart=${CHART}"
+            echo "has_new_env_vars=${HAS_NEW_ENV_VARS}"
+            echo "source_ref=${SOURCE_REF}"
+            echo "source_repo=${SOURCE_REPO}"
+            echo "source_actor=${SOURCE_ACTOR}"
+            echo "source_sha=${SOURCE_SHA}"
+            echo "branch_name=${BRANCH_NAME}"
+          } >> "$GITHUB_OUTPUT"
 
           # Save components array to file for processing
           jq -c '.components' /tmp/payload.json > /tmp/components.json
@@ -346,7 +348,7 @@ jobs:
           fi
 
           echo ""
-          echo "updated_components=$UPDATED_COMPONENTS" >> $GITHUB_OUTPUT
+          echo "updated_components=${UPDATED_COMPONENTS}" >> "$GITHUB_OUTPUT"
 
       - name: Update README matrix
         if: ${{ inputs.update_readme }}
@@ -385,11 +387,11 @@ jobs:
           # Check if there are changes to commit
           if git diff --staged --quiet; then
             echo "No changes to commit"
-            echo "has_changes=false" >> $GITHUB_OUTPUT
+            echo "has_changes=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
-          echo "has_changes=true" >> $GITHUB_OUTPUT
+          echo "has_changes=true" >> "$GITHUB_OUTPUT"
 
           # Determine commit message based on env_vars
           # feat: when new environment variables are added (requires attention)
@@ -400,7 +402,7 @@ jobs:
             COMMIT_MSG="fix(${CHART}): update ${UPDATED_COMPONENTS}"
           fi
 
-          echo "commit_msg=${COMMIT_MSG}" >> $GITHUB_OUTPUT
+          echo "commit_msg=${COMMIT_MSG}" >> "$GITHUB_OUTPUT"
           echo "Committing with message: ${COMMIT_MSG}"
           git commit -m "${COMMIT_MSG}"
 
@@ -465,7 +467,7 @@ jobs:
             --body-file /tmp/pr_body.md)
 
           echo "PR created: ${PR_URL}"
-          echo "pr_url=${PR_URL}" >> $GITHUB_OUTPUT
+          echo "pr_url=${PR_URL}" >> "$GITHUB_OUTPUT"
 
       - name: Summary
         run: |
@@ -474,26 +476,26 @@ jobs:
           BRANCH_NAME="${{ steps.payload.outputs.branch_name }}"
           HAS_CHANGES="${{ steps.commit.outputs.has_changes }}"
 
-          echo "### Helm Chart Update Summary" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Chart:** \`${CHART}\`" >> $GITHUB_STEP_SUMMARY
-          echo "**Branch:** \`${BRANCH_NAME}\`" >> $GITHUB_STEP_SUMMARY
-          echo "**Base:** \`${{ inputs.base_branch }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Helm Chart Update Summary" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "**Chart:** \`${CHART}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "**Branch:** \`${BRANCH_NAME}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "**Base:** \`${{ inputs.base_branch }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
 
           if [ "${HAS_CHANGES}" = "true" ]; then
-            echo "✅ **PR created successfully**" >> $GITHUB_STEP_SUMMARY
+            echo "✅ **PR created successfully**" >> "$GITHUB_STEP_SUMMARY"
           else
-            echo "ℹ️ **No changes detected**" >> $GITHUB_STEP_SUMMARY
+            echo "ℹ️ **No changes detected**" >> "$GITHUB_STEP_SUMMARY"
           fi
 
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Components:**" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "| Component | Version | New Env Vars |" >> $GITHUB_STEP_SUMMARY
-          echo "|-----------|---------|--------------|" >> $GITHUB_STEP_SUMMARY
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "**Components:**" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Component | Version | New Env Vars |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|-----------|---------|--------------|" >> "$GITHUB_STEP_SUMMARY"
 
-          echo "$COMPONENTS" | jq -r '.[] | "| \(.name) | \(.version) | \(.env_vars | if . == {} then "-" else (. | keys | join(", ")) end) |"' >> $GITHUB_STEP_SUMMARY
+          echo "$COMPONENTS" | jq -r '.[] | "| \(.name) | \(.version) | \(.env_vars | if . == {} then "-" else (. | keys | join(", ")) end) |"' >> "$GITHUB_STEP_SUMMARY"
 
       - name: Send Slack notification
         if: ${{ inputs.slack_notification && steps.commit.outputs.has_changes == 'true' }}
