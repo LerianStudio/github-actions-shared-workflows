@@ -65,7 +65,7 @@ runs:
               warnings=$((warnings + 1))
             else
               # External: must be a commit SHA (40 or 64 hex chars)
-              if printf '%s\n' "$ref" | grep -Eq '^[0-9a-f]{40,64}$'; then
+              if printf '%s\n' "$ref" | grep -Eiq '^[0-9a-f]{40,64}$'; then
                 continue
               fi
               echo "::error file=${file},line=${line_num}::External action not pinned by SHA: $normalized (use full commit SHA with a # vX.Y.Z comment)"
