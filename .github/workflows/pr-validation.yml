@@ -58,9 +58,9 @@ on:
         type: string
         default: '.github/labeler.yml'
       enforce_source_branches:
-        description: 'Enforce that PRs to protected branches come from specific source branches'
+        description: 'Enforce that PRs to protected branches come from specific source branches. The composite auto-skips when the target branch is not in target_branches_for_source_check.'
         type: boolean
-        default: false
+        default: true
       allowed_source_branches:
         description: 'Allowed source branches for PRs to protected branches (pipe-separated, supports prefix matching with *)'
         type: string
@@ -92,6 +92,7 @@ jobs:
       description-result: ${{ steps.collect.outputs.description }}
 
     steps:
+      # The composite auto-skips when target branch is not in target_branches_for_source_check (default: main)
       - name: Validate source branch
         id: source-branch
         if: inputs.enforce_source_branches

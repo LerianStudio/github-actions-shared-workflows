@@ -126,7 +126,7 @@ jobs:
 | `check_changelog` | boolean | `true` | Check if CHANGELOG.md is updated |
 | `enable_auto_labeler` | boolean | `true` | Enable automatic labeling |
 | `labeler_config_path` | string | `.github/labeler.yml` | Path to labeler config |
-| `enforce_source_branches` | boolean | `false` | Enforce source branch rules |
+| `enforce_source_branches` | boolean | `true` | Enforce source branch rules (auto-skips when target is not in `target_branches_for_source_check`) |
 | `allowed_source_branches` | string | `develop\|release-candidate\|hotfix/*` | Allowed source branches (pipe-separated, supports `*` wildcard) |
 | `target_branches_for_source_check` | string | `main` | Target branches that require source branch validation |
 
