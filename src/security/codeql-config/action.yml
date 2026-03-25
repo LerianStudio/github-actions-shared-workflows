@@ -51,6 +51,10 @@ runs:
           echo "$PATHS" | while IFS= read -r p; do
             echo "  - '$p'"
           done
+          echo ""
+          echo "query-filters:"
+          echo "  - exclude:"
+          echo "      id: actions/unpinned-tag"
         } > "$CONFIG_FILE"
 
         echo "skip=false" >> "$GITHUB_OUTPUT"
