@@ -43,7 +43,7 @@ runs:
               errors.push('No "Type of Change" checkbox is checked. Please mark at least one.');
             }
           } else {
-            warnings.push('Missing "Type of Change" section.');
+            errors.push('Missing "Type of Change" section. Please use the PR template.');
           }
 
           // --- Report ---

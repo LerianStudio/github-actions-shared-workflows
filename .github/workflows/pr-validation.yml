@@ -164,6 +164,7 @@ jobs:
         uses: LerianStudio/github-actions-shared-workflows/src/validate/pr-metadata@refactor/modularize-pr-validation
         with:
           github-token: ${{ secrets.MANAGE_TOKEN || github.token }}
+          dry-run: ${{ inputs.dry_run && 'true' || 'false' }}
 
       - name: Check PR size
         id: size

@@ -82,7 +82,6 @@ jobs:
         chore
       require_scope: true
       min_description_length: 100
-      check_changelog: true
       enable_auto_labeler: true
     secrets: inherit
 ```
@@ -145,7 +144,7 @@ feat fix docs style refactor perf test chore ci build revert
 | Job | Tier | Composites | Condition |
 |-----|------|------------|-----------|
 | `blocking-checks` | 1 (fail-fast) | `pr-source-branch`, `pr-title`, `pr-description` | non-draft |
-| `advisory-checks` | 2 (informational) | `pr-metadata`, `pr-size`, `pr-labels`, `pr-changelog` | non-draft, blocking-checks passed |
+| `advisory-checks` | 2 (informational) | `pr-metadata`, `pr-size`, `pr-labels` | non-draft, blocking-checks passed |
 | `pr-checks-summary` | — | `pr-checks-summary` | always |
 | `notify` | — | `slack-notify.yml` | non-draft, `!dry_run` |
 
@@ -195,9 +194,9 @@ When a PR is in draft mode, all validation jobs are skipped. Checks run automati
 
 ## Related Workflows
 
-- [Go CI](./go-ci-workflow.md) — Continuous integration testing
-- [Go Security](./go-security-workflow.md) — Security scanning
-- [PR Security Scan](./pr-security-scan-workflow.md) — Security scanning for PRs
+- [Go CI](./go-ci.md) — Continuous integration testing
+- [Go Security](./go-security.md) — Security scanning
+- [PR Security Scan](./pr-security-scan.md) — Security scanning for PRs
 
 ---
 
