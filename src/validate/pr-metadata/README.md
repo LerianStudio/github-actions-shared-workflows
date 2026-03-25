@@ -5,13 +5,13 @@
   </tr>
 </table>
 
-Checks PR metadata quality: warns if no assignees are set and if no issues are linked via keywords (`Closes`, `Fixes`, `Resolves`, `Relates to`).
+Auto-assigns the PR author as assignee when no one is assigned. Skips bot accounts (dependabot, github-actions, etc).
 
 ## Inputs
 
 | Input | Description | Required | Default |
 |-------|-------------|----------|---------|
-| `github-token` | GitHub token for API access | Yes | |
+| `github-token` | GitHub token with pull-requests write permission | Yes | |
 
 ## Usage as composite step
 
@@ -20,7 +20,7 @@ jobs:
   pr-metadata:
     runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
-      - name: Check PR Metadata
+      - name: Auto-assign PR author
         uses: LerianStudio/github-actions-shared-workflows/src/validate/pr-metadata@v1.x.x
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
@@ -30,5 +30,5 @@ jobs:
 
 ```yaml
 permissions:
-  pull-requests: read
+  pull-requests: write
 ```

@@ -1,42 +1,39 @@
 name: Validate PR Metadata
-description: "Checks PR assignee and linked issues."
+description: "Auto-assigns the PR author if no assignee is set (skips bot accounts)."
 
 inputs:
   github-token:
-    description: GitHub token for API access
+    description: GitHub token with pull-requests write permission
     required: true
 
 runs:
   using: composite
   steps:
-    # ----------------- Assignee -----------------
-    - name: Check for assignee
+    - name: Auto-assign PR author
       uses: actions/github-script@v8
       with:
         github-token: ${{ inputs.github-token }}
         script: |
           const pr = context.payload.pull_request;
-          if (pr.assignees.length === 0) {
-            core.warning('This PR has no assignees. Consider assigning someone to review.');
+
+          if (pr.assignees.length > 0) {
+            console.log(`PR already has assignees: ${pr.assignees.map(a => a.login).join(', ')}`);
+            return;
           }
 
-    # ----------------- Linked Issues -----------------
-    - name: Check for linked issues
-      uses: actions/github-script@v8
-      with:
-        github-token: ${{ inputs.github-token }}
-        script: |
-          const body = context.payload.pull_request.body || '';
-          const issueKeywords = ['closes', 'fixes', 'resolves', 'relates to'];
+          const author = pr.user.login;
+          const authorType = pr.user.type;
 
-          let hasLinkedIssue = false;
-          for (const keyword of issueKeywords) {
-            if (body.toLowerCase().includes(keyword)) {
-              hasLinkedIssue = true;
-              break;
-            }
+          if (authorType === 'Bot' || author.endsWith('[bot]') || author === 'dependabot') {
+            console.log(`Skipping auto-assign — author '${author}' is a bot`);
+            return;
           }
 
-          if (!hasLinkedIssue) {
-            core.warning('This PR does not appear to be linked to any issues. Consider linking related issues using keywords like "Closes #123" or "Fixes #456".');
-          }
+          console.log(`No assignees found. Auto-assigning author '${author}'`);
+          await github.rest.issues.addAssignees({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            issue_number: context.issue.number,
+            assignees: [author]
+          });
+          console.log(`✅ Assigned '${author}' to the PR`);
