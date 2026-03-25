@@ -119,7 +119,9 @@ Before writing custom steps from scratch, search the [Marketplace](https://githu
 
 - Prefer a well-maintained marketplace action over custom shell scripting for non-trivial logic
 - If the action needs wrapping, create a composite in `src/` — don't inline complex shell directly in a workflow
-- Pin to a specific tag or SHA — never `@main` or `@master`
+- **Third-party actions (outside `LerianStudio` org) must be pinned by commit SHA**, not by tag — add a comment with the version for readability (e.g., `uses: actions/checkout@abc123 # v6`). Tags are mutable and can be force-pushed by upstream maintainers. Dependabot will propose SHA bumps automatically.
+- `LerianStudio/*` actions are pinned by **release tag** (e.g., `@v1.2.3`) or branch (`@develop` for testing)
+- Never use `@main` or `@master` for third-party actions
 - Document in the README or `docs/` why that action was chosen
 
 Only implement from scratch when no suitable action exists or when existing ones don't meet security or customization requirements.
@@ -466,11 +468,20 @@ uses: ./src/setup-go  # resolves to caller's workspace, not this repo
 
 # ❌ Mutable ref on third-party actions
 uses: some-action/tool@main
+
+# ❌ Third-party action pinned by tag (tags are mutable)
+uses: actions/checkout@v6
+uses: crazy-max/ghaction-import-gpg@v7
+
+# ✅ Third-party action pinned by commit SHA
+uses: actions/checkout@abc123def456 # v6
+uses: crazy-max/ghaction-import-gpg@2dc316deee8e # v7
 ```
 
 ## Security rules
 
-- Pin all third-party actions to a specific tag or SHA — Dependabot keeps them updated
+- **Third-party actions (outside `LerianStudio` org) must be pinned by commit SHA** — tags are mutable and can be force-pushed. Add a `# vX.Y.Z` comment for readability. Dependabot keeps SHA pins updated automatically.
+- `LerianStudio/*` actions use release tags (`@v1.2.3`) — no SHA pinning needed for org-owned actions
 - Never use `@main` or `@master` for third-party actions
 - Never interpolate untrusted user input directly into `run:` commands
 - Never print secrets via `echo`, env dumps, or step summaries
