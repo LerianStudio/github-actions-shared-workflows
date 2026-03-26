@@ -5,7 +5,7 @@
   </tr>
 </table>
 
-Collects outcomes from blocking validation checks, writes them as job outputs, and fails the job if any check failed. Used as the final step in the blocking-checks tier of the pr-validation workflow.
+Collects outcomes from blocking validation checks, exposes them as step outputs, and fails the job if any check failed. Used as the final step in the blocking-checks tier of the pr-validation workflow.
 
 ## Inputs
 
