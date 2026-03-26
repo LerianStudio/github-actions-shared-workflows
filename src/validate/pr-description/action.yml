@@ -1,48 +1,20 @@
 name: Validate PR Description
-description: "Validates that the PR description has real content beyond template boilerplate."
-
-inputs:
-  min-length:
-    description: Minimum content length in characters (after stripping template boilerplate)
-    required: false
-    default: "30"
+description: "Validates that the PR template checkboxes are properly filled."
 
 runs:
   using: composite
   steps:
     - name: Validate PR description
       uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
-      env:
-        MIN_LENGTH: ${{ inputs.min-length }}
       with:
         script: |
           const body = context.payload.pull_request.body || '';
-          const minLength = parseInt(process.env.MIN_LENGTH, 10);
-          if (isNaN(minLength) || minLength <= 0) {
-            core.setFailed(`Invalid min-length input: '${process.env.MIN_LENGTH}'`);
-            return;
-          }
           const errors = [];
-          const warnings = [];
-
-          // --- Extract content under "## Description" heading ---
-          const descriptionMatch = body.match(/## Description\s*\n([\s\S]*?)(?=\n## |\n---\s*$|$)/);
-          const descriptionContent = descriptionMatch ? descriptionMatch[1].trim() : '';
-
-          // Strip HTML comments <!-- ... -->
-          const cleaned = descriptionContent.replace(/<!--[\s\S]*?-->/g, '').trim();
-
-          if (cleaned.length === 0) {
-            errors.push('The "Description" section is empty. Please summarize what this PR does and why.');
-          } else if (cleaned.length < minLength) {
-            errors.push(`The "Description" section is too short (${cleaned.length} chars, minimum ${minLength}). Please provide more detail.`);
-          }
 
           // --- Check that at least one "Type of Change" checkbox is checked ---
           const typeMatch = body.match(/## Type of Change\s*\n([\s\S]*?)(?=\n## |$)/);
           if (typeMatch) {
-            const typeSection = typeMatch[1];
-            const checked = typeSection.match(/- \[x\]/gi);
+            const checked = typeMatch[1].match(/- \[x\]/gi);
             if (!checked) {
               errors.push('No "Type of Change" checkbox is checked. Please mark at least one.');
             }
@@ -50,11 +22,16 @@ runs:
             errors.push('Missing "Type of Change" section. Please use the PR template.');
           }
 
-          // --- Report ---
-          for (const w of warnings) {
-            core.warning(w);
+          // --- Check that at least one "Testing" checkbox is checked ---
+          const testMatch = body.match(/## Testing\s*\n([\s\S]*?)(?=\n## |\n\*\*Caller|$)/);
+          if (testMatch) {
+            const checked = testMatch[1].match(/- \[x\]/gi);
+            if (!checked) {
+              errors.push('No "Testing" checkbox is checked. Please mark at least one.');
+            }
           }
 
+          // --- Report ---
           if (errors.length > 0) {
             core.setFailed(errors.join('\n'));
           }

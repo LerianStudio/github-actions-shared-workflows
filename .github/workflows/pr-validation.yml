@@ -41,10 +41,6 @@ on:
         description: 'Require scope in PR title'
         type: boolean
         default: false
-      min_description_length:
-        description: 'Minimum PR description content length (after stripping template boilerplate)'
-        type: number
-        default: 30
       enable_auto_labeler:
         description: 'Enable automatic labeling based on changed files'
         type: boolean
@@ -114,8 +110,6 @@ jobs:
         id: description
         continue-on-error: true
         uses: LerianStudio/github-actions-shared-workflows/src/validate/pr-description@v1.20.1
-        with:
-          min-length: ${{ inputs.min_description_length }}
 
       - name: Collect results and enforce blocking
         id: collect

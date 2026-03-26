@@ -5,16 +5,14 @@
   </tr>
 </table>
 
-Validates that the PR description has real content beyond template boilerplate:
+Validates that the PR template checkboxes are properly filled:
 
-- **Description section**: extracts content under `## Description`, strips HTML comments, and checks minimum length
-- **Type of Change**: verifies at least one checkbox is checked (`- [x]`)
+- **Type of Change**: at least one checkbox must be checked (`- [x]`)
+- **Testing**: at least one checkbox must be checked (`- [x]`)
 
 ## Inputs
 
-| Input | Description | Required | Default |
-|-------|-------------|----------|---------|
-| `min-length` | Minimum content length in characters (after stripping template boilerplate) | No | `30` |
+None.
 
 ## Usage as composite step
 
@@ -25,8 +23,6 @@ jobs:
     steps:
       - name: Validate PR Description
         uses: LerianStudio/github-actions-shared-workflows/src/validate/pr-description@v1.x.x
-        with:
-          min-length: "50"
 ```
 
 ## Required permissions
