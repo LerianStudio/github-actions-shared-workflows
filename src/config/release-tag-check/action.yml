@@ -1,0 +1,36 @@
+name: Release Tag Check
+description: "Compares the current latest semver tag against a previous snapshot to detect if a new release was published."
+
+inputs:
+  previous-tag:
+    description: The tag captured by release-tag-snapshot before the release step
+    required: true
+
+outputs:
+  release-published:
+    description: "'true' if a new tag was created since the snapshot, 'false' otherwise"
+    value: ${{ steps.check.outputs.release_published }}
+  release-version:
+    description: The new release version (without v prefix), empty if no new release
+    value: ${{ steps.check.outputs.release_version }}
+
+runs:
+  using: composite
+  steps:
+    - name: Check for new release tag
+      id: check
+      shell: bash
+      env:
+        PREVIOUS_TAG: ${{ inputs.previous-tag }}
+      run: |
+        git fetch --tags origin
+        NEW_TAG=$(git tag -l 'v*' --sort=-v:refname | head -1)
+        if [ "$NEW_TAG" != "$PREVIOUS_TAG" ] && [ -n "$NEW_TAG" ]; then
+          echo "release_published=true" >> "$GITHUB_OUTPUT"
+          VERSION="${NEW_TAG#v}"
+          echo "release_version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "::notice::Release ${NEW_TAG} was published despite post-release failure"
+        else
+          echo "release_published=false" >> "$GITHUB_OUTPUT"
+          echo "release_version=" >> "$GITHUB_OUTPUT"
+        fi
