@@ -1,0 +1,18 @@
+name: Release Tag Snapshot
+description: "Captures the latest semver tag before a release step runs, enabling post-release comparison."
+
+outputs:
+  latest-tag:
+    description: The latest v* tag before the release step (or 'none' if no tags exist)
+    value: ${{ steps.snapshot.outputs.latest_tag }}
+
+runs:
+  using: composite
+  steps:
+    - name: Snapshot latest semver tag
+      id: snapshot
+      shell: bash
+      run: |
+        git fetch --tags origin
+        LATEST_TAG=$(git tag -l 'v*' --sort=-v:refname | head -1)
+        echo "latest_tag=${LATEST_TAG:-none}" >> "$GITHUB_OUTPUT"
