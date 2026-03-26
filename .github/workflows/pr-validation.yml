@@ -119,27 +119,11 @@ jobs:
 
       - name: Collect results and enforce blocking
         id: collect
-        run: |
-          SOURCE_BRANCH="${{ steps.source-branch.outcome || 'skipped' }}"
-          TITLE="${{ steps.title.outcome }}"
-          DESCRIPTION="${{ steps.description.outcome }}"
-
-          {
-            echo "source_branch=${SOURCE_BRANCH}"
-            echo "title=${TITLE}"
-            echo "description=${DESCRIPTION}"
-          } >> "$GITHUB_OUTPUT"
-
-          # Fail the job if any blocking check failed
-          FAILED=""
-          if [ "${SOURCE_BRANCH}" = "failure" ]; then FAILED="${FAILED} source-branch"; fi
-          if [ "${TITLE}" = "failure" ]; then FAILED="${FAILED} title"; fi
-          if [ "${DESCRIPTION}" = "failure" ]; then FAILED="${FAILED} description"; fi
-
-          if [ -n "${FAILED}" ]; then
-            echo "::error::Blocking checks failed:${FAILED}"
-            exit 1
-          fi
+        uses: LerianStudio/github-actions-shared-workflows/src/validate/pr-blocking-collect@v1.20.0
+        with:
+          source-branch-outcome: ${{ steps.source-branch.outcome || 'skipped' }}
+          title-outcome: ${{ steps.title.outcome }}
+          description-outcome: ${{ steps.description.outcome }}
 
   # ----------------- Tier 2: Advisory Checks (shared checkout, depends on Tier 1) -----------------
   advisory-checks:
