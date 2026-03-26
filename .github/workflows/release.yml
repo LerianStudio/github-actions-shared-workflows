@@ -168,7 +168,7 @@ jobs:
       # ----------------- Backmerge Fallback -----------------
       - name: Backmerge PR fallback
         if: steps.semantic.outcome == 'failure' && steps.semantic.outputs.new_release_published == 'true'
-        uses: LerianStudio/github-actions-shared-workflows/src/config/backmerge-pr@v1.20.1
+        uses: LerianStudio/github-actions-shared-workflows/src/config/backmerge-pr@develop
         with:
           github-token: ${{ steps.app-token.outputs.token }}
           source-branch: ${{ github.ref_name }}
