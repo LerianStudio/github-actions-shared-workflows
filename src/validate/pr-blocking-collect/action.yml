@@ -1,0 +1,52 @@
+name: PR Blocking Collect
+description: "Collects outcomes from blocking checks, writes them to GITHUB_OUTPUT, and fails the job if any check failed."
+
+inputs:
+  source-branch-outcome:
+    description: Outcome of the source branch validation step
+    required: false
+    default: skipped
+  title-outcome:
+    description: Outcome of the PR title validation step
+    required: true
+  description-outcome:
+    description: Outcome of the PR description validation step
+    required: true
+
+outputs:
+  source_branch:
+    description: Outcome of source branch validation
+    value: ${{ steps.collect.outputs.source_branch }}
+  title:
+    description: Outcome of PR title validation
+    value: ${{ steps.collect.outputs.title }}
+  description:
+    description: Outcome of PR description validation
+    value: ${{ steps.collect.outputs.description }}
+
+runs:
+  using: composite
+  steps:
+    - name: Collect and enforce
+      id: collect
+      shell: bash
+      env:
+        SOURCE_BRANCH: ${{ inputs.source-branch-outcome }}
+        TITLE: ${{ inputs.title-outcome }}
+        DESCRIPTION: ${{ inputs.description-outcome }}
+      run: |
+        {
+          echo "source_branch=${SOURCE_BRANCH}"
+          echo "title=${TITLE}"
+          echo "description=${DESCRIPTION}"
+        } >> "$GITHUB_OUTPUT"
+
+        FAILED=""
+        if [ "${SOURCE_BRANCH}" = "failure" ]; then FAILED="${FAILED} source-branch"; fi
+        if [ "${TITLE}" = "failure" ]; then FAILED="${FAILED} title"; fi
+        if [ "${DESCRIPTION}" = "failure" ]; then FAILED="${FAILED} description"; fi
+
+        if [ -n "${FAILED}" ]; then
+          echo "::error::Blocking checks failed:${FAILED}"
+          exit 1
+        fi
