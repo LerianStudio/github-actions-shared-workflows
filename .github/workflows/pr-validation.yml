@@ -93,7 +93,7 @@ jobs:
         id: source-branch
         if: inputs.enforce_source_branches
         continue-on-error: true
-        uses: LerianStudio/github-actions-shared-workflows/src/validate/pr-source-branch@v1.20.0
+        uses: LerianStudio/github-actions-shared-workflows/src/validate/pr-source-branch@v1.20.1
         with:
           github-token: ${{ secrets.MANAGE_TOKEN || github.token }}
           allowed-branches: ${{ inputs.allowed_source_branches }}
@@ -103,7 +103,7 @@ jobs:
       - name: Validate PR title
         id: title
         continue-on-error: true
-        uses: LerianStudio/github-actions-shared-workflows/src/validate/pr-title@v1.20.0
+        uses: LerianStudio/github-actions-shared-workflows/src/validate/pr-title@v1.20.1
         with:
           github-token: ${{ github.token }}
           types: ${{ inputs.pr_title_types }}
@@ -113,13 +113,13 @@ jobs:
       - name: Validate PR description
         id: description
         continue-on-error: true
-        uses: LerianStudio/github-actions-shared-workflows/src/validate/pr-description@v1.20.0
+        uses: LerianStudio/github-actions-shared-workflows/src/validate/pr-description@v1.20.1
         with:
           min-length: ${{ inputs.min_description_length }}
 
       - name: Collect results and enforce blocking
         id: collect
-        uses: LerianStudio/github-actions-shared-workflows/src/validate/pr-blocking-collect@fix/pin-refs-v1.20.0
+        uses: LerianStudio/github-actions-shared-workflows/src/validate/pr-blocking-collect@v1.20.1
         with:
           source-branch-outcome: ${{ steps.source-branch.outcome || 'skipped' }}
           title-outcome: ${{ steps.title.outcome }}
@@ -145,7 +145,7 @@ jobs:
       - name: Check PR metadata
         id: metadata
         continue-on-error: true
-        uses: LerianStudio/github-actions-shared-workflows/src/validate/pr-metadata@v1.20.0
+        uses: LerianStudio/github-actions-shared-workflows/src/validate/pr-metadata@v1.20.1
         with:
           github-token: ${{ secrets.MANAGE_TOKEN || github.token }}
           dry-run: ${{ inputs.dry_run && 'true' || 'false' }}
@@ -153,7 +153,7 @@ jobs:
       - name: Check PR size
         id: size
         continue-on-error: true
-        uses: LerianStudio/github-actions-shared-workflows/src/validate/pr-size@v1.20.0
+        uses: LerianStudio/github-actions-shared-workflows/src/validate/pr-size@v1.20.1
         with:
           github-token: ${{ secrets.MANAGE_TOKEN || github.token }}
           base-ref: ${{ github.base_ref }}
@@ -163,7 +163,7 @@ jobs:
         id: labels
         if: inputs.enable_auto_labeler && !inputs.dry_run
         continue-on-error: true
-        uses: LerianStudio/github-actions-shared-workflows/src/validate/pr-labels@v1.20.0
+        uses: LerianStudio/github-actions-shared-workflows/src/validate/pr-labels@v1.20.1
         with:
           github-token: ${{ secrets.MANAGE_TOKEN || github.token }}
           config-path: ${{ inputs.labeler_config_path }}
@@ -186,7 +186,7 @@ jobs:
 
     steps:
       - name: PR Checks Summary
-        uses: LerianStudio/github-actions-shared-workflows/src/validate/pr-checks-summary@v1.20.0
+        uses: LerianStudio/github-actions-shared-workflows/src/validate/pr-checks-summary@v1.20.1
         with:
           source-branch-result: ${{ needs.blocking-checks.outputs.source-branch-result || 'skipped' }}
           title-result: ${{ needs.blocking-checks.outputs.title-result || 'skipped' }}
@@ -201,7 +201,7 @@ jobs:
     name: Notify
     needs: [blocking-checks, advisory-checks, pr-checks-summary]
     if: always() && github.event.pull_request.draft != true && !inputs.dry_run
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/slack-notify.yml@v1.20.0
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/slack-notify.yml@v1.20.1
     with:
       status: ${{ (needs.blocking-checks.outputs.source-branch-result == 'failure' || needs.blocking-checks.outputs.title-result == 'failure' || needs.blocking-checks.outputs.description-result == 'failure') && 'failure' || 'success' }}
       workflow_name: "PR Validation"
