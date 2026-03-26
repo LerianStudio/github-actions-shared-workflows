@@ -147,6 +147,13 @@ jobs:
           npm install --save-dev \
             @semantic-release/exec
 
+      - name: Snapshot tags before release
+        id: pre-tags
+        run: |
+          git fetch --tags origin
+          LATEST_TAG=$(git tag -l 'v*' --sort=-v:refname | head -1)
+          echo "latest_tag=${LATEST_TAG:-none}" >> "$GITHUB_OUTPUT"
+
       - name: Semantic Release
         uses: cycjimmy/semantic-release-action@b12c8f6015dc215fe37bc154d4ad456dd3833c90 # v6
         id: semantic
@@ -171,22 +178,13 @@ jobs:
         id: detect-release
         run: |
           git fetch --tags origin
-          LATEST_TAG=$(git tag --sort=-v:refname | head -1)
-          # Check if the latest tag points to a commit on the current branch
-          if [ -n "$LATEST_TAG" ] && git merge-base --is-ancestor "$(git rev-list -n1 "$LATEST_TAG")" HEAD 2>/dev/null; then
-            TAG_COMMIT=$(git rev-list -n1 "$LATEST_TAG")
-            # If the tag was created in the last 5 minutes, the release was just published
-            TAG_DATE=$(git log -1 --format=%ct "$TAG_COMMIT")
-            NOW=$(date +%s)
-            DIFF=$((NOW - TAG_DATE))
-            if [ "$DIFF" -lt 300 ]; then
-              echo "release_published=true" >> "$GITHUB_OUTPUT"
-              VERSION="${LATEST_TAG#v}"
-              echo "release_version=${VERSION}" >> "$GITHUB_OUTPUT"
-              echo "::notice::Release ${LATEST_TAG} was published despite backmerge failure"
-            else
-              echo "release_published=false" >> "$GITHUB_OUTPUT"
-            fi
+          NEW_TAG=$(git tag -l 'v*' --sort=-v:refname | head -1)
+          PRE_TAG="${{ steps.pre-tags.outputs.latest_tag }}"
+          if [ "$NEW_TAG" != "$PRE_TAG" ] && [ -n "$NEW_TAG" ]; then
+            echo "release_published=true" >> "$GITHUB_OUTPUT"
+            VERSION="${NEW_TAG#v}"
+            echo "release_version=${VERSION}" >> "$GITHUB_OUTPUT"
+            echo "::notice::Release ${NEW_TAG} was published despite backmerge failure"
           else
             echo "release_published=false" >> "$GITHUB_OUTPUT"
           fi
