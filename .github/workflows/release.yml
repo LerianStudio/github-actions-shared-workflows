@@ -166,36 +166,13 @@ jobs:
           GIT_COMMITTER_EMAIL: ${{ secrets.LERIAN_CI_CD_USER_EMAIL }}
 
       # ----------------- Backmerge Fallback -----------------
-      - name: Create backmerge PR if push failed
+      - name: Backmerge PR fallback
         if: steps.semantic.outcome == 'failure' && steps.semantic.outputs.new_release_published == 'true'
-        env:
-          GH_TOKEN: ${{ steps.app-token.outputs.token }}
-          NEW_VERSION: ${{ steps.semantic.outputs.new_release_version }}
-        run: |
-          # Check if a backmerge PR already exists
-          EXISTING_PR=$(gh pr list --base develop --head "${{ github.ref_name }}" --state open --json number --jq '.[0].number')
-          if [ -n "$EXISTING_PR" ]; then
-            echo "::notice::Backmerge PR #${EXISTING_PR} already exists"
-            exit 0
-          fi
-
-          BRANCH="${{ github.ref_name }}"
-
-          PR_BODY="## Description
-
-          Automated backmerge of release \`${NEW_VERSION}\` from \`${BRANCH}\` to \`develop\`.
-
-          The automatic backmerge push failed because \`develop\` has diverged from \`${BRANCH}\`. This PR needs a manual merge to resolve any conflicts.
-
-          > **Note:** This PR was created automatically by the release workflow."
-
-          gh pr create \
-            --base develop \
-            --head "${BRANCH}" \
-            --title "chore(release): backmerge ${NEW_VERSION}" \
-            --body "${PR_BODY}"
-
-          echo "::notice::Backmerge push failed — created PR from ${{ github.ref_name }} to develop"
+        uses: LerianStudio/github-actions-shared-workflows/src/config/backmerge-pr@v1.20.1
+        with:
+          github-token: ${{ steps.app-token.outputs.token }}
+          source-branch: ${{ github.ref_name }}
+          version: ${{ steps.semantic.outputs.new_release_version }}
 
       - name: Fail if release itself failed
         if: steps.semantic.outcome == 'failure' && steps.semantic.outputs.new_release_published != 'true'
