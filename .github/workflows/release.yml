@@ -147,12 +147,10 @@ jobs:
           npm install --save-dev \
             @semantic-release/exec
 
+      # ----------------- Snapshot tags before release -----------------
       - name: Snapshot tags before release
         id: pre-tags
-        run: |
-          git fetch --tags origin
-          LATEST_TAG=$(git tag -l 'v*' --sort=-v:refname | head -1)
-          echo "latest_tag=${LATEST_TAG:-none}" >> "$GITHUB_OUTPUT"
+        uses: LerianStudio/github-actions-shared-workflows/src/config/release-tag-snapshot@develop
 
       - name: Semantic Release
         uses: cycjimmy/semantic-release-action@b12c8f6015dc215fe37bc154d4ad456dd3833c90 # v6
@@ -176,37 +174,28 @@ jobs:
       - name: Detect if release was published
         if: always() && steps.semantic.outcome == 'failure'
         id: detect-release
-        run: |
-          git fetch --tags origin
-          NEW_TAG=$(git tag -l 'v*' --sort=-v:refname | head -1)
-          PRE_TAG="${{ steps.pre-tags.outputs.latest_tag }}"
-          if [ "$NEW_TAG" != "$PRE_TAG" ] && [ -n "$NEW_TAG" ]; then
-            echo "release_published=true" >> "$GITHUB_OUTPUT"
-            VERSION="${NEW_TAG#v}"
-            echo "release_version=${VERSION}" >> "$GITHUB_OUTPUT"
-            echo "::notice::Release ${NEW_TAG} was published despite backmerge failure"
-          else
-            echo "release_published=false" >> "$GITHUB_OUTPUT"
-          fi
+        uses: LerianStudio/github-actions-shared-workflows/src/config/release-tag-check@develop
+        with:
+          previous-tag: ${{ steps.pre-tags.outputs.latest-tag }}
 
       # ----------------- Backmerge Fallback -----------------
       - name: Backmerge PR fallback
         if: |
           always() && steps.semantic.outcome == 'failure' && (
             steps.semantic.outputs.new_release_published == 'true' ||
-            steps.detect-release.outputs.release_published == 'true'
+            steps.detect-release.outputs.release-published == 'true'
           )
         uses: LerianStudio/github-actions-shared-workflows/src/config/backmerge-pr@develop
         with:
           github-token: ${{ steps.app-token.outputs.token }}
           source-branch: ${{ github.ref_name }}
-          version: ${{ steps.semantic.outputs.new_release_version || steps.detect-release.outputs.release_version }}
+          version: ${{ steps.semantic.outputs.new_release_version || steps.detect-release.outputs.release-version }}
 
       - name: Fail if release itself failed
         if: |
           always() && steps.semantic.outcome == 'failure' &&
           steps.semantic.outputs.new_release_published != 'true' &&
-          steps.detect-release.outputs.release_published != 'true'
+          steps.detect-release.outputs.release-published != 'true'
         run: |
           echo "::error::Semantic release failed before publishing a new version"
           exit 1
