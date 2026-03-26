@@ -47,10 +47,10 @@ jobs:
         id: check_webhook
         run: |
           if [ -z "${{ secrets.SLACK_WEBHOOK_URL }}" ]; then
-            echo "skip=true" >> $GITHUB_OUTPUT
+            echo "skip=true" >> "$GITHUB_OUTPUT"
             echo "⚠️ SLACK_WEBHOOK_URL not configured - skipping notification"
           else
-            echo "skip=false" >> $GITHUB_OUTPUT
+            echo "skip=false" >> "$GITHUB_OUTPUT"
             echo "✅ Slack webhook configured"
           fi
 
@@ -83,9 +83,11 @@ jobs:
               ;;
           esac
           
-          echo "color=$COLOR" >> $GITHUB_OUTPUT
-          echo "emoji=$EMOJI" >> $GITHUB_OUTPUT
-          echo "status_text=$STATUS_TEXT" >> $GITHUB_OUTPUT
+          {
+            echo "color=$COLOR"
+            echo "emoji=$EMOJI"
+            echo "status_text=$STATUS_TEXT"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Build notification message
         if: steps.check_webhook.outputs.skip != 'true'
@@ -134,13 +136,15 @@ jobs:
           # Add link to workflow run
           MESSAGE="$MESSAGE\n\n<$RUN_URL|🔗 View Workflow Run>"
           
-          echo "message<<EOF" >> $GITHUB_OUTPUT
-          echo -e "$MESSAGE" >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
+          {
+            echo "message<<EOF"
+            echo -e "$MESSAGE"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Send Slack notification
         if: steps.check_webhook.outputs.skip != 'true'
-        uses: rtCamp/action-slack-notify@v2
+        uses: rtCamp/action-slack-notify@e31e87e03dd19038e411e38ae27cbad084a90661 # v2
         env:
           SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK_URL }}
           SLACK_COLOR: ${{ steps.settings.outputs.color }}
