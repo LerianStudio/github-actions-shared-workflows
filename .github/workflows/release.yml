@@ -165,17 +165,50 @@ jobs:
           GIT_COMMITTER_NAME: ${{ secrets.LERIAN_CI_CD_USER_NAME }}
           GIT_COMMITTER_EMAIL: ${{ secrets.LERIAN_CI_CD_USER_EMAIL }}
 
+      # ----------------- Detect release via git tag -----------------
+      - name: Detect if release was published
+        if: always() && steps.semantic.outcome == 'failure'
+        id: detect-release
+        run: |
+          git fetch --tags origin
+          LATEST_TAG=$(git tag --sort=-v:refname | head -1)
+          # Check if the latest tag points to a commit on the current branch
+          if [ -n "$LATEST_TAG" ] && git merge-base --is-ancestor "$(git rev-list -n1 "$LATEST_TAG")" HEAD 2>/dev/null; then
+            TAG_COMMIT=$(git rev-list -n1 "$LATEST_TAG")
+            # If the tag was created in the last 5 minutes, the release was just published
+            TAG_DATE=$(git log -1 --format=%ct "$TAG_COMMIT")
+            NOW=$(date +%s)
+            DIFF=$((NOW - TAG_DATE))
+            if [ "$DIFF" -lt 300 ]; then
+              echo "release_published=true" >> "$GITHUB_OUTPUT"
+              VERSION="${LATEST_TAG#v}"
+              echo "release_version=${VERSION}" >> "$GITHUB_OUTPUT"
+              echo "::notice::Release ${LATEST_TAG} was published despite backmerge failure"
+            else
+              echo "release_published=false" >> "$GITHUB_OUTPUT"
+            fi
+          else
+            echo "release_published=false" >> "$GITHUB_OUTPUT"
+          fi
+
       # ----------------- Backmerge Fallback -----------------
       - name: Backmerge PR fallback
-        if: steps.semantic.outcome == 'failure' && steps.semantic.outputs.new_release_published == 'true'
+        if: |
+          always() && steps.semantic.outcome == 'failure' && (
+            steps.semantic.outputs.new_release_published == 'true' ||
+            steps.detect-release.outputs.release_published == 'true'
+          )
         uses: LerianStudio/github-actions-shared-workflows/src/config/backmerge-pr@develop
         with:
           github-token: ${{ steps.app-token.outputs.token }}
           source-branch: ${{ github.ref_name }}
-          version: ${{ steps.semantic.outputs.new_release_version }}
+          version: ${{ steps.semantic.outputs.new_release_version || steps.detect-release.outputs.release_version }}
 
       - name: Fail if release itself failed
-        if: steps.semantic.outcome == 'failure' && steps.semantic.outputs.new_release_published != 'true'
+        if: |
+          always() && steps.semantic.outcome == 'failure' &&
+          steps.semantic.outputs.new_release_published != 'true' &&
+          steps.detect-release.outputs.release_published != 'true'
         run: |
           echo "::error::Semantic release failed before publishing a new version"
           exit 1
