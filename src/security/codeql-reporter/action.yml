@@ -30,7 +30,7 @@ runs:
   steps:
     - name: Post CodeQL report to PR
       id: report
-      uses: actions/github-script@v8
+      uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
       env:
         SARIF_PATH: ${{ inputs.sarif-path }}
         LANGUAGES: ${{ inputs.languages }}
@@ -125,8 +125,12 @@ runs:
             return findings;
           }
 
+          // ── Filter suppressed rules ──
+          // unpinned-tag is handled by our own pinned-actions lint check with org-aware logic
+          const SUPPRESSED_RULES = ['actions/unpinned-tag'];
+
           // ── Build Report ──
-          const findings = readSarifFiles();
+          const findings = readSarifFiles().filter(f => !SUPPRESSED_RULES.includes(f.rule));
           findingsCount = findings.length;
 
           body += `## \u{1F6E1}\uFE0F CodeQL Analysis Results\n\n`;

@@ -26,7 +26,6 @@ jobs:
       checks: read
     uses: ./.github/workflows/pr-validation.yml
     with:
-      check_changelog: false
       enforce_source_branches: true
       allowed_source_branches: "develop|hotfix/*"
       target_branches_for_source_check: "main"

@@ -136,17 +136,22 @@ jobs:
           TIMESTAMP=$(date +%Y%m%d%H%M%S)
           BRANCH_NAME="update/${CHART}/${SOURCE_REF}-${TIMESTAMP}"
 
-          echo "chart=${CHART}" >> $GITHUB_OUTPUT
-          echo "has_new_env_vars=${HAS_NEW_ENV_VARS}" >> $GITHUB_OUTPUT
-          echo "source_ref=${SOURCE_REF}" >> $GITHUB_OUTPUT
-          echo "source_repo=${SOURCE_REPO}" >> $GITHUB_OUTPUT
-          echo "source_actor=${SOURCE_ACTOR}" >> $GITHUB_OUTPUT
-          echo "source_sha=${SOURCE_SHA}" >> $GITHUB_OUTPUT
-          echo "branch_name=${BRANCH_NAME}" >> $GITHUB_OUTPUT
+          {
+            echo "chart=${CHART}"
+            echo "has_new_env_vars=${HAS_NEW_ENV_VARS}"
+            echo "source_ref=${SOURCE_REF}"
+            echo "source_repo=${SOURCE_REPO}"
+            echo "source_actor=${SOURCE_ACTOR}"
+            echo "source_sha=${SOURCE_SHA}"
+            echo "branch_name=${BRANCH_NAME}"
+          } >> "$GITHUB_OUTPUT"
 
           # Save components array to file for processing
           jq -c '.components' /tmp/payload.json > /tmp/components.json
 
+      # CodeQL: untrusted-checkout — false positive. This is a workflow_call
+      # triggered by internal dispatch, not a PR event. The ref is a controlled
+      # branch name (develop/main), not an untrusted PR head.
       - name: Checkout
         uses: actions/checkout@v6
         with:
@@ -156,7 +161,7 @@ jobs:
 
       - name: Import GPG key
         if: ${{ inputs.gpg_sign_commits }}
-        uses: crazy-max/ghaction-import-gpg@v7
+        uses: crazy-max/ghaction-import-gpg@2dc316deee8e90f13e1a351ab510b4d5bc0c82cd # v7
         with:
           gpg_private_key: ${{ secrets.GPG_KEY }}
           passphrase: ${{ secrets.GPG_KEY_PASSWORD }}
@@ -194,7 +199,7 @@ jobs:
           go build -o update-chart-version-readme update-chart-version-readme.go
 
       - name: Setup yq
-        uses: mikefarah/yq@v4
+        uses: mikefarah/yq@5a7e72a743649b1b3a47d1a1d8214f3453173c51 # v4
 
       - name: Process all components
         id: process
@@ -239,24 +244,22 @@ jobs:
           CHART_TEMPLATE_NAME=$(yq '.name' "${CHART_FILE}")
 
           # Function to create secret template if it doesn't exist
-          # $1 = comp_name (for directory/file path)
-          # $2 = values_key (for .Values references)
+          # $1 = values_key (for directory/file path and .Values references)
           create_secret_template() {
-            local comp_name="$1"
-            local values_key="${2:-$1}"  # fallback to comp_name if not provided
-            local secret_file="${TEMPLATES_BASE}/${comp_name}/secret.yaml"
+            local values_key="$1"
+            local secret_file="${TEMPLATES_BASE}/${values_key}/secret.yaml"
 
             if [ ! -f "$secret_file" ]; then
               echo "  Creating secret template: $secret_file"
-              mkdir -p "${TEMPLATES_BASE}/${comp_name}"
+              mkdir -p "${TEMPLATES_BASE}/${values_key}"
               printf '%s\n' \
                 "apiVersion: v1" \
                 "kind: Secret" \
                 "metadata:" \
-                "  name: {{ include \"${CHART_TEMPLATE_NAME}.fullname\" . }}-${comp_name}" \
+                "  name: {{ include \"${CHART_TEMPLATE_NAME}.fullname\" . }}-${values_key}" \
                 "  labels:" \
                 "    {{- include \"${CHART_TEMPLATE_NAME}.labels\" . | nindent 4 }}" \
-                "    app.kubernetes.io/component: ${comp_name}" \
+                "    app.kubernetes.io/component: ${values_key}" \
                 "type: Opaque" \
                 "data:" \
                 "  # Extra Secret Vars" \
@@ -295,10 +298,10 @@ jobs:
 
             # Add new environment variables if any
             if [ "$COMP_ENV_VARS" != "{}" ] && [ "$COMP_ENV_VARS" != "null" ]; then
-              # Template paths use COMP_NAME (directory structure)
-              # Values references use VALUES_KEY (values.yaml structure)
-              CONFIGMAP_FILE="${TEMPLATES_BASE}/${COMP_NAME}/configmap.yaml"
-              SECRET_FILE="${TEMPLATES_BASE}/${COMP_NAME}/secret.yaml"
+              # Template paths use VALUES_KEY (directory structure matches values.yaml keys)
+              # Values references also use VALUES_KEY (values.yaml structure)
+              CONFIGMAP_FILE="${TEMPLATES_BASE}/${VALUES_KEY}/configmap.yaml"
+              SECRET_FILE="${TEMPLATES_BASE}/${VALUES_KEY}/secret.yaml"
 
               echo "$COMP_ENV_VARS" | jq -r 'to_entries[] | "\(.key)=\(.value)"' | while IFS='=' read -r key value; do
                 if [ -n "$key" ]; then
@@ -309,12 +312,14 @@ jobs:
                   if is_sensitive_var "$key"; then
                     echo "  Adding SECRET var: ${key}=***"
 
-                    # Create secret template if needed (uses COMP_NAME for path, VALUES_KEY for .Values)
-                    create_secret_template "$COMP_NAME" "$VALUES_KEY"
+                    # Create secret template if needed (uses VALUES_KEY for both path and .Values)
+                    create_secret_template "$VALUES_KEY"
 
                     # Add to secret template (using 2 spaces indentation for data section)
                     if [ -f "${SECRET_FILE}" ] && grep -q "# Extra Secret Vars" "${SECRET_FILE}"; then
                       sed -i "/# Extra Secret Vars/i\\  ${key}: {{ .Values.${VALUES_KEY}.secrets.${key} | default \"${escaped_value}\" | b64enc | quote }}" "${SECRET_FILE}"
+                    else
+                      echo "::warning::Secret template not found or missing '# Extra Secret Vars' marker: ${SECRET_FILE} — skipping var ${key}"
                     fi
                   else
                     echo "  Adding configmap var: ${key}=${value}"
@@ -322,6 +327,8 @@ jobs:
                     # Add to configmap template if it exists (using 2 spaces indentation)
                     if [ -f "${CONFIGMAP_FILE}" ] && grep -q "# Extra Env Vars" "${CONFIGMAP_FILE}"; then
                       sed -i "/# Extra Env Vars/i\\  ${key}: {{ .Values.${VALUES_KEY}.configmap.${key} | default \"${escaped_value}\" | quote }}" "${CONFIGMAP_FILE}"
+                    else
+                      echo "::warning::Configmap template not found or missing '# Extra Env Vars' marker: ${CONFIGMAP_FILE} — skipping var ${key}"
                     fi
                   fi
                 fi
@@ -344,7 +351,7 @@ jobs:
           fi
 
           echo ""
-          echo "updated_components=$UPDATED_COMPONENTS" >> $GITHUB_OUTPUT
+          echo "updated_components=${UPDATED_COMPONENTS}" >> "$GITHUB_OUTPUT"
 
       - name: Update README matrix
         if: ${{ inputs.update_readme }}
@@ -383,11 +390,11 @@ jobs:
           # Check if there are changes to commit
           if git diff --staged --quiet; then
             echo "No changes to commit"
-            echo "has_changes=false" >> $GITHUB_OUTPUT
+            echo "has_changes=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
-          echo "has_changes=true" >> $GITHUB_OUTPUT
+          echo "has_changes=true" >> "$GITHUB_OUTPUT"
 
           # Determine commit message based on env_vars
           # feat: when new environment variables are added (requires attention)
@@ -398,7 +405,7 @@ jobs:
             COMMIT_MSG="fix(${CHART}): update ${UPDATED_COMPONENTS}"
           fi
 
-          echo "commit_msg=${COMMIT_MSG}" >> $GITHUB_OUTPUT
+          echo "commit_msg=${COMMIT_MSG}" >> "$GITHUB_OUTPUT"
           echo "Committing with message: ${COMMIT_MSG}"
           git commit -m "${COMMIT_MSG}"
 
@@ -463,35 +470,37 @@ jobs:
             --body-file /tmp/pr_body.md)
 
           echo "PR created: ${PR_URL}"
-          echo "pr_url=${PR_URL}" >> $GITHUB_OUTPUT
+          echo "pr_url=${PR_URL}" >> "$GITHUB_OUTPUT"
 
       - name: Summary
+        env:
+          BASE_BRANCH: ${{ inputs.base_branch }}
         run: |
           COMPONENTS=$(cat /tmp/components.json)
           CHART="${{ steps.payload.outputs.chart }}"
           BRANCH_NAME="${{ steps.payload.outputs.branch_name }}"
           HAS_CHANGES="${{ steps.commit.outputs.has_changes }}"
 
-          echo "### Helm Chart Update Summary" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Chart:** \`${CHART}\`" >> $GITHUB_STEP_SUMMARY
-          echo "**Branch:** \`${BRANCH_NAME}\`" >> $GITHUB_STEP_SUMMARY
-          echo "**Base:** \`${{ inputs.base_branch }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Helm Chart Update Summary" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "**Chart:** \`${CHART}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "**Branch:** \`${BRANCH_NAME}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "**Base:** \`${BASE_BRANCH}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
 
           if [ "${HAS_CHANGES}" = "true" ]; then
-            echo "✅ **PR created successfully**" >> $GITHUB_STEP_SUMMARY
+            echo "✅ **PR created successfully**" >> "$GITHUB_STEP_SUMMARY"
           else
-            echo "ℹ️ **No changes detected**" >> $GITHUB_STEP_SUMMARY
+            echo "ℹ️ **No changes detected**" >> "$GITHUB_STEP_SUMMARY"
           fi
 
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Components:**" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "| Component | Version | New Env Vars |" >> $GITHUB_STEP_SUMMARY
-          echo "|-----------|---------|--------------|" >> $GITHUB_STEP_SUMMARY
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "**Components:**" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Component | Version | New Env Vars |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|-----------|---------|--------------|" >> "$GITHUB_STEP_SUMMARY"
 
-          echo "$COMPONENTS" | jq -r '.[] | "| \(.name) | \(.version) | \(.env_vars | if . == {} then "-" else (. | keys | join(", ")) end) |"' >> $GITHUB_STEP_SUMMARY
+          echo "$COMPONENTS" | jq -r '.[] | "| \(.name) | \(.version) | \(.env_vars | if . == {} then "-" else (. | keys | join(", ")) end) |"' >> "$GITHUB_STEP_SUMMARY"
 
       - name: Send Slack notification
         if: ${{ inputs.slack_notification && steps.commit.outputs.has_changes == 'true' }}

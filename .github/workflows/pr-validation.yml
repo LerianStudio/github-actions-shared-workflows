@@ -1,7 +1,10 @@
 name: "PR Validation"
 
 # Reusable workflow for comprehensive pull request validation
-# Checks PR title, size, description, labels, and best practices
+# Uses a 2-tier fail-fast model:
+#   Tier 1 (blocking-checks): lightweight validations that block merge — title, source branch, description
+#   Tier 2 (advisory-checks): informational checks — size, labels, metadata, changelog (only runs if Tier 1 passes)
+# Followed by a summary job and optional Slack notification
 
 on:
   workflow_call:
@@ -10,6 +13,11 @@ on:
         description: 'GitHub runner type to use'
         type: string
         default: 'blacksmith-4vcpu-ubuntu-2404'
+      dry_run:
+        description: Preview validations without posting comments or labels
+        required: false
+        type: boolean
+        default: false
       pr_title_types:
         description: 'Allowed commit types (pipe-separated)'
         type: string
@@ -34,13 +42,9 @@ on:
         type: boolean
         default: false
       min_description_length:
-        description: 'Minimum PR description length'
+        description: 'Minimum PR description content length (after stripping template boilerplate)'
         type: number
-        default: 50
-      check_changelog:
-        description: 'Check if CHANGELOG.md is updated'
-        type: boolean
-        default: true
+        default: 30
       enable_auto_labeler:
         description: 'Enable automatic labeling based on changed files'
         type: boolean
@@ -50,9 +54,9 @@ on:
         type: string
         default: '.github/labeler.yml'
       enforce_source_branches:
-        description: 'Enforce that PRs to protected branches come from specific source branches'
+        description: 'Enforce that PRs to protected branches come from specific source branches. The composite auto-skips when the target branch is not in target_branches_for_source_check.'
         type: boolean
-        default: false
+        default: true
       allowed_source_branches:
         description: 'Allowed source branches for PRs to protected branches (pipe-separated, supports prefix matching with *)'
         type: string
@@ -61,6 +65,11 @@ on:
         description: 'Target branches that require source branch validation (pipe-separated)'
         type: string
         default: 'main'
+    secrets:
+      MANAGE_TOKEN:
+        required: false
+      SLACK_WEBHOOK_URL:
+        required: false
 
 permissions:
   contents: read
@@ -68,363 +77,150 @@ permissions:
   issues: write
 
 jobs:
-  skip-if-draft:
-    name: Skip if Draft
+  # ----------------- Tier 1: Blocking Checks (no checkout, fail-fast) -----------------
+  blocking-checks:
+    name: Blocking Checks
     runs-on: ${{ inputs.runner_type }}
+    if: github.event.pull_request.draft != true
     outputs:
-      should_skip: ${{ steps.check.outputs.should_skip }}
-    steps:
-      - name: Check if draft
-        id: check
-        run: |
-          if [ "${{ github.event.pull_request.draft }}" = "true" ]; then
-            echo "should_skip=true" >> $GITHUB_OUTPUT
-          else
-            echo "should_skip=false" >> $GITHUB_OUTPUT
-          fi
-
-  pr-source-branch:
-    name: Validate Source Branch
-    runs-on: ${{ inputs.runner_type }}
-    needs: skip-if-draft
-    if: needs.skip-if-draft.outputs.should_skip != 'true' && inputs.enforce_source_branches
+      source-branch-result: ${{ steps.collect.outputs.source_branch }}
+      title-result: ${{ steps.collect.outputs.title }}
+      description-result: ${{ steps.collect.outputs.description }}
 
     steps:
-      - name: Check source branch
-        id: check_branch
-        uses: actions/github-script@v8
+      # The composite auto-skips when target branch is not in target_branches_for_source_check (default: main)
+      - name: Validate source branch
+        id: source-branch
+        if: inputs.enforce_source_branches
+        continue-on-error: true
+        uses: LerianStudio/github-actions-shared-workflows/src/validate/pr-source-branch@v1.20.0-beta.1
         with:
-          github-token: ${{ secrets.MANAGE_TOKEN || secrets.GITHUB_TOKEN }}
-          script: |
-            const sourceBranch = context.payload.pull_request.head.ref;
-            const targetBranch = context.payload.pull_request.base.ref;
-            const allowedBranches = '${{ inputs.allowed_source_branches }}'.split('|').map(b => b.trim());
-            const targetBranchesForCheck = '${{ inputs.target_branches_for_source_check }}'.split('|').map(b => b.trim());
+          github-token: ${{ secrets.MANAGE_TOKEN || github.token }}
+          allowed-branches: ${{ inputs.allowed_source_branches }}
+          target-branches: ${{ inputs.target_branches_for_source_check }}
+          dry-run: ${{ inputs.dry_run && 'true' || 'false' }}
 
-            // Check if this target branch requires source validation
-            if (!targetBranchesForCheck.includes(targetBranch)) {
-              console.log(`Target branch '${targetBranch}' does not require source branch validation`);
-              return;
-            }
-
-            console.log(`Checking if source branch '${sourceBranch}' is allowed for target '${targetBranch}'`);
-            console.log(`Allowed patterns: ${allowedBranches.join(', ')}`);
-
-            // Check if source branch matches any allowed pattern
-            let isAllowed = false;
-            for (const pattern of allowedBranches) {
-              if (pattern.endsWith('/*')) {
-                // Prefix match (e.g., hotfix/*)
-                const prefix = pattern.slice(0, -1);
-                if (sourceBranch.startsWith(prefix)) {
-                  isAllowed = true;
-                  break;
-                }
-              } else if (pattern === sourceBranch) {
-                // Exact match
-                isAllowed = true;
-                break;
-              }
-            }
-
-            if (!isAllowed) {
-              // Add REQUEST_CHANGES review
-              const message = `⚠️ **Invalid Source Branch**\n\nPull requests to **${targetBranch}** can only come from:\n${allowedBranches.map(b => `- \`${b}\``).join('\n')}\n\nYour source branch: \`${sourceBranch}\`\n\nPlease **change the base branch** or create a PR from an allowed branch.`;
-
-              await github.rest.pulls.createReview({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                pull_number: context.issue.number,
-                body: message,
-                event: 'REQUEST_CHANGES'
-              });
-
-              core.setFailed(`Source branch '${sourceBranch}' is not allowed for PRs to '${targetBranch}'`);
-            } else {
-              console.log(`✅ Source branch '${sourceBranch}' is allowed`);
-            }
-
-  pr-title:
-    name: Validate PR Title
-    runs-on: ${{ inputs.runner_type }}
-    needs: skip-if-draft
-    if: needs.skip-if-draft.outputs.should_skip != 'true'
-
-    steps:
-      - name: Check PR title format
-        uses: amannn/action-semantic-pull-request@v6
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Validate PR title
+        id: title
+        continue-on-error: true
+        uses: LerianStudio/github-actions-shared-workflows/src/validate/pr-title@v1.20.0-beta.1
         with:
+          github-token: ${{ github.token }}
           types: ${{ inputs.pr_title_types }}
           scopes: ${{ inputs.pr_title_scopes }}
-          requireScope: ${{ inputs.require_scope }}
-          subjectPattern: ^[a-z].+$
-          subjectPatternError: |
-            The subject "{subject}" found in the pull request title "{title}"
-            didn't match the configured pattern. Please ensure that the subject
-            starts with a lowercase character.
+          require-scope: ${{ inputs.require_scope && 'true' || 'false' }}
 
-  pr-size:
-    name: Check PR Size
+      - name: Validate PR description
+        id: description
+        continue-on-error: true
+        uses: LerianStudio/github-actions-shared-workflows/src/validate/pr-description@v1.20.0-beta.1
+        with:
+          min-length: ${{ inputs.min_description_length }}
+
+      - name: Collect results and enforce blocking
+        id: collect
+        run: |
+          SOURCE_BRANCH="${{ steps.source-branch.outcome || 'skipped' }}"
+          TITLE="${{ steps.title.outcome }}"
+          DESCRIPTION="${{ steps.description.outcome }}"
+
+          {
+            echo "source_branch=${SOURCE_BRANCH}"
+            echo "title=${TITLE}"
+            echo "description=${DESCRIPTION}"
+          } >> "$GITHUB_OUTPUT"
+
+          # Fail the job if any blocking check failed
+          FAILED=""
+          if [ "${SOURCE_BRANCH}" = "failure" ]; then FAILED="${FAILED} source-branch"; fi
+          if [ "${TITLE}" = "failure" ]; then FAILED="${FAILED} title"; fi
+          if [ "${DESCRIPTION}" = "failure" ]; then FAILED="${FAILED} description"; fi
+
+          if [ -n "${FAILED}" ]; then
+            echo "::error::Blocking checks failed:${FAILED}"
+            exit 1
+          fi
+
+  # ----------------- Tier 2: Advisory Checks (shared checkout, depends on Tier 1) -----------------
+  advisory-checks:
+    name: Advisory Checks
     runs-on: ${{ inputs.runner_type }}
-    needs: skip-if-draft
-    if: needs.skip-if-draft.outputs.should_skip != 'true'
+    needs: [blocking-checks]
+    if: always() && needs.blocking-checks.result == 'success' && github.event.pull_request.draft != true
+    outputs:
+      metadata-result: ${{ steps.collect.outputs.metadata }}
+      size-result: ${{ steps.collect.outputs.size }}
+      label-result: ${{ steps.collect.outputs.label }}
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
           fetch-depth: 0
+
+      - name: Check PR metadata
+        id: metadata
+        continue-on-error: true
+        uses: LerianStudio/github-actions-shared-workflows/src/validate/pr-metadata@v1.20.0-beta.1
+        with:
+          github-token: ${{ secrets.MANAGE_TOKEN || github.token }}
+          dry-run: ${{ inputs.dry_run && 'true' || 'false' }}
 
       - name: Check PR size
         id: size
+        continue-on-error: true
+        uses: LerianStudio/github-actions-shared-workflows/src/validate/pr-size@v1.20.0-beta.1
+        with:
+          github-token: ${{ secrets.MANAGE_TOKEN || github.token }}
+          base-ref: ${{ github.base_ref }}
+          dry-run: ${{ inputs.dry_run && 'true' || 'false' }}
+
+      - name: Auto-label PR
+        id: labels
+        if: inputs.enable_auto_labeler && !inputs.dry_run
+        continue-on-error: true
+        uses: LerianStudio/github-actions-shared-workflows/src/validate/pr-labels@v1.20.0-beta.1
+        with:
+          github-token: ${{ secrets.MANAGE_TOKEN || github.token }}
+          config-path: ${{ inputs.labeler_config_path }}
+
+      - name: Collect results
+        id: collect
         run: |
-          # Get changed lines
-          CHANGED_LINES=$(git diff --shortstat origin/${{ github.base_ref }}...HEAD | \
-            awk '{print $4+$6}')
-          echo "changed_lines=$CHANGED_LINES" >> $GITHUB_OUTPUT
+          {
+            echo "metadata=${{ steps.metadata.outcome }}"
+            echo "size=${{ steps.size.outcome }}"
+            echo "label=${{ steps.labels.outcome || 'skipped' }}"
+          } >> "$GITHUB_OUTPUT"
 
-          # Set size label
-          if [ "$CHANGED_LINES" -lt 50 ]; then
-            SIZE="XS"
-          elif [ "$CHANGED_LINES" -lt 200 ]; then
-            SIZE="S"
-          elif [ "$CHANGED_LINES" -lt 500 ]; then
-            SIZE="M"
-          elif [ "$CHANGED_LINES" -lt 1000 ]; then
-            SIZE="L"
-          else
-            SIZE="XL"
-          fi
-          echo "size=$SIZE" >> $GITHUB_OUTPUT
-
-      - name: Add size label
-        uses: actions/github-script@v8
-        with:
-          github-token: ${{ secrets.MANAGE_TOKEN || secrets.GITHUB_TOKEN }}
-          script: |
-            const size = '${{ steps.size.outputs.size }}';
-            const labels = ['size/XS', 'size/S', 'size/M', 'size/L', 'size/XL'];
-
-            // Remove existing size labels
-            for (const label of labels) {
-              try {
-                await github.rest.issues.removeLabel({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  issue_number: context.issue.number,
-                  name: label
-                });
-              } catch (error) {
-                // Label doesn't exist, ignore
-              }
-            }
-
-            // Add new size label
-            await github.rest.issues.addLabels({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: context.issue.number,
-              labels: [`size/${size}`]
-            });
-
-      - name: Comment on large PR
-        if: steps.size.outputs.size == 'XL'
-        uses: actions/github-script@v8
-        with:
-          github-token: ${{ secrets.MANAGE_TOKEN || secrets.GITHUB_TOKEN }}
-          script: |
-            github.rest.issues.createComment({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: context.issue.number,
-              body: `This PR is very large (${context.payload.pull_request.changed_files} files, ${{ steps.size.outputs.changed_lines }} lines changed). Consider breaking it into smaller PRs for easier review.`
-            });
-
-  pr-description:
-    name: Check PR Description
-    runs-on: ${{ inputs.runner_type }}
-    needs: skip-if-draft
-    if: needs.skip-if-draft.outputs.should_skip != 'true'
-
-    steps:
-      - name: Check description length
-        uses: actions/github-script@v8
-        with:
-          github-token: ${{ secrets.MANAGE_TOKEN || secrets.GITHUB_TOKEN }}
-          script: |
-            const body = context.payload.pull_request.body || '';
-            const minLength = ${{ inputs.min_description_length }};
-
-            if (body.length < minLength) {
-              core.setFailed(`PR description is too short (${body.length} chars). Please provide a detailed description (minimum ${minLength} chars).`);
-            }
-
-      - name: Check for required sections
-        uses: actions/github-script@v8
-        with:
-          github-token: ${{ secrets.MANAGE_TOKEN || secrets.GITHUB_TOKEN }}
-          script: |
-            const body = context.payload.pull_request.body || '';
-            const requiredSections = ['Description', 'Type of Change'];
-            const missingSections = [];
-
-            for (const section of requiredSections) {
-              if (!body.includes(section)) {
-                missingSections.push(section);
-              }
-            }
-
-            if (missingSections.length > 0) {
-              core.warning(`PR description is missing recommended sections: ${missingSections.join(', ')}`);
-            }
-
-  pr-labels:
-    name: Auto-label PR
-    runs-on: ${{ inputs.runner_type }}
-    needs: skip-if-draft
-    if: needs.skip-if-draft.outputs.should_skip != 'true' && inputs.enable_auto_labeler
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-
-      - name: Auto-label based on files
-        uses: actions/labeler@v6
-        with:
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
-          configuration-path: ${{ inputs.labeler_config_path }}
-          sync-labels: true
-
-  pr-assignee:
-    name: Check Assignee
-    runs-on: ${{ inputs.runner_type }}
-    needs: skip-if-draft
-    if: needs.skip-if-draft.outputs.should_skip != 'true'
-
-    steps:
-      - name: Check for assignee
-        uses: actions/github-script@v8
-        with:
-          github-token: ${{ secrets.MANAGE_TOKEN || secrets.GITHUB_TOKEN }}
-          script: |
-            const pr = context.payload.pull_request;
-            if (pr.assignees.length === 0) {
-              core.warning('This PR has no assignees. Consider assigning someone to review.');
-            }
-
-  pr-linked-issues:
-    name: Check Linked Issues
-    runs-on: ${{ inputs.runner_type }}
-    needs: skip-if-draft
-    if: needs.skip-if-draft.outputs.should_skip != 'true'
-
-    steps:
-      - name: Check for linked issues
-        uses: actions/github-script@v8
-        with:
-          github-token: ${{ secrets.MANAGE_TOKEN || secrets.GITHUB_TOKEN }}
-          script: |
-            const body = context.payload.pull_request.body || '';
-            const issueKeywords = ['closes', 'fixes', 'resolves', 'relates to'];
-
-            let hasLinkedIssue = false;
-            for (const keyword of issueKeywords) {
-              if (body.toLowerCase().includes(keyword)) {
-                hasLinkedIssue = true;
-                break;
-              }
-            }
-
-            if (!hasLinkedIssue) {
-              core.warning('This PR does not appear to be linked to any issues. Consider linking related issues using keywords like "Closes #123" or "Fixes #456".');
-            }
-
-  pr-changelog:
-    name: Check Changelog Update
-    runs-on: ${{ inputs.runner_type }}
-    needs: skip-if-draft
-    if: needs.skip-if-draft.outputs.should_skip != 'true' && inputs.check_changelog
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-
-      - name: Check if CHANGELOG updated
-        id: changelog
-        run: |
-          if git diff --name-only origin/${{ github.base_ref }}...HEAD | grep -q "CHANGELOG.md"; then
-            echo "updated=true" >> $GITHUB_OUTPUT
-          else
-            echo "updated=false" >> $GITHUB_OUTPUT
-          fi
-
-      - name: Comment if CHANGELOG not updated
-        if: steps.changelog.outputs.updated == 'false'
-        uses: actions/github-script@v8
-        with:
-          github-token: ${{ secrets.MANAGE_TOKEN || secrets.GITHUB_TOKEN }}
-          script: |
-            const labels = context.payload.pull_request.labels.map(l => l.name);
-
-            // Skip for certain labels
-            if (labels.includes('skip-changelog') || labels.includes('dependencies')) {
-              return;
-            }
-
-            github.rest.issues.createComment({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: context.issue.number,
-              body: 'Consider updating CHANGELOG.md to document this change. If this change doesn\'t need a changelog entry, add the `skip-changelog` label.'
-            });
-
+  # ----------------- PR Checks Summary -----------------
   pr-checks-summary:
     name: PR Checks Summary
     runs-on: ${{ inputs.runner_type }}
-    needs: [pr-source-branch, pr-title, pr-size, pr-description, pr-labels, pr-assignee, pr-linked-issues, pr-changelog]
+    needs: [blocking-checks, advisory-checks]
     if: always()
 
     steps:
-      - name: Summary
-        uses: actions/github-script@v8
+      - name: PR Checks Summary
+        uses: LerianStudio/github-actions-shared-workflows/src/validate/pr-checks-summary@v1.20.0-beta.1
         with:
-          github-token: ${{ secrets.MANAGE_TOKEN || secrets.GITHUB_TOKEN }}
-          script: |
-            const checks = {
-              'Source Branch': '${{ needs.pr-source-branch.result }}',
-              'PR Title': '${{ needs.pr-title.result }}',
-              'PR Size': '${{ needs.pr-size.result }}',
-              'PR Description': '${{ needs.pr-description.result }}',
-              'Auto-label': '${{ needs.pr-labels.result }}',
-              'Assignee Check': '${{ needs.pr-assignee.result }}',
-              'Linked Issues': '${{ needs.pr-linked-issues.result }}',
-              'Changelog': '${{ needs.pr-changelog.result }}'
-            };
+          source-branch-result: ${{ needs.blocking-checks.outputs.source-branch-result || 'skipped' }}
+          title-result: ${{ needs.blocking-checks.outputs.title-result || 'skipped' }}
+          description-result: ${{ needs.blocking-checks.outputs.description-result || 'skipped' }}
+          size-result: ${{ needs.advisory-checks.outputs.size-result || 'skipped' }}
+          label-result: ${{ needs.advisory-checks.outputs.label-result || 'skipped' }}
+          metadata-result: ${{ needs.advisory-checks.outputs.metadata-result || 'skipped' }}
+          dry-run: ${{ inputs.dry_run && 'true' || 'false' }}
 
-            let summary = '## PR Checks Summary\n\n';
-            for (const [check, result] of Object.entries(checks)) {
-              const icon = result === 'success' ? '✅' : result === 'failure' ? '❌' : '⚠️';
-              summary += `${icon} ${check}: ${result}\n`;
-            }
-
-            core.summary.addRaw(summary);
-            await core.summary.write();
-
-  # Slack notification
+  # ----------------- Slack Notification -----------------
   notify:
     name: Notify
-    needs: [skip-if-draft, pr-source-branch, pr-title, pr-size, pr-description, pr-labels, pr-assignee, pr-linked-issues, pr-changelog, pr-checks-summary]
-    if: always() && needs.skip-if-draft.outputs.should_skip != 'true'
-    uses: ./.github/workflows/slack-notify.yml
+    needs: [blocking-checks, advisory-checks, pr-checks-summary]
+    if: always() && github.event.pull_request.draft != true && !inputs.dry_run
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/slack-notify.yml@v1.20.0-beta.1
     with:
-      status: ${{ (needs.pr-source-branch.result == 'failure' || needs.pr-title.result == 'failure' || needs.pr-description.result == 'failure') && 'failure' || 'success' }}
+      status: ${{ (needs.blocking-checks.outputs.source-branch-result == 'failure' || needs.blocking-checks.outputs.title-result == 'failure' || needs.blocking-checks.outputs.description-result == 'failure') && 'failure' || 'success' }}
       workflow_name: "PR Validation"
-      failed_jobs: ${{ needs.pr-source-branch.result == 'failure' && 'Source Branch, ' || '' }}${{ needs.pr-title.result == 'failure' && 'PR Title, ' || '' }}${{ needs.pr-description.result == 'failure' && 'PR Description' || '' }}
+      failed_jobs: ${{ needs.blocking-checks.outputs.source-branch-result == 'failure' && 'Source Branch, ' || '' }}${{ needs.blocking-checks.outputs.title-result == 'failure' && 'PR Title, ' || '' }}${{ needs.blocking-checks.outputs.description-result == 'failure' && 'PR Description' || '' }}
     secrets:
       SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}

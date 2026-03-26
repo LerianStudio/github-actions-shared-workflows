@@ -1,0 +1,78 @@
+name: PR Checks Summary
+description: "Generates a summary table of all PR validation check results, grouped by tier."
+
+inputs:
+  source-branch-result:
+    description: Result of source branch validation
+    required: false
+    default: skipped
+  title-result:
+    description: Result of PR title validation
+    required: false
+    default: skipped
+  size-result:
+    description: Result of PR size check
+    required: false
+    default: skipped
+  description-result:
+    description: Result of PR description check
+    required: false
+    default: skipped
+  label-result:
+    description: Result of auto-label step
+    required: false
+    default: skipped
+  metadata-result:
+    description: Result of PR metadata check
+    required: false
+    default: skipped
+  dry-run:
+    description: Whether this is a dry run
+    required: false
+    default: "false"
+
+runs:
+  using: composite
+  steps:
+    - name: Summary
+      shell: bash
+      env:
+        SOURCE_BRANCH_RESULT: ${{ inputs.source-branch-result }}
+        TITLE_RESULT: ${{ inputs.title-result }}
+        SIZE_RESULT: ${{ inputs.size-result }}
+        DESCRIPTION_RESULT: ${{ inputs.description-result }}
+        LABEL_RESULT: ${{ inputs.label-result }}
+        METADATA_RESULT: ${{ inputs.metadata-result }}
+        DRY_RUN: ${{ inputs.dry-run }}
+      run: |
+        icon() {
+          case "$1" in
+            success) echo "✅" ;;
+            failure) echo "❌" ;;
+            *)       echo "⏭️" ;;
+          esac
+        }
+
+        {
+          echo "## PR Checks Summary"
+          echo ""
+          if [ "$DRY_RUN" = "true" ]; then
+            echo "> **DRY RUN** — no comments, labels, or reviews were posted"
+            echo ""
+          fi
+          echo "### Blocking"
+          echo ""
+          echo "| Check | Result |"
+          echo "|-------|--------|"
+          echo "| Source Branch | $(icon "$SOURCE_BRANCH_RESULT") ${SOURCE_BRANCH_RESULT} |"
+          echo "| PR Title | $(icon "$TITLE_RESULT") ${TITLE_RESULT} |"
+          echo "| PR Description | $(icon "$DESCRIPTION_RESULT") ${DESCRIPTION_RESULT} |"
+          echo ""
+          echo "### Advisory"
+          echo ""
+          echo "| Check | Result |"
+          echo "|-------|--------|"
+          echo "| PR Size | $(icon "$SIZE_RESULT") ${SIZE_RESULT} |"
+          echo "| Auto-label | $(icon "$LABEL_RESULT") ${LABEL_RESULT} |"
+          echo "| Metadata | $(icon "$METADATA_RESULT") ${METADATA_RESULT} |"
+        } >> "$GITHUB_STEP_SUMMARY"

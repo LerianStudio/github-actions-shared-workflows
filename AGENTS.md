@@ -156,6 +156,14 @@ Before modifying any existing file, follow the refactoring protocol in `.cursor/
 
 ## Security rules
 
+- **Third-party actions (outside `LerianStudio` org) must be pinned by commit SHA**, not by tag — tags are mutable and can be force-pushed by upstream maintainers. Add a `# vX.Y.Z` comment for readability. Dependabot keeps SHA pins updated automatically.
+  ```yaml
+  uses: actions/checkout@abc123def456 # v6        # ✅ third-party pinned by SHA
+  uses: crazy-max/ghaction-import-gpg@2dc316d # v7 # ✅ third-party pinned by SHA
+  uses: LerianStudio/github-actions-shared-workflows/src/notify/discord-release@v1.2.3 # ✅ org-owned pinned by tag
+  ```
+- `LerianStudio/*` actions use release tags (`@v1.2.3`) or branches (`@develop` for testing) — no SHA pinning needed for org-owned actions
+- Never use `@main` or `@master` for third-party actions
 - Never hardcode tokens, org names, or internal URLs — use `inputs` or `secrets`
 - Never print secrets via `echo`, `run` output, or step summaries
 - Vulnerability reports go through private channels only — see [`SECURITY.md`](SECURITY.md)

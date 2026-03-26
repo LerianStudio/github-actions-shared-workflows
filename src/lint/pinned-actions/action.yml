@@ -1,5 +1,5 @@
 name: Pinned Actions Check
-description: Ensure external action references use final release versions (vX or vX.Y.Z); internal actions may use pre-releases with a warning.
+description: Ensure external actions are pinned by commit SHA; internal actions (LerianStudio) accept any semver tag.
 
 inputs:
   files:
@@ -7,7 +7,7 @@ inputs:
     required: false
     default: ""
   warn-patterns:
-    description: Pipe-separated org/owner prefixes to warn instead of fail (e.g. internal orgs not yet on a release tag)
+    description: Pipe-separated org/owner prefixes to treat as internal (warn instead of fail)
     required: false
     default: "LerianStudio/"
 
@@ -57,28 +57,28 @@ runs:
             done
 
             if [ "$is_internal" = true ]; then
-              # Internal: final releases (vX, vX.Y.Z) pass silently; pre-releases (beta, rc) warn
-              if printf '%s\n' "$ref" | grep -Eq '^v[0-9]+$|^v[0-9]+\.[0-9]+\.[0-9]+$'; then
+              # Internal: any semver ref passes — vX, vX.Y.Z, vX.Y.Z-beta.N, vX.Y.Z-rc.N, branches like develop/main
+              if printf '%s\n' "$ref" | grep -Eq '^v[0-9]+(\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.]+)?)?$|^(develop|main)$'; then
                 continue
               fi
-              echo "::warning file=${file},line=${line_num}::Internal action not pinned to a final release version: $normalized"
+              echo "::warning file=${file},line=${line_num}::Internal action not pinned to a version: $normalized"
               warnings=$((warnings + 1))
             else
-              # External: only final releases allowed — vX or vX.Y.Z (no beta, no rc)
-              if printf '%s\n' "$ref" | grep -Eq '^v[0-9]+$|^v[0-9]+\.[0-9]+\.[0-9]+$'; then
+              # External: must be a commit SHA (40 or 64 hex chars)
+              if printf '%s\n' "$ref" | grep -Eiq '^[0-9a-f]{40,64}$'; then
                 continue
               fi
-              echo "::error file=${file},line=${line_num}::Unpinned action found: $normalized"
+              echo "::error file=${file},line=${line_num}::External action not pinned by SHA: $normalized (use full commit SHA with a # vX.Y.Z comment)"
               violations=$((violations + 1))
             fi
           done < <(grep -nE '^[[:space:]]*(-[[:space:]]*)?uses:[[:space:]].*@' "$file" 2>/dev/null || true)
         done
 
         if [ "$warnings" -gt 0 ]; then
-          echo "::warning::Found $warnings internal action(s) not pinned to a release version. Consider pinning to vX.Y.Z."
+          echo "::warning::Found $warnings internal action(s) not pinned to a version. Consider pinning to vX.Y.Z."
         fi
         if [ "$violations" -gt 0 ]; then
-          echo "::error::Found $violations unpinned external action(s). Pin to a final release version (vX or vX.Y.Z)."
+          echo "::error::Found $violations external action(s) not pinned by commit SHA. Pin using the full SHA with a version comment (e.g., @abc123 # v6)."
           exit 1
         fi
-        echo "All external actions are properly pinned."
+        echo "All actions are properly pinned."

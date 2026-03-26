@@ -91,3 +91,7 @@
 - name: lint
   color: "7c3aed"
   description: Changes to linting and code quality checks
+
+- name: validate
+  color: "1d76db"
+  description: Changes to PR validation composite actions (src/validate/)

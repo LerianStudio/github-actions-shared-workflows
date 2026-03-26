@@ -1,0 +1,91 @@
+name: Check PR Size
+description: "Calculates PR size and adds a size label."
+
+inputs:
+  github-token:
+    description: GitHub token with pull-requests write permission
+    required: true
+  base-ref:
+    description: Base branch for diff comparison
+    required: true
+  dry-run:
+    description: "When true, calculate size without adding labels"
+    required: false
+    default: "false"
+
+outputs:
+  size:
+    description: "PR size category (XS, S, M, L, XL)"
+    value: ${{ steps.size.outputs.size }}
+  changed-lines:
+    description: "Number of changed lines"
+    value: ${{ steps.size.outputs.changed_lines }}
+
+runs:
+  using: composite
+  steps:
+    - name: Calculate PR size
+      id: size
+      shell: bash
+      env:
+        BASE_REF: ${{ inputs.base-ref }}
+      run: |
+        CHANGED_LINES=$(git diff --shortstat "origin/${BASE_REF}...HEAD" | \
+          awk '{print $4+$6}')
+        CHANGED_LINES=${CHANGED_LINES:-0}
+        echo "changed_lines=${CHANGED_LINES}" >> "$GITHUB_OUTPUT"
+
+        if [ "$CHANGED_LINES" -lt 50 ]; then
+          SIZE="XS"
+        elif [ "$CHANGED_LINES" -lt 200 ]; then
+          SIZE="S"
+        elif [ "$CHANGED_LINES" -lt 500 ]; then
+          SIZE="M"
+        elif [ "$CHANGED_LINES" -lt 1000 ]; then
+          SIZE="L"
+        else
+          SIZE="XL"
+        fi
+        echo "size=${SIZE}" >> "$GITHUB_OUTPUT"
+        echo "::notice::PR size: ${SIZE} (${CHANGED_LINES} lines changed)"
+
+    - name: Add size label
+      if: inputs.dry-run != 'true'
+      uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+      env:
+        PR_SIZE: ${{ steps.size.outputs.size }}
+      with:
+        github-token: ${{ inputs.github-token }}
+        script: |
+          const size = process.env.PR_SIZE;
+          const targetLabel = `size/${size}`;
+          const allSizeLabels = ['size/XS', 'size/S', 'size/M', 'size/L', 'size/XL'];
+          const currentLabels = context.payload.pull_request.labels.map(l => l.name);
+
+          // Skip if already has the correct label
+          if (currentLabels.includes(targetLabel)) {
+            console.log(`✅ Label '${targetLabel}' already set — no change needed`);
+            return;
+          }
+
+          // Remove stale size labels
+          for (const label of allSizeLabels) {
+            if (currentLabels.includes(label)) {
+              console.log(`Removing stale label '${label}'`);
+              await github.rest.issues.removeLabel({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                name: label
+              });
+            }
+          }
+
+          // Add correct label
+          console.log(`Adding label '${targetLabel}'`);
+          await github.rest.issues.addLabels({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            issue_number: context.issue.number,
+            labels: [targetLabel]
+          });
