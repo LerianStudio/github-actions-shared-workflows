@@ -47,13 +47,16 @@ runs:
           exit 0
         fi
 
-        PR_BODY="## Description
+        PR_BODY=$(cat <<EOF
+## Description
 
-        Automated backmerge of release \`${VERSION}\` from \`${SOURCE_BRANCH}\` to \`${TARGET_BRANCH}\`.
+Automated backmerge of release \`${VERSION}\` from \`${SOURCE_BRANCH}\` to \`${TARGET_BRANCH}\`.
 
-        The automatic backmerge push failed because \`${TARGET_BRANCH}\` has diverged from \`${SOURCE_BRANCH}\`. This PR needs a manual merge to resolve any conflicts.
+The automatic backmerge push failed because \`${TARGET_BRANCH}\` has diverged from \`${SOURCE_BRANCH}\`. This PR needs a manual merge to resolve any conflicts.
 
-        > **Note:** This PR was created automatically by the release workflow."
+> **Note:** This PR was created automatically by the release workflow.
+EOF
+        )
 
         PR_URL=$(gh pr create \
           --base "${TARGET_BRANCH}" \
