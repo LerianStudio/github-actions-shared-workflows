@@ -119,7 +119,7 @@ jobs:
 
       - name: Collect results and enforce blocking
         id: collect
-        uses: LerianStudio/github-actions-shared-workflows/src/validate/pr-blocking-collect@v1.20.0
+        uses: LerianStudio/github-actions-shared-workflows/src/validate/pr-blocking-collect@fix/pin-refs-v1.20.0
         with:
           source-branch-outcome: ${{ steps.source-branch.outcome || 'skipped' }}
           title-outcome: ${{ steps.title.outcome }}
