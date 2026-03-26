@@ -8,7 +8,7 @@ Reusable workflow for semantic versioning and automated release management. Crea
 - **GPG signing**: Signed commits and tags for security
 - **GitHub App authentication**: Higher rate limits and better security
 - **Hotfix support**: Separate configuration for hotfix branches
-- **Backmerge support**: Automatic backmerging of releases
+- **Backmerge support**: Automatic backmerging of releases (falls back to creating a PR if the direct push fails due to branch divergence)
 - **Conventional commits**: Enforces commit message standards
 
 ## Usage

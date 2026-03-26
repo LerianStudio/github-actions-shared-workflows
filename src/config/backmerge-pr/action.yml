@@ -1,0 +1,67 @@
+name: Backmerge PR
+description: "Creates a PR to backmerge a source branch into a target branch when a direct push fails."
+
+inputs:
+  github-token:
+    description: GitHub token with pull-requests write permission
+    required: true
+  source-branch:
+    description: Source branch to merge from (e.g., main)
+    required: true
+  target-branch:
+    description: Target branch to merge into (e.g., develop)
+    required: false
+    default: develop
+  version:
+    description: Release version for the PR title (e.g., 1.20.1)
+    required: true
+
+outputs:
+  pr-url:
+    description: URL of the created PR (empty if PR already existed or was not needed)
+    value: ${{ steps.create-pr.outputs.pr_url }}
+  pr-number:
+    description: Number of the created or existing PR
+    value: ${{ steps.create-pr.outputs.pr_number }}
+
+runs:
+  using: composite
+  steps:
+    - name: Create backmerge PR
+      id: create-pr
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+        SOURCE_BRANCH: ${{ inputs.source-branch }}
+        TARGET_BRANCH: ${{ inputs.target-branch }}
+        VERSION: ${{ inputs.version }}
+      run: |
+        # Check if a backmerge PR already exists
+        EXISTING_PR=$(gh pr list --base "${TARGET_BRANCH}" --head "${SOURCE_BRANCH}" --state open --json number,url --jq '.[0]')
+        if [ -n "$EXISTING_PR" ]; then
+          PR_NUM=$(echo "$EXISTING_PR" | jq -r '.number')
+          PR_URL=$(echo "$EXISTING_PR" | jq -r '.url')
+          echo "::notice::Backmerge PR #${PR_NUM} already exists: ${PR_URL}"
+          echo "pr_number=${PR_NUM}" >> "$GITHUB_OUTPUT"
+          echo "pr_url=${PR_URL}" >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
+
+        PR_BODY="## Description
+
+        Automated backmerge of release \`${VERSION}\` from \`${SOURCE_BRANCH}\` to \`${TARGET_BRANCH}\`.
+
+        The automatic backmerge push failed because \`${TARGET_BRANCH}\` has diverged from \`${SOURCE_BRANCH}\`. This PR needs a manual merge to resolve any conflicts.
+
+        > **Note:** This PR was created automatically by the release workflow."
+
+        PR_URL=$(gh pr create \
+          --base "${TARGET_BRANCH}" \
+          --head "${SOURCE_BRANCH}" \
+          --title "chore(release): backmerge ${VERSION}" \
+          --body "${PR_BODY}")
+
+        PR_NUM=$(echo "$PR_URL" | grep -oE '[0-9]+$')
+        echo "pr_number=${PR_NUM}" >> "$GITHUB_OUTPUT"
+        echo "pr_url=${PR_URL}" >> "$GITHUB_OUTPUT"
+        echo "::notice::Backmerge push failed — created PR #${PR_NUM}: ${PR_URL}"
