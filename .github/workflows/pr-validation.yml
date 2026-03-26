@@ -109,7 +109,7 @@ jobs:
       - name: Validate PR description
         id: description
         continue-on-error: true
-        uses: LerianStudio/github-actions-shared-workflows/src/validate/pr-description@v1.20.1
+        uses: LerianStudio/github-actions-shared-workflows/src/validate/pr-description@develop
 
       - name: Collect results and enforce blocking
         id: collect
