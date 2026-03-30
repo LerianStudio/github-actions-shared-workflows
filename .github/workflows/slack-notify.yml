@@ -45,22 +45,24 @@ jobs:
     steps:
       - name: Check if Slack webhook is configured
         id: check_webhook
+        env:
+          SLACK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
         run: |
-          if [ -z "${{ secrets.SLACK_WEBHOOK_URL }}" ]; then
-            echo "skip=true" >> $GITHUB_OUTPUT
+          if [ -z "$SLACK_URL" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
             echo "⚠️ SLACK_WEBHOOK_URL not configured - skipping notification"
           else
-            echo "skip=false" >> $GITHUB_OUTPUT
+            echo "skip=false" >> "$GITHUB_OUTPUT"
             echo "✅ Slack webhook configured"
           fi
 
       - name: Determine notification settings
         if: steps.check_webhook.outputs.skip != 'true'
         id: settings
+        env:
+          INPUT_STATUS: ${{ inputs.status }}
         run: |
-          STATUS="${{ inputs.status }}"
-          
-          case "$STATUS" in
+          case "$INPUT_STATUS" in
             success)
               COLOR="good"
               EMOJI="✅"
@@ -79,73 +81,76 @@ jobs:
             *)
               COLOR="warning"
               EMOJI="⚠️"
-              STATUS_TEXT="completed with status: $STATUS"
+              STATUS_TEXT="completed with status: $INPUT_STATUS"
               ;;
           esac
-          
-          echo "color=$COLOR" >> $GITHUB_OUTPUT
-          echo "emoji=$EMOJI" >> $GITHUB_OUTPUT
-          echo "status_text=$STATUS_TEXT" >> $GITHUB_OUTPUT
+
+          {
+            echo "color=$COLOR"
+            echo "emoji=$EMOJI"
+            echo "status_text=$STATUS_TEXT"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Build notification message
         if: steps.check_webhook.outputs.skip != 'true'
         id: message
+        env:
+          INPUT_WORKFLOW_NAME: ${{ inputs.workflow_name }}
+          INPUT_STATUS: ${{ inputs.status }}
+          INPUT_FAILED_JOBS: ${{ inputs.failed_jobs }}
+          INPUT_CUSTOM_MESSAGE: ${{ inputs.custom_message }}
+          STATUS_TEXT: ${{ steps.settings.outputs.status_text }}
+          EMOJI: ${{ steps.settings.outputs.emoji }}
+          GH_REPO: ${{ github.repository }}
+          GH_ACTOR: ${{ github.actor }}
+          GH_SERVER: ${{ github.server_url }}
+          GH_RUN_ID: ${{ github.run_id }}
+          GH_SHA: ${{ github.sha }}
+          GH_EVENT_NAME: ${{ github.event_name }}
+          GH_HEAD_REF: ${{ github.head_ref }}
+          GH_REF_NAME: ${{ github.ref_name }}
+          GH_PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
-          REPO="${{ github.repository }}"
-          REPO_NAME="${REPO##*/}"
-          WORKFLOW="${{ inputs.workflow_name }}"
-          STATUS="${{ inputs.status }}"
-          STATUS_TEXT="${{ steps.settings.outputs.status_text }}"
-          EMOJI="${{ steps.settings.outputs.emoji }}"
-          ACTOR="${{ github.actor }}"
-          RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-          COMMIT_SHA="${{ github.sha }}"
-          SHORT_SHA="${COMMIT_SHA:0:7}"
-          
+          REPO_NAME="${GH_REPO##*/}"
+          SHORT_SHA="${GH_SHA:0:7}"
+          RUN_URL="${GH_SERVER}/${GH_REPO}/actions/runs/${GH_RUN_ID}"
+
           # Handle different event types for ref info
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            REF="PR #${{ github.event.pull_request.number }}"
-            BRANCH="${{ github.head_ref }}"
+          if [ "$GH_EVENT_NAME" = "pull_request" ]; then
+            BRANCH="$GH_HEAD_REF"
           else
-            REF="${{ github.ref_name }}"
-            BRANCH="$REF"
+            BRANCH="$GH_REF_NAME"
           fi
-          
+
           # Build message
-          MESSAGE="$EMOJI *$WORKFLOW* $STATUS_TEXT in *$REPO_NAME*"
-          
+          MESSAGE="$EMOJI *$INPUT_WORKFLOW_NAME* $STATUS_TEXT in *$REPO_NAME*"
+
           # Add failed jobs info if failure
-          FAILED_JOBS="${{ inputs.failed_jobs }}"
-          if [ "$STATUS" = "failure" ] && [ -n "$FAILED_JOBS" ]; then
-            MESSAGE="$MESSAGE\n💥 *Failed jobs:* $FAILED_JOBS"
+          if [ "$INPUT_STATUS" = "failure" ] && [ -n "$INPUT_FAILED_JOBS" ]; then
+            MESSAGE="$MESSAGE\n💥 *Failed jobs:* $INPUT_FAILED_JOBS"
           fi
-          
-          # Add author
-          MESSAGE="$MESSAGE\n👤 *Author:* $ACTOR"
-          
-          # Add ref and commit info
+
+          MESSAGE="$MESSAGE\n👤 *Author:* $GH_ACTOR"
           MESSAGE="$MESSAGE\n📌 *Branch:* \`$BRANCH\` | *Commit:* \`$SHORT_SHA\`"
-          
-          # Add custom message if provided
-          if [ -n "${{ inputs.custom_message }}" ]; then
-            MESSAGE="$MESSAGE\n\n${{ inputs.custom_message }}"
+
+          if [ -n "$INPUT_CUSTOM_MESSAGE" ]; then
+            MESSAGE="$MESSAGE\n\n$INPUT_CUSTOM_MESSAGE"
           fi
-          
-          # Add link to workflow run
+
           MESSAGE="$MESSAGE\n\n<$RUN_URL|🔗 View Workflow Run>"
-          
-          echo "message<<EOF" >> $GITHUB_OUTPUT
-          echo -e "$MESSAGE" >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
+
+          {
+            echo "message<<EOF"
+            echo -e "$MESSAGE"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Send Slack notification
         if: steps.check_webhook.outputs.skip != 'true'
-        uses: rtCamp/action-slack-notify@v2
+        uses: rtCamp/action-slack-notify@e31e87e03dd19038e411e38ae27cbad084a90661 # v2
         env:
           SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK_URL }}
           SLACK_COLOR: ${{ steps.settings.outputs.color }}
-          SLACK_USERNAME: GitHub Actions
-          SLACK_ICON: https://github.githubassets.com/assets/GitHub-Mark-ea2971cee799.png
           SLACK_TITLE: ${{ github.repository }}
           SLACK_MESSAGE: ${{ steps.message.outputs.message }}
           SLACK_FOOTER: "Workflow: ${{ inputs.workflow_name }}"

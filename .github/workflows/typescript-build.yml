@@ -252,7 +252,7 @@ jobs:
         app: ${{ fromJson(needs.prepare.outputs.matrix) }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
       - name: Build and push Docker image
         uses: LerianStudio/github-actions-shared-workflows/src/build/docker-build-ts@v1.18.0
@@ -262,7 +262,7 @@ jobs:
           dockerhub-org: ${{ inputs.dockerhub_org }}
           ghcr-org: ${{ inputs.ghcr_org }}
           dockerhub-username: ${{ secrets.DOCKER_USERNAME }}
-          dockerhub-password: ${{ secrets.DOCKER_PASSWORD }}
+          dockerhub-password: ${{ secrets.DOCKERHUB_IMAGE_PUSH_TOKEN }}
           ghcr-token: ${{ secrets.MANAGE_TOKEN }}
           app-name: ${{ matrix.app.name }}
           working-dir: ${{ matrix.app.working_dir }}
@@ -288,7 +288,7 @@ jobs:
 
       - name: Upload GitOps tag artifact
         if: inputs.enable_gitops_artifacts && !inputs.dry_run
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7
         with:
           name: gitops-tags-${{ matrix.app.name }}
           path: gitops-tags/
