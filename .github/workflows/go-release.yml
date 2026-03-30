@@ -125,6 +125,7 @@ jobs:
         with:
           repository: ${{ inputs.homebrew_tap_repo }}
           token: ${{ secrets.TAP_GITHUB_TOKEN }}
+          persist-credentials: false
           path: homebrew-tap
         continue-on-error: true
 

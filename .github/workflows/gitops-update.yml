@@ -85,6 +85,7 @@ jobs:
         with:
           repository: ${{ inputs.gitops_repository }}
           token: ${{ secrets.MANAGE_TOKEN }}
+          persist-credentials: false
           path: gitops
           fetch-depth: 0
 
@@ -142,9 +143,13 @@ jobs:
 
       - name: Git pull before update
         shell: bash
+        env:
+          MANAGE_TOKEN: ${{ secrets.MANAGE_TOKEN }}
+          GITOPS_REPO: ${{ inputs.gitops_repository }}
         run: |
           set -e
           cd gitops || exit 1
+          git remote set-url origin "https://x-access-token:${MANAGE_TOKEN}@github.com/${GITOPS_REPO}.git"
           git pull origin main
 
       - name: Cleanup old artifacts (self-hosted runner safety)
