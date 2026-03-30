@@ -262,7 +262,7 @@ jobs:
           dockerhub-org: ${{ inputs.dockerhub_org }}
           ghcr-org: ${{ inputs.ghcr_org }}
           dockerhub-username: ${{ secrets.DOCKER_USERNAME }}
-          dockerhub-password: ${{ secrets.DOCKER_PASSWORD }}
+          dockerhub-password: ${{ secrets.DOCKERHUB_IMAGE_PUSH_TOKEN }}
           ghcr-token: ${{ secrets.MANAGE_TOKEN }}
           app-name: ${{ matrix.app.name }}
           working-dir: ${{ matrix.app.working_dir }}

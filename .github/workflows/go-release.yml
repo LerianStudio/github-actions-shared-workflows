@@ -154,7 +154,7 @@ jobs:
         with:
           registry: ${{ inputs.docker_registry }}
           username: ${{ secrets.DOCKER_USERNAME || github.actor }}
-          password: ${{ secrets.DOCKER_PASSWORD || secrets.GITHUB_TOKEN }}
+          password: ${{ secrets.DOCKERHUB_IMAGE_PUSH_TOKEN || secrets.GITHUB_TOKEN }}
 
       - name: Extract metadata
         id: meta
