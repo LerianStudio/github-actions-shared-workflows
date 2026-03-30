@@ -14,5 +14,5 @@ runs:
       shell: bash
       run: |
         git fetch --tags origin
-        LATEST_TAG=$(git tag -l 'v*' --sort=-v:refname | head -1)
+        LATEST_TAG=$(git tag -l 'v*' --sort=-v:refname | head -1 || true)
         echo "latest_tag=${LATEST_TAG:-none}" >> "$GITHUB_OUTPUT"
