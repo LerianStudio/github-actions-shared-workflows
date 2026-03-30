@@ -124,9 +124,7 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
           repository: ${{ inputs.homebrew_tap_repo }}
-          ref: main
           token: ${{ secrets.TAP_GITHUB_TOKEN }}
-          persist-credentials: false
           path: homebrew-tap
         continue-on-error: true
 
