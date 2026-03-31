@@ -107,6 +107,7 @@ jobs:
 | `build_context` | string | `.` | Docker build context |
 | `enable_gitops_artifacts` | boolean | `false` | Upload artifacts for gitops-update workflow |
 | `force_multiplatform` | boolean | `false` | Force multi-platform build (amd64+arm64) even for beta/rc tags |
+| `enable_cosign_sign` | boolean | `true` | Sign images with cosign keyless (OIDC) signing. Requires `id-token: write` in caller |
 
 ## Secrets
 
@@ -193,6 +194,41 @@ Automatically sends notifications on completion:
 
 ### notify
 - Sends Slack notification on completion
+
+## Image Signing (cosign)
+
+Container images are signed by default using [Sigstore cosign](https://github.com/sigstore/cosign) with keyless (OIDC) signing. The GitHub Actions identity is used as proof of provenance — no private keys are needed.
+
+### Caller permissions
+
+Callers **must** grant `id-token: write` for signing to work:
+
+```yaml
+permissions:
+  contents: read
+  packages: write
+  id-token: write   # required for cosign keyless signing
+```
+
+### Disabling signing
+
+```yaml
+jobs:
+  build:
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/build.yml@v1.0.0
+    with:
+      enable_cosign_sign: false
+    secrets: inherit
+```
+
+### Verifying signatures
+
+```bash
+cosign verify \
+  --certificate-identity-regexp=".*" \
+  --certificate-oidc-issuer="https://token.actions.githubusercontent.com" \
+  docker.io/lerianstudio/my-app@sha256:abc123...
+```
 
 ## Best Practices
 

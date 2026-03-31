@@ -133,6 +133,10 @@ on:
         description: 'JSON mapping of component names to values.yaml keys'
         type: string
         default: ''
+      enable_cosign_sign:
+        description: 'Sign container images with cosign keyless (OIDC) signing after push. Requires id-token: write permission in the caller.'
+        type: boolean
+        default: true
 
   workflow_dispatch:
     inputs:
@@ -144,6 +148,7 @@ on:
 permissions:
   contents: read
   packages: write
+  id-token: write
 
 jobs:
   prepare:
@@ -255,6 +260,7 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
       - name: Build and push Docker image
+        id: docker-build
         uses: LerianStudio/github-actions-shared-workflows/src/build/docker-build-ts@v1.18.0
         with:
           enable-dockerhub: ${{ inputs.enable_dockerhub }}
@@ -275,7 +281,54 @@ jobs:
           is-release: ${{ needs.prepare.outputs.is_release }}
           dry-run: ${{ inputs.dry_run }}
 
-      # GitOps artifacts for downstream gitops-update workflow
+      # ----------------- Cosign Image Signing -----------------
+      - name: Normalize repository owner to lowercase
+        if: inputs.enable_cosign_sign && !inputs.dry_run
+        id: normalize
+        run: |
+          echo "owner_lower=$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_OUTPUT"
+
+      - name: Build cosign image references
+        if: inputs.enable_cosign_sign && !inputs.dry_run
+        id: cosign-refs
+        run: |
+          DIGEST="${{ steps.docker-build.outputs.image-digest }}"
+          if [ -z "$DIGEST" ]; then
+            echo "::warning::No image digest available — skipping cosign signing"
+            echo "refs=" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          REFS=""
+          GHCR_ORG="${{ inputs.ghcr_org }}"
+          if [ -z "$GHCR_ORG" ]; then
+            GHCR_ORG="${{ steps.normalize.outputs.owner_lower }}"
+          else
+            GHCR_ORG=$(echo "$GHCR_ORG" | tr '[:upper:]' '[:lower:]')
+          fi
+
+          if [ "${{ inputs.enable_dockerhub }}" == "true" ]; then
+            REFS="${{ inputs.dockerhub_org }}/${{ matrix.app.name }}@${DIGEST}"
+          fi
+
+          if [ "${{ inputs.enable_ghcr }}" == "true" ]; then
+            [ -n "$REFS" ] && REFS="${REFS}"$'\n'
+            REFS="${REFS}ghcr.io/${GHCR_ORG}/${{ matrix.app.name }}@${DIGEST}"
+          fi
+
+          {
+            echo "refs<<EOF"
+            echo "$REFS"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Sign container images with cosign
+        if: inputs.enable_cosign_sign && !inputs.dry_run && steps.cosign-refs.outputs.refs != ''
+        uses: LerianStudio/github-actions-shared-workflows/src/security/cosign-sign@feat/cosign-sign
+        with:
+          image-refs: ${{ steps.cosign-refs.outputs.refs }}
+
+      # ----------------- GitOps Artifacts -----------------
       - name: Create GitOps tag artifact
         if: inputs.enable_gitops_artifacts && !inputs.dry_run
         run: |

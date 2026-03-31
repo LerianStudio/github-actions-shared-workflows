@@ -114,6 +114,7 @@ jobs:
 | `docker_platforms` | Docker platforms (comma-separated) | No | `linux/amd64,linux/arm64` |
 | `docker_tags` | Docker image tags configuration | No | Semver + latest |
 | `enable_notifications` | Enable release notifications | No | `false` |
+| `enable_cosign_sign` | Sign Docker images with cosign keyless (OIDC) signing. Requires `id-token: write` in caller | No | `true` |
 
 ## Secrets
 
@@ -170,6 +171,42 @@ jobs:
     uses: LerianStudio/github-actions-shared-workflows/.github/workflows/go-release.yml@v1.0.0
     with:
       run_tests_before_release: false
+```
+
+## Image Signing (cosign)
+
+When Docker is enabled, container images are signed by default using [Sigstore cosign](https://github.com/sigstore/cosign) with keyless (OIDC) signing.
+
+### Caller permissions
+
+Callers **must** grant `id-token: write` for signing to work:
+
+```yaml
+permissions:
+  contents: write
+  packages: write
+  id-token: write   # required for cosign keyless signing
+```
+
+### Disabling signing
+
+```yaml
+jobs:
+  release:
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/go-release.yml@v1.0.0
+    with:
+      enable_docker: true
+      enable_cosign_sign: false
+    secrets: inherit
+```
+
+### Verifying signatures
+
+```bash
+cosign verify \
+  --certificate-identity-regexp=".*" \
+  --certificate-oidc-issuer="https://token.actions.githubusercontent.com" \
+  ghcr.io/myorg/my-app@sha256:abc123...
 ```
 
 ## Release Process
