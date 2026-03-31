@@ -38,7 +38,7 @@ runs:
   steps:
     - name: Post security report to PR
       id: report
-      uses: actions/github-script@v8
+      uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
       env:
         APP_NAME: ${{ inputs.app-name }}
         ENABLE_DOCKER_SCAN: ${{ inputs.enable-docker-scan }}
