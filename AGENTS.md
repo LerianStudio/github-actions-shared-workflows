@@ -173,6 +173,7 @@ Before modifying any existing file, follow the refactoring protocol in `.cursor/
 - NEVER use `actions/checkout` with `ref: ${{ github.event.pull_request.head.ref }}` or `ref: ${{ github.event.pull_request.head.sha }}` in `pull_request_target` workflows
 - If `pull_request_target` is needed (e.g., labeling, commenting), it MUST NOT run any code from the fork (no build, no test, no script execution from the PR branch)
 - Prefer `pull_request` trigger over `pull_request_target` unless write permissions to the base repo are explicitly required
+- NEVER use `secrets: inherit` in workflows triggered by `pull_request_target` — it exposes all repository secrets to fork code
 
 ### Expression injection — sanitize ALL untrusted inputs
 
@@ -185,7 +186,8 @@ ${{ github.event.issue.title }}           ${{ github.event.issue.body }}
 ${{ github.event.comment.body }}          ${{ github.event.head_commit.message }}
 ${{ github.event.head_commit.author.name }}
 ${{ github.event.commits[*].message }}   ${{ github.event.discussion.title }}
-${{ github.event.discussion.body }}       ${{ github.head_ref }}
+${{ github.event.discussion.body }}       ${{ github.event.review.body }}
+${{ github.head_ref }}
 ${{ github.event.pages[*].page_name }}
 
 # ✅ Safe — map to env var first
