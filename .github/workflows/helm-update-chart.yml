@@ -100,7 +100,7 @@ jobs:
     steps:
       - name: Generate GitHub App Token
         id: app-token
-        uses: actions/create-github-app-token@v2
+        uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2
         with:
           app-id: ${{ secrets.APP_ID }}
           private-key: ${{ secrets.APP_PRIVATE_KEY }}
@@ -153,7 +153,7 @@ jobs:
       # triggered by internal dispatch, not a PR event. The ref is a controlled
       # branch name (develop/main), not an untrusted PR head.
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
           token: ${{ steps.app-token.outputs.token }}
           ref: ${{ inputs.base_branch }}
@@ -186,7 +186,7 @@ jobs:
 
       - name: Setup Go
         if: ${{ inputs.update_readme }}
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
         with:
           go-version: '1.21'
           cache-dependency-path: ${{ inputs.scripts_path }}/go.mod
@@ -194,12 +194,12 @@ jobs:
       - name: Build scripts
         if: ${{ inputs.update_readme }}
         run: |
-          cd ${{ inputs.scripts_path }}
+          cd ${{ inputs.scripts_path }} || exit 1
           go build -o update-readme-matrix update-readme-matrix.go
           go build -o update-chart-version-readme update-chart-version-readme.go
 
       - name: Setup yq
-        uses: mikefarah/yq@5a7e72a743649b1b3a47d1a1d8214f3453173c51 # v4
+        uses: mikefarah/yq@0f4fb8d35ec1a939d78dd6862f494d19ec589f19 # v4
 
       - name: Process all components
         id: process
@@ -418,7 +418,6 @@ jobs:
           CHART="${{ steps.payload.outputs.chart }}"
           BRANCH_NAME="${{ steps.payload.outputs.branch_name }}"
           BASE_BRANCH="${{ inputs.base_branch }}"
-          COMMIT_MSG="${{ steps.commit.outputs.commit_msg }}"
           HAS_NEW_ENV_VARS="${{ steps.payload.outputs.has_new_env_vars }}"
           UPDATED_COMPONENTS="${{ steps.process.outputs.updated_components }}"
 
@@ -481,26 +480,28 @@ jobs:
           BRANCH_NAME="${{ steps.payload.outputs.branch_name }}"
           HAS_CHANGES="${{ steps.commit.outputs.has_changes }}"
 
-          echo "### Helm Chart Update Summary" >> "$GITHUB_STEP_SUMMARY"
-          echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "**Chart:** \`${CHART}\`" >> "$GITHUB_STEP_SUMMARY"
-          echo "**Branch:** \`${BRANCH_NAME}\`" >> "$GITHUB_STEP_SUMMARY"
-          echo "**Base:** \`${BASE_BRANCH}\`" >> "$GITHUB_STEP_SUMMARY"
-          echo "" >> "$GITHUB_STEP_SUMMARY"
+          {
+            echo "### Helm Chart Update Summary"
+            echo ""
+            echo "**Chart:** \`${CHART}\`"
+            echo "**Branch:** \`${BRANCH_NAME}\`"
+            echo "**Base:** \`${BASE_BRANCH}\`"
+            echo ""
 
-          if [ "${HAS_CHANGES}" = "true" ]; then
-            echo "✅ **PR created successfully**" >> "$GITHUB_STEP_SUMMARY"
-          else
-            echo "ℹ️ **No changes detected**" >> "$GITHUB_STEP_SUMMARY"
-          fi
+            if [ "${HAS_CHANGES}" = "true" ]; then
+              echo "✅ **PR created successfully**"
+            else
+              echo "ℹ️ **No changes detected**"
+            fi
 
-          echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "**Components:**" >> "$GITHUB_STEP_SUMMARY"
-          echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Component | Version | New Env Vars |" >> "$GITHUB_STEP_SUMMARY"
-          echo "|-----------|---------|--------------|" >> "$GITHUB_STEP_SUMMARY"
+            echo ""
+            echo "**Components:**"
+            echo ""
+            echo "| Component | Version | New Env Vars |"
+            echo "|-----------|---------|--------------|"
 
-          echo "$COMPONENTS" | jq -r '.[] | "| \(.name) | \(.version) | \(.env_vars | if . == {} then "-" else (. | keys | join(", ")) end) |"' >> "$GITHUB_STEP_SUMMARY"
+            echo "$COMPONENTS" | jq -r '.[] | "| \(.name) | \(.version) | \(.env_vars | if . == {} then "-" else (. | keys | join(", ")) end) |"'
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Send Slack notification
         if: ${{ inputs.slack_notification && steps.commit.outputs.has_changes == 'true' }}
