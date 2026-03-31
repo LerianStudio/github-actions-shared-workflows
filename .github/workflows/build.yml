@@ -126,10 +126,15 @@ on:
         description: 'Use the component working_dir as Docker build context instead of build_context. Useful for independent modules (e.g., tools with their own go.mod).'
         type: boolean
         default: false
+      enable_cosign_sign:
+        description: 'Sign container images with cosign keyless (OIDC) signing after push. Requires id-token: write permission in the caller.'
+        type: boolean
+        default: true
 
 permissions:
   contents: read
   packages: write
+  id-token: write
 
 jobs:
   prepare:
@@ -283,6 +288,7 @@ jobs:
             type=semver,pattern={{major}},value=${{ steps.version.outputs.version }},enable=${{ needs.prepare.outputs.is_release }}
 
       - name: Build and push Docker image
+        id: build-push
         uses: docker/build-push-action@d08e5c354a6adb9ed34480a06d141179aa583294 # v7
         with:
           context: ${{ inputs.build_context_from_working_dir == true && matrix.app.working_dir || inputs.build_context }}
@@ -298,7 +304,42 @@ jobs:
           secrets: |
             github_token=${{ secrets.MANAGE_TOKEN }}
 
-      # GitOps artifacts for downstream gitops-update workflow
+      # ----------------- Cosign Image Signing -----------------
+      - name: Build cosign image references
+        if: inputs.enable_cosign_sign
+        id: cosign-refs
+        env:
+          DIGEST: ${{ steps.build-push.outputs.digest }}
+          ENABLE_DOCKERHUB: ${{ inputs.enable_dockerhub }}
+          ENABLE_GHCR: ${{ inputs.enable_ghcr }}
+          DOCKERHUB_ORG: ${{ inputs.dockerhub_org }}
+          APP_NAME: ${{ matrix.app.name }}
+          GHCR_ORG: ${{ steps.normalize.outputs.owner_lower }}
+        run: |
+          REFS=""
+
+          if [ "$ENABLE_DOCKERHUB" == "true" ]; then
+            REFS="${DOCKERHUB_ORG}/${APP_NAME}@${DIGEST}"
+          fi
+
+          if [ "$ENABLE_GHCR" == "true" ]; then
+            [ -n "$REFS" ] && REFS="${REFS}"$'\n'
+            REFS="${REFS}ghcr.io/${GHCR_ORG}/${APP_NAME}@${DIGEST}"
+          fi
+
+          {
+            echo "refs<<EOF"
+            echo "$REFS"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Sign container images with cosign
+        if: inputs.enable_cosign_sign
+        uses: LerianStudio/github-actions-shared-workflows/src/security/cosign-sign@feat/cosign-sign
+        with:
+          image-refs: ${{ steps.cosign-refs.outputs.refs }}
+
+      # ----------------- GitOps Artifacts -----------------
       - name: Create GitOps tag artifact
         if: inputs.enable_gitops_artifacts
         run: |

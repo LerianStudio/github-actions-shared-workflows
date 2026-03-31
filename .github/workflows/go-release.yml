@@ -67,10 +67,15 @@ on:
         description: 'Enable release notifications'
         type: boolean
         default: false
+      enable_cosign_sign:
+        description: 'Sign container images with cosign keyless (OIDC) signing after push. Requires id-token: write permission in the caller.'
+        type: boolean
+        default: true
 
 permissions:
   contents: write
   packages: write
+  id-token: write
 
 jobs:
   release:
@@ -164,6 +169,7 @@ jobs:
           tags: ${{ inputs.docker_tags }}
 
       - name: Build and push
+        id: build-push
         uses: docker/build-push-action@d08e5c354a6adb9ed34480a06d141179aa583294 # v7
         with:
           context: .
@@ -173,6 +179,24 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      # ----------------- Cosign Image Signing -----------------
+      - name: Build cosign image references
+        if: inputs.enable_cosign_sign
+        id: cosign-refs
+        env:
+          DIGEST: ${{ steps.build-push.outputs.digest }}
+          DOCKER_REGISTRY: ${{ inputs.docker_registry }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          REPO=$(echo "$REPOSITORY" | tr '[:upper:]' '[:lower:]')
+          echo "refs=${DOCKER_REGISTRY}/${REPO}@${DIGEST}" >> "$GITHUB_OUTPUT"
+
+      - name: Sign container images with cosign
+        if: inputs.enable_cosign_sign
+        uses: LerianStudio/github-actions-shared-workflows/src/security/cosign-sign@feat/cosign-sign
+        with:
+          image-refs: ${{ steps.cosign-refs.outputs.refs }}
 
   # Slack notification
   notify:

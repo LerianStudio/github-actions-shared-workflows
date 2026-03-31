@@ -17,6 +17,7 @@ The build logic is encapsulated in the [`docker-build-ts`](../src/build/docker-b
 | `npmrc` secret | Not included | Always injected automatically |
 | `build_secrets` behavior | Replaces all secrets | Additive (extra secrets on top of npmrc) |
 | `dry_run` mode | Not available | Available |
+| Cosign signing | Enabled by default | Enabled by default (skipped in dry-run) |
 | `workflow_dispatch` | Not available | Available for manual testing |
 | Dockerfile per component | Uses `dockerfile_name` only | Resolves `matrix.app.dockerfile` with fallback |
 
@@ -147,6 +148,7 @@ jobs:
 | `helm_dispatch_on_rc` | boolean | `false` | Enable Helm dispatch for rc tags |
 | `helm_dispatch_on_beta` | boolean | `false` | Enable Helm dispatch for beta tags |
 | `helm_values_key_mappings` | string | `''` | Component names to values.yaml keys mapping |
+| `enable_cosign_sign` | boolean | `true` | Sign images with cosign keyless (OIDC) signing. Requires `id-token: write` in caller |
 
 ## Secrets
 
@@ -196,6 +198,41 @@ Dockerfiles must mount the `npmrc` secret for installing private packages:
 
 ```dockerfile
 RUN --mount=type=secret,id=npmrc,target=/root/.npmrc npm install
+```
+
+## Image Signing (cosign)
+
+Container images are signed by default using [Sigstore cosign](https://github.com/sigstore/cosign) with keyless (OIDC) signing. Signing is skipped during dry-run mode (no digest available).
+
+### Caller permissions
+
+Callers **must** grant `id-token: write` for signing to work:
+
+```yaml
+permissions:
+  contents: read
+  packages: write
+  id-token: write   # required for cosign keyless signing
+```
+
+### Disabling signing
+
+```yaml
+jobs:
+  build:
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/typescript-build.yml@v1.0.0
+    with:
+      enable_cosign_sign: false
+    secrets: inherit
+```
+
+### Verifying signatures
+
+```bash
+cosign verify \
+  --certificate-identity-regexp=".*" \
+  --certificate-oidc-issuer="https://token.actions.githubusercontent.com" \
+  ghcr.io/lerianstudio/my-app@sha256:abc123...
 ```
 
 ## Related Workflows
