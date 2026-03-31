@@ -167,3 +167,58 @@ Before modifying any existing file, follow the refactoring protocol in `.cursor/
 - Never hardcode tokens, org names, or internal URLs — use `inputs` or `secrets`
 - Never print secrets via `echo`, `run` output, or step summaries
 - Vulnerability reports go through private channels only — see [`SECURITY.md`](SECURITY.md)
+
+### pull_request_target — NEVER checkout fork code
+
+- NEVER use `actions/checkout` with `ref: ${{ github.event.pull_request.head.ref }}` or `ref: ${{ github.event.pull_request.head.sha }}` in `pull_request_target` workflows
+- If `pull_request_target` is needed (e.g., labeling, commenting), it MUST NOT run any code from the fork (no build, no test, no script execution from the PR branch)
+- Prefer `pull_request` trigger over `pull_request_target` unless write permissions to the base repo are explicitly required
+
+### Expression injection — sanitize ALL untrusted inputs
+
+Never use these directly in `run:` steps — always pass through an env var:
+
+```yaml
+# ❌ These are injectable — NEVER interpolate directly in run:
+${{ github.event.pull_request.title }}   ${{ github.event.pull_request.body }}
+${{ github.event.issue.title }}           ${{ github.event.issue.body }}
+${{ github.event.comment.body }}          ${{ github.event.head_commit.message }}
+${{ github.event.head_commit.author.name }}
+${{ github.event.commits[*].message }}   ${{ github.event.discussion.title }}
+${{ github.event.discussion.body }}       ${{ github.head_ref }}
+${{ github.event.pages[*].page_name }}
+
+# ✅ Safe — map to env var first
+env:
+  PR_TITLE: ${{ github.event.pull_request.title }}
+run: echo "$PR_TITLE"
+```
+
+### workflow_run — treat artifacts as untrusted
+
+- Workflows triggered by `workflow_run` MUST NOT trust artifacts from the triggering workflow blindly
+- Validate/sanitize any data extracted from artifacts before use in shell commands or API calls
+- Never extract and execute scripts from artifacts without verification
+
+### Permissions — principle of least privilege
+
+- ALWAYS declare explicit `permissions:` block at workflow level; default to `contents: read`
+- Only escalate permissions per-job when needed
+- NEVER use `permissions: write-all` or leave permissions undeclared (defaults to broad access in public repos)
+- For comment/label-only workflows: `permissions: { pull-requests: write }` — nothing else
+
+### Secrets in fork contexts
+
+- NEVER pass secrets to steps that run fork code
+- `pull_request` from a fork does NOT have access to secrets by default — do not circumvent this
+- If a workflow needs secrets + fork code, split: `pull_request` (no secrets, runs fork code) + `workflow_run` (has secrets, trusted code only)
+
+### Script injection via labels/branches
+
+- Validate branch names and label names before using in shell commands
+- Branch names can contain shell metacharacters — always quote variables and map through `env:`
+
+### Self-hosted runners
+
+- NEVER use self-hosted runners for `pull_request` or `pull_request_target` from public repos — a fork can execute arbitrary code on the runner
+- Self-hosted runners are only safe for `push`, `workflow_dispatch`, `schedule`, and other non-fork triggers

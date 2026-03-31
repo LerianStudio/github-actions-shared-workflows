@@ -417,6 +417,90 @@ uses: some-action/tool@main    # use a specific tag or SHA
 - Never print secrets via `echo`, env dumps, or step summaries
 - Complex conditional logic belongs in the workflow (not in composites) — full log visibility
 
+### pull_request_target — NEVER checkout fork code
+
+- NEVER use `actions/checkout` with `ref: ${{ github.event.pull_request.head.ref }}` or `ref: ${{ github.event.pull_request.head.sha }}` in `pull_request_target` workflows
+- If `pull_request_target` is needed (e.g., labeling, commenting), it MUST NOT run any code from the fork (no build, no test, no script execution from the PR branch)
+- Prefer `pull_request` trigger over `pull_request_target` unless write permissions to the base repo are explicitly required
+
+### Expression injection — sanitize ALL untrusted inputs
+
+NEVER use these directly in `run:` steps:
+
+```yaml
+# ❌ All of these are injectable — NEVER interpolate directly in run:
+${{ github.event.pull_request.title }}
+${{ github.event.pull_request.body }}
+${{ github.event.issue.title }}
+${{ github.event.issue.body }}
+${{ github.event.comment.body }}
+${{ github.event.head_commit.message }}
+${{ github.event.head_commit.author.name }}
+${{ github.event.commits[*].message }}
+${{ github.event.discussion.title }}
+${{ github.event.discussion.body }}
+${{ github.head_ref }}
+${{ github.event.pages[*].page_name }}
+```
+
+If any of these values are needed in a `run:` step, pass them through an environment variable:
+
+```yaml
+# ✅ Safe — shell variable, not template injection
+env:
+  PR_TITLE: ${{ github.event.pull_request.title }}
+run: echo "$PR_TITLE"
+```
+
+### workflow_run — treat artifacts as untrusted
+
+- Workflows triggered by `workflow_run` MUST NOT trust artifacts from the triggering workflow blindly
+- Validate/sanitize any data extracted from artifacts before use in shell commands or API calls
+- Never extract and execute scripts from artifacts without verification
+
+### Permissions — principle of least privilege
+
+- ALWAYS declare explicit `permissions:` block at workflow level
+- Default to `contents: read` — only escalate per-job when needed
+- NEVER use `permissions: write-all` or leave permissions undeclared (defaults to broad access in public repos)
+- For comment/label-only workflows: `permissions: { pull-requests: write }` — nothing else
+
+```yaml
+# ✅ Explicit, minimal permissions
+permissions:
+  contents: read
+
+jobs:
+  comment:
+    permissions:
+      pull-requests: write   # escalated only for this job
+```
+
+### Secrets in fork contexts
+
+- NEVER pass secrets to steps that run fork code
+- `pull_request` from a fork does NOT have access to secrets by default — do not circumvent this
+- If a workflow needs secrets + fork code, split into two workflows:
+  - `pull_request` (no secrets, runs fork code)
+  - `workflow_run` (has secrets, runs trusted code only)
+
+### Script injection via labels/branches
+
+- Validate branch names and label names before using in shell commands
+- Branch names can contain shell metacharacters — always quote variables
+
+```yaml
+# ✅ Always quote branch/label variables
+run: echo "$BRANCH_NAME"
+env:
+  BRANCH_NAME: ${{ github.head_ref }}
+```
+
+### Self-hosted runners
+
+- NEVER use self-hosted runners for `pull_request` or `pull_request_target` from public repos — a fork can execute arbitrary code on the runner
+- Self-hosted runners are only safe for `push`, `workflow_dispatch`, `schedule`, and other non-fork triggers
+
 ### Reserved names — never use as custom secret or input names
 
 GitHub reserves the `GITHUB_*` prefix for all built-in variables and the `ACTIONS_*` prefix for runner internals. Declaring a custom secret or input with these names causes the job to fail silently or be ignored:
