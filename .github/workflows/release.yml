@@ -147,6 +147,12 @@ jobs:
           npm install --save-dev \
             @semantic-release/exec
 
+      # WORKAROUND: lodash-es@4.18.0 has a broken import (assignWith undefined).
+      # Pin to last known-good version until upstream publishes a fix.
+      - name: Pin lodash-es to avoid 4.18.0 bug
+        working-directory: ${{ matrix.app.working_dir }}
+        run: npm install lodash-es@4.17.23
+
       # ----------------- Snapshot tags before release -----------------
       - name: Snapshot tags before release
         id: pre-tags
