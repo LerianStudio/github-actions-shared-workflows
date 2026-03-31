@@ -335,10 +335,10 @@ runs:
     - name: Gate - Fail on Security Findings
       if: inputs.fail-on-findings == 'true'
       shell: bash
+      env:
+        HAS_ERRORS: ${{ steps.parse-outputs.outputs.has_errors }}
+        HAS_FINDINGS: ${{ steps.parse-outputs.outputs.has_findings }}
       run: |
-        HAS_ERRORS="${{ steps.parse-outputs.outputs.has_errors }}"
-        HAS_FINDINGS="${{ steps.parse-outputs.outputs.has_findings }}"
-
         if [ "$HAS_ERRORS" = "true" ]; then
           echo "::error::Some scan artifacts were missing or could not be parsed. Failing to prevent bypass."
         fi

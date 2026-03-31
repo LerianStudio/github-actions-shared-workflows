@@ -184,10 +184,13 @@ jobs:
       - name: Build cosign image references
         if: inputs.enable_cosign_sign
         id: cosign-refs
+        env:
+          DIGEST: ${{ steps.build-push.outputs.digest }}
+          DOCKER_REGISTRY: ${{ inputs.docker_registry }}
+          REPOSITORY: ${{ github.repository }}
         run: |
-          DIGEST="${{ steps.build-push.outputs.digest }}"
-          REPO=$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
-          echo "refs=${{ inputs.docker_registry }}/${REPO}@${DIGEST}" >> "$GITHUB_OUTPUT"
+          REPO=$(echo "$REPOSITORY" | tr '[:upper:]' '[:lower:]')
+          echo "refs=${DOCKER_REGISTRY}/${REPO}@${DIGEST}" >> "$GITHUB_OUTPUT"
 
       - name: Sign container images with cosign
         if: inputs.enable_cosign_sign

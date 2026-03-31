@@ -32,9 +32,10 @@ runs:
     - name: Validate image references
       id: validate
       shell: bash
+      env:
+        IMAGE_REFS: ${{ inputs.image-refs }}
       run: |
-        REFS="${{ inputs.image-refs }}"
-        if [ -z "$REFS" ]; then
+        if [ -z "$IMAGE_REFS" ]; then
           echo "::error::No image references provided"
           exit 1
         fi
@@ -48,7 +49,7 @@ runs:
             exit 1
           fi
           VALID_COUNT=$((VALID_COUNT + 1))
-        done <<< "$REFS"
+        done <<< "$IMAGE_REFS"
 
         if [ "$VALID_COUNT" -eq 0 ]; then
           echo "::error::No valid image references found"
@@ -61,22 +62,29 @@ runs:
     - name: Dry run summary
       if: ${{ inputs.dry-run == 'true' }}
       shell: bash
+      env:
+        IMAGE_REFS: ${{ inputs.image-refs }}
+        COSIGN_VERSION: ${{ inputs.cosign-version }}
+        VALID_COUNT: ${{ steps.validate.outputs.count }}
       run: |
         echo "::notice::DRY RUN — no images will be signed"
-        echo "  cosign version : ${{ inputs.cosign-version }}"
+        echo "  cosign version : $COSIGN_VERSION"
         echo "  OIDC issuer    : https://token.actions.githubusercontent.com"
-        echo "  images (${{ steps.validate.outputs.count }}):"
+        echo "  images ($VALID_COUNT):"
         while IFS= read -r ref; do
           ref=$(echo "$ref" | xargs)
           [ -z "$ref" ] && continue
           echo "    - $ref"
-        done <<< "${{ inputs.image-refs }}"
+        done <<< "$IMAGE_REFS"
 
     # ----------------- Sign -----------------
     - name: Sign container images
       if: ${{ inputs.dry-run != 'true' }}
       id: sign
       shell: bash
+      env:
+        IMAGE_REFS: ${{ inputs.image-refs }}
+        VALID_COUNT: ${{ steps.validate.outputs.count }}
       run: |
         SIGNED=""
         while IFS= read -r ref; do
@@ -89,7 +97,7 @@ runs:
           else
             SIGNED="$ref"
           fi
-        done <<< "${{ inputs.image-refs }}"
+        done <<< "$IMAGE_REFS"
 
         {
           echo "signed_refs<<EOF"
@@ -97,4 +105,4 @@ runs:
           echo "EOF"
         } >> "$GITHUB_OUTPUT"
 
-        echo "::notice::Successfully signed ${{ steps.validate.outputs.count }} image(s)"
+        echo "::notice::Successfully signed $VALID_COUNT image(s)"
