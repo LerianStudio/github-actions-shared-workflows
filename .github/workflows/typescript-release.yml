@@ -114,14 +114,14 @@ jobs:
       gpg_fingerprint: ${{ steps.import_gpg.outputs.fingerprint }}
 
     steps:
-      - uses: actions/create-github-app-token@v2
+      - uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2
         id: app-token
         with:
           app-id: ${{ secrets.LERIAN_STUDIO_MIDAZ_PUSH_BOT_APP_ID }}
           private-key: ${{ secrets.LERIAN_STUDIO_MIDAZ_PUSH_BOT_PRIVATE_KEY }}
 
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
           fetch-depth: 0
           token: ${{ steps.app-token.outputs.token }}
@@ -132,7 +132,7 @@ jobs:
           git reset --hard origin/${{ github.ref_name }}
 
       - name: Import GPG key
-        uses: crazy-max/ghaction-import-gpg@v7
+        uses: crazy-max/ghaction-import-gpg@2dc316deee8e90f13e1a351ab510b4d5bc0c82cd # v7
         id: import_gpg
         with:
           gpg_private_key: ${{ secrets.LERIAN_CI_CD_USER_GPG_KEY }}
@@ -144,7 +144,7 @@ jobs:
           git_commit_gpgsign: true
 
       - name: Setup Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6
         with:
           node-version: ${{ inputs.node_version }}
 
@@ -167,8 +167,14 @@ jobs:
           npm install --save-dev \
             @semantic-release/exec@7.1.0
 
+      # WORKAROUND: lodash-es@4.18.0 has a broken import (assignWith undefined).
+      # Pin to last known-good version until upstream publishes a fix.
+      - name: Pin lodash-es to avoid 4.18.0 bug
+        working-directory: ${{ matrix.app.working_dir }}
+        run: npm install lodash-es@4.17.23
+
       - name: Semantic Release
-        uses: cycjimmy/semantic-release-action@v6
+        uses: cycjimmy/semantic-release-action@b12c8f6015dc215fe37bc154d4ad456dd3833c90 # v6
         id: semantic
         with:
           ci: false
