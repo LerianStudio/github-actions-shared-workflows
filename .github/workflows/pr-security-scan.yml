@@ -68,7 +68,7 @@ on:
         type: boolean
         default: true
       docker_build_args:
-        description: 'Newline-separated Docker build arguments to pass to docker build (e.g., "APP_NAME=spi\nCOMPONENT_NAME=api"). Forwarded to docker/build-push-action build-args.'
+        description: 'Newline-separated Docker build arguments (e.g., "APP_NAME=spi\nCOMPONENT_NAME=api"). For sensitive values (tokens, keys, passwords), use BuildKit secrets instead — build arguments are visible in image history.'
         type: string
         required: false
         default: ''

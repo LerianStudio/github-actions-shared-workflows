@@ -75,7 +75,6 @@ on:
 permissions:
   contents: write
   packages: write
-  id-token: write
 
 jobs:
   release:
@@ -144,6 +143,10 @@ jobs:
   docker:
     name: Build and Push Docker Image
     runs-on: ${{ inputs.runner_type }}
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
     needs: release
     if: inputs.enable_docker && startsWith(github.ref, 'refs/tags/v')
 
@@ -194,7 +197,7 @@ jobs:
 
       - name: Sign container images with cosign
         if: inputs.enable_cosign_sign
-        uses: LerianStudio/github-actions-shared-workflows/src/security/cosign-sign@feat/cosign-sign
+        uses: LerianStudio/github-actions-shared-workflows/src/security/cosign-sign@v1.23.0
         with:
           image-refs: ${{ steps.cosign-refs.outputs.refs }}
 
