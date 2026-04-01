@@ -277,7 +277,7 @@ jobs:
           echo "Processing components for chart: $CHART"
 
           # Process each component
-          for row in $(echo "$COMPONENTS" | jq -c '.[]'); do
+          while IFS= read -r row; do
             COMP_NAME=$(echo "$row" | jq -r '.name')
             COMP_VERSION=$(echo "$row" | jq -r '.version')
             COMP_ENV_VARS=$(echo "$row" | jq -c '.env_vars // {}')
@@ -308,7 +308,7 @@ jobs:
               CONFIGMAP_FILE="${TEMPLATES_BASE}/${VALUES_KEY}/configmap.yaml"
               SECRET_FILE="${TEMPLATES_BASE}/${VALUES_KEY}/secret.yaml"
 
-              echo "$COMP_ENV_VARS" | jq -r 'to_entries[] | "\(.key)=\(.value)"' | while IFS='=' read -r key value; do
+              while IFS='=' read -r key value; do
                 if [ -n "$key" ]; then
                   # Escape values for safe sed insertion
                   escaped_value=$(escape_sed "$value")
@@ -337,7 +337,7 @@ jobs:
                     fi
                   fi
                 fi
-              done
+              done < <(echo "$COMP_ENV_VARS" | jq -r 'to_entries[] | "\(.key)=\(.value)"')
             fi
 
             # Build updated components list for commit message
@@ -346,7 +346,7 @@ jobs:
             else
               UPDATED_COMPONENTS="${COMP_NAME}@${COMP_VERSION}"
             fi
-          done
+          done < <(echo "$COMPONENTS" | jq -c '.[]')
 
           # Update appVersion with highest version among all components
           if [ -n "$HIGHEST_VERSION" ]; then
@@ -371,7 +371,7 @@ jobs:
           APP_VERSION=$(yq '.appVersion' "${CHARTS_PATH}/${CHART}/Chart.yaml")
 
           # Update README for each component
-          for row in $(echo "$COMPONENTS" | jq -c '.[]'); do
+          while IFS= read -r row; do
             COMP_NAME=$(echo "$row" | jq -r '.name')
             COMP_VERSION=$(echo "$row" | jq -r '.version')
 
@@ -382,7 +382,7 @@ jobs:
               --component "${COMP_NAME}" \
               --version "${COMP_VERSION}" \
               --app-version "${APP_VERSION}"
-          done
+          done < <(echo "$COMPONENTS" | jq -c '.[]')
 
       - name: Commit changes
         id: commit
