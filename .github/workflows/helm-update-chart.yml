@@ -623,10 +623,15 @@ jobs:
           if [ -n "$BOT_MENTION" ]; then
             SEVERINO_TEXT="<@${BOT_MENTION}> helm chart PR review | ${PR_URL} | Chart: ${CHART}"
 
+            SEVERINO_PAYLOAD=$(jq -n \
+              --arg channel "${SLACK_CHANNEL}" \
+              --arg text "${SEVERINO_TEXT}" \
+              '{channel: $channel, text: $text}')
+
             SEVERINO_RESPONSE=$(curl -s -X POST \
               -H "Authorization: Bearer ${SLACK_BOT_TOKEN}" \
               -H "Content-type: application/json; charset=utf-8" \
-              --data "{\"channel\":\"${SLACK_CHANNEL}\",\"text\":\"${SEVERINO_TEXT}\"}" \
+              --data "$SEVERINO_PAYLOAD" \
               "https://slack.com/api/chat.postMessage")
 
             if echo "$SEVERINO_RESPONSE" | jq -e '.ok == true' > /dev/null; then
