@@ -377,7 +377,7 @@ jobs:
 
             echo "Updating README matrix for ${COMP_NAME}@${COMP_VERSION}"
 
-            ./${SCRIPTS_PATH}/update-readme-matrix \
+            "./${SCRIPTS_PATH}/update-readme-matrix" \
               --chart "${CHART}" \
               --component "${COMP_NAME}" \
               --version "${COMP_VERSION}" \
