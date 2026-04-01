@@ -181,8 +181,10 @@ jobs:
           git config user.email "${GIT_USER_EMAIL}"
 
       - name: Create feature branch
+        env:
+          BRANCH_NAME: ${{ steps.payload.outputs.branch_name }}
         run: |
-          git checkout -b "${{ steps.payload.outputs.branch_name }}"
+          git checkout -b "${BRANCH_NAME}"
 
       - name: Setup Go
         if: ${{ inputs.update_readme }}
@@ -193,8 +195,10 @@ jobs:
 
       - name: Build scripts
         if: ${{ inputs.update_readme }}
+        env:
+          SCRIPTS_PATH: ${{ inputs.scripts_path }}
         run: |
-          cd ${{ inputs.scripts_path }} || exit 1
+          cd "${SCRIPTS_PATH}" || exit 1
           go build -o update-readme-matrix update-readme-matrix.go
           go build -o update-chart-version-readme update-chart-version-readme.go
 
@@ -203,9 +207,10 @@ jobs:
 
       - name: Process all components
         id: process
+        env:
+          CHART: ${{ steps.payload.outputs.chart }}
+          CHARTS_PATH: ${{ inputs.charts_path }}
         run: |
-          CHART="${{ steps.payload.outputs.chart }}"
-          CHARTS_PATH="${{ inputs.charts_path }}"
           VALUES_FILE="${CHARTS_PATH}/${CHART}/values.yaml"
           CHART_FILE="${CHARTS_PATH}/${CHART}/Chart.yaml"
           TEMPLATES_BASE="${CHARTS_PATH}/${CHART}/templates"
@@ -272,7 +277,7 @@ jobs:
           echo "Processing components for chart: $CHART"
 
           # Process each component
-          for row in $(echo "$COMPONENTS" | jq -c '.[]'); do
+          while IFS= read -r row; do
             COMP_NAME=$(echo "$row" | jq -r '.name')
             COMP_VERSION=$(echo "$row" | jq -r '.version')
             COMP_ENV_VARS=$(echo "$row" | jq -c '.env_vars // {}')
@@ -303,7 +308,7 @@ jobs:
               CONFIGMAP_FILE="${TEMPLATES_BASE}/${VALUES_KEY}/configmap.yaml"
               SECRET_FILE="${TEMPLATES_BASE}/${VALUES_KEY}/secret.yaml"
 
-              echo "$COMP_ENV_VARS" | jq -r 'to_entries[] | "\(.key)=\(.value)"' | while IFS='=' read -r key value; do
+              while IFS='=' read -r key value; do
                 if [ -n "$key" ]; then
                   # Escape values for safe sed insertion
                   escaped_value=$(escape_sed "$value")
@@ -332,7 +337,7 @@ jobs:
                     fi
                   fi
                 fi
-              done
+              done < <(echo "$COMP_ENV_VARS" | jq -r 'to_entries[] | "\(.key)=\(.value)"')
             fi
 
             # Build updated components list for commit message
@@ -341,7 +346,7 @@ jobs:
             else
               UPDATED_COMPONENTS="${COMP_NAME}@${COMP_VERSION}"
             fi
-          done
+          done < <(echo "$COMPONENTS" | jq -c '.[]')
 
           # Update appVersion with highest version among all components
           if [ -n "$HIGHEST_VERSION" ]; then
@@ -355,35 +360,37 @@ jobs:
 
       - name: Update README matrix
         if: ${{ inputs.update_readme }}
+        env:
+          CHART: ${{ steps.payload.outputs.chart }}
+          CHARTS_PATH: ${{ inputs.charts_path }}
+          SCRIPTS_PATH: ${{ inputs.scripts_path }}
         run: |
-          CHART="${{ steps.payload.outputs.chart }}"
-          CHARTS_PATH="${{ inputs.charts_path }}"
-          SCRIPTS_PATH="${{ inputs.scripts_path }}"
           COMPONENTS=$(cat /tmp/components.json)
 
           # Get current appVersion from Chart.yaml
           APP_VERSION=$(yq '.appVersion' "${CHARTS_PATH}/${CHART}/Chart.yaml")
 
           # Update README for each component
-          for row in $(echo "$COMPONENTS" | jq -c '.[]'); do
+          while IFS= read -r row; do
             COMP_NAME=$(echo "$row" | jq -r '.name')
             COMP_VERSION=$(echo "$row" | jq -r '.version')
 
             echo "Updating README matrix for ${COMP_NAME}@${COMP_VERSION}"
 
-            ./${SCRIPTS_PATH}/update-readme-matrix \
+            "./${SCRIPTS_PATH}/update-readme-matrix" \
               --chart "${CHART}" \
               --component "${COMP_NAME}" \
               --version "${COMP_VERSION}" \
               --app-version "${APP_VERSION}"
-          done
+          done < <(echo "$COMPONENTS" | jq -c '.[]')
 
       - name: Commit changes
         id: commit
+        env:
+          CHART: ${{ steps.payload.outputs.chart }}
+          UPDATED_COMPONENTS: ${{ steps.process.outputs.updated_components }}
+          HAS_NEW_ENV_VARS: ${{ steps.payload.outputs.has_new_env_vars }}
         run: |
-          CHART="${{ steps.payload.outputs.chart }}"
-          UPDATED_COMPONENTS="${{ steps.process.outputs.updated_components }}"
-          HAS_NEW_ENV_VARS="${{ steps.payload.outputs.has_new_env_vars }}"
 
           git add -A
 
@@ -414,12 +421,12 @@ jobs:
         if: steps.commit.outputs.has_changes == 'true'
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          CHART: ${{ steps.payload.outputs.chart }}
+          BRANCH_NAME: ${{ steps.payload.outputs.branch_name }}
+          BASE_BRANCH: ${{ inputs.base_branch }}
+          HAS_NEW_ENV_VARS: ${{ steps.payload.outputs.has_new_env_vars }}
+          UPDATED_COMPONENTS: ${{ steps.process.outputs.updated_components }}
         run: |
-          CHART="${{ steps.payload.outputs.chart }}"
-          BRANCH_NAME="${{ steps.payload.outputs.branch_name }}"
-          BASE_BRANCH="${{ inputs.base_branch }}"
-          HAS_NEW_ENV_VARS="${{ steps.payload.outputs.has_new_env_vars }}"
-          UPDATED_COMPONENTS="${{ steps.process.outputs.updated_components }}"
 
           # Push the branch
           git push -u origin "${BRANCH_NAME}"
@@ -474,11 +481,11 @@ jobs:
       - name: Summary
         env:
           BASE_BRANCH: ${{ inputs.base_branch }}
+          CHART: ${{ steps.payload.outputs.chart }}
+          BRANCH_NAME: ${{ steps.payload.outputs.branch_name }}
+          HAS_CHANGES: ${{ steps.commit.outputs.has_changes }}
         run: |
           COMPONENTS=$(cat /tmp/components.json)
-          CHART="${{ steps.payload.outputs.chart }}"
-          BRANCH_NAME="${{ steps.payload.outputs.branch_name }}"
-          HAS_CHANGES="${{ steps.commit.outputs.has_changes }}"
 
           {
             echo "### Helm Chart Update Summary"
@@ -505,14 +512,22 @@ jobs:
 
       - name: Send Slack notification
         if: ${{ inputs.slack_notification && steps.commit.outputs.has_changes == 'true' }}
+        env:
+          CHART: ${{ steps.payload.outputs.chart }}
+          HAS_NEW_ENV_VARS: ${{ steps.payload.outputs.has_new_env_vars }}
+          SOURCE_REF: ${{ steps.payload.outputs.source_ref }}
+          SOURCE_REPO: ${{ steps.payload.outputs.source_repo }}
+          SOURCE_ACTOR: ${{ steps.payload.outputs.source_actor }}
+          SOURCE_SHA: ${{ steps.payload.outputs.source_sha }}
+          PR_URL: ${{ steps.push-pr.outputs.pr_url }}
+          WORKFLOW_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          WORKFLOW_NUM: ${{ github.run_number }}
+          BASE_BRANCH: ${{ inputs.base_branch }}
+          MENTION_GROUP: ${{ inputs.slack_mention_group || secrets.SLACK_GROUP_DEVOPS_SRE }}
+          SLACK_CHANNEL: ${{ inputs.slack_channel || secrets.SLACK_CHANNEL_DEVOPS }}
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN_HELM }}
+          BOT_MENTION: ${{ inputs.slack_bot_mention || secrets.SLACK_BOT_SEVERINO }}
         run: |
-          CHART="${{ steps.payload.outputs.chart }}"
-          HAS_NEW_ENV_VARS="${{ steps.payload.outputs.has_new_env_vars }}"
-          SOURCE_REF="${{ steps.payload.outputs.source_ref }}"
-          SOURCE_REPO="${{ steps.payload.outputs.source_repo }}"
-          SOURCE_ACTOR="${{ steps.payload.outputs.source_actor }}"
-          SOURCE_SHA="${{ steps.payload.outputs.source_sha }}"
-          PR_URL="${{ steps.push-pr.outputs.pr_url }}"
           COMPONENTS=$(cat /tmp/components.json)
 
           # Get appVersion (highest version)
@@ -527,12 +542,8 @@ jobs:
 
           # Build metadata
           TIMESTAMP=$(date -u '+%Y-%m-%d %H:%M:%S UTC')
-          WORKFLOW_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-          WORKFLOW_NUM="${{ github.run_number }}"
-          BASE_BRANCH="${{ inputs.base_branch }}"
 
-          # Context with optional team mention (input takes precedence over org secret)
-          MENTION_GROUP="${{ inputs.slack_mention_group || secrets.SLACK_GROUP_DEVOPS_SRE }}"
+          # Context with optional team mention (set via env)
           if [ -n "$MENTION_GROUP" ]; then
             CONTEXT_TEXT=":clock1: ${TIMESTAMP} | Workflow: <${WORKFLOW_URL}|#${WORKFLOW_NUM}> | cc: <!subteam^${MENTION_GROUP}>"
           else
@@ -545,8 +556,7 @@ jobs:
             {"type": "mrkdwn", "text": "*Version*"}
           ] + [.[] | {"type": "mrkdwn", "text": ("`" + .name + "`")}, {"type": "mrkdwn", "text": ("`" + .version + "`")}]')
 
-          # Get channel (input takes precedence over org secret)
-          SLACK_CHANNEL="${{ inputs.slack_channel || secrets.SLACK_CHANNEL_DEVOPS }}"
+          # Channel is set via env
 
           # Build complete payload using jq
           SLACK_PAYLOAD=$(jq -n \
@@ -596,7 +606,7 @@ jobs:
 
           # Send main notification to Slack via Bot API
           SLACK_RESPONSE=$(curl -s -X POST \
-            -H "Authorization: Bearer ${{ secrets.SLACK_BOT_TOKEN_HELM }}" \
+            -H "Authorization: Bearer ${SLACK_BOT_TOKEN}" \
             -H "Content-type: application/json; charset=utf-8" \
             --data "$SLACK_PAYLOAD" \
             "https://slack.com/api/chat.postMessage")
@@ -610,15 +620,18 @@ jobs:
           fi
 
           # Send separate message for Severino bot (Jira ticket creation)
-          # Input takes precedence over org secret
-          BOT_MENTION="${{ inputs.slack_bot_mention || secrets.SLACK_BOT_SEVERINO }}"
           if [ -n "$BOT_MENTION" ]; then
             SEVERINO_TEXT="<@${BOT_MENTION}> helm chart PR review | ${PR_URL} | Chart: ${CHART}"
 
+            SEVERINO_PAYLOAD=$(jq -n \
+              --arg channel "${SLACK_CHANNEL}" \
+              --arg text "${SEVERINO_TEXT}" \
+              '{channel: $channel, text: $text}')
+
             SEVERINO_RESPONSE=$(curl -s -X POST \
-              -H "Authorization: Bearer ${{ secrets.SLACK_BOT_TOKEN_HELM }}" \
+              -H "Authorization: Bearer ${SLACK_BOT_TOKEN}" \
               -H "Content-type: application/json; charset=utf-8" \
-              --data "{\"channel\":\"${SLACK_CHANNEL}\",\"text\":\"${SEVERINO_TEXT}\"}" \
+              --data "$SEVERINO_PAYLOAD" \
               "https://slack.com/api/chat.postMessage")
 
             if echo "$SEVERINO_RESPONSE" | jq -e '.ok == true' > /dev/null; then
