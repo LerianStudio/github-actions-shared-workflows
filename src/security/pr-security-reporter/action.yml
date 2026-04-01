@@ -38,7 +38,7 @@ runs:
   steps:
     - name: Post security report to PR
       id: report
-      uses: actions/github-script@v8
+      uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
       env:
         APP_NAME: ${{ inputs.app-name }}
         ENABLE_DOCKER_SCAN: ${{ inputs.enable-docker-scan }}
@@ -335,11 +335,16 @@ runs:
     - name: Gate - Fail on Security Findings
       if: inputs.fail-on-findings == 'true'
       shell: bash
+      env:
+        HAS_ERRORS: ${{ steps.parse-outputs.outputs.has_errors }}
+        HAS_FINDINGS: ${{ steps.parse-outputs.outputs.has_findings }}
       run: |
-        if [ "${{ steps.parse-outputs.outputs.has_errors }}" = "true" ]; then
-          echo "::warning::Some scan artifacts were missing or could not be parsed."
+        if [ "$HAS_ERRORS" = "true" ]; then
+          echo "::error::Some scan artifacts were missing or could not be parsed. Failing to prevent bypass."
         fi
-        if [ "${{ steps.parse-outputs.outputs.has_findings }}" = "true" ]; then
+        if [ "$HAS_FINDINGS" = "true" ]; then
           echo "::error::Security vulnerabilities found. Check the PR comment for details."
+        fi
+        if [ "$HAS_ERRORS" = "true" ] || [ "$HAS_FINDINGS" = "true" ]; then
           exit 1
         fi

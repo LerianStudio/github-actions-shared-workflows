@@ -67,6 +67,11 @@ on:
         description: 'Enable Docker Hub Health Score compliance checks (non-root user, CVEs, licenses)'
         type: boolean
         default: true
+      docker_build_args:
+        description: 'Newline-separated Docker build arguments to pass to docker build (e.g., "APP_NAME=spi\nCOMPONENT_NAME=api"). Forwarded to docker/build-push-action build-args.'
+        type: string
+        required: false
+        default: ''
       build_context_from_working_dir:
         description: 'Use the component working_dir as Docker build context instead of repo root. Useful for independent modules (e.g., tools with their own go.mod).'
         type: boolean
@@ -161,6 +166,7 @@ jobs:
           load: true
           push: false
           tags: ${{ env.DOCKERHUB_ORG }}/${{ env.APP_NAME }}:pr-scan-${{ github.sha }}
+          build-args: ${{ inputs.docker_build_args }}
           secrets: |
             ${{ secrets.MANAGE_TOKEN && format('github_token={0}', secrets.MANAGE_TOKEN) || '' }}
             ${{ secrets.NPMRC_TOKEN && format('npmrc=//npm.pkg.github.com/:_authToken={0}', secrets.NPMRC_TOKEN) || '' }}

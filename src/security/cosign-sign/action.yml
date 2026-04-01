@@ -1,0 +1,108 @@
+name: Cosign Keyless Image Signing
+description: Sign container images using Sigstore cosign with keyless (OIDC) signing via GitHub Actions identity.
+
+inputs:
+  image-refs:
+    description: Newline-separated fully qualified image references to sign (e.g., docker.io/org/app@sha256:abc...)
+    required: true
+  cosign-version:
+    description: Cosign version to install
+    required: false
+    default: "v2.5.0"
+  dry-run:
+    description: Log what would be signed without actually signing
+    required: false
+    default: "false"
+
+outputs:
+  signed-refs:
+    description: Newline-separated list of successfully signed image references
+    value: ${{ steps.sign.outputs.signed_refs }}
+
+runs:
+  using: composite
+  steps:
+    # ----------------- Setup -----------------
+    - name: Install cosign
+      uses: sigstore/cosign-installer@3454372f43399081ed03b604cb2d021dabca52bb # v3.8.2
+      with:
+        cosign-release: ${{ inputs.cosign-version }}
+
+    # ----------------- Validation -----------------
+    - name: Validate image references
+      id: validate
+      shell: bash
+      env:
+        IMAGE_REFS: ${{ inputs.image-refs }}
+      run: |
+        if [ -z "$IMAGE_REFS" ]; then
+          echo "::error::No image references provided"
+          exit 1
+        fi
+
+        VALID_COUNT=0
+        while IFS= read -r ref; do
+          ref=$(echo "$ref" | xargs)
+          [ -z "$ref" ] && continue
+          if [[ "$ref" != *"@sha256:"* ]]; then
+            echo "::error::Invalid image reference (missing @sha256: digest): $ref"
+            exit 1
+          fi
+          VALID_COUNT=$((VALID_COUNT + 1))
+        done <<< "$IMAGE_REFS"
+
+        if [ "$VALID_COUNT" -eq 0 ]; then
+          echo "::error::No valid image references found"
+          exit 1
+        fi
+
+        echo "count=$VALID_COUNT" >> "$GITHUB_OUTPUT"
+
+    # ----------------- Dry Run -----------------
+    - name: Dry run summary
+      if: ${{ inputs.dry-run == 'true' }}
+      shell: bash
+      env:
+        IMAGE_REFS: ${{ inputs.image-refs }}
+        COSIGN_VERSION: ${{ inputs.cosign-version }}
+        VALID_COUNT: ${{ steps.validate.outputs.count }}
+      run: |
+        echo "::notice::DRY RUN — no images will be signed"
+        echo "  cosign version : $COSIGN_VERSION"
+        echo "  OIDC issuer    : https://token.actions.githubusercontent.com"
+        echo "  images ($VALID_COUNT):"
+        while IFS= read -r ref; do
+          ref=$(echo "$ref" | xargs)
+          [ -z "$ref" ] && continue
+          echo "    - $ref"
+        done <<< "$IMAGE_REFS"
+
+    # ----------------- Sign -----------------
+    - name: Sign container images
+      if: ${{ inputs.dry-run != 'true' }}
+      id: sign
+      shell: bash
+      env:
+        IMAGE_REFS: ${{ inputs.image-refs }}
+        VALID_COUNT: ${{ steps.validate.outputs.count }}
+      run: |
+        SIGNED=""
+        while IFS= read -r ref; do
+          ref=$(echo "$ref" | xargs)
+          [ -z "$ref" ] && continue
+          echo "Signing: $ref"
+          cosign sign --yes "$ref"
+          if [ -n "$SIGNED" ]; then
+            SIGNED="${SIGNED}"$'\n'"${ref}"
+          else
+            SIGNED="$ref"
+          fi
+        done <<< "$IMAGE_REFS"
+
+        {
+          echo "signed_refs<<EOF"
+          echo "$SIGNED"
+          echo "EOF"
+        } >> "$GITHUB_OUTPUT"
+
+        echo "::notice::Successfully signed $VALID_COUNT image(s)"
