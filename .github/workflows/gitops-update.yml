@@ -444,7 +444,25 @@ jobs:
           fi
 
           git commit -am "ci(${{ steps.setup.outputs.commit_prefix }}): update image tags ($ENV_LABEL)" || echo "No changes to commit"
-          git push origin main
+
+          # Retry push with rebase and exponential backoff to handle concurrent updates
+          MAX_RETRIES=5
+          for i in $(seq 1 $MAX_RETRIES); do
+            if git push origin main; then
+              echo "Push succeeded on attempt $i"
+              break
+            fi
+
+            if [ "$i" -eq "$MAX_RETRIES" ]; then
+              echo "ERROR: Failed to push after $MAX_RETRIES attempts"
+              exit 1
+            fi
+
+            BACKOFF=$((i * 2))
+            echo "Push failed (attempt $i/$MAX_RETRIES), rebasing and retrying in ${BACKOFF}s..."
+            sleep "$BACKOFF"
+            git pull --rebase origin main
+          done
 
   # ArgoCD Sync Job - runs in parallel for each server/env combination
   argocd_sync:
