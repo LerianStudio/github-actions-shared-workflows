@@ -122,6 +122,11 @@ on:
         description: 'Force multi-platform build (amd64+arm64) even for beta/rc tags'
         type: boolean
         default: false
+      docker_build_args:
+        description: 'Newline-separated Docker build arguments to pass to docker build (e.g., "APP_NAME=spi\nCOMPONENT_NAME=api"). Forwarded to docker/build-push-action build-args.'
+        type: string
+        required: false
+        default: ''
       build_context_from_working_dir:
         description: 'Use the component working_dir as Docker build context instead of build_context. Useful for independent modules (e.g., tools with their own go.mod).'
         type: boolean
@@ -297,6 +302,7 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          build-args: ${{ inputs.docker_build_args }}
           sbom: generator=docker/scout-sbom-indexer:latest
           provenance: mode=max
           cache-from: type=gha
