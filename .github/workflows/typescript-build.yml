@@ -320,7 +320,7 @@ jobs:
           fi
 
           if [ "$ENABLE_DOCKERHUB" == "true" ]; then
-            REFS="${DOCKERHUB_ORG}/${APP_NAME}@${DIGEST}"
+            REFS="docker.io/${DOCKERHUB_ORG}/${APP_NAME}@${DIGEST}"
           fi
 
           if [ "$ENABLE_GHCR" == "true" ]; then
