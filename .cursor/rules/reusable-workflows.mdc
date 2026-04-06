@@ -146,15 +146,6 @@ on:
     secrets:
       DEPLOY_TOKEN:
         required: true
-  workflow_dispatch:
-    inputs:
-      environment:
-        required: true
-        type: string
-      dry_run:
-        description: Preview changes without applying them
-        type: boolean
-        default: false
 ```
 
 The two modes have opposite goals — design them accordingly:

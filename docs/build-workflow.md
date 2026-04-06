@@ -139,7 +139,6 @@ Generated tags based on semantic versioning:
 | Tag Pattern | Example | When Applied |
 |-------------|---------|--------------|
 | `{{version}}` | `1.0.0-beta.1` | Always |
-| `{{major}}.{{minor}}` | `1.0` | Always |
 | `{{major}}` | `1` | Release tags only |
 
 ## Monorepo Change Detection
