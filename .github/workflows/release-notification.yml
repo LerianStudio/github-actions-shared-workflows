@@ -162,7 +162,7 @@ jobs:
 
       - name: Discord notification
         if: ${{ env.DISCORD_WEBHOOK_URL != '' }}
-        uses: LerianStudio/github-actions-shared-workflows/src/notify/discord-release@f8da102a7a0ee29c0f67cfd40921690c669811fb # v1.18.0
+        uses: LerianStudio/github-actions-shared-workflows/src/notify/discord-release@v1.18.0
         with:
           webhook-url: ${{ secrets.DISCORD_WEBHOOK_URL }}
           release-tag: ${{ steps.release.outputs.tag }}
@@ -174,7 +174,7 @@ jobs:
 
       - name: Slack notification
         if: ${{ env.SLACK_WEBHOOK_URL != '' && inputs.slack_channel != '' }}
-        uses: LerianStudio/github-actions-shared-workflows/src/notify/slack-release@f8da102a7a0ee29c0f67cfd40921690c669811fb # v1.18.0
+        uses: LerianStudio/github-actions-shared-workflows/src/notify/slack-release@v1.18.0
         with:
           webhook-url: ${{ secrets.SLACK_WEBHOOK_URL }}
           channel: ${{ inputs.slack_channel }}
