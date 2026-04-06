@@ -123,7 +123,7 @@ on:
         type: boolean
         default: false
       docker_build_args:
-        description: 'Newline-separated Docker build arguments to pass to docker build (e.g., "APP_NAME=spi\nCOMPONENT_NAME=api"). Forwarded to docker/build-push-action build-args.'
+        description: 'Newline-separated Docker build arguments (e.g., "APP_NAME=spi\nCOMPONENT_NAME=api"). For sensitive values (tokens, keys, passwords), use BuildKit secrets instead — build arguments are visible in image history.'
         type: string
         required: false
         default: ''
@@ -139,7 +139,6 @@ on:
 permissions:
   contents: read
   packages: write
-  id-token: write
 
 jobs:
   prepare:
@@ -208,6 +207,10 @@ jobs:
     if: needs.prepare.outputs.has_builds == 'true'
     runs-on: ${{ inputs.runner_type }}
     name: Build ${{ matrix.app.name }}
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
     strategy:
       max-parallel: 2
       fail-fast: false
@@ -227,14 +230,14 @@ jobs:
 
       - name: Log in to DockerHub
         if: inputs.enable_dockerhub
-        uses: docker/login-action@b45d80f862d83dbcd57f89517bcf500b2ab88fb2 # v4
+        uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4
         with:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKERHUB_IMAGE_PUSH_TOKEN }}
 
       - name: Log in to GHCR
         if: inputs.enable_ghcr
-        uses: docker/login-action@b45d80f862d83dbcd57f89517bcf500b2ab88fb2 # v4
+        uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -289,7 +292,6 @@ jobs:
           images: ${{ steps.image-names.outputs.images }}
           tags: |
             type=semver,pattern={{version}},value=${{ steps.version.outputs.version }}
-            type=semver,pattern={{major}}.{{minor}},value=${{ steps.version.outputs.version }}
             type=semver,pattern={{major}},value=${{ steps.version.outputs.version }},enable=${{ needs.prepare.outputs.is_release }}
 
       - name: Build and push Docker image
@@ -320,12 +322,12 @@ jobs:
           ENABLE_GHCR: ${{ inputs.enable_ghcr }}
           DOCKERHUB_ORG: ${{ inputs.dockerhub_org }}
           APP_NAME: ${{ matrix.app.name }}
-          GHCR_ORG: ${{ steps.normalize.outputs.owner_lower }}
+          GHCR_ORG: ${{ inputs.ghcr_org || steps.normalize.outputs.owner_lower }}
         run: |
           REFS=""
 
           if [ "$ENABLE_DOCKERHUB" == "true" ]; then
-            REFS="${DOCKERHUB_ORG}/${APP_NAME}@${DIGEST}"
+            REFS="docker.io/${DOCKERHUB_ORG}/${APP_NAME}@${DIGEST}"
           fi
 
           if [ "$ENABLE_GHCR" == "true" ]; then
@@ -341,7 +343,7 @@ jobs:
 
       - name: Sign container images with cosign
         if: inputs.enable_cosign_sign
-        uses: LerianStudio/github-actions-shared-workflows/src/security/cosign-sign@feat/cosign-sign
+        uses: LerianStudio/github-actions-shared-workflows/src/security/cosign-sign@v1.23.0
         with:
           image-refs: ${{ steps.cosign-refs.outputs.refs }}
 

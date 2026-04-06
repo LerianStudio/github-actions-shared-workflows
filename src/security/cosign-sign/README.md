@@ -46,7 +46,7 @@ jobs:
       - name: Sign container image
         uses: LerianStudio/github-actions-shared-workflows/src/security/cosign-sign@v1.x.x
         with:
-          image-refs: myorg/myapp@${{ steps.build-push.outputs.digest }}
+          image-refs: docker.io/myorg/myapp@${{ steps.build-push.outputs.digest }}
 ```
 
 ### Signing multiple registries
@@ -64,7 +64,7 @@ jobs:
 
 ```bash
 cosign verify \
-  --certificate-identity-regexp=".*" \
+  --certificate-identity-regexp="^https://github\.com/LerianStudio/.+/.github/workflows/.+@refs/(heads|tags)/.+$" \
   --certificate-oidc-issuer="https://token.actions.githubusercontent.com" \
   docker.io/myorg/myapp@sha256:abc123...
 ```

@@ -68,7 +68,7 @@ on:
         type: boolean
         default: true
       docker_build_args:
-        description: 'Newline-separated Docker build arguments to pass to docker build (e.g., "APP_NAME=spi\nCOMPONENT_NAME=api"). Forwarded to docker/build-push-action build-args.'
+        description: 'Newline-separated Docker build arguments (e.g., "APP_NAME=spi\nCOMPONENT_NAME=api"). For sensitive values (tokens, keys, passwords), use BuildKit secrets instead — build arguments are visible in image history.'
         type: string
         required: false
         default: ''
@@ -91,7 +91,7 @@ jobs:
     steps:
       # ----------------- Setup -----------------
       - name: Login to Docker Registry
-        uses: docker/login-action@b45d80f862d83dbcd57f89517bcf500b2ab88fb2 # v4
+        uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4
         with:
           registry: ${{ inputs.docker_registry }}
           username: ${{ secrets.DOCKER_USERNAME }}
@@ -133,7 +133,7 @@ jobs:
     steps:
       # ----------------- Setup -----------------
       - name: Login to Docker Registry
-        uses: docker/login-action@b45d80f862d83dbcd57f89517bcf500b2ab88fb2 # v4
+        uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4
         with:
           registry: ${{ inputs.docker_registry }}
           username: ${{ secrets.DOCKER_USERNAME }}

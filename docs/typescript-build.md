@@ -37,6 +37,7 @@ on:
 permissions:
   contents: read
   packages: write
+  id-token: write   # required for cosign keyless signing
 
 jobs:
   build:
@@ -230,7 +231,7 @@ jobs:
 
 ```bash
 cosign verify \
-  --certificate-identity-regexp=".*" \
+  --certificate-identity-regexp="^https://github\.com/LerianStudio/.+/.github/workflows/.+@refs/(heads|tags)/.+$" \
   --certificate-oidc-issuer="https://token.actions.githubusercontent.com" \
   ghcr.io/lerianstudio/my-app@sha256:abc123...
 ```

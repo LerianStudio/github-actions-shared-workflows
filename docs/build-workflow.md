@@ -139,7 +139,6 @@ Generated tags based on semantic versioning:
 | Tag Pattern | Example | When Applied |
 |-------------|---------|--------------|
 | `{{version}}` | `1.0.0-beta.1` | Always |
-| `{{major}}.{{minor}}` | `1.0` | Always |
 | `{{major}}` | `1` | Release tags only |
 
 ## Monorepo Change Detection
@@ -225,7 +224,7 @@ jobs:
 
 ```bash
 cosign verify \
-  --certificate-identity-regexp=".*" \
+  --certificate-identity-regexp="^https://github\.com/LerianStudio/.+/.github/workflows/.+@refs/(heads|tags)/.+$" \
   --certificate-oidc-issuer="https://token.actions.githubusercontent.com" \
   docker.io/lerianstudio/my-app@sha256:abc123...
 ```

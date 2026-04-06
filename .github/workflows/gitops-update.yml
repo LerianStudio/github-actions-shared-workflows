@@ -75,7 +75,7 @@ jobs:
     steps:
       - name: Log in to Docker Hub
         if: ${{ inputs.enable_docker_login }}
-        uses: docker/login-action@b45d80f862d83dbcd57f89517bcf500b2ab88fb2 # v4
+        uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4
         with:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKERHUB_IMAGE_PULL_TOKEN }}
@@ -444,7 +444,25 @@ jobs:
           fi
 
           git commit -am "ci(${{ steps.setup.outputs.commit_prefix }}): update image tags ($ENV_LABEL)" || echo "No changes to commit"
-          git push origin main
+
+          # Retry push with rebase and exponential backoff to handle concurrent updates
+          MAX_RETRIES=5
+          for i in $(seq 1 $MAX_RETRIES); do
+            if git push origin main; then
+              echo "Push succeeded on attempt $i"
+              break
+            fi
+
+            if [ "$i" -eq "$MAX_RETRIES" ]; then
+              echo "ERROR: Failed to push after $MAX_RETRIES attempts"
+              exit 1
+            fi
+
+            BACKOFF=$((2 ** i))
+            echo "Push failed (attempt $i/$MAX_RETRIES), rebasing and retrying in ${BACKOFF}s..."
+            sleep "$BACKOFF"
+            git pull --rebase origin main
+          done
 
   # ArgoCD Sync Job - runs in parallel for each server/env combination
   argocd_sync:

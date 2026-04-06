@@ -127,8 +127,8 @@ runs-on: self-hosted
 
 Every reusable workflow must:
 - support `workflow_call` (for external callers)
-- support `workflow_dispatch` (for manual testing)
 - expose explicit `inputs` — never rely on implicit context
+- **must NOT** include a `workflow_dispatch` trigger — if manual/interactive dispatch is needed, create a separate self-workflow under `.github/workflows/self-*`
 - **always include a `dry_run` input** (`type: boolean`, `default: false`) so the workflow can be safely tested before applying real changes
 
 ```yaml
@@ -146,15 +146,6 @@ on:
     secrets:
       DEPLOY_TOKEN:
         required: true
-  workflow_dispatch:
-    inputs:
-      environment:
-        required: true
-        type: string
-      dry_run:
-        description: Preview changes without applying them
-        type: boolean
-        default: false
 ```
 
 The two modes have opposite goals — design them accordingly:

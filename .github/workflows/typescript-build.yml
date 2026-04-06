@@ -148,7 +148,6 @@ on:
 permissions:
   contents: read
   packages: write
-  id-token: write
 
 jobs:
   prepare:
@@ -250,6 +249,10 @@ jobs:
     if: needs.prepare.outputs.has_builds == 'true'
     runs-on: ${{ inputs.runner_type }}
     name: Build ${{ matrix.app.name }}
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
     strategy:
       max-parallel: 2
       fail-fast: false
@@ -317,7 +320,7 @@ jobs:
           fi
 
           if [ "$ENABLE_DOCKERHUB" == "true" ]; then
-            REFS="${DOCKERHUB_ORG}/${APP_NAME}@${DIGEST}"
+            REFS="docker.io/${DOCKERHUB_ORG}/${APP_NAME}@${DIGEST}"
           fi
 
           if [ "$ENABLE_GHCR" == "true" ]; then
@@ -333,7 +336,7 @@ jobs:
 
       - name: Sign container images with cosign
         if: inputs.enable_cosign_sign && !inputs.dry_run && steps.cosign-refs.outputs.refs != ''
-        uses: LerianStudio/github-actions-shared-workflows/src/security/cosign-sign@feat/cosign-sign
+        uses: LerianStudio/github-actions-shared-workflows/src/security/cosign-sign@v1.23.0
         with:
           image-refs: ${{ steps.cosign-refs.outputs.refs }}
 
