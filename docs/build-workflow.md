@@ -224,7 +224,7 @@ jobs:
 
 ```bash
 cosign verify \
-  --certificate-identity-regexp="^https://github.com/LerianStudio/.*/.github/workflows/.*@refs/heads/.*$" \
+  --certificate-identity-regexp="^https://github\.com/LerianStudio/.+/.github/workflows/.+@refs/(heads|tags)/.+$" \
   --certificate-oidc-issuer="https://token.actions.githubusercontent.com" \
   docker.io/lerianstudio/my-app@sha256:abc123...
 ```
