@@ -458,7 +458,7 @@ jobs:
               exit 1
             fi
 
-            BACKOFF=$((i * 2))
+            BACKOFF=$((2 ** i))
             echo "Push failed (attempt $i/$MAX_RETRIES), rebasing and retrying in ${BACKOFF}s..."
             sleep "$BACKOFF"
             git pull --rebase origin main
