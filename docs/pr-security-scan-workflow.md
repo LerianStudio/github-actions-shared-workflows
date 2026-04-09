@@ -198,6 +198,7 @@ When enabled, the workflow scans `go.mod`, `package.json`, and `Dockerfile` for 
 | `codeql_fail_on_findings` | boolean | `true` | Fail the workflow when CodeQL detects security issues |
 | `codeql_upload_sarif` | boolean | `false` | Upload CodeQL SARIF results to the GitHub Security tab. Requires Code Security (GHAS) enabled on the repo |
 | `enable_prerelease_check` | boolean | `true` | Block dependencies pinned to pre-release versions (`-beta`, `-rc`) |
+| `prerelease_block_branches` | string | `release-candidate,main` | Comma-separated PR target branches where pre-release versions cause a hard failure. On other branches, findings are reported as warnings only |
 
 ## Secrets
 
@@ -307,7 +308,7 @@ Runs when `enable_codeql: true` and `codeql_languages` is set:
 
 **Pattern matched**: `X.Y.Z-beta.*` and `X.Y.Z-rc.*` (any semver followed by a pre-release identifier)
 
-**Exit behavior**: `exit-code: 1` (fails workflow when pre-release versions are found)
+**Exit behavior**: `exit-code: 1` on branches listed in `prerelease_block_branches` (default: `release-candidate,main`). On other branches (e.g., `develop`), findings are reported as warnings only.
 
 ## Monorepo Type 2 Behavior
 

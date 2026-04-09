@@ -97,6 +97,10 @@ on:
         description: 'Block dependencies pinned to pre-release versions (-beta, -rc)'
         type: boolean
         default: true
+      prerelease_block_branches:
+        description: 'Comma-separated list of PR target branches where pre-release versions cause a hard failure. On other branches, findings are reported as warnings only.'
+        type: string
+        default: 'release-candidate,main'
 
 permissions:
   actions: read         # Required for CodeQL status reporting
@@ -235,9 +239,27 @@ jobs:
 
       - name: Gate - Fail on Pre-release Versions
         if: always() && inputs.enable_prerelease_check && steps.prerelease-check.outputs.has-findings == 'true'
+        env:
+          BLOCK_BRANCHES: ${{ inputs.prerelease_block_branches }}
+          TARGET_BRANCH: ${{ github.base_ref }}
+          FINDINGS_COUNT: ${{ steps.prerelease-check.outputs.findings-count }}
         run: |
-          echo "::error::Pre-release version pins detected (${{ steps.prerelease-check.outputs.findings-count }} finding(s)). Production code must not depend on beta or release candidate versions."
-          exit 1
+          SHOULD_BLOCK=false
+          IFS=',' read -ra BRANCHES <<< "$BLOCK_BRANCHES"
+          for branch in "${BRANCHES[@]}"; do
+            branch=$(echo "$branch" | xargs)
+            if [ "$TARGET_BRANCH" = "$branch" ]; then
+              SHOULD_BLOCK=true
+              break
+            fi
+          done
+
+          if [ "$SHOULD_BLOCK" = "true" ]; then
+            echo "::error::Pre-release version pins detected ($FINDINGS_COUNT finding(s)). Target branch '$TARGET_BRANCH' does not allow beta or release candidate dependencies."
+            exit 1
+          else
+            echo "::warning::Pre-release version pins detected ($FINDINGS_COUNT finding(s)). Allowed on '$TARGET_BRANCH' — will be blocked on: $BLOCK_BRANCHES."
+          fi
 
   # ----------------- CodeQL Analysis -----------------
   codeql_scan:
