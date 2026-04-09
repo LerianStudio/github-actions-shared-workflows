@@ -267,6 +267,14 @@ jobs:
           languages: ${{ inputs.codeql_languages }}
           config-file: ${{ steps.codeql-config.outputs.config-file }}
 
+      - name: Configure private Go modules access
+        if: steps.codeql-config.outputs.skip != 'true'
+        env:
+          TOKEN: ${{ secrets.MANAGE_TOKEN || secrets.GITHUB_TOKEN }}
+        run: |
+          git config --global url."https://x-access-token:${TOKEN}@github.com/".insteadOf "https://github.com/"
+          echo "GOPRIVATE=github.com/LerianStudio/*" >> "$GITHUB_ENV"
+
       - name: Autobuild
         if: steps.codeql-config.outputs.skip != 'true'
         uses: github/codeql-action/autobuild@c10b8064de6f491fea524254123dbe5e09572f13 # v4
