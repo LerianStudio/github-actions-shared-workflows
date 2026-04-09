@@ -1,5 +1,5 @@
 name: Pre-release Version Check
-description: Scans dependency files for pre-release version pins (-beta, -rc) that should not reach production.
+description: Scans dependency files for unstable version pins. Only stable semver (x.y.z) and Go pseudo-versions (SHA-based) are allowed.
 
 inputs:
   scan-ref:
@@ -29,7 +29,11 @@ runs:
         SCAN_DIR: ${{ inputs.scan-ref }}
         APP_NAME: ${{ inputs.app-name }}
       run: |
-        PRERELEASE_PATTERN='[0-9]+\.[0-9]+\.[0-9]+-(beta|rc)[.0-9]*'
+        # Matches x.y.z-<letter...> — any semver with a pre-release suffix starting
+        # with a letter (alpha, beta, rc, dev, preview, canary, snapshot, etc.).
+        # Excludes Go pseudo-versions (v0.0.0-YYYYMMDDHHMMSS-commitsha) because
+        # their suffix starts with digits, not letters. SHA pins are also allowed.
+        PRERELEASE_PATTERN='[0-9]+\.[0-9]+\.[0-9]+-[a-zA-Z]'
         FINDINGS=()
 
         # ----------------- go.mod -----------------
@@ -43,7 +47,7 @@ runs:
         if [ -f "$SCAN_DIR/package.json" ]; then
           while IFS= read -r match; do
             FINDINGS+=("package.json|$match")
-          done < <(grep -nE "\"${PRERELEASE_PATTERN}\"" "$SCAN_DIR/package.json" || true)
+          done < <(grep -nE "\"${PRERELEASE_PATTERN}" "$SCAN_DIR/package.json" || true)
         fi
 
         # ----------------- Dockerfile -----------------
@@ -64,7 +68,7 @@ runs:
           LABEL=""
           [ -n "$APP_NAME" ] && LABEL=" ($APP_NAME)"
 
-          echo "::error::Found $COUNT pre-release version pin(s)${LABEL}. Production code must not depend on beta or release candidate versions."
+          echo "::error::Found $COUNT unstable version pin(s)${LABEL}. Only stable versions (x.y.z) and SHA-based pins are allowed."
 
           {
             echo "### :warning: Pre-release Version Pins${LABEL}"
@@ -80,7 +84,7 @@ runs:
               echo "| \`${FILE}\` | ${LINE} | \`${CONTENT}\` |"
             done
             echo ""
-            echo "> Replace \`-beta.*\` and \`-rc.*\` versions with stable releases."
+            echo "> Only stable versions (\`x.y.z\`) and SHA-based pins are allowed. Replace pre-release suffixes (\`-alpha\`, \`-beta\`, \`-rc\`, \`-dev\`, etc.) with stable releases."
           } >> "$GITHUB_STEP_SUMMARY"
 
           for f in "${FINDINGS[@]}"; do
@@ -88,7 +92,7 @@ runs:
             REST="${f#*|}"
             LINE="${REST%%:*}"
             CONTENT="${REST#*:}"
-            echo "::warning file=${SCAN_DIR}/${FILE},line=${LINE}::Pre-release version pin: $(echo "$CONTENT" | sed 's/^[[:space:]]*//')"
+            echo "::warning file=${SCAN_DIR}/${FILE},line=${LINE}::Unstable version pin: $(echo "$CONTENT" | sed 's/^[[:space:]]*//')"
           done
         else
           echo "has_findings=false" >> "$GITHUB_OUTPUT"

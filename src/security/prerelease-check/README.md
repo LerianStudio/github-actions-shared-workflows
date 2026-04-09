@@ -5,7 +5,7 @@
   </tr>
 </table>
 
-Composite action that scans dependency files for pre-release version pins (`-beta`, `-rc`) that should not reach production. Checks `go.mod`, `package.json`, and `Dockerfile` for unstable version references and reports findings via GitHub annotations and step summary.
+Composite action that scans dependency files for unstable version pins. Only stable semver (`x.y.z`) and SHA-based pins (including Go pseudo-versions) are allowed. Checks `go.mod`, `package.json`, and `Dockerfile` and reports findings via GitHub annotations and step summary.
 
 ## Inputs
 
@@ -18,16 +18,18 @@ Composite action that scans dependency files for pre-release version pins (`-bet
 
 | Output | Description |
 |---|---|
-| `has-findings` | `true` if pre-release versions were detected |
-| `findings-count` | Number of pre-release version findings |
+| `has-findings` | `true` if unstable versions were detected |
+| `findings-count` | Number of unstable version findings |
 
 ## What it scans
 
-| File | Pattern | Example match |
+Matches any semver with a pre-release suffix starting with a letter (`x.y.z-<letter...>`).
+
+| File | Blocked (unstable) | Allowed (stable) |
 |---|---|---|
-| `go.mod` | `vX.Y.Z-beta.*` / `vX.Y.Z-rc.*` | `v1.2.3-beta.1` |
-| `package.json` | `"X.Y.Z-beta.*"` / `"X.Y.Z-rc.*"` | `"2.0.0-rc.1"` |
-| `Dockerfile` | `:X.Y.Z-beta.*` / `:X.Y.Z-rc.*` | `golang:1.21.0-beta1` |
+| `go.mod` | `v1.2.3-beta.1`, `v1.2.3-rc.1`, `v1.2.3-alpha.1`, `v1.2.3-dev.1` | `v1.2.3`, `v0.0.0-20240101-abcdef012345` (pseudo-version) |
+| `package.json` | `"2.0.0-beta.1"`, `"1.0.0-canary.3"` | `"2.0.0"` |
+| `Dockerfile` | `golang:1.21.0-beta1`, `node:20.0.0-rc.1` | `golang:1.21.0`, `golang:1.21.0@sha256:...` |
 
 ## Usage
 
