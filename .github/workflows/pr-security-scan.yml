@@ -76,6 +76,23 @@ on:
         description: 'Use the component working_dir as Docker build context instead of repo root. Useful for independent modules (e.g., tools with their own go.mod).'
         type: boolean
         default: false
+      enable_codeql:
+        description: 'Enable CodeQL static analysis. Requires codeql_languages to be set.'
+        type: boolean
+        default: false
+      codeql_languages:
+        description: 'Languages to analyze with CodeQL (comma-separated, e.g., "go", "javascript-typescript", "actions")'
+        type: string
+        required: false
+        default: ''
+      codeql_fail_on_findings:
+        description: 'Fail the workflow when CodeQL detects security issues'
+        type: boolean
+        default: true
+      enable_prerelease_check:
+        description: 'Block dependencies pinned to pre-release versions (-beta, -rc)'
+        type: boolean
+        default: true
 
 permissions:
   id-token: write       # Required for OIDC authentication
@@ -100,7 +117,7 @@ jobs:
       # ----------------- Detect Changes & Build Matrix -----------------
       - name: Get changed paths
         id: changed-paths
-        uses: LerianStudio/github-actions-shared-workflows/src/config/changed-paths@v1.18.0
+        uses: LerianStudio/github-actions-shared-workflows/src/config/changed-paths@v1.23.1
         with:
           filter-paths: ${{ inputs.filter_paths }}
           shared-paths: ${{ inputs.shared_paths }}
@@ -150,7 +167,7 @@ jobs:
       - name: Trivy Filesystem Scan
         id: fs-scan
         if: always()
-        uses: LerianStudio/github-actions-shared-workflows/src/security/trivy-fs-scan@v1.18.0
+        uses: LerianStudio/github-actions-shared-workflows/src/security/trivy-fs-scan@v1.23.1
         with:
           scan-ref: ${{ matrix.working_dir }}
           app-name: ${{ env.APP_NAME }}
@@ -175,7 +192,7 @@ jobs:
       - name: Trivy Image Scan
         id: image-scan
         if: always() && inputs.enable_docker_scan
-        uses: LerianStudio/github-actions-shared-workflows/src/security/trivy-image-scan@v1.18.0
+        uses: LerianStudio/github-actions-shared-workflows/src/security/trivy-image-scan@v1.23.1
         with:
           image-ref: '${{ env.DOCKERHUB_ORG }}/${{ env.APP_NAME }}:pr-scan-${{ github.sha }}'
           app-name: ${{ env.APP_NAME }}
@@ -185,15 +202,24 @@ jobs:
       - name: Dockerfile Compliance Checks
         id: dockerfile-checks
         if: always() && inputs.enable_docker_scan && inputs.enable_health_score
-        uses: LerianStudio/github-actions-shared-workflows/src/security/dockerfile-checks@v1.18.0
+        uses: LerianStudio/github-actions-shared-workflows/src/security/dockerfile-checks@v1.23.1
         with:
           dockerfile-path: ${{ env.DOCKERFILE_PATH }}
+
+      # ----------------- Pre-release Version Gate -----------------
+      - name: Pre-release Version Check
+        id: prerelease-check
+        if: always() && inputs.enable_prerelease_check
+        uses: LerianStudio/github-actions-shared-workflows/src/security/prerelease-check@feat/pr-security-scan-codeql-prerelease
+        with:
+          scan-ref: ${{ matrix.working_dir }}
+          app-name: ${{ env.APP_NAME }}
 
       # ----------------- Results & Security Gate -----------------
       - name: Post Security Scan Results to PR
         id: post-results
         if: always() && github.event_name == 'pull_request'
-        uses: LerianStudio/github-actions-shared-workflows/src/security/pr-security-reporter@v1.18.0
+        uses: LerianStudio/github-actions-shared-workflows/src/security/pr-security-reporter@v1.23.1
         with:
           github-token: ${{ secrets.MANAGE_TOKEN || secrets.GITHUB_TOKEN }}
           app-name: ${{ env.APP_NAME }}
@@ -202,32 +228,75 @@ jobs:
           dockerfile-has-non-root-user: ${{ steps.dockerfile-checks.outputs.has-non-root-user || 'false' }}
           fail-on-findings: 'true'
 
-      ## To be fixed
-      # - name: Upload Secret Scan Results - Repository (SARIF) to GitHub Security Tab
-      #   uses: github/codeql-action/upload-sarif@v3
-      #   if: always()
-      #   continue-on-error: true
-      #   with:
-      #     sarif_file: 'trivy-secret-scan-repo-${{ env.APP_NAME }}.sarif'
+      - name: Gate - Fail on Pre-release Versions
+        if: always() && inputs.enable_prerelease_check && steps.prerelease-check.outputs.has-findings == 'true'
+        run: |
+          echo "::error::Pre-release version pins detected (${{ steps.prerelease-check.outputs.findings-count }} finding(s)). Production code must not depend on beta or release candidate versions."
+          exit 1
 
-      # - name: Upload Vulnerability Scan Results - Docker Image (SARIF) to GitHub Security Tab
-      #   uses: github/codeql-action/upload-sarif@v3
-      #   if: always()
-      #   continue-on-error: true
-      #   with:
-      #     sarif_file: 'trivy-vulnerability-scan-docker-${{ env.APP_NAME }}.sarif'
+  # ----------------- CodeQL Analysis -----------------
+  codeql_scan:
+    needs: prepare_matrix
+    if: inputs.enable_codeql && inputs.codeql_languages != '' && needs.prepare_matrix.outputs.matrix != '[]'
+    runs-on: ${{ inputs.runner_type }}
+    steps:
+      # ----------------- Setup -----------------
+      - name: Checkout Repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Extract changed paths from matrix
+        id: extract-paths
+        env:
+          MATRIX: ${{ needs.prepare_matrix.outputs.matrix }}
+        run: |
+          PATHS=$(echo "$MATRIX" | jq -r '.[].working_dir' | paste -sd ',' -)
+          echo "paths=$PATHS" >> "$GITHUB_OUTPUT"
+
+      # ----------------- CodeQL Config -----------------
+      - name: Generate CodeQL Config
+        id: codeql-config
+        uses: LerianStudio/github-actions-shared-workflows/src/security/codeql-config@feat/pr-security-scan-codeql-prerelease
+        with:
+          changed-paths: ${{ steps.extract-paths.outputs.paths }}
+
+      # ----------------- CodeQL Analysis -----------------
+      - name: Initialize CodeQL
+        if: steps.codeql-config.outputs.skip != 'true'
+        uses: LerianStudio/github-actions-shared-workflows/src/security/codeql-init@feat/pr-security-scan-codeql-prerelease
+        with:
+          languages: ${{ inputs.codeql_languages }}
+          config-file: ${{ steps.codeql-config.outputs.config-file }}
+
+      - name: Autobuild
+        if: steps.codeql-config.outputs.skip != 'true'
+        uses: github/codeql-action/autobuild@c10b8064de6f491fea524254123dbe5e09572f13 # v4
+
+      - name: Perform CodeQL Analysis
+        if: steps.codeql-config.outputs.skip != 'true'
+        uses: LerianStudio/github-actions-shared-workflows/src/security/codeql-analyze@feat/pr-security-scan-codeql-prerelease
+        with:
+          category: '/language:${{ inputs.codeql_languages }}'
+
+      # ----------------- Results & Security Gate -----------------
+      - name: Post CodeQL Results to PR
+        if: always() && github.event_name == 'pull_request' && steps.codeql-config.outputs.skip != 'true'
+        uses: LerianStudio/github-actions-shared-workflows/src/security/codeql-reporter@feat/pr-security-scan-codeql-prerelease
+        with:
+          github-token: ${{ secrets.MANAGE_TOKEN || secrets.GITHUB_TOKEN }}
+          languages: ${{ inputs.codeql_languages }}
+          fail-on-findings: ${{ inputs.codeql_fail_on_findings }}
 
   # ----------------- Slack Notification -----------------
   notify:
     name: Notify
-    needs: [prepare_matrix, security_scan]
+    needs: [prepare_matrix, security_scan, codeql_scan]
     if: always() && needs.prepare_matrix.outputs.matrix != '[]'
     runs-on: ${{ inputs.runner_type }}
     steps:
       - name: Slack Notification
-        uses: LerianStudio/github-actions-shared-workflows/src/notify/slack-notify@v1.18.0
+        uses: LerianStudio/github-actions-shared-workflows/src/notify/slack-notify@v1.23.1
         with:
           webhook-url: ${{ secrets.SLACK_WEBHOOK_URL }}
-          status: ${{ needs.security_scan.result }}
+          status: ${{ (needs.security_scan.result == 'failure' || needs.codeql_scan.result == 'failure') && 'failure' || needs.security_scan.result }}
           workflow-name: "PR Security Scan"
-          failed-jobs: ${{ needs.security_scan.result == 'failure' && 'Security Scan' || '' }}
+          failed-jobs: ${{ needs.security_scan.result == 'failure' && needs.codeql_scan.result == 'failure' && 'Security Scan, CodeQL Scan' || needs.security_scan.result == 'failure' && 'Security Scan' || needs.codeql_scan.result == 'failure' && 'CodeQL Scan' || '' }}

@@ -1,0 +1,96 @@
+name: Pre-release Version Check
+description: Scans dependency files for pre-release version pins (-beta, -rc) that should not reach production.
+
+inputs:
+  scan-ref:
+    description: 'Directory to scan for pre-release versions'
+    required: false
+    default: '.'
+  app-name:
+    description: 'Application name for reporting context'
+    required: false
+    default: ''
+
+outputs:
+  has-findings:
+    description: 'true if pre-release versions were detected'
+    value: ${{ steps.scan.outputs.has_findings }}
+  findings-count:
+    description: 'Number of pre-release version findings'
+    value: ${{ steps.scan.outputs.findings_count }}
+
+runs:
+  using: composite
+  steps:
+    - name: Scan for pre-release versions
+      id: scan
+      shell: bash
+      env:
+        SCAN_DIR: ${{ inputs.scan-ref }}
+        APP_NAME: ${{ inputs.app-name }}
+      run: |
+        PRERELEASE_PATTERN='[0-9]+\.[0-9]+\.[0-9]+-(beta|rc)[.0-9]*'
+        FINDINGS=()
+
+        # ----------------- go.mod -----------------
+        if [ -f "$SCAN_DIR/go.mod" ]; then
+          while IFS= read -r match; do
+            FINDINGS+=("go.mod|$match")
+          done < <(grep -nE "v${PRERELEASE_PATTERN}" "$SCAN_DIR/go.mod" || true)
+        fi
+
+        # ----------------- package.json -----------------
+        if [ -f "$SCAN_DIR/package.json" ]; then
+          while IFS= read -r match; do
+            FINDINGS+=("package.json|$match")
+          done < <(grep -nE "\"${PRERELEASE_PATTERN}\"" "$SCAN_DIR/package.json" || true)
+        fi
+
+        # ----------------- Dockerfile -----------------
+        for df in "$SCAN_DIR/Dockerfile" "$SCAN_DIR/"*.dockerfile "$SCAN_DIR/Dockerfile."*; do
+          [ -f "$df" ] || continue
+          fname=$(basename "$df")
+          while IFS= read -r match; do
+            FINDINGS+=("${fname}|$match")
+          done < <(grep -nE ":${PRERELEASE_PATTERN}" "$df" || true)
+        done
+
+        COUNT=${#FINDINGS[@]}
+        echo "findings_count=$COUNT" >> "$GITHUB_OUTPUT"
+
+        if [ "$COUNT" -gt 0 ]; then
+          echo "has_findings=true" >> "$GITHUB_OUTPUT"
+
+          LABEL=""
+          [ -n "$APP_NAME" ] && LABEL=" ($APP_NAME)"
+
+          echo "::error::Found $COUNT pre-release version pin(s)${LABEL}. Production code must not depend on beta or release candidate versions."
+
+          {
+            echo "### :warning: Pre-release Version Pins${LABEL}"
+            echo ""
+            echo "| File | Line | Content |"
+            echo "|------|------|---------|"
+            for f in "${FINDINGS[@]}"; do
+              FILE="${f%%|*}"
+              REST="${f#*|}"
+              LINE="${REST%%:*}"
+              CONTENT="${REST#*:}"
+              CONTENT=$(echo "$CONTENT" | sed 's/^[[:space:]]*//' | sed 's/|/\\|/g')
+              echo "| \`${FILE}\` | ${LINE} | \`${CONTENT}\` |"
+            done
+            echo ""
+            echo "> Replace \`-beta.*\` and \`-rc.*\` versions with stable releases."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          for f in "${FINDINGS[@]}"; do
+            FILE="${f%%|*}"
+            REST="${f#*|}"
+            LINE="${REST%%:*}"
+            CONTENT="${REST#*:}"
+            echo "::warning file=${SCAN_DIR}/${FILE},line=${LINE}::Pre-release version pin: $(echo "$CONTENT" | sed 's/^[[:space:]]*//')"
+          done
+        else
+          echo "has_findings=false" >> "$GITHUB_OUTPUT"
+          echo "No pre-release version pins found."
+        fi
