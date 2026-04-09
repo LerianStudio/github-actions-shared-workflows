@@ -196,6 +196,7 @@ When enabled, the workflow scans `go.mod`, `package.json`, and `Dockerfile` for 
 | `enable_codeql` | boolean | `false` | Enable CodeQL static analysis. Requires `codeql_languages` to be set |
 | `codeql_languages` | string | `''` | Languages to analyze with CodeQL (comma-separated, e.g., `go`, `javascript-typescript`, `actions`) |
 | `codeql_fail_on_findings` | boolean | `true` | Fail the workflow when CodeQL detects security issues |
+| `codeql_upload_sarif` | boolean | `false` | Upload CodeQL SARIF results to the GitHub Security tab. Requires Code Security (GHAS) enabled on the repo |
 | `enable_prerelease_check` | boolean | `true` | Block dependencies pinned to pre-release versions (`-beta`, `-rc`) |
 
 ## Secrets

@@ -89,6 +89,10 @@ on:
         description: 'Fail the workflow when CodeQL detects security issues'
         type: boolean
         default: true
+      codeql_upload_sarif:
+        description: 'Upload CodeQL SARIF results to the GitHub Security tab. Requires Code Security (GHAS) enabled on the repo.'
+        type: boolean
+        default: false
       enable_prerelease_check:
         description: 'Block dependencies pinned to pre-release versions (-beta, -rc)'
         type: boolean
@@ -285,6 +289,7 @@ jobs:
         uses: LerianStudio/github-actions-shared-workflows/src/security/codeql-analyze@feat/pr-security-scan-codeql-prerelease
         with:
           category: '/language:${{ inputs.codeql_languages }}'
+          upload: ${{ inputs.codeql_upload_sarif }}
 
       # ----------------- Results & Security Gate -----------------
       - name: Post CodeQL Results to PR
