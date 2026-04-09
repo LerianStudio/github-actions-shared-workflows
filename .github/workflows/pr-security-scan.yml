@@ -95,6 +95,7 @@ on:
         default: true
 
 permissions:
+  actions: read         # Required for CodeQL status reporting
   id-token: write       # Required for OIDC authentication
   contents: read        # Required to checkout the repository
   pull-requests: write  # Allows commenting on PRs
