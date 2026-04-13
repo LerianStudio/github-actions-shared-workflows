@@ -4,7 +4,9 @@ Reusable workflow for updating GitOps repository with new image tags across mult
 
 ## Features
 
-- **Multi-server deployment**: Deploy to Firmino and/or Clotilde servers with dynamic path generation
+- **Manifest-driven topology**: Cluster membership per app is declared in [`config/deployment-matrix.yaml`](../config/deployment-matrix.yaml) — no caller-side configuration required to add a cluster to an existing app
+- **Multi-server deployment**: Deploy to Firmino, Clotilde and/or Anacleto with dynamic path generation
+- **Force-off overrides**: `deploy_in_<cluster>` inputs can suppress a cluster declared in the manifest, useful for emergency containment without editing the manifest
 - **Convention-based configuration**: Auto-generates paths, names, and patterns from repository name
 - **Multi-environment support**: dev (beta), stg (rc), prd (production), sandbox
 - **Production sync**: Production releases automatically update all environments (dev, stg, prd, sandbox) on all servers
@@ -18,7 +20,7 @@ Reusable workflow for updating GitOps repository with new image tags across mult
 
 ## Usage
 
-### Minimal Example (Convention-Based, Both Servers)
+### Minimal Example (Manifest-Driven)
 
 ```yaml
 update_gitops:
@@ -32,16 +34,19 @@ update_gitops:
 
 > **Required Secrets**: `MANAGE_TOKEN`, `LERIAN_CI_CD_USER_NAME`, `LERIAN_CI_CD_USER_EMAIL`, `ARGOCD_GHUSER_TOKEN`, `ARGOCD_URL`, `DOCKER_USERNAME`, `DOCKER_PASSWORD`
 
+The workflow reads `config/deployment-matrix.yaml` (in the shared-workflows repo at the same pinned ref as the workflow itself) and resolves the cluster set automatically based on `app_name`. No `deploy_in_*` inputs are required for the common case.
+
 **Auto-generated values** (for repo `my-backend-service`):
-- App name: `my-backend-service`
+- App name: `my-backend-service` (must be present in the deployment matrix)
 - Artifact pattern: `gitops-tags-my-backend-service-*`
-- GitOps paths: 
-  - Firmino: `gitops/environments/firmino/helmfile/applications/{env}/my-backend-service/values.yaml`
-  - Clotilde: `gitops/environments/clotilde/helmfile/applications/{env}/my-backend-service/values.yaml`
-- ArgoCD apps: `firmino-my-backend-service-{env}`, `clotilde-my-backend-service-{env}`
+- GitOps paths (one per cluster declared in the manifest):
+  - `gitops/environments/<cluster>/helmfile/applications/{env}/my-backend-service/values.yaml`
+- ArgoCD apps: `<cluster>-my-backend-service-{env}` for every resolved cluster
 - Commit prefix: `my-backend-service`
 
-### Single Server Example (Firmino Only)
+### Force-Off Example (Skip Anacleto for One Run)
+
+Useful when you need to ship a hotfix to Firmino and Clotilde but skip Anacleto temporarily (e.g., maintenance window) without touching the manifest:
 
 ```yaml
 update_gitops:
@@ -49,25 +54,12 @@ update_gitops:
   if: needs.build_backend.result == 'success'
   uses: LerianStudio/github-actions-shared-workflows/.github/workflows/gitops-update.yml@v1.0.0
   with:
-    deploy_in_firmino: true
-    deploy_in_clotilde: false
+    deploy_in_anacleto: false
     yaml_key_mappings: '{"backend.tag": ".auth.image.tag"}'
   secrets: inherit
 ```
 
-### Single Server Example (Clotilde Only)
-
-```yaml
-update_gitops:
-  needs: build_backend
-  if: needs.build_backend.result == 'success'
-  uses: LerianStudio/github-actions-shared-workflows/.github/workflows/gitops-update.yml@v1.0.0
-  with:
-    deploy_in_firmino: false
-    deploy_in_clotilde: true
-    yaml_key_mappings: '{"backend.tag": ".auth.image.tag"}'
-  secrets: inherit
-```
+`deploy_in_<cluster>` inputs only **subtract** clusters from the resolved set — they cannot add a cluster the manifest does not list.
 
 ### Multi-Component Example (Midaz)
 
@@ -98,8 +90,10 @@ update_gitops:
 |-------|------|---------|-------------|
 | `gitops_repository` | string | `LerianStudio/midaz-firmino-gitops` | GitOps repository to update |
 | `app_name` | string | (repo name) | Application name (auto-detected from repository) |
-| `deploy_in_firmino` | boolean | `true` | Deploy to Firmino server |
-| `deploy_in_clotilde` | boolean | `true` | Deploy to Clotilde server |
+| `deploy_in_firmino` | boolean | `true` | Force-off override for Firmino (`false` = subtract from manifest-resolved set) |
+| `deploy_in_clotilde` | boolean | `true` | Force-off override for Clotilde (`false` = subtract from manifest-resolved set) |
+| `deploy_in_anacleto` | boolean | `true` | Force-off override for Anacleto (`false` = subtract from manifest-resolved set) |
+| `deployment_matrix_file` | string | `config/deployment-matrix.yaml` | Path to the deployment matrix manifest within the shared-workflows checkout |
 | `artifact_pattern` | string | `gitops-tags-{app}-*` | Pattern to download artifacts (auto-generated) |
 | `commit_message_prefix` | string | (repo name) | Prefix for commit message (auto-generated) |
 | `runner_type` | string | `blacksmith-4vcpu-ubuntu-2404` | GitHub runner type |
@@ -135,6 +129,73 @@ update_gitops:
 | `DOCKER_USERNAME` | Docker Hub username (to avoid rate limits) |
 | `DOCKER_PASSWORD` | Docker Hub password |
 
+## Deployment Matrix
+
+The workflow's cluster topology is declared in [`config/deployment-matrix.yaml`](../config/deployment-matrix.yaml) — a single source of truth maintained in this repo.
+
+### How it works
+
+1. The caller invokes the workflow at a pinned ref (e.g. `@v1.24.0`).
+2. The workflow checks out the deployment matrix **at the same ref** (sparse checkout — only the manifest file).
+3. For the caller's `app_name`, the workflow collects every cluster whose `apps:` list contains it.
+4. `deploy_in_<cluster>` inputs are applied as **force-off** overrides on the resolved set.
+5. The remaining cluster set drives both the GitOps file updates and the ArgoCD sync matrix.
+
+### Anatomy of the manifest
+
+```yaml
+version: 1
+
+apps:
+  registry:
+    - midaz
+    - plugin-fees
+    # ... every app that uses this workflow
+
+clusters:
+  firmino:
+    apps: [midaz, plugin-fees, ...]
+  clotilde:
+    apps: [midaz, plugin-fees, ...]
+  anacleto:
+    apps: [midaz, ...]
+```
+
+- `apps.registry` is the set of legal app names — typo gate.
+- Each `clusters.<name>.apps` is an explicit list of which apps this cluster hosts.
+- A cluster is added by appending one block. A cluster is removed by deleting it. Affects only this repo — caller workflows are untouched.
+
+### Adding a new app to a cluster
+
+1. Open a PR in this repo editing `config/deployment-matrix.yaml`:
+   - Add the app name to `apps.registry` (if new).
+   - Add the app name to `clusters.<target>.apps`.
+2. The `deployment-matrix` lint job validates schema, integrity, and duplicates on the PR.
+3. Once merged, callers consuming the new ref (via Renovate/Dependabot or manual bump) automatically include the cluster on their next release — zero change required in caller repos.
+
+### Adding a new cluster
+
+1. Create `environments/<cluster>/...` in the GitOps repo (with at least the app `values.yaml` files you want to populate).
+2. In this repo, add a `clusters.<cluster>:` block listing the apps that should deploy to it.
+3. (Optional) Add a `deploy_in_<cluster>` input to `gitops-update.yml` if you want callers to be able to force-off the new cluster individually.
+
+### Force-off semantics
+
+`deploy_in_<cluster>` inputs default to `true` and only **subtract** from the manifest-resolved set:
+
+| Manifest says | Input value | Result |
+|---|---|---|
+| App included in cluster | `true` (default) | Deploys to cluster |
+| App included in cluster | `false` | **Suppressed** — does not deploy |
+| App NOT included in cluster | `true` (default) | Does not deploy |
+| App NOT included in cluster | `false` | Does not deploy |
+
+Inputs cannot **add** a cluster that the manifest does not list — that prevents accidental cross-cluster spillover.
+
+### Apps not in the manifest
+
+If `app_name` is not found in any cluster, the workflow logs a warning and exits cleanly (no failure). This is the expected behavior for apps managed manually or by other tooling.
+
 ## Multi-Server Path Generation
 
 The workflow dynamically generates paths for each server and environment combination:
@@ -144,7 +205,7 @@ gitops/environments/<server>/helmfile/applications/<env>/<app_name>/values.yaml
 ```
 
 Where:
-- `<server>`: `firmino` or `clotilde` (controlled by `deploy_in_firmino` and `deploy_in_clotilde` inputs)
+- `<server>`: any cluster resolved from the deployment matrix (current set: `firmino`, `clotilde`, `anacleto`), minus those force-off via `deploy_in_<cluster>: false`
 - `<env>`: `dev`, `stg`, `prd`, or `sandbox` (determined by tag type)
 - `<app_name>`: from `inputs.app_name` or auto-detected from repository name
 
@@ -168,22 +229,13 @@ This allows for partial deployments where not all server/environment combination
 
 ### Example: Production Release
 
-When a production tag (e.g., `v1.2.3`) is pushed with both servers enabled, the workflow will:
+When a production tag (e.g., `v1.2.3`) is pushed for an app declared in all three clusters, the workflow will:
 
-1. Generate paths for Firmino:
-   - `gitops/environments/firmino/helmfile/applications/dev/my-app/values.yaml`
-   - `gitops/environments/firmino/helmfile/applications/stg/my-app/values.yaml`
-   - `gitops/environments/firmino/helmfile/applications/prd/my-app/values.yaml`
-   - `gitops/environments/firmino/helmfile/applications/sandbox/my-app/values.yaml`
-
-2. Generate paths for Clotilde:
-   - `gitops/environments/clotilde/helmfile/applications/dev/my-app/values.yaml`
-   - `gitops/environments/clotilde/helmfile/applications/stg/my-app/values.yaml`
-   - `gitops/environments/clotilde/helmfile/applications/prd/my-app/values.yaml`
-   - `gitops/environments/clotilde/helmfile/applications/sandbox/my-app/values.yaml`
-
-3. Apply tags to all existing files (skip missing ones with warning)
-4. Sync ArgoCD apps for each server/environment where files were updated
+1. Resolve cluster set from manifest: `firmino`, `clotilde`, `anacleto`.
+2. For each cluster, generate paths for every production environment (`dev`, `stg`, `prd`, `sandbox`):
+   - `gitops/environments/<cluster>/helmfile/applications/<env>/my-app/values.yaml`
+3. Apply tags to all existing files (skip missing ones with warning).
+4. Sync ArgoCD apps for each cluster/environment where files were updated.
 
 ## ArgoCD Multi-Server Sync
 
@@ -194,11 +246,9 @@ When `enable_argocd_sync` is `true`, the workflow syncs ArgoCD applications for 
 ArgoCD apps are named using the pattern: `<server>-<app_name>-<env>`
 
 Examples:
-- `firmino-midaz-dev`
-- `firmino-midaz-stg`
-- `firmino-midaz-prd`
-- `clotilde-midaz-dev`
-- `clotilde-midaz-stg`
+- `firmino-midaz-dev`, `firmino-midaz-stg`, `firmino-midaz-prd`
+- `clotilde-midaz-dev`, `clotilde-midaz-stg`, `clotilde-midaz-sandbox`
+- `anacleto-midaz-dev`
 
 ### Sync Behavior
 
@@ -268,23 +318,33 @@ update_gitops:
 ### Key Changes
 
 1. **Removed inputs:**
-   - `gitops_server` - No longer needed; use `deploy_in_firmino` and `deploy_in_clotilde` instead
+   - `gitops_server` - No longer needed; cluster topology is declared in the deployment matrix
    - `gitops_file_dev`, `gitops_file_stg`, `gitops_file_prd`, `gitops_file_sandbox` - Paths are now auto-generated
    - `argocd_app_name` - Now auto-generated based on server/app/env pattern
    - `environment_detection`, `manual_environment` - Simplified to automatic detection only
 
-2. **New inputs:**
-   - `deploy_in_firmino` (default: `true`) - Enable deployment to Firmino server
-   - `deploy_in_clotilde` (default: `true`) - Enable deployment to Clotilde server
+2. **Inputs that became force-off overrides:**
+   - `deploy_in_firmino`, `deploy_in_clotilde`, `deploy_in_anacleto` (all default `true`) — only **subtract** clusters from the manifest-resolved set; cannot add a cluster the manifest does not list
 
-3. **Path generation:**
-   - Paths are automatically generated based on server and environment
-   - Pattern: `gitops/environments/<server>/helmfile/applications/<env>/<app_name>/values.yaml`
+3. **New inputs:**
+   - `deployment_matrix_file` (default: `config/deployment-matrix.yaml`) — alternative manifest path for forks/testing
 
-4. **ArgoCD sync:**
-   - Now syncs apps for each server/environment combination where files were updated
-   - Pattern: `<server>-<app_name>-<env>`
+4. **Path generation:**
+   - Paths are automatically generated based on cluster (from manifest) and environment (from tag)
+   - Pattern: `gitops/environments/<cluster>/helmfile/applications/<env>/<app_name>/values.yaml`
+
+5. **ArgoCD sync:**
+   - Syncs apps for each cluster/environment combination where files were updated
+   - Pattern: `<cluster>-<app_name>-<env>`
    - Checks if app exists before attempting sync
+
+### Migrating an existing caller to manifest-driven topology
+
+If your caller currently passes `deploy_in_firmino: true, deploy_in_clotilde: true` explicitly:
+
+1. Add your `app_name` to `apps.registry` and to the appropriate `clusters.<name>.apps` lists in [`config/deployment-matrix.yaml`](../config/deployment-matrix.yaml) (single PR in this repo).
+2. Once merged and the caller bumps to the new shared-workflows ref (Renovate/Dependabot), the explicit `deploy_in_*: true` inputs become redundant and can be removed from the caller.
+3. Keep `deploy_in_<cluster>: false` only where you want to force-off a cluster the manifest declares.
 
 ## Troubleshooting
 
@@ -306,6 +366,16 @@ Ensure the artifact pattern matches your uploaded artifacts:
 - Pattern: `gitops-tags-*` matches `gitops-tags-backend`, `gitops-tags-frontend`, etc.
 - Check artifact names in the build job
 
+### App is not registered in any cluster of the deployment matrix
+
+The workflow logs this warning and exits cleanly when `app_name` is missing from the manifest. Either:
+- Add the app to `config/deployment-matrix.yaml` in this repo (and bump the caller's pinned ref), or
+- Confirm the app is intentionally managed outside this workflow (manual edits, kustomize, separate tooling).
+
+### All clusters resolved from the manifest were suppressed
+
+You explicitly set every `deploy_in_<cluster>: false`. Either remove one of the overrides, or confirm this run is intentionally a no-op.
+
 ### YAML key not updated
 
 Verify the YAML key path in your mappings:
@@ -315,8 +385,10 @@ Verify the YAML key path in your mappings:
 
 ## Best Practices
 
-1. **Start with both servers enabled** - the workflow gracefully handles missing files
-2. **Use specific artifact patterns** to avoid conflicts
-3. **Test with beta tags first** before deploying to production
-4. **Monitor ArgoCD sync results** in workflow logs
-5. **Keep YAML key mappings simple** and consistent across environments
+1. **Add new apps/clusters via the deployment matrix**, not via per-caller `deploy_in_*` flags — single source of truth wins
+2. **Reserve `deploy_in_<cluster>: false`** for emergency containment or temporary suppression, not for permanent topology decisions
+3. **Use specific artifact patterns** to avoid conflicts
+4. **Test with beta tags first** before deploying to production
+5. **Monitor ArgoCD sync results** in workflow logs
+6. **Keep YAML key mappings simple** and consistent across environments
+7. **Pin via Renovate/Dependabot** so manifest updates propagate automatically as new ref bumps

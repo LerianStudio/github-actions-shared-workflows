@@ -16,13 +16,21 @@ on:
         type: string
         required: false
       deploy_in_firmino:
-        description: 'Deploy to Firmino server'
+        description: 'Force-off override for Firmino. Set to false to suppress deployment even if the manifest includes this app on Firmino.'
         type: boolean
         default: true
       deploy_in_clotilde:
-        description: 'Deploy to Clotilde server'
+        description: 'Force-off override for Clotilde. Set to false to suppress deployment even if the manifest includes this app on Clotilde.'
         type: boolean
         default: true
+      deploy_in_anacleto:
+        description: 'Force-off override for Anacleto. Set to false to suppress deployment even if the manifest includes this app on Anacleto.'
+        type: boolean
+        default: true
+      deployment_matrix_file:
+        description: 'Path (within the shared-workflows checkout) to the deployment matrix manifest. Override only if you maintain a fork/alternative manifest.'
+        type: string
+        default: 'config/deployment-matrix.yaml'
       artifact_pattern:
         description: 'Pattern to download artifacts (defaults to "gitops-tags-<repo-name>-*" if not provided)'
         type: string
@@ -88,6 +96,31 @@ jobs:
           path: gitops
           fetch-depth: 0
 
+      - name: Resolve shared-workflows ref
+        id: shared_ref
+        shell: bash
+        run: |
+          # github.workflow_ref looks like: <org>/<repo>/.github/workflows/<file>.yml@refs/heads/<branch>
+          # We need the ref portion to checkout the manifest at the same pinned version
+          # the caller is consuming, so the manifest cannot drift from the workflow code.
+          REF=$(echo '${{ github.workflow_ref }}' | sed -E 's|.*@||')
+          if [[ -z "$REF" ]]; then
+            echo "::error::Could not parse ref from github.workflow_ref='${{ github.workflow_ref }}'"
+            exit 1
+          fi
+          echo "ref=$REF" >> "$GITHUB_OUTPUT"
+          echo "Shared-workflows ref (for manifest checkout): $REF"
+
+      - name: Checkout deployment matrix manifest
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          repository: LerianStudio/github-actions-shared-workflows
+          ref: ${{ steps.shared_ref.outputs.ref }}
+          path: shared-workflows
+          sparse-checkout: |
+            ${{ inputs.deployment_matrix_file }}
+          sparse-checkout-cone-mode: false
+
       - name: Setup application name and paths
         id: setup
         shell: bash
@@ -100,15 +133,6 @@ jobs:
           fi
           echo "app_name=$APP_NAME" >> "$GITHUB_OUTPUT"
           echo "Application name: $APP_NAME"
-
-          # Determine which servers to deploy to
-          DEPLOY_FIRMINO="${{ inputs.deploy_in_firmino }}"
-          DEPLOY_CLOTILDE="${{ inputs.deploy_in_clotilde }}"
-
-          echo "deploy_firmino=$DEPLOY_FIRMINO" >> "$GITHUB_OUTPUT"
-          echo "deploy_clotilde=$DEPLOY_CLOTILDE" >> "$GITHUB_OUTPUT"
-          echo "Deploy to Firmino: $DEPLOY_FIRMINO"
-          echo "Deploy to Clotilde: $DEPLOY_CLOTILDE"
 
           # Generate commit message prefix if not provided
           if [[ -z "${{ inputs.commit_message_prefix }}" ]]; then
@@ -139,6 +163,91 @@ jobs:
           sudo curl -L "$YQ_URL" -o /usr/local/bin/yq
           sudo chmod +x /usr/local/bin/yq
           yq --version
+
+      - name: Resolve target clusters from deployment matrix
+        id: resolve_clusters
+        shell: bash
+        env:
+          APP_NAME: ${{ steps.setup.outputs.app_name }}
+          MANIFEST: shared-workflows/${{ inputs.deployment_matrix_file }}
+          DEPLOY_FIRMINO: ${{ inputs.deploy_in_firmino }}
+          DEPLOY_CLOTILDE: ${{ inputs.deploy_in_clotilde }}
+          DEPLOY_ANACLETO: ${{ inputs.deploy_in_anacleto }}
+        run: |
+          set -euo pipefail
+
+          if [[ ! -f "$MANIFEST" ]]; then
+            echo "::error::Deployment matrix manifest not found: $MANIFEST"
+            exit 1
+          fi
+
+          echo "Reading deployment matrix: $MANIFEST"
+          echo "App name: $APP_NAME"
+
+          # Resolve clusters whose `apps:` list contains $APP_NAME.
+          # Convert manifest to JSON via yq, then query with jq (more portable than yq's
+          # native env() — and jq is preinstalled on the runner anyway).
+          #
+          # NOTE: We use `index($app)` instead of `contains([$app])` because jq's
+          # contains() does substring matching on strings — "plugin-br-bank-transfer"
+          # would falsely match "plugin-br-bank-transfer-jd". `index()` is exact equality.
+          # Output one cluster per line, sorted for determinism.
+          RESOLVED=$(yq -o=json '.' "$MANIFEST" \
+            | jq -r --arg app "$APP_NAME" \
+              '.clusters | to_entries[] | select(.value.apps // [] | index($app)) | .key' \
+            | sort -u || true)
+
+          if [[ -z "$RESOLVED" ]]; then
+            echo "::warning::App '$APP_NAME' is not registered in any cluster of the deployment matrix."
+            echo "If this is a new app, add it to $MANIFEST in shared-workflows."
+            echo "clusters=" >> "$GITHUB_OUTPUT"
+            echo "has_clusters=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "Manifest resolution for '$APP_NAME':"
+          echo "$RESOLVED" | sed 's/^/  - /'
+
+          # Apply force-off overrides from inputs.
+          # An input set to "false" removes that cluster from the resolved set,
+          # even if the manifest includes the app on it.
+          FILTERED=""
+          while IFS= read -r cluster; do
+            [[ -z "$cluster" ]] && continue
+            case "$cluster" in
+              firmino)
+                if [[ "$DEPLOY_FIRMINO" == "false" ]]; then
+                  echo "  ✗ firmino — suppressed by deploy_in_firmino=false"
+                  continue
+                fi
+                ;;
+              clotilde)
+                if [[ "$DEPLOY_CLOTILDE" == "false" ]]; then
+                  echo "  ✗ clotilde — suppressed by deploy_in_clotilde=false"
+                  continue
+                fi
+                ;;
+              anacleto)
+                if [[ "$DEPLOY_ANACLETO" == "false" ]]; then
+                  echo "  ✗ anacleto — suppressed by deploy_in_anacleto=false"
+                  continue
+                fi
+                ;;
+            esac
+            FILTERED="${FILTERED:+$FILTERED }$cluster"
+          done <<< "$RESOLVED"
+
+          if [[ -z "$FILTERED" ]]; then
+            echo "::warning::All clusters resolved from the manifest were suppressed by force-off inputs."
+            echo "clusters=" >> "$GITHUB_OUTPUT"
+            echo "has_clusters=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo ""
+          echo "Final cluster set: $FILTERED"
+          echo "clusters=$FILTERED" >> "$GITHUB_OUTPUT"
+          echo "has_clusters=true" >> "$GITHUB_OUTPUT"
 
       - name: Git pull before update
         shell: bash
@@ -232,23 +341,15 @@ jobs:
           echo "Detected tag type: $ENV_LABEL"
           echo "Environments to update: $ENVIRONMENTS"
 
-          # Determine servers to deploy to
-          SERVERS=""
-          if [[ "${{ steps.setup.outputs.deploy_firmino }}" == "true" ]]; then
-            SERVERS="firmino"
+          # Servers come from the deployment matrix manifest, filtered by force-off inputs.
+          # See step `resolve_clusters` for resolution logic.
+          if [[ "${{ steps.resolve_clusters.outputs.has_clusters }}" != "true" ]]; then
+            echo "No clusters selected for deployment (manifest empty for this app, or all clusters suppressed)."
+            echo "sync_matrix=[]" >> "$GITHUB_OUTPUT"
+            echo "has_sync_targets=false" >> "$GITHUB_OUTPUT"
+            exit 0
           fi
-          if [[ "${{ steps.setup.outputs.deploy_clotilde }}" == "true" ]]; then
-            if [[ -n "$SERVERS" ]]; then
-              SERVERS="$SERVERS clotilde"
-            else
-              SERVERS="clotilde"
-            fi
-          fi
-
-          if [[ -z "$SERVERS" ]]; then
-            echo "No servers selected for deployment. Enable deploy_in_firmino or deploy_in_clotilde."
-            exit 1
-          fi
+          SERVERS="${{ steps.resolve_clusters.outputs.clusters }}"
           echo "Servers to deploy to: $SERVERS"
 
           # First, check which artifacts actually exist

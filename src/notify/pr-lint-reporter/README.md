@@ -28,6 +28,8 @@ Posts a formatted lint analysis summary as a PR comment, aggregating results fro
 | `readme-files` | Comma-separated list of files checked for README presence | No | `` |
 | `composite-schema-result` | Result of the composite-schema job | No | `skipped` |
 | `composite-schema-files` | Comma-separated list of action files validated by composite-schema | No | `` |
+| `deployment-matrix-result` | Result of the deployment-matrix job | No | `skipped` |
+| `deployment-matrix-files` | Comma-separated list of deployment matrix manifest files validated | No | `` |
 
 ## Usage as composite step
 
@@ -35,7 +37,7 @@ Posts a formatted lint analysis summary as a PR comment, aggregating results fro
 jobs:
   lint-report:
     runs-on: blacksmith-4vcpu-ubuntu-2404
-    needs: [changed-files, yamllint, actionlint, pinned-actions, markdown-link-check, typos, shellcheck, readme-check, composite-schema]
+    needs: [changed-files, yamllint, actionlint, pinned-actions, markdown-link-check, typos, shellcheck, readme-check, composite-schema, deployment-matrix]
     if: always() && github.event_name == 'pull_request' && needs.changed-files.result == 'success'
     steps:
       - name: Checkout
@@ -61,6 +63,8 @@ jobs:
           readme-files: ${{ needs.changed-files.outputs.action_files }}
           composite-schema-result: ${{ needs.composite-schema.result }}
           composite-schema-files: ${{ needs.changed-files.outputs.composite_files }}
+          deployment-matrix-result: ${{ needs.deployment-matrix.result }}
+          deployment-matrix-files: ${{ contains(needs.changed-files.outputs.all_files, 'config/deployment-matrix.yaml') && 'config/deployment-matrix.yaml' || '' }}
 ```
 
 ## Required permissions
