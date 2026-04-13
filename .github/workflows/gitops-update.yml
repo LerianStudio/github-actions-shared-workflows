@@ -206,7 +206,9 @@ jobs:
           fi
 
           echo "Manifest resolution for '$APP_NAME':"
-          echo "$RESOLVED" | sed 's/^/  - /'
+          while IFS= read -r line; do
+            echo "  - $line"
+          done <<< "$RESOLVED"
 
           # Apply force-off overrides from inputs.
           # An input set to "false" removes that cluster from the resolved set,
