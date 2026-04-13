@@ -10,6 +10,10 @@ inputs:
     description: 'Application name for reporting context'
     required: false
     default: ''
+  github-token:
+    description: 'GitHub token for posting PR comments. When empty, the PR comment step is skipped.'
+    required: false
+    default: ''
 
 outputs:
   has-findings:
@@ -92,6 +96,11 @@ runs:
         COUNT=${#FINDINGS[@]}
         echo "findings_count=$COUNT" >> "$GITHUB_OUTPUT"
 
+        # Persist findings as JSON so the next step can post a PR comment.
+        ARTIFACT_NAME="${APP_NAME:-default}"
+        ARTIFACT_FILE="prerelease-findings-${ARTIFACT_NAME}.json"
+        echo "artifact_file=$ARTIFACT_FILE" >> "$GITHUB_OUTPUT"
+
         if [ "$COUNT" -gt 0 ]; then
           echo "has_findings=true" >> "$GITHUB_OUTPUT"
 
@@ -99,6 +108,28 @@ runs:
           [ -n "$APP_NAME" ] && LABEL=" ($APP_NAME)"
 
           echo "::error::Found $COUNT unstable version pin(s)${LABEL}. Only stable versions (x.y.z) and SHA-based pins are allowed."
+
+          # Build JSON array of findings for the reporter step.
+          {
+            echo "["
+            FIRST=true
+            for f in "${FINDINGS[@]}"; do
+              FILE="${f%%|*}"
+              REST="${f#*|}"
+              LINE="${REST%%:*}"
+              CONTENT="${REST#*:}"
+              CONTENT_TRIMMED=$(echo "$CONTENT" | sed 's/^[[:space:]]*//')
+              CONTENT_ESCAPED=$(echo "$CONTENT_TRIMMED" | jq -Rs .)
+              if [ "$FIRST" = "true" ]; then
+                FIRST=false
+              else
+                echo ","
+              fi
+              printf '  {"file":"%s","line":%s,"content":%s}' "$FILE" "$LINE" "$CONTENT_ESCAPED"
+            done
+            echo ""
+            echo "]"
+          } > "$ARTIFACT_FILE"
 
           {
             echo "### :warning: Pre-release Version Pins${LABEL}"
@@ -126,5 +157,77 @@ runs:
           done
         else
           echo "has_findings=false" >> "$GITHUB_OUTPUT"
+          echo "[]" > "$ARTIFACT_FILE"
           echo "No pre-release version pins found."
         fi
+
+    - name: Post PR comment with pre-release findings
+      if: github.event_name == 'pull_request' && inputs.github-token != '' && steps.scan.outputs.has_findings == 'true'
+      uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+      env:
+        APP_NAME: ${{ inputs.app-name }}
+        ARTIFACT_FILE: ${{ steps.scan.outputs.artifact_file }}
+        FINDINGS_COUNT: ${{ steps.scan.outputs.findings_count }}
+      with:
+        github-token: ${{ inputs.github-token }}
+        script: |
+          const fs = require('fs');
+
+          const appName = process.env.APP_NAME || 'default';
+          const artifactFile = process.env.ARTIFACT_FILE;
+          const findingsCount = process.env.FINDINGS_COUNT;
+          const label = process.env.APP_NAME ? ` — \`${appName}\`` : '';
+
+          let findings = [];
+          try {
+            findings = JSON.parse(fs.readFileSync(artifactFile, 'utf8'));
+          } catch (e) {
+            core.warning(`Could not read prerelease findings: ${e.message}`);
+            return;
+          }
+
+          if (findings.length === 0) return;
+
+          const md = (value) =>
+            String(value ?? '').replace(/\|/g, '\\|').replace(/\r?\n/g, ' ').replace(/`/g, '\\`');
+
+          let body = '';
+          body += `## \u{1F6AB} Pre-release Version Pins${label}\n\n`;
+          body += `**Found ${findingsCount} unstable version pin(s).** Production code must only depend on stable releases (\`x.y.z\`) or SHA-based pins.\n\n`;
+          body += `| File | Line | Content |\n`;
+          body += `|------|------|----------|\n`;
+          for (const f of findings) {
+            body += `| \`${md(f.file)}\` | ${f.line} | \`${md(f.content)}\` |\n`;
+          }
+          body += `\n`;
+          body += `> Replace pre-release suffixes (\`-alpha\`, \`-beta\`, \`-rc\`, \`-dev\`, etc.) with stable releases before merging.\n\n`;
+
+          const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+          body += `---\n\n<sub>\u{1F50D} [View full scan logs](${runUrl})</sub>\n\n`;
+
+          const marker = `<!-- prerelease-check-${appName} -->`;
+          body = marker + '\n' + body;
+
+          try {
+            const comments = await github.paginate(github.rest.issues.listComments, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              per_page: 100,
+            });
+
+            const existing = comments.find(c => c.body?.includes(marker));
+            const params = {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body,
+            };
+
+            if (existing) {
+              await github.rest.issues.updateComment({ ...params, comment_id: existing.id });
+            } else {
+              await github.rest.issues.createComment({ ...params, issue_number: context.issue.number });
+            }
+          } catch (e) {
+            core.warning(`Could not post PR pre-release comment: ${e.message}`);
+          }

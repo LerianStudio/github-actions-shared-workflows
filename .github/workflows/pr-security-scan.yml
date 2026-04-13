@@ -223,6 +223,7 @@ jobs:
         with:
           scan-ref: ${{ matrix.working_dir }}
           app-name: ${{ env.APP_NAME }}
+          github-token: ${{ secrets.MANAGE_TOKEN || secrets.GITHUB_TOKEN }}
 
       # ----------------- Results & Security Gate -----------------
       - name: Post Security Scan Results to PR
