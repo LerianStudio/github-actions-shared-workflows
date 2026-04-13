@@ -30,7 +30,7 @@ on:
       deployment_matrix_file:
         description: 'Path (within the shared-workflows checkout) to the deployment matrix manifest. Override only if you maintain a fork/alternative manifest.'
         type: string
-        default: 'config/deployment-matrix.yaml'
+        default: 'config/deployment-matrix.yml'
       artifact_pattern:
         description: 'Pattern to download artifacts (defaults to "gitops-tags-<repo-name>-*" if not provided)'
         type: string
@@ -101,30 +101,16 @@ jobs:
           path: gitops
           fetch-depth: 0
 
-      - name: Resolve shared-workflows ref
-        id: shared_ref
-        shell: bash
-        env:
-          # Pass through env to avoid `${{ ... }}` interpolation directly into the
-          # script body (CodeQL: actions/code-injection).
-          WORKFLOW_REF: ${{ github.workflow_ref }}
-        run: |
-          # WORKFLOW_REF looks like: <org>/<repo>/.github/workflows/<file>.yml@refs/heads/<branch>
-          # We need the ref portion to checkout the manifest at the same pinned version
-          # the caller is consuming, so the manifest cannot drift from the workflow code.
-          REF="${WORKFLOW_REF##*@}"
-          if [[ -z "$REF" ]]; then
-            echo "::error::Could not parse ref from github.workflow_ref='${WORKFLOW_REF}'"
-            exit 1
-          fi
-          echo "ref=$REF" >> "$GITHUB_OUTPUT"
-          echo "Shared-workflows ref (for manifest checkout): $REF"
-
       - name: Checkout deployment matrix manifest
+        # `github.job_workflow_sha` is the commit SHA of THIS reusable workflow
+        # file (not the caller's — `github.workflow_ref` would point to the caller).
+        # Checking out that exact SHA guarantees the manifest never drifts from
+        # the workflow code the caller pinned. Reference:
+        # https://docs.github.com/en/actions/learn-github-actions/contexts#github-context
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
           repository: LerianStudio/github-actions-shared-workflows
-          ref: ${{ steps.shared_ref.outputs.ref }}
+          ref: ${{ github.job_workflow_sha }}
           path: shared-workflows
           sparse-checkout: |
             ${{ inputs.deployment_matrix_file }}
@@ -204,10 +190,15 @@ jobs:
           # contains() does substring matching on strings — "plugin-br-bank-transfer"
           # would falsely match "plugin-br-bank-transfer-jd". `index()` is exact equality.
           # Output one cluster per line, sorted for determinism.
+          # Do not swallow yq/jq errors with `|| true` — a corrupt manifest or
+          # broken query should fail fast, not be confused with "app not registered".
+          # Pipefail ensures intermediate failures surface; an empty RESOLVED from
+          # a *successful* query is the legitimate "no matching clusters" case and
+          # is handled below.
           RESOLVED=$(yq -o=json '.' "$MANIFEST" \
             | jq -r --arg app "$APP_NAME" \
               '.clusters | to_entries[] | select(.value.apps // [] | index($app)) | .key' \
-            | sort -u || true)
+            | sort -u)
 
           if [[ -z "$RESOLVED" ]]; then
             echo "::warning::App '$APP_NAME' is not registered in any cluster of the deployment matrix."

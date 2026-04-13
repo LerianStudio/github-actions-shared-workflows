@@ -64,7 +64,7 @@ jobs:
           composite-schema-result: ${{ needs.composite-schema.result }}
           composite-schema-files: ${{ needs.changed-files.outputs.composite_files }}
           deployment-matrix-result: ${{ needs.deployment-matrix.result }}
-          deployment-matrix-files: ${{ contains(needs.changed-files.outputs.all_files, 'config/deployment-matrix.yaml') && 'config/deployment-matrix.yaml' || '' }}
+          deployment-matrix-files: ${{ contains(needs.changed-files.outputs.all_files, 'config/deployment-matrix.yml') && 'config/deployment-matrix.yml' || '' }}
 ```
 
 ## Required permissions

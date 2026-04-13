@@ -5,7 +5,7 @@
   </tr>
 </table>
 
-Validate the deployment matrix manifest at `config/deployment-matrix.yaml` (or any custom path). This manifest is the source of truth consumed by the `gitops-update.yml` reusable workflow to decide which apps deploy to which Kubernetes clusters.
+Validate the deployment matrix manifest at `config/deployment-matrix.yml` (or any custom path). This manifest is the source of truth consumed by the `gitops-update.yml` reusable workflow to decide which apps deploy to which Kubernetes clusters.
 
 Checks performed:
 
@@ -27,7 +27,7 @@ Checks performed:
 
 | Input | Description | Required | Default |
 |-------|-------------|----------|---------|
-| `manifest-file` | Path to the deployment matrix YAML manifest | No | `config/deployment-matrix.yaml` |
+| `manifest-file` | Path to the deployment matrix YAML manifest | No | `config/deployment-matrix.yml` |
 
 ## Usage as composite step
 
@@ -42,7 +42,7 @@ jobs:
       - name: Deployment Matrix Lint
         uses: LerianStudio/github-actions-shared-workflows/src/lint/deployment-matrix@v1.x.x
         with:
-          manifest-file: config/deployment-matrix.yaml
+          manifest-file: config/deployment-matrix.yml
 ```
 
 ## Required permissions

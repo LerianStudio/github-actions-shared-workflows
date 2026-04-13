@@ -4,7 +4,7 @@ Reusable workflow for updating GitOps repository with new image tags across mult
 
 ## Features
 
-- **Manifest-driven topology**: Cluster membership per app is declared in [`config/deployment-matrix.yaml`](../config/deployment-matrix.yaml) — no caller-side configuration required to add a cluster to an existing app
+- **Manifest-driven topology**: Cluster membership per app is declared in [`config/deployment-matrix.yml`](../config/deployment-matrix.yml) — no caller-side configuration required to add a cluster to an existing app
 - **Multi-server deployment**: Deploy to Firmino, Clotilde and/or Anacleto with dynamic path generation
 - **Force-off overrides**: `deploy_in_<cluster>` inputs can suppress a cluster declared in the manifest, useful for emergency containment without editing the manifest
 - **Convention-based configuration**: Auto-generates paths, names, and patterns from repository name
@@ -34,7 +34,7 @@ update_gitops:
 
 > **Required Secrets**: `MANAGE_TOKEN`, `LERIAN_CI_CD_USER_NAME`, `LERIAN_CI_CD_USER_EMAIL`, `ARGOCD_GHUSER_TOKEN`, `ARGOCD_URL`, `DOCKER_USERNAME`, `DOCKER_PASSWORD`
 
-The workflow reads `config/deployment-matrix.yaml` (in the shared-workflows repo at the same pinned ref as the workflow itself) and resolves the cluster set automatically based on `app_name`. No `deploy_in_*` inputs are required for the common case.
+The workflow reads `config/deployment-matrix.yml` (in the shared-workflows repo at the same pinned ref as the workflow itself) and resolves the cluster set automatically based on `app_name`. No `deploy_in_*` inputs are required for the common case.
 
 **Auto-generated values** (for repo `my-backend-service`):
 - App name: `my-backend-service` (must be present in the deployment matrix)
@@ -93,7 +93,7 @@ update_gitops:
 | `deploy_in_firmino` | boolean | `true` | Force-off override for Firmino (`false` = subtract from manifest-resolved set) |
 | `deploy_in_clotilde` | boolean | `true` | Force-off override for Clotilde (`false` = subtract from manifest-resolved set) |
 | `deploy_in_anacleto` | boolean | `true` | Force-off override for Anacleto (`false` = subtract from manifest-resolved set) |
-| `deployment_matrix_file` | string | `config/deployment-matrix.yaml` | Path to the deployment matrix manifest within the shared-workflows checkout |
+| `deployment_matrix_file` | string | `config/deployment-matrix.yml` | Path to the deployment matrix manifest within the shared-workflows checkout |
 | `artifact_pattern` | string | `gitops-tags-{app}-*` | Pattern to download artifacts (auto-generated) |
 | `commit_message_prefix` | string | (repo name) | Prefix for commit message (auto-generated) |
 | `runner_type` | string | `blacksmith-4vcpu-ubuntu-2404` | GitHub runner type |
@@ -131,7 +131,7 @@ update_gitops:
 
 ## Deployment Matrix
 
-The workflow's cluster topology is declared in [`config/deployment-matrix.yaml`](../config/deployment-matrix.yaml) — a single source of truth maintained in this repo.
+The workflow's cluster topology is declared in [`config/deployment-matrix.yml`](../config/deployment-matrix.yml) — a single source of truth maintained in this repo.
 
 ### How it works
 
@@ -167,7 +167,7 @@ clusters:
 
 ### Adding a new app to a cluster
 
-1. Open a PR in this repo editing `config/deployment-matrix.yaml`:
+1. Open a PR in this repo editing `config/deployment-matrix.yml`:
    - Add the app name to `apps.registry` (if new).
    - Add the app name to `clusters.<target>.apps`.
 2. The `deployment-matrix` lint job validates schema, integrity, and duplicates on the PR.
@@ -327,7 +327,7 @@ update_gitops:
    - `deploy_in_firmino`, `deploy_in_clotilde`, `deploy_in_anacleto` (all default `true`) — only **subtract** clusters from the manifest-resolved set; cannot add a cluster the manifest does not list
 
 3. **New inputs:**
-   - `deployment_matrix_file` (default: `config/deployment-matrix.yaml`) — alternative manifest path for forks/testing
+   - `deployment_matrix_file` (default: `config/deployment-matrix.yml`) — alternative manifest path for forks/testing
 
 4. **Path generation:**
    - Paths are automatically generated based on cluster (from manifest) and environment (from tag)
@@ -340,9 +340,11 @@ update_gitops:
 
 ### Migrating an existing caller to manifest-driven topology
 
+> ⚠️ **Semantic change to `deploy_in_*` inputs** — callers that previously relied on `deploy_in_firmino: true` (etc.) to **include** a cluster will now silently deploy nowhere if their app is not listed in the manifest. The inputs only **subtract** from the manifest-resolved set; they never add. The prerequisite for any deployment is a manifest entry. Workflow logs a warning when `app_name` is missing from every cluster, so these cases surface quickly — but add your app to the manifest before merging this bump if you haven't already.
+
 If your caller currently passes `deploy_in_firmino: true, deploy_in_clotilde: true` explicitly:
 
-1. Add your `app_name` to `apps.registry` and to the appropriate `clusters.<name>.apps` lists in [`config/deployment-matrix.yaml`](../config/deployment-matrix.yaml) (single PR in this repo).
+1. Add your `app_name` to `apps.registry` and to the appropriate `clusters.<name>.apps` lists in [`config/deployment-matrix.yml`](../config/deployment-matrix.yml) (single PR in this repo).
 2. Once merged and the caller bumps to the new shared-workflows ref (Renovate/Dependabot), the explicit `deploy_in_*: true` inputs become redundant and can be removed from the caller.
 3. Keep `deploy_in_<cluster>: false` only where you want to force-off a cluster the manifest declares.
 
@@ -369,7 +371,7 @@ Ensure the artifact pattern matches your uploaded artifacts:
 ### App is not registered in any cluster of the deployment matrix
 
 The workflow logs this warning and exits cleanly when `app_name` is missing from the manifest. Either:
-- Add the app to `config/deployment-matrix.yaml` in this repo (and bump the caller's pinned ref), or
+- Add the app to `config/deployment-matrix.yml` in this repo (and bump the caller's pinned ref), or
 - Confirm the app is intentionally managed outside this workflow (manual edits, kustomize, separate tooling).
 
 ### All clusters resolved from the manifest were suppressed

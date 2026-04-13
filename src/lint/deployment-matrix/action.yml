@@ -5,7 +5,7 @@ inputs:
   manifest-file:
     description: Path to the deployment matrix YAML manifest
     required: false
-    default: "config/deployment-matrix.yaml"
+    default: "config/deployment-matrix.yml"
 
 runs:
   using: composite
