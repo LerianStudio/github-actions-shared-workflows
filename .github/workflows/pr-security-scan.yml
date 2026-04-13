@@ -158,7 +158,7 @@ jobs:
       # ----------------- Docker Build -----------------
       - name: Build Docker Image for Scanning
         if: always() && inputs.enable_docker_scan
-        uses: docker/build-push-action@d08e5c354a6adb9ed34480a06d141179aa583294 # v7
+        uses: docker/build-push-action@bcafcacb16a39f128d818304e6c9c0c18556b85f # v7
         with:
           context: ${{ inputs.build_context_from_working_dir == true && matrix.working_dir || (inputs.monorepo_type == 'type2' && matrix.working_dir == inputs.frontend_folder && inputs.frontend_folder || '.') }}
           file: ${{ env.DOCKERFILE_PATH }}
