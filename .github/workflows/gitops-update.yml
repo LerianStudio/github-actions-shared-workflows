@@ -101,16 +101,28 @@ jobs:
           path: gitops
           fetch-depth: 0
 
+      - name: Resolve reusable workflow SHA
+        id: resolve_sha
+        shell: bash
+        run: |
+          # We need the commit SHA of THIS reusable workflow (not the caller) so the
+          # manifest checkout pins to the exact code the caller consumes. The expression
+          # `github.job_workflow_sha` is the documented source, but actionlint v1.7.x
+          # doesn't know that property yet. The runner also exposes it as the auto env
+          # var GITHUB_JOB_WORKFLOW_SHA, which works identically and bypasses the lint gap.
+          # Docs: https://docs.github.com/en/actions/learn-github-actions/variables#default-environment-variables
+          if [[ -z "${GITHUB_JOB_WORKFLOW_SHA:-}" ]]; then
+            echo "::error::GITHUB_JOB_WORKFLOW_SHA is not set — is this job really running as part of a reusable workflow?"
+            exit 1
+          fi
+          echo "sha=$GITHUB_JOB_WORKFLOW_SHA" >> "$GITHUB_OUTPUT"
+          echo "Reusable workflow SHA: $GITHUB_JOB_WORKFLOW_SHA"
+
       - name: Checkout deployment matrix manifest
-        # `github.job_workflow_sha` is the commit SHA of THIS reusable workflow
-        # file (not the caller's — `github.workflow_ref` would point to the caller).
-        # Checking out that exact SHA guarantees the manifest never drifts from
-        # the workflow code the caller pinned. Reference:
-        # https://docs.github.com/en/actions/learn-github-actions/contexts#github-context
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
           repository: LerianStudio/github-actions-shared-workflows
-          ref: ${{ github.job_workflow_sha }}
+          ref: ${{ steps.resolve_sha.outputs.sha }}
           path: shared-workflows
           sparse-checkout: |
             ${{ inputs.deployment_matrix_file }}
