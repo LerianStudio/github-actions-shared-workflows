@@ -88,6 +88,11 @@ jobs:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKERHUB_IMAGE_PULL_TOKEN }}
 
+      # Trust model: this is a `workflow_call` reusable workflow, NOT triggered by
+      # untrusted PRs. `inputs.gitops_repository` is supplied by trusted caller
+      # workflows (default: LerianStudio/midaz-firmino-gitops) and the MANAGE_TOKEN
+      # is required for the subsequent commit/push step. CodeQL flags this as
+      # `actions/untrusted-checkout` defensively but the call surface is internal-only.
       - name: Checkout GitOps Repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
@@ -99,13 +104,17 @@ jobs:
       - name: Resolve shared-workflows ref
         id: shared_ref
         shell: bash
+        env:
+          # Pass through env to avoid `${{ ... }}` interpolation directly into the
+          # script body (CodeQL: actions/code-injection).
+          WORKFLOW_REF: ${{ github.workflow_ref }}
         run: |
-          # github.workflow_ref looks like: <org>/<repo>/.github/workflows/<file>.yml@refs/heads/<branch>
+          # WORKFLOW_REF looks like: <org>/<repo>/.github/workflows/<file>.yml@refs/heads/<branch>
           # We need the ref portion to checkout the manifest at the same pinned version
           # the caller is consuming, so the manifest cannot drift from the workflow code.
-          REF=$(echo '${{ github.workflow_ref }}' | sed -E 's|.*@||')
+          REF="${WORKFLOW_REF##*@}"
           if [[ -z "$REF" ]]; then
-            echo "::error::Could not parse ref from github.workflow_ref='${{ github.workflow_ref }}'"
+            echo "::error::Could not parse ref from github.workflow_ref='${WORKFLOW_REF}'"
             exit 1
           fi
           echo "ref=$REF" >> "$GITHUB_OUTPUT"
@@ -120,6 +129,9 @@ jobs:
           sparse-checkout: |
             ${{ inputs.deployment_matrix_file }}
           sparse-checkout-cone-mode: false
+          # Read-only sparse checkout of a single manifest file — no credentials
+          # needed, and we never execute code from this checkout.
+          persist-credentials: false
 
       - name: Setup application name and paths
         id: setup
@@ -316,27 +328,32 @@ jobs:
       - name: Apply tags to values.yaml (multi-server)
         id: apply_tags
         shell: bash
+        env:
+          # Pass through env to avoid `${{ ... }}` interpolation directly into the
+          # script body (CodeQL: actions/code-injection). IS_* are inherited from job env.
+          APP_NAME: ${{ steps.setup.outputs.app_name }}
+          HAS_CLUSTERS: ${{ steps.resolve_clusters.outputs.has_clusters }}
+          RESOLVED_SERVERS: ${{ steps.resolve_clusters.outputs.clusters }}
+          MAPPINGS: ${{ inputs.yaml_key_mappings }}
+          CONFIGMAP_MAPPINGS: ${{ inputs.configmap_updates }}
         run: |
           set -euo pipefail
 
-          # Get app name
-          APP_NAME="${{ steps.setup.outputs.app_name }}"
-
-          # Determine environments to update based on tag type
-          if [[ "${{ env.IS_BETA }}" == "true" ]]; then
+          # Determine environments to update based on tag type (IS_* from job env)
+          if [[ "$IS_BETA" == "true" ]]; then
             ENVIRONMENTS="dev"
             ENV_LABEL="beta/dev"
-          elif [[ "${{ env.IS_RC }}" == "true" ]]; then
+          elif [[ "$IS_RC" == "true" ]]; then
             ENVIRONMENTS="stg"
             ENV_LABEL="rc/stg"
-          elif [[ "${{ env.IS_PRODUCTION }}" == "true" ]]; then
+          elif [[ "$IS_PRODUCTION" == "true" ]]; then
             ENVIRONMENTS="dev stg prd sandbox"
             ENV_LABEL="production"
-          elif [[ "${{ env.IS_SANDBOX }}" == "true" ]]; then
+          elif [[ "$IS_SANDBOX" == "true" ]]; then
             ENVIRONMENTS="sandbox"
             ENV_LABEL="sandbox"
           else
-            echo "Unable to detect environment from tag: ${{ github.ref }}"
+            echo "Unable to detect environment from tag: ${GITHUB_REF}"
             exit 1
           fi
           echo "env_label=$ENV_LABEL" >> "$GITHUB_OUTPUT"
@@ -345,13 +362,13 @@ jobs:
 
           # Servers come from the deployment matrix manifest, filtered by force-off inputs.
           # See step `resolve_clusters` for resolution logic.
-          if [[ "${{ steps.resolve_clusters.outputs.has_clusters }}" != "true" ]]; then
+          if [[ "$HAS_CLUSTERS" != "true" ]]; then
             echo "No clusters selected for deployment (manifest empty for this app, or all clusters suppressed)."
             echo "sync_matrix=[]" >> "$GITHUB_OUTPUT"
             echo "has_sync_targets=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          SERVERS="${{ steps.resolve_clusters.outputs.clusters }}"
+          SERVERS="$RESOLVED_SERVERS"
           echo "Servers to deploy to: $SERVERS"
 
           # First, check which artifacts actually exist
@@ -417,7 +434,7 @@ jobs:
               FILE_CHANGED=false
 
               # Apply mappings from inputs - only if artifact exists
-              MAPPINGS='${{ inputs.yaml_key_mappings }}'
+              # MAPPINGS is set in step env: (avoids code-injection from inputs)
               while IFS='|' read -r artifact_key yaml_key; do
                 ARTIFACT_FILE=".gitops-tags/${artifact_key}"
                 if [[ -f "$ARTIFACT_FILE" ]]; then
@@ -439,8 +456,8 @@ jobs:
               done < <(echo "$MAPPINGS" | jq -r 'to_entries[] | "\(.key)|\(.value)"')
 
               # Apply configmap updates if configured - only if artifact exists
-              if [[ -n "${{ inputs.configmap_updates }}" ]]; then
-                CONFIGMAP_MAPPINGS='${{ inputs.configmap_updates }}'
+              # CONFIGMAP_MAPPINGS is set in step env: (avoids code-injection from inputs)
+              if [[ -n "$CONFIGMAP_MAPPINGS" ]]; then
                 while IFS='|' read -r artifact_key configmap_key; do
                   ARTIFACT_FILE=".gitops-tags/${artifact_key}"
                   if [[ -f "$ARTIFACT_FILE" ]]; then
