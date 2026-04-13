@@ -36,27 +36,57 @@ runs:
         PRERELEASE_PATTERN='[0-9]+\.[0-9]+\.[0-9]+-[a-zA-Z]'
         FINDINGS=()
 
-        # ----------------- go.mod -----------------
-        if [ -f "$SCAN_DIR/go.mod" ]; then
-          while IFS= read -r match; do
-            FINDINGS+=("go.mod|$match")
-          done < <(grep -nE "v${PRERELEASE_PATTERN}" "$SCAN_DIR/go.mod" || true)
+        # Scan the component scan-ref AND the repo root. In Go monorepos a single
+        # root go.mod is shared across components; without scanning root we'd miss
+        # dependency pins for components whose scan-ref is a subdirectory.
+        SEEN_FILES=()
+        SCAN_PATHS=("$SCAN_DIR")
+        if [ "$SCAN_DIR" != "." ] && [ "$SCAN_DIR" != "./" ]; then
+          SCAN_PATHS+=(".")
         fi
 
-        # ----------------- package.json -----------------
-        if [ -f "$SCAN_DIR/package.json" ]; then
-          while IFS= read -r match; do
-            FINDINGS+=("package.json|$match")
-          done < <(grep -nE "\"${PRERELEASE_PATTERN}" "$SCAN_DIR/package.json" || true)
-        fi
+        already_seen() {
+          local target="$1"
+          for s in "${SEEN_FILES[@]}"; do
+            [ "$s" = "$target" ] && return 0
+          done
+          return 1
+        }
 
-        # ----------------- Dockerfile -----------------
-        for df in "$SCAN_DIR/Dockerfile" "$SCAN_DIR/"*.dockerfile "$SCAN_DIR/Dockerfile."*; do
-          [ -f "$df" ] || continue
-          fname=$(basename "$df")
-          while IFS= read -r match; do
-            FINDINGS+=("${fname}|$match")
-          done < <(grep -nE ":${PRERELEASE_PATTERN}" "$df" || true)
+        for base in "${SCAN_PATHS[@]}"; do
+          # ----------------- go.mod -----------------
+          if [ -f "$base/go.mod" ]; then
+            real=$(realpath "$base/go.mod")
+            if ! already_seen "$real"; then
+              SEEN_FILES+=("$real")
+              while IFS= read -r match; do
+                FINDINGS+=("${base}/go.mod|$match")
+              done < <(grep -nE "v${PRERELEASE_PATTERN}" "$base/go.mod" || true)
+            fi
+          fi
+
+          # ----------------- package.json -----------------
+          if [ -f "$base/package.json" ]; then
+            real=$(realpath "$base/package.json")
+            if ! already_seen "$real"; then
+              SEEN_FILES+=("$real")
+              while IFS= read -r match; do
+                FINDINGS+=("${base}/package.json|$match")
+              done < <(grep -nE "\"${PRERELEASE_PATTERN}" "$base/package.json" || true)
+            fi
+          fi
+
+          # ----------------- Dockerfile -----------------
+          for df in "$base/Dockerfile" "$base/"*.dockerfile "$base/Dockerfile."*; do
+            [ -f "$df" ] || continue
+            real=$(realpath "$df")
+            already_seen "$real" && continue
+            SEEN_FILES+=("$real")
+            relpath="${df#./}"
+            while IFS= read -r match; do
+              FINDINGS+=("${relpath}|$match")
+            done < <(grep -nE ":${PRERELEASE_PATTERN}" "$df" || true)
+          done
         done
 
         COUNT=${#FINDINGS[@]}
@@ -92,7 +122,7 @@ runs:
             REST="${f#*|}"
             LINE="${REST%%:*}"
             CONTENT="${REST#*:}"
-            echo "::warning file=${SCAN_DIR}/${FILE},line=${LINE}::Unstable version pin: $(echo "$CONTENT" | sed 's/^[[:space:]]*//')"
+            echo "::warning file=${FILE},line=${LINE}::Unstable version pin: $(echo "$CONTENT" | sed 's/^[[:space:]]*//')"
           done
         else
           echo "has_findings=false" >> "$GITHUB_OUTPUT"
