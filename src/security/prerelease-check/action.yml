@@ -173,10 +173,8 @@ runs:
         script: |
           const fs = require('fs');
 
-          const appName = process.env.APP_NAME || 'default';
           const artifactFile = process.env.ARTIFACT_FILE;
           const findingsCount = process.env.FINDINGS_COUNT;
-          const label = process.env.APP_NAME ? ` — \`${appName}\`` : '';
 
           let findings = [];
           try {
@@ -192,7 +190,7 @@ runs:
             String(value ?? '').replace(/\|/g, '\\|').replace(/\r?\n/g, ' ').replace(/`/g, '\\`');
 
           let body = '';
-          body += `## \u{1F6AB} Pre-release Version Pins${label}\n\n`;
+          body += `## \u{1F6AB} Pre-release Version Pins\n\n`;
           body += `**Found ${findingsCount} unstable version pin(s).** Production code must only depend on stable releases (\`x.y.z\`) or SHA-based pins.\n\n`;
           body += `| File | Line | Content |\n`;
           body += `|------|------|----------|\n`;
@@ -205,7 +203,12 @@ runs:
           const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
           body += `---\n\n<sub>\u{1F50D} [View full scan logs](${runUrl})</sub>\n\n`;
 
-          const marker = `<!-- prerelease-check-${appName} -->`;
+          // Shared marker (no app-name suffix): in monorepos each matrix component
+          // runs this composite and would otherwise post duplicate comments for
+          // shared files like the root go.mod. A single marker lets each run
+          // update the same comment in place. Components run sequentially via
+          // max-parallel: 1, so no race condition.
+          const marker = `<!-- prerelease-check -->`;
           body = marker + '\n' + body;
 
           try {
@@ -216,15 +219,35 @@ runs:
               per_page: 100,
             });
 
-            const existing = comments.find(c => c.body?.includes(marker));
+            // Match both the new shared marker and legacy per-app markers
+            // (<!-- prerelease-check-<app-name> -->) so stale comments from
+            // previous runs are cleaned up when transitioning to the shared marker.
+            const legacyMarkerPrefix = '<!-- prerelease-check-';
+            const matching = comments.filter(c =>
+              c.body?.includes(marker) || c.body?.includes(legacyMarkerPrefix)
+            );
+
             const params = {
               owner: context.repo.owner,
               repo: context.repo.repo,
               body,
             };
 
-            if (existing) {
-              await github.rest.issues.updateComment({ ...params, comment_id: existing.id });
+            if (matching.length > 0) {
+              // Update the first matching comment, delete any extras.
+              const [primary, ...duplicates] = matching;
+              await github.rest.issues.updateComment({ ...params, comment_id: primary.id });
+              for (const dup of duplicates) {
+                try {
+                  await github.rest.issues.deleteComment({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    comment_id: dup.id,
+                  });
+                } catch (e) {
+                  core.warning(`Could not delete duplicate prerelease comment ${dup.id}: ${e.message}`);
+                }
+              }
             } else {
               await github.rest.issues.createComment({ ...params, issue_number: context.issue.number });
             }
