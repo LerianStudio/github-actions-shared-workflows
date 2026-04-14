@@ -101,7 +101,7 @@ jobs:
       has_changes: ${{ steps.set-matrix.outputs.has_changes }}
     steps:
       - name: Checkout code
-        uses: actions/checkout@v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
           fetch-depth: 0
 
@@ -112,12 +112,11 @@ jobs:
           if [[ "${{ github.event_name }}" == "pull_request" ]]; then
             BASE_SHA="${{ github.event.pull_request.base.sha }}"
             HEAD_SHA="${{ github.event.pull_request.head.sha }}"
-            git fetch origin $BASE_SHA --depth=1 2>/dev/null || true
-            FILES=$(git diff --name-only $BASE_SHA $HEAD_SHA 2>/dev/null || git diff --name-only origin/${{ github.base_ref }}...HEAD)
+            git fetch origin "$BASE_SHA" --depth=1 2>/dev/null || true
+            FILES=$(git diff --name-only "$BASE_SHA" "$HEAD_SHA" 2>/dev/null || git diff --name-only origin/${{ github.base_ref }}...HEAD)
           elif [[ "${{ github.event.before }}" == "0000000000000000000000000000000000000000" ]] || [[ -z "${{ github.event.before }}" ]]; then
-            PREV_COMMIT=$(git rev-parse HEAD^)
-            if [[ $? -eq 0 ]]; then
-              FILES=$(git diff --name-only $PREV_COMMIT HEAD)
+            if PREV_COMMIT=$(git rev-parse HEAD^); then
+              FILES=$(git diff --name-only "$PREV_COMMIT" HEAD)
             else
               FILES=$(git ls-tree -r --name-only HEAD)
             fi
@@ -225,10 +224,10 @@ jobs:
         app: ${{ fromJson(needs.detect-changes.outputs.matrix) }}
     steps:
       - name: Checkout code
-        uses: actions/checkout@v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
       - name: Setup Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6
         with:
           node-version: ${{ inputs.node_version }}
           cache: ${{ inputs.package_manager }}
@@ -266,10 +265,10 @@ jobs:
         app: ${{ fromJson(needs.detect-changes.outputs.matrix) }}
     steps:
       - name: Checkout code
-        uses: actions/checkout@v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
       - name: Setup Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6
         with:
           node-version: ${{ inputs.node_version }}
           cache: ${{ inputs.package_manager }}
@@ -302,10 +301,10 @@ jobs:
         app: ${{ fromJson(needs.detect-changes.outputs.matrix) }}
     steps:
       - name: Checkout code
-        uses: actions/checkout@v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
       - name: Setup Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6
         with:
           node-version: ${{ inputs.node_version }}
           cache: ${{ inputs.package_manager }}
@@ -343,10 +342,10 @@ jobs:
         app: ${{ fromJson(needs.detect-changes.outputs.matrix) }}
     steps:
       - name: Checkout code
-        uses: actions/checkout@v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
       - name: Setup Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6
         with:
           node-version: ${{ inputs.node_version }}
           cache: ${{ inputs.package_manager }}
@@ -381,7 +380,7 @@ jobs:
           esac
 
       - name: Upload coverage artifact
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: coverage-${{ matrix.app.name }}
           path: |
@@ -402,10 +401,10 @@ jobs:
         app: ${{ fromJson(needs.detect-changes.outputs.matrix) }}
     steps:
       - name: Checkout code
-        uses: actions/checkout@v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
       - name: Download coverage artifact
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           name: coverage-${{ matrix.app.name }}
           path: ${{ matrix.app.working_dir }}/coverage
@@ -419,23 +418,23 @@ jobs:
             STATEMENTS=$(jq '.total.statements.pct' coverage/coverage-summary.json)
             BRANCHES=$(jq '.total.branches.pct' coverage/coverage-summary.json)
             FUNCTIONS=$(jq '.total.functions.pct' coverage/coverage-summary.json)
-            
-            echo "coverage=$COVERAGE" >> $GITHUB_OUTPUT
-            echo "statements=$STATEMENTS" >> $GITHUB_OUTPUT
-            echo "branches=$BRANCHES" >> $GITHUB_OUTPUT
-            echo "functions=$FUNCTIONS" >> $GITHUB_OUTPUT
+
+            echo "coverage=$COVERAGE" >> "$GITHUB_OUTPUT"
+            echo "statements=$STATEMENTS" >> "$GITHUB_OUTPUT"
+            echo "branches=$BRANCHES" >> "$GITHUB_OUTPUT"
+            echo "functions=$FUNCTIONS" >> "$GITHUB_OUTPUT"
             echo "Total line coverage: $COVERAGE%"
           else
-            echo "coverage=0" >> $GITHUB_OUTPUT
-            echo "statements=0" >> $GITHUB_OUTPUT
-            echo "branches=0" >> $GITHUB_OUTPUT
-            echo "functions=0" >> $GITHUB_OUTPUT
+            echo "coverage=0" >> "$GITHUB_OUTPUT"
+            echo "statements=0" >> "$GITHUB_OUTPUT"
+            echo "branches=0" >> "$GITHUB_OUTPUT"
+            echo "functions=0" >> "$GITHUB_OUTPUT"
             echo "No coverage file found"
           fi
 
       - name: Post coverage comment
         if: github.event_name == 'pull_request'
-        uses: actions/github-script@v8
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
         with:
           github-token: ${{ secrets.MANAGE_TOKEN || github.token }}
           script: |
@@ -522,10 +521,10 @@ jobs:
         app: ${{ fromJson(needs.detect-changes.outputs.matrix) }}
     steps:
       - name: Checkout code
-        uses: actions/checkout@v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
       - name: Setup Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6
         with:
           node-version: ${{ inputs.node_version }}
           cache: ${{ inputs.package_manager }}
