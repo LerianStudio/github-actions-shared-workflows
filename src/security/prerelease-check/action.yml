@@ -18,6 +18,9 @@ outputs:
   findings-count:
     description: 'Number of pre-release version findings'
     value: ${{ steps.scan.outputs.findings_count }}
+  artifact-file:
+    description: 'Path to the JSON findings file for consumption by pr-security-reporter'
+    value: ${{ steps.scan.outputs.artifact_file }}
 
 runs:
   using: composite

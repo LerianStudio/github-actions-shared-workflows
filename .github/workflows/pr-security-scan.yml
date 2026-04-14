@@ -235,7 +235,7 @@ jobs:
           enable-docker-scan: ${{ inputs.enable_docker_scan }}
           enable-health-score: ${{ inputs.enable_health_score && inputs.enable_docker_scan }}
           dockerfile-has-non-root-user: ${{ steps.dockerfile-checks.outputs.has-non-root-user || 'false' }}
-          prerelease-findings-file: ${{ steps.prerelease-check.outputs.artifact_file }}
+          prerelease-findings-file: ${{ steps.prerelease-check.outputs.artifact-file }}
           fail-on-findings: 'true'
 
       - name: Gate - Fail on Pre-release Versions
