@@ -128,7 +128,7 @@ jobs:
       # ----------------- Detect Changes & Build Matrix -----------------
       - name: Get changed paths
         id: changed-paths
-        uses: LerianStudio/github-actions-shared-workflows/src/config/changed-paths@v1.23.1
+        uses: LerianStudio/github-actions-shared-workflows/src/config/changed-paths@v1.24.1
         with:
           filter-paths: ${{ inputs.filter_paths }}
           shared-paths: ${{ inputs.shared_paths }}
@@ -178,7 +178,7 @@ jobs:
       - name: Trivy Filesystem Scan
         id: fs-scan
         if: always()
-        uses: LerianStudio/github-actions-shared-workflows/src/security/trivy-fs-scan@v1.23.1
+        uses: LerianStudio/github-actions-shared-workflows/src/security/trivy-fs-scan@v1.24.1
         with:
           scan-ref: ${{ matrix.working_dir }}
           app-name: ${{ env.APP_NAME }}
@@ -204,7 +204,7 @@ jobs:
       - name: Trivy Image Scan
         id: image-scan
         if: always() && inputs.enable_docker_scan
-        uses: LerianStudio/github-actions-shared-workflows/src/security/trivy-image-scan@v1.23.1
+        uses: LerianStudio/github-actions-shared-workflows/src/security/trivy-image-scan@v1.24.1
         with:
           image-ref: '${{ env.DOCKERHUB_ORG }}/${{ env.APP_NAME }}:pr-scan-${{ github.sha }}'
           app-name: ${{ env.APP_NAME }}
@@ -214,7 +214,7 @@ jobs:
       - name: Dockerfile Compliance Checks
         id: dockerfile-checks
         if: always() && inputs.enable_docker_scan && inputs.enable_health_score
-        uses: LerianStudio/github-actions-shared-workflows/src/security/dockerfile-checks@v1.23.1
+        uses: LerianStudio/github-actions-shared-workflows/src/security/dockerfile-checks@v1.24.1
         with:
           dockerfile-path: ${{ env.DOCKERFILE_PATH }}
 
@@ -222,7 +222,7 @@ jobs:
       - name: Pre-release Version Check
         id: prerelease-check
         if: always() && inputs.enable_prerelease_check
-        uses: LerianStudio/github-actions-shared-workflows/src/security/prerelease-check@feat/pr-security-scan-codeql-prerelease
+        uses: LerianStudio/github-actions-shared-workflows/src/security/prerelease-check@v1.24.1
         with:
           scan-ref: ${{ matrix.working_dir }}
           app-name: ${{ env.APP_NAME }}
@@ -231,7 +231,7 @@ jobs:
       - name: Post Security Scan Results to PR
         id: post-results
         if: always() && github.event_name == 'pull_request'
-        uses: LerianStudio/github-actions-shared-workflows/src/security/pr-security-reporter@feat/pr-security-scan-codeql-prerelease
+        uses: LerianStudio/github-actions-shared-workflows/src/security/pr-security-reporter@v1.24.1
         with:
           github-token: ${{ secrets.MANAGE_TOKEN || secrets.GITHUB_TOKEN }}
           app-name: ${{ env.APP_NAME }}
@@ -286,14 +286,14 @@ jobs:
       # ----------------- CodeQL Config -----------------
       - name: Generate CodeQL Config
         id: codeql-config
-        uses: LerianStudio/github-actions-shared-workflows/src/security/codeql-config@feat/pr-security-scan-codeql-prerelease
+        uses: LerianStudio/github-actions-shared-workflows/src/security/codeql-config@v1.24.1
         with:
           changed-paths: ${{ steps.extract-paths.outputs.paths }}
 
       # ----------------- CodeQL Analysis -----------------
       - name: Initialize CodeQL
         if: steps.codeql-config.outputs.skip != 'true'
-        uses: LerianStudio/github-actions-shared-workflows/src/security/codeql-init@feat/pr-security-scan-codeql-prerelease
+        uses: LerianStudio/github-actions-shared-workflows/src/security/codeql-init@v1.24.1
         with:
           languages: ${{ inputs.codeql_languages }}
           config-file: ${{ steps.codeql-config.outputs.config-file }}
@@ -312,7 +312,7 @@ jobs:
 
       - name: Perform CodeQL Analysis
         if: steps.codeql-config.outputs.skip != 'true'
-        uses: LerianStudio/github-actions-shared-workflows/src/security/codeql-analyze@feat/pr-security-scan-codeql-prerelease
+        uses: LerianStudio/github-actions-shared-workflows/src/security/codeql-analyze@v1.24.1
         with:
           category: '/language:${{ inputs.codeql_languages }}'
           upload: ${{ inputs.codeql_upload_sarif }}
@@ -320,7 +320,7 @@ jobs:
       # ----------------- Results & Security Gate -----------------
       - name: Post CodeQL Results to PR
         if: always() && github.event_name == 'pull_request' && steps.codeql-config.outputs.skip != 'true'
-        uses: LerianStudio/github-actions-shared-workflows/src/security/codeql-reporter@feat/pr-security-scan-codeql-prerelease
+        uses: LerianStudio/github-actions-shared-workflows/src/security/codeql-reporter@v1.24.1
         with:
           github-token: ${{ secrets.MANAGE_TOKEN || secrets.GITHUB_TOKEN }}
           languages: ${{ inputs.codeql_languages }}
@@ -334,7 +334,7 @@ jobs:
     runs-on: ${{ inputs.runner_type }}
     steps:
       - name: Slack Notification
-        uses: LerianStudio/github-actions-shared-workflows/src/notify/slack-notify@v1.23.1
+        uses: LerianStudio/github-actions-shared-workflows/src/notify/slack-notify@v1.24.1
         with:
           webhook-url: ${{ secrets.SLACK_WEBHOOK_URL }}
           # yamllint disable-line rule:line-length
