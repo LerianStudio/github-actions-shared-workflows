@@ -108,20 +108,25 @@ jobs:
       - name: Get changed files
         id: changed
         shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          BASE_REF: ${{ github.base_ref }}
+          EVENT_BEFORE: ${{ github.event.before }}
+          CURRENT_SHA: ${{ github.sha }}
         run: |
-          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
-            BASE_SHA="${{ github.event.pull_request.base.sha }}"
-            HEAD_SHA="${{ github.event.pull_request.head.sha }}"
-            git fetch origin "$BASE_SHA" --depth=1 2>/dev/null || true
-            FILES=$(git diff --name-only "$BASE_SHA" "$HEAD_SHA" 2>/dev/null || git diff --name-only origin/${{ github.base_ref }}...HEAD)
-          elif [[ "${{ github.event.before }}" == "0000000000000000000000000000000000000000" ]] || [[ -z "${{ github.event.before }}" ]]; then
+          if [[ "$EVENT_NAME" == "pull_request" ]]; then
+            git fetch origin "$PR_BASE_SHA" --depth=1 2>/dev/null || true
+            FILES=$(git diff --name-only "$PR_BASE_SHA" "$PR_HEAD_SHA" 2>/dev/null || git diff --name-only "origin/${BASE_REF}...HEAD")
+          elif [[ "$EVENT_BEFORE" == "0000000000000000000000000000000000000000" ]] || [[ -z "$EVENT_BEFORE" ]]; then
             if PREV_COMMIT=$(git rev-parse HEAD^); then
               FILES=$(git diff --name-only "$PREV_COMMIT" HEAD)
             else
               FILES=$(git ls-tree -r --name-only HEAD)
             fi
           else
-            FILES=$(git diff --name-only ${{ github.event.before }} ${{ github.sha }})
+            FILES=$(git diff --name-only "$EVENT_BEFORE" "$CURRENT_SHA")
           fi
           printf "files<<EOF\n%s\nEOF\n" "$FILES" >> "$GITHUB_OUTPUT"
 
@@ -491,26 +496,34 @@ jobs:
 
       - name: Check coverage threshold
         if: inputs.fail_on_coverage_threshold
+        env:
+          COVERAGE: ${{ steps.coverage.outputs.coverage }}
+          THRESHOLD: ${{ inputs.coverage_threshold }}
         run: |
-          COVERAGE=${{ steps.coverage.outputs.coverage }}
-          THRESHOLD=${{ inputs.coverage_threshold }}
           if (( $(echo "$COVERAGE < $THRESHOLD" | bc -l) )); then
-            echo "::error::Coverage $COVERAGE% is below threshold $THRESHOLD%"
+            echo "::error::Coverage ${COVERAGE}% is below threshold ${THRESHOLD}%"
             exit 1
           fi
 
       - name: Coverage summary
+        env:
+          APP_NAME: ${{ matrix.app.name }}
+          COV_LINES: ${{ steps.coverage.outputs.coverage }}
+          COV_STATEMENTS: ${{ steps.coverage.outputs.statements }}
+          COV_BRANCHES: ${{ steps.coverage.outputs.branches }}
+          COV_FUNCTIONS: ${{ steps.coverage.outputs.functions }}
+          COV_THRESHOLD: ${{ inputs.coverage_threshold }}
         run: |
           {
-            echo "## Coverage Summary: ${{ matrix.app.name }}"
+            echo "## Coverage Summary: ${APP_NAME}"
             echo ""
             echo "| Metric | Value |"
             echo "|--------|-------|"
-            echo "| Lines | ${{ steps.coverage.outputs.coverage }}% |"
-            echo "| Statements | ${{ steps.coverage.outputs.statements }}% |"
-            echo "| Branches | ${{ steps.coverage.outputs.branches }}% |"
-            echo "| Functions | ${{ steps.coverage.outputs.functions }}% |"
-            echo "| Threshold | ${{ inputs.coverage_threshold }}% |"
+            echo "| Lines | ${COV_LINES}% |"
+            echo "| Statements | ${COV_STATEMENTS}% |"
+            echo "| Branches | ${COV_BRANCHES}% |"
+            echo "| Functions | ${COV_FUNCTIONS}% |"
+            echo "| Threshold | ${COV_THRESHOLD}% |"
           } >> "$GITHUB_STEP_SUMMARY"
 
   # ============================================
