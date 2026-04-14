@@ -364,10 +364,20 @@ jobs:
       - name: Run tests with coverage
         working-directory: ${{ matrix.app.working_dir }}
         run: |
+          # Vitest 3+ removed --coverageReporters CLI flag (use --coverage.reporter instead)
+          # Jest and Vitest 2 still support --coverageReporters
+          VITEST_MAJOR=$(node -e "try{console.log(require('vitest/package.json').version.split('.')[0])}catch{console.log('0')}" 2>/dev/null)
+
+          if [[ "$VITEST_MAJOR" -ge 3 ]]; then
+            COVERAGE_FLAGS="--coverage.reporter=text --coverage.reporter=json-summary --coverage.reporter=lcov"
+          else
+            COVERAGE_FLAGS="--coverageReporters=text --coverageReporters=json-summary --coverageReporters=lcov"
+          fi
+
           case "${{ inputs.package_manager }}" in
-            yarn) yarn test --coverage --coverageReporters=text --coverageReporters=json-summary --coverageReporters=lcov ;;
-            pnpm) pnpm test --coverage --coverageReporters=text --coverageReporters=json-summary --coverageReporters=lcov ;;
-            *) npm test -- --coverage --coverageReporters=text --coverageReporters=json-summary --coverageReporters=lcov ;;
+            yarn) yarn test --coverage $COVERAGE_FLAGS ;;
+            pnpm) pnpm test --coverage $COVERAGE_FLAGS ;;
+            *) npm test -- --coverage $COVERAGE_FLAGS ;;
           esac
 
       - name: Upload coverage artifact
