@@ -160,7 +160,7 @@ jobs:
     secrets: inherit
 ```
 
-This will run all standard scans plus CodeQL analysis scoped to changed paths. Results are posted as a separate PR comment and uploaded to the GitHub Security tab.
+This will run all standard scans plus CodeQL analysis scoped to changed paths. Results are posted as a PR comment. To also upload SARIF to the GitHub Security tab, set `codeql_upload_sarif: true` (requires Code Security / GHAS enabled on the repo).
 
 **Supported languages:** `go`, `javascript-typescript`, `actions`, `python`, `java-kotlin`, `csharp`, `ruby`, `swift`, `cpp`
 
@@ -177,7 +177,7 @@ jobs:
     secrets: inherit
 ```
 
-When enabled, the workflow scans `go.mod`, `package.json`, and `Dockerfile` for version pins containing `-beta` or `-rc` suffixes and fails the PR if any are found.
+When enabled, the workflow scans `go.mod`, `package.json`, and `Dockerfile` for unstable version pins (`-alpha`, `-beta`, `-rc`, `-dev`, etc.). On branches listed in `prerelease_block_branches` (default: `release-candidate,main`) the PR is blocked. On other branches (e.g., `develop`) findings are reported as warnings only.
 
 ## Inputs
 
@@ -304,9 +304,9 @@ Runs when `enable_codeql: true` and `codeql_languages` is set:
 
 ### Pre-release Version Gate
 
-**What it does**: Scans `go.mod`, `package.json`, and `Dockerfile` for version pins containing `-beta` or `-rc` suffixes
+**What it does**: Scans `go.mod`, `package.json`, and `Dockerfile` for unstable version pins
 
-**Pattern matched**: `X.Y.Z-beta.*` and `X.Y.Z-rc.*` (any semver followed by a pre-release identifier)
+**Pattern matched**: `X.Y.Z-<letter...>` for Go/npm (any pre-release suffix starting with a letter). For Docker, only known pre-release prefixes: `-alpha`, `-beta`, `-rc`, `-dev`, `-preview`, `-canary`, `-snapshot`, `-nightly`. Stable Docker variants like `-slim`, `-alpine`, `-bookworm` are allowed.
 
 **Exit behavior**: `exit-code: 1` on branches listed in `prerelease_block_branches` (default: `release-candidate,main`). On other branches (e.g., `develop`), findings are reported as warnings only.
 

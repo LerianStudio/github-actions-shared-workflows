@@ -12,7 +12,7 @@ Composite action that scans dependency files for unstable version pins. Only sta
 | Input | Description | Required | Default |
 |---|---|:---:|---|
 | `scan-ref` | Directory to scan for pre-release versions | No | `.` |
-| `app-name` | Application name for reporting context | No | — |
+| `app-name` | Application name for reporting context | No | `''` |
 
 ## Outputs
 
@@ -20,16 +20,17 @@ Composite action that scans dependency files for unstable version pins. Only sta
 |---|---|
 | `has-findings` | `true` if unstable versions were detected |
 | `findings-count` | Number of unstable version findings |
+| `artifact-file` | Path to the JSON findings file for consumption by `pr-security-reporter` |
 
 ## What it scans
 
-Matches any semver with a pre-release suffix starting with a letter (`x.y.z-<letter...>`).
+For `go.mod` and `package.json`: matches any semver with a pre-release suffix starting with a letter (`x.y.z-<letter...>`). For `Dockerfile`: only matches known pre-release prefixes to avoid false positives on stable image variants.
 
-| File | Blocked (unstable) | Allowed (stable) |
-|---|---|---|
-| `go.mod` | `v1.2.3-beta.1`, `v1.2.3-rc.1`, `v1.2.3-alpha.1`, `v1.2.3-dev.1` | `v1.2.3`, `v0.0.0-20240101-abcdef012345` (pseudo-version) |
-| `package.json` | `"2.0.0-beta.1"`, `"1.0.0-canary.3"` | `"2.0.0"` |
-| `Dockerfile` | `golang:1.21.0-beta1`, `node:20.0.0-rc.1` | `golang:1.21.0`, `golang:1.21.0@sha256:...` |
+| File | Scanned patterns | Blocked (unstable) | Allowed (stable) |
+|---|---|---|---|
+| `go.mod` | `vX.Y.Z-<letter...>` | `v1.2.3-beta.1`, `v1.2.3-rc.1`, `v1.2.3-alpha.1` | `v1.2.3`, `v0.0.0-20240101-abcdef012345` |
+| `package.json` | `"[~^>=]*X.Y.Z-<letter...>"` | `"^2.0.0-beta.1"`, `"~1.0.0-rc.3"` | `"2.0.0"` |
+| `Dockerfile`, `*.dockerfile`, `Dockerfile.*` | `:X.Y.Z-(alpha\|beta\|rc\|dev\|...)` | `golang:1.21.0-beta1` | `golang:1.21.0`, `python:3.12-slim`, `node:20-alpine` |
 
 ## Usage
 

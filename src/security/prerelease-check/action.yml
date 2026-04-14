@@ -37,6 +37,10 @@ runs:
         # Excludes Go pseudo-versions (v0.0.0-YYYYMMDDHHMMSS-commitsha) because
         # their suffix starts with digits, not letters. SHA pins are also allowed.
         PRERELEASE_PATTERN='[0-9]+\.[0-9]+\.[0-9]+-[a-zA-Z]'
+
+        # Docker-specific pattern: only match known pre-release prefixes to avoid
+        # false positives on stable image variants like -slim, -alpine, -bookworm.
+        DOCKER_PRERELEASE='[0-9]+\.[0-9]+\.[0-9]+-(alpha|beta|rc|dev|preview|canary|snapshot|nightly)'
         FINDINGS=()
 
         # Scan the component scan-ref AND the repo root. In Go monorepos a single
@@ -75,7 +79,7 @@ runs:
               SEEN_FILES+=("$real")
               while IFS= read -r match; do
                 FINDINGS+=("${base}/package.json|$match")
-              done < <(grep -nE "\"${PRERELEASE_PATTERN}" "$base/package.json" || true)
+              done < <(grep -nE "\"[~^<>=]*${PRERELEASE_PATTERN}" "$base/package.json" || true)
             fi
           fi
 
@@ -88,7 +92,7 @@ runs:
             relpath="${df#./}"
             while IFS= read -r match; do
               FINDINGS+=("${relpath}|$match")
-            done < <(grep -nE ":${PRERELEASE_PATTERN}" "$df" || true)
+            done < <(grep -nE ":${DOCKER_PRERELEASE}" "$df" || true)
           done
         done
 

@@ -294,7 +294,11 @@ runs:
                 return `---\n\n## Pre-release Version Check\n\n\u2705 No unstable version pins found.\n\n`;
               }
 
-              hasFindings = true;
+              // Do NOT set hasFindings here — prerelease findings are gated
+              // separately by the branch-aware "Gate - Fail on Pre-release Versions"
+              // step in the workflow. Setting hasFindings would make the reporter's
+              // own gate (fail-on-findings) exit 1 on ALL branches, bypassing the
+              // warn-on-develop / block-on-rc-main semantics.
               let out = `---\n\n## Pre-release Version Check\n\n`;
               out += `\u{1F6AB} **Found ${findings.length} unstable version pin(s).** Only stable releases (\`x.y.z\`) and SHA-based pins are allowed.\n\n`;
               out += `| File | Line | Content |\n`;
