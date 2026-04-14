@@ -6,6 +6,8 @@ Reusable workflow for comprehensive security scanning on pull requests. Supports
 
 - **Secret scanning**: Trivy filesystem scan for exposed secrets (scans only changed component folder)
 - **Vulnerability scanning**: Docker image vulnerability detection (optional)
+- **CodeQL static analysis**: GitHub CodeQL for semantic code analysis (opt-in via `enable_codeql`)
+- **Pre-release version gate**: Blocks dependencies pinned to `-beta` or `-rc` versions (enabled by default)
 - **CLI/Non-Docker support**: Skip Docker scanning for projects without Dockerfile via `enable_docker_scan: false`
 - **Monorepo support**: Automatic detection of changed components
 - **Component-scoped scanning**: Only scans the specific component folder that changed, not entire repo
@@ -138,9 +140,9 @@ This will:
 - ❌ Skip Docker vulnerability scanning
 - ❌ Skip Docker Scout analysis
 
-### Docker Scout Analysis
+### With CodeQL Analysis
 
-Enable Docker Scout for additional vulnerability scoring and CVE analysis on your Docker images:
+Enable CodeQL for semantic static analysis on top of the standard security scans:
 
 ```yaml
 name: PR Security Scan
@@ -153,16 +155,29 @@ jobs:
     uses: LerianStudio/github-actions-shared-workflows/.github/workflows/pr-security-scan.yml@v1.0.0
     with:
       runner_type: "blacksmith-4vcpu-ubuntu-2404"
-      enable_docker_scout: true
+      enable_codeql: true
+      codeql_languages: 'go'
     secrets: inherit
 ```
 
-This will run all standard scans plus Docker Scout quickview and CVE analysis.
+This will run all standard scans plus CodeQL analysis scoped to changed paths. Results are posted as a PR comment. To also upload SARIF to the GitHub Security tab, set `codeql_upload_sarif: true` (requires Code Security / GHAS enabled on the repo).
 
-**Requirements:**
-- Docker Hub account with Scout access (Free, Team, or Business)
-- `DOCKER_USERNAME` and `DOCKER_PASSWORD` secrets configured
-- `enable_docker_scan` must also be `true` (default) — Scout reuses the same image built for Trivy scanning
+**Supported languages:** `go`, `javascript-typescript`, `actions`, `python`, `java-kotlin`, `csharp`, `ruby`, `swift`, `cpp`
+
+### With Pre-release Version Gate
+
+Pre-release checks are enabled by default. To disable:
+
+```yaml
+jobs:
+  security-scan:
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/pr-security-scan.yml@v1.0.0
+    with:
+      enable_prerelease_check: false
+    secrets: inherit
+```
+
+When enabled, the workflow scans `go.mod`, `package.json`, and `Dockerfile` for unstable version pins (`-alpha`, `-beta`, `-rc`, `-dev`, etc.). On branches listed in `prerelease_block_branches` (default: `release-candidate,main`) the PR is blocked. On other branches (e.g., `develop`) findings are reported as warnings only.
 
 ## Inputs
 
@@ -177,7 +192,13 @@ This will run all standard scans plus Docker Scout quickview and CVE analysis.
 | `docker_registry` | string | `docker.io` | Docker registry URL |
 | `dockerfile_name` | string | `Dockerfile` | Name of the Dockerfile |
 | `enable_docker_scan` | boolean | `true` | Enable Docker image build and vulnerability scanning. Set to `false` for projects without Dockerfile (e.g., CLI tools) |
-| `enable_docker_scout` | boolean | `false` | Enable Docker Scout image analysis for vulnerability scoring. Requires Docker Hub with Scout access |
+| `enable_health_score` | boolean | `true` | Enable Docker Hub Health Score compliance checks (non-root user, CVEs, licenses) |
+| `enable_codeql` | boolean | `false` | Enable CodeQL static analysis. Requires `codeql_languages` to be set |
+| `codeql_languages` | string | `''` | Languages to analyze with CodeQL (comma-separated, e.g., `go`, `javascript-typescript`, `actions`) |
+| `codeql_fail_on_findings` | boolean | `true` | Fail the workflow when CodeQL detects security issues |
+| `codeql_upload_sarif` | boolean | `false` | Upload CodeQL SARIF results to the GitHub Security tab. Requires Code Security (GHAS) enabled on the repo |
+| `enable_prerelease_check` | boolean | `true` | Block dependencies pinned to pre-release versions (`-beta`, `-rc`) |
+| `prerelease_block_branches` | string | `release-candidate,main` | Comma-separated PR target branches where pre-release versions cause a hard failure. On other branches, findings are reported as warnings only |
 
 ## Secrets
 
@@ -219,14 +240,26 @@ For each component in the matrix:
 1. **Docker Login**: Authenticate to registry (avoids rate limits)
 2. **Checkout Repository**: Clone the code
 3. **Setup Docker Buildx**: Enable multi-platform builds *(skipped if `enable_docker_scan: false`)*
-4. **Trivy Secret Scan (Table)**: Scan filesystem for secrets - **fails on detection**
-5. **Trivy Secret Scan (SARIF)**: Generate SARIF report
-6. **Build Docker Image**: Build image for vulnerability scanning *(skipped if `enable_docker_scan: false`)*
-7. **Trivy Vulnerability Scan (Table)**: Scan image for vulnerabilities *(skipped if `enable_docker_scan: false`)*
-8. **Trivy Vulnerability Scan (SARIF)**: Generate SARIF report *(skipped if `enable_docker_scan: false`)*
-9. **Docker Scout Analysis**: Quickview and CVE analysis *(skipped unless `enable_docker_scout: true` AND `enable_docker_scan: true`)*
+4. **Trivy Filesystem Scan**: Scan filesystem for secrets and vulnerabilities
+5. **Build Docker Image**: Build image for vulnerability scanning *(skipped if `enable_docker_scan: false`)*
+6. **Trivy Image Scan**: Scan image for vulnerabilities and licenses *(skipped if `enable_docker_scan: false`)*
+7. **Dockerfile Compliance Checks**: Non-root user and health score checks *(skipped unless `enable_health_score: true` AND `enable_docker_scan: true`)*
+8. **Pre-release Version Check**: Scan for `-beta`/`-rc` version pins *(skipped if `enable_prerelease_check: false`)*
+9. **Post Security Scan Results**: PR comment with consolidated findings
 
-> **Note**: When `enable_docker_scan: false`, only filesystem secret scanning runs. This is useful for CLI tools and projects without Dockerfiles.
+> **Note**: When `enable_docker_scan: false`, only filesystem scanning and pre-release checks run.
+
+### Job 3: codeql_scan *(optional)*
+
+Runs when `enable_codeql: true` and `codeql_languages` is set:
+
+1. **Checkout Repository**: Clone the code
+2. **Extract Changed Paths**: Derive scoped paths from the component matrix
+3. **Generate CodeQL Config**: Scope analysis to changed paths
+4. **Initialize CodeQL**: Set up CodeQL with configured languages and query suite
+5. **Autobuild**: Automatically build the project for compiled languages
+6. **Perform CodeQL Analysis**: Run semantic analysis and upload SARIF
+7. **Post CodeQL Results**: PR comment with findings table and security gate
 
 ## Security Scans
 
@@ -258,6 +291,24 @@ For each component in the matrix:
 - Application libraries
 
 **Exit behavior**: `exit-code: 0` (informative only, doesn't fail workflow)
+
+### CodeQL Analysis
+
+**What it does**: Runs GitHub CodeQL semantic analysis for security vulnerabilities and code quality issues
+
+**Scope**: Automatically scoped to changed paths in the PR (via `codeql-config` composite)
+
+**Query suite**: `security-extended` (default) — covers OWASP Top 10, CWE Top 25, and more
+
+**Exit behavior**: Configurable via `codeql_fail_on_findings` (default: fails on findings)
+
+### Pre-release Version Gate
+
+**What it does**: Scans `go.mod`, `package.json`, and `Dockerfile` for unstable version pins
+
+**Pattern matched**: `X.Y.Z-<letter...>` for Go/npm (any pre-release suffix starting with a letter). For Docker, only known pre-release prefixes: `-alpha`, `-beta`, `-rc`, `-dev`, `-preview`, `-canary`, `-snapshot`, `-nightly`. Stable Docker variants like `-slim`, `-alpine`, `-bookworm` are allowed.
+
+**Exit behavior**: `exit-code: 1` on branches listed in `prerelease_block_branches` (default: `release-candidate,main`). On other branches (e.g., `develop`), findings are reported as warnings only.
 
 ## Monorepo Type 2 Behavior
 
@@ -493,7 +544,7 @@ Generated for each scan type:
 - `trivy-secret-scan-repo-{app-name}.sarif`
 - `trivy-vulnerability-scan-docker-{app-name}.sarif`
 
-Can be uploaded to GitHub Security tab (currently commented out in workflow).
+Uploaded to GitHub Security tab via CodeQL when `enable_codeql` is enabled.
 
 ## Related Workflows
 

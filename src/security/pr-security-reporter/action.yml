@@ -20,6 +20,10 @@ inputs:
     description: Whether the Dockerfile sets a non-root USER directive
     required: false
     default: "false"
+  prerelease-findings-file:
+    description: 'Path to JSON file with pre-release version findings from the prerelease-check composite. Leave empty to skip.'
+    required: false
+    default: ''
   fail-on-findings:
     description: 'Fail the step with exit code 1 when security findings are detected (true/false)'
     required: false
@@ -44,6 +48,7 @@ runs:
         ENABLE_DOCKER_SCAN: ${{ inputs.enable-docker-scan }}
         ENABLE_HEALTH_SCORE: ${{ inputs.enable-health-score }}
         DOCKERFILE_HAS_NON_ROOT_USER: ${{ inputs.dockerfile-has-non-root-user }}
+        PRERELEASE_FINDINGS_FILE: ${{ inputs.prerelease-findings-file }}
       with:
         github-token: ${{ inputs.github-token }}
         result-encoding: string
@@ -277,12 +282,54 @@ runs:
             return out;
           }
 
+          // ── Pre-release Version Scan ──
+          function buildPrereleaseScan() {
+            const file = process.env.PRERELEASE_FINDINGS_FILE;
+            if (!file) return '';
+
+            try {
+              if (!fs.existsSync(file)) {
+                hasScanErrors = true;
+                return `---\n\n## Pre-release Version Check\n\n\u26A0\uFE0F Findings artifact not found.\n\n`;
+              }
+              const findings = JSON.parse(fs.readFileSync(file, 'utf8'));
+              if (!Array.isArray(findings)) {
+                throw new Error('Expected a JSON array of findings');
+              }
+              if (findings.length === 0) {
+                return `---\n\n## Pre-release Version Check\n\n\u2705 No unstable version pins found.\n\n`;
+              }
+
+              // Do NOT set hasFindings here — prerelease findings are gated
+              // separately by the branch-aware "Gate - Fail on Pre-release Versions"
+              // step in the workflow. Setting hasFindings would make the reporter's
+              // own gate (fail-on-findings) exit 1 on ALL branches, bypassing the
+              // warn-on-develop / block-on-rc-main semantics.
+              const MAX_PRERELEASE = 50;
+              let out = `---\n\n## Pre-release Version Check\n\n`;
+              out += `\u{1F6AB} **Found ${findings.length} unstable version pin(s).** Only stable releases (\`x.y.z\`) and SHA-based pins are allowed.\n\n`;
+              out += `| File | Line | Content |\n`;
+              out += `|------|------|----------|\n`;
+              for (const f of findings.slice(0, MAX_PRERELEASE)) {
+                out += `| \`${md(f.file)}\` | ${f.line} | \`${md(truncate(String(f.content ?? ''), 120))}\` |\n`;
+              }
+              if (findings.length > MAX_PRERELEASE) out += `\n_... and ${findings.length - MAX_PRERELEASE} more findings._\n`;
+              out += `\n`;
+              out += `> Replace pre-release suffixes (\`-alpha\`, \`-beta\`, \`-rc\`, \`-dev\`, etc.) with stable releases.\n\n`;
+              return out;
+            } catch (e) {
+              hasScanErrors = true;
+              return `---\n\n## Pre-release Version Check\n\n\u26A0\uFE0F Could not parse findings: ${e.message}\n\n`;
+            }
+          }
+
           // ── Build Report ──
           body += `## \u{1F512} Security Scan Results \u2014 \`${appName}\`\n\n`;
           body += `## Trivy\n\n`;
           body += buildTrivyFsScan();
           body += buildTrivyDockerScan();
           body += buildHealthScoreSection();
+          body += buildPrereleaseScan();
 
           // ── Useful Links ──
           const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;

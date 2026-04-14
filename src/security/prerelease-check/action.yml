@@ -1,0 +1,165 @@
+name: Pre-release Version Check
+description: Scans dependency files for unstable version pins. Only stable semver (x.y.z) and Go pseudo-versions (SHA-based) are allowed.
+
+inputs:
+  scan-ref:
+    description: 'Directory to scan for pre-release versions'
+    required: false
+    default: '.'
+  app-name:
+    description: 'Application name for reporting context'
+    required: false
+    default: ''
+
+outputs:
+  has-findings:
+    description: 'true if pre-release versions were detected'
+    value: ${{ steps.scan.outputs.has_findings }}
+  findings-count:
+    description: 'Number of pre-release version findings'
+    value: ${{ steps.scan.outputs.findings_count }}
+  artifact-file:
+    description: 'Path to the JSON findings file for consumption by pr-security-reporter'
+    value: ${{ steps.scan.outputs.artifact_file }}
+
+runs:
+  using: composite
+  steps:
+    - name: Scan for pre-release versions
+      id: scan
+      shell: bash
+      env:
+        SCAN_DIR: ${{ inputs.scan-ref }}
+        APP_NAME: ${{ inputs.app-name }}
+      run: |
+        # Matches x.y.z-<letter...> — any semver with a pre-release suffix starting
+        # with a letter (alpha, beta, rc, dev, preview, canary, snapshot, etc.).
+        # Excludes Go pseudo-versions (v0.0.0-YYYYMMDDHHMMSS-commitsha) because
+        # their suffix starts with digits, not letters. SHA pins are also allowed.
+        PRERELEASE_PATTERN='[0-9]+\.[0-9]+\.[0-9]+-[a-zA-Z]'
+
+        # Docker-specific pattern: only match known pre-release prefixes to avoid
+        # false positives on stable image variants like -slim, -alpine, -bookworm.
+        DOCKER_PRERELEASE='[0-9]+\.[0-9]+\.[0-9]+-(alpha|beta|rc|dev|preview|canary|snapshot|nightly)'
+        FINDINGS=()
+
+        # Scan the component scan-ref AND the repo root. In Go monorepos a single
+        # root go.mod is shared across components; without scanning root we'd miss
+        # dependency pins for components whose scan-ref is a subdirectory.
+        SEEN_FILES=()
+        SCAN_PATHS=("$SCAN_DIR")
+        if [ "$SCAN_DIR" != "." ] && [ "$SCAN_DIR" != "./" ]; then
+          SCAN_PATHS+=(".")
+        fi
+
+        already_seen() {
+          local target="$1"
+          for s in "${SEEN_FILES[@]}"; do
+            [ "$s" = "$target" ] && return 0
+          done
+          return 1
+        }
+
+        for base in "${SCAN_PATHS[@]}"; do
+          # ----------------- go.mod -----------------
+          if [ -f "$base/go.mod" ]; then
+            real=$(realpath "$base/go.mod")
+            if ! already_seen "$real"; then
+              SEEN_FILES+=("$real")
+              while IFS= read -r match; do
+                FINDINGS+=("${base}/go.mod|$match")
+              done < <(grep -nE "v${PRERELEASE_PATTERN}" "$base/go.mod" || true)
+            fi
+          fi
+
+          # ----------------- package.json -----------------
+          if [ -f "$base/package.json" ]; then
+            real=$(realpath "$base/package.json")
+            if ! already_seen "$real"; then
+              SEEN_FILES+=("$real")
+              while IFS= read -r match; do
+                FINDINGS+=("${base}/package.json|$match")
+              done < <(grep -nE "\"[~^<>=]*${PRERELEASE_PATTERN}" "$base/package.json" || true)
+            fi
+          fi
+
+          # ----------------- Dockerfile -----------------
+          for df in "$base/Dockerfile" "$base/"*.dockerfile "$base/Dockerfile."*; do
+            [ -f "$df" ] || continue
+            real=$(realpath "$df")
+            already_seen "$real" && continue
+            SEEN_FILES+=("$real")
+            relpath="${df#./}"
+            while IFS= read -r match; do
+              FINDINGS+=("${relpath}|$match")
+            done < <(grep -nE ":${DOCKER_PRERELEASE}" "$df" || true)
+          done
+        done
+
+        COUNT=${#FINDINGS[@]}
+        echo "findings_count=$COUNT" >> "$GITHUB_OUTPUT"
+
+        # Persist findings as JSON so the next step can post a PR comment.
+        ARTIFACT_NAME="${APP_NAME:-default}"
+        ARTIFACT_FILE="prerelease-findings-${ARTIFACT_NAME}.json"
+        echo "artifact_file=$ARTIFACT_FILE" >> "$GITHUB_OUTPUT"
+
+        if [ "$COUNT" -gt 0 ]; then
+          echo "has_findings=true" >> "$GITHUB_OUTPUT"
+
+          LABEL=""
+          [ -n "$APP_NAME" ] && LABEL=" ($APP_NAME)"
+
+          echo "::error::Found $COUNT unstable version pin(s)${LABEL}. Only stable versions (x.y.z) and SHA-based pins are allowed."
+
+          # Build JSON array of findings for the reporter step.
+          {
+            echo "["
+            FIRST=true
+            for f in "${FINDINGS[@]}"; do
+              FILE="${f%%|*}"
+              REST="${f#*|}"
+              LINE="${REST%%:*}"
+              CONTENT="${REST#*:}"
+              CONTENT_TRIMMED=$(echo "$CONTENT" | sed 's/^[[:space:]]*//')
+              CONTENT_ESCAPED=$(echo "$CONTENT_TRIMMED" | jq -Rs .)
+              if [ "$FIRST" = "true" ]; then
+                FIRST=false
+              else
+                echo ","
+              fi
+              printf '  {"file":"%s","line":%s,"content":%s}' "$FILE" "$LINE" "$CONTENT_ESCAPED"
+            done
+            echo ""
+            echo "]"
+          } > "$ARTIFACT_FILE"
+
+          {
+            echo "### :warning: Pre-release Version Pins${LABEL}"
+            echo ""
+            echo "| File | Line | Content |"
+            echo "|------|------|---------|"
+            for f in "${FINDINGS[@]}"; do
+              FILE="${f%%|*}"
+              REST="${f#*|}"
+              LINE="${REST%%:*}"
+              CONTENT="${REST#*:}"
+              CONTENT=$(echo "$CONTENT" | sed 's/^[[:space:]]*//' | sed 's/|/\\|/g')
+              echo "| \`${FILE}\` | ${LINE} | \`${CONTENT}\` |"
+            done
+            echo ""
+            echo "> Only stable versions (\`x.y.z\`) and SHA-based pins are allowed. Replace pre-release suffixes (\`-alpha\`, \`-beta\`, \`-rc\`, \`-dev\`, etc.) with stable releases."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          for f in "${FINDINGS[@]}"; do
+            FILE="${f%%|*}"
+            REST="${f#*|}"
+            LINE="${REST%%:*}"
+            CONTENT="${REST#*:}"
+            echo "::warning file=${FILE},line=${LINE}::Unstable version pin: $(echo "$CONTENT" | sed 's/^[[:space:]]*//')"
+          done
+        else
+          echo "has_findings=false" >> "$GITHUB_OUTPUT"
+          echo "[]" > "$ARTIFACT_FILE"
+          echo "No pre-release version pins found."
+        fi

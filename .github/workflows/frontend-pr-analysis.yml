@@ -101,28 +101,32 @@ jobs:
       has_changes: ${{ steps.set-matrix.outputs.has_changes }}
     steps:
       - name: Checkout code
-        uses: actions/checkout@v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
           fetch-depth: 0
 
       - name: Get changed files
         id: changed
         shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          BASE_REF: ${{ github.base_ref }}
+          EVENT_BEFORE: ${{ github.event.before }}
+          CURRENT_SHA: ${{ github.sha }}
         run: |
-          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
-            BASE_SHA="${{ github.event.pull_request.base.sha }}"
-            HEAD_SHA="${{ github.event.pull_request.head.sha }}"
-            git fetch origin $BASE_SHA --depth=1 2>/dev/null || true
-            FILES=$(git diff --name-only $BASE_SHA $HEAD_SHA 2>/dev/null || git diff --name-only origin/${{ github.base_ref }}...HEAD)
-          elif [[ "${{ github.event.before }}" == "0000000000000000000000000000000000000000" ]] || [[ -z "${{ github.event.before }}" ]]; then
-            PREV_COMMIT=$(git rev-parse HEAD^)
-            if [[ $? -eq 0 ]]; then
-              FILES=$(git diff --name-only $PREV_COMMIT HEAD)
+          if [[ "$EVENT_NAME" == "pull_request" ]]; then
+            git fetch origin "$PR_BASE_SHA" --depth=1 2>/dev/null || true
+            FILES=$(git diff --name-only "$PR_BASE_SHA" "$PR_HEAD_SHA" 2>/dev/null || git diff --name-only "origin/${BASE_REF}...HEAD")
+          elif [[ "$EVENT_BEFORE" == "0000000000000000000000000000000000000000" ]] || [[ -z "$EVENT_BEFORE" ]]; then
+            if PREV_COMMIT=$(git rev-parse HEAD^); then
+              FILES=$(git diff --name-only "$PREV_COMMIT" HEAD)
             else
               FILES=$(git ls-tree -r --name-only HEAD)
             fi
           else
-            FILES=$(git diff --name-only ${{ github.event.before }} ${{ github.sha }})
+            FILES=$(git diff --name-only "$EVENT_BEFORE" "$CURRENT_SHA")
           fi
           printf "files<<EOF\n%s\nEOF\n" "$FILES" >> "$GITHUB_OUTPUT"
 
@@ -225,10 +229,10 @@ jobs:
         app: ${{ fromJson(needs.detect-changes.outputs.matrix) }}
     steps:
       - name: Checkout code
-        uses: actions/checkout@v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
       - name: Setup Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6
         with:
           node-version: ${{ inputs.node_version }}
           cache: ${{ inputs.package_manager }}
@@ -266,10 +270,10 @@ jobs:
         app: ${{ fromJson(needs.detect-changes.outputs.matrix) }}
     steps:
       - name: Checkout code
-        uses: actions/checkout@v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
       - name: Setup Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6
         with:
           node-version: ${{ inputs.node_version }}
           cache: ${{ inputs.package_manager }}
@@ -302,10 +306,10 @@ jobs:
         app: ${{ fromJson(needs.detect-changes.outputs.matrix) }}
     steps:
       - name: Checkout code
-        uses: actions/checkout@v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
       - name: Setup Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6
         with:
           node-version: ${{ inputs.node_version }}
           cache: ${{ inputs.package_manager }}
@@ -343,10 +347,10 @@ jobs:
         app: ${{ fromJson(needs.detect-changes.outputs.matrix) }}
     steps:
       - name: Checkout code
-        uses: actions/checkout@v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
       - name: Setup Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6
         with:
           node-version: ${{ inputs.node_version }}
           cache: ${{ inputs.package_manager }}
@@ -364,14 +368,24 @@ jobs:
       - name: Run tests with coverage
         working-directory: ${{ matrix.app.working_dir }}
         run: |
+          # Vitest 3+ removed --coverageReporters CLI flag (use --coverage.reporter instead)
+          # Jest and Vitest 2 still support --coverageReporters
+          VITEST_MAJOR=$(node -e "try{console.log(require('vitest/package.json').version.split('.')[0])}catch{console.log('0')}" 2>/dev/null)
+
+          if [[ "$VITEST_MAJOR" -ge 3 ]]; then
+            COVERAGE_FLAGS=(--coverage.reporter=text --coverage.reporter=json-summary --coverage.reporter=lcov)
+          else
+            COVERAGE_FLAGS=(--coverageReporters=text --coverageReporters=json-summary --coverageReporters=lcov)
+          fi
+
           case "${{ inputs.package_manager }}" in
-            yarn) yarn test --coverage --coverageReporters=text --coverageReporters=json-summary --coverageReporters=lcov ;;
-            pnpm) pnpm test --coverage --coverageReporters=text --coverageReporters=json-summary --coverageReporters=lcov ;;
-            *) npm test -- --coverage --coverageReporters=text --coverageReporters=json-summary --coverageReporters=lcov ;;
+            yarn) yarn test --coverage "${COVERAGE_FLAGS[@]}" ;;
+            pnpm) pnpm test --coverage "${COVERAGE_FLAGS[@]}" ;;
+            *) npm test -- --coverage "${COVERAGE_FLAGS[@]}" ;;
           esac
 
       - name: Upload coverage artifact
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: coverage-${{ matrix.app.name }}
           path: |
@@ -392,10 +406,10 @@ jobs:
         app: ${{ fromJson(needs.detect-changes.outputs.matrix) }}
     steps:
       - name: Checkout code
-        uses: actions/checkout@v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
       - name: Download coverage artifact
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           name: coverage-${{ matrix.app.name }}
           path: ${{ matrix.app.working_dir }}/coverage
@@ -409,23 +423,27 @@ jobs:
             STATEMENTS=$(jq '.total.statements.pct' coverage/coverage-summary.json)
             BRANCHES=$(jq '.total.branches.pct' coverage/coverage-summary.json)
             FUNCTIONS=$(jq '.total.functions.pct' coverage/coverage-summary.json)
-            
-            echo "coverage=$COVERAGE" >> $GITHUB_OUTPUT
-            echo "statements=$STATEMENTS" >> $GITHUB_OUTPUT
-            echo "branches=$BRANCHES" >> $GITHUB_OUTPUT
-            echo "functions=$FUNCTIONS" >> $GITHUB_OUTPUT
+
+            {
+              echo "coverage=$COVERAGE"
+              echo "statements=$STATEMENTS"
+              echo "branches=$BRANCHES"
+              echo "functions=$FUNCTIONS"
+            } >> "$GITHUB_OUTPUT"
             echo "Total line coverage: $COVERAGE%"
           else
-            echo "coverage=0" >> $GITHUB_OUTPUT
-            echo "statements=0" >> $GITHUB_OUTPUT
-            echo "branches=0" >> $GITHUB_OUTPUT
-            echo "functions=0" >> $GITHUB_OUTPUT
+            {
+              echo "coverage=0"
+              echo "statements=0"
+              echo "branches=0"
+              echo "functions=0"
+            } >> "$GITHUB_OUTPUT"
             echo "No coverage file found"
           fi
 
       - name: Post coverage comment
         if: github.event_name == 'pull_request'
-        uses: actions/github-script@v8
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
         with:
           github-token: ${{ secrets.MANAGE_TOKEN || github.token }}
           script: |
@@ -478,25 +496,35 @@ jobs:
 
       - name: Check coverage threshold
         if: inputs.fail_on_coverage_threshold
+        env:
+          COVERAGE: ${{ steps.coverage.outputs.coverage }}
+          THRESHOLD: ${{ inputs.coverage_threshold }}
         run: |
-          COVERAGE=${{ steps.coverage.outputs.coverage }}
-          THRESHOLD=${{ inputs.coverage_threshold }}
           if (( $(echo "$COVERAGE < $THRESHOLD" | bc -l) )); then
-            echo "::error::Coverage $COVERAGE% is below threshold $THRESHOLD%"
+            echo "::error::Coverage ${COVERAGE}% is below threshold ${THRESHOLD}%"
             exit 1
           fi
 
       - name: Coverage summary
+        env:
+          APP_NAME: ${{ matrix.app.name }}
+          COV_LINES: ${{ steps.coverage.outputs.coverage }}
+          COV_STATEMENTS: ${{ steps.coverage.outputs.statements }}
+          COV_BRANCHES: ${{ steps.coverage.outputs.branches }}
+          COV_FUNCTIONS: ${{ steps.coverage.outputs.functions }}
+          COV_THRESHOLD: ${{ inputs.coverage_threshold }}
         run: |
-          echo "## Coverage Summary: ${{ matrix.app.name }}" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "| Metric | Value |" >> $GITHUB_STEP_SUMMARY
-          echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
-          echo "| Lines | ${{ steps.coverage.outputs.coverage }}% |" >> $GITHUB_STEP_SUMMARY
-          echo "| Statements | ${{ steps.coverage.outputs.statements }}% |" >> $GITHUB_STEP_SUMMARY
-          echo "| Branches | ${{ steps.coverage.outputs.branches }}% |" >> $GITHUB_STEP_SUMMARY
-          echo "| Functions | ${{ steps.coverage.outputs.functions }}% |" >> $GITHUB_STEP_SUMMARY
-          echo "| Threshold | ${{ inputs.coverage_threshold }}% |" >> $GITHUB_STEP_SUMMARY
+          {
+            echo "## Coverage Summary: ${APP_NAME}"
+            echo ""
+            echo "| Metric | Value |"
+            echo "|--------|-------|"
+            echo "| Lines | ${COV_LINES}% |"
+            echo "| Statements | ${COV_STATEMENTS}% |"
+            echo "| Branches | ${COV_BRANCHES}% |"
+            echo "| Functions | ${COV_FUNCTIONS}% |"
+            echo "| Threshold | ${COV_THRESHOLD}% |"
+          } >> "$GITHUB_STEP_SUMMARY"
 
   # ============================================
   # BUILD VERIFICATION
@@ -512,10 +540,10 @@ jobs:
         app: ${{ fromJson(needs.detect-changes.outputs.matrix) }}
     steps:
       - name: Checkout code
-        uses: actions/checkout@v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
       - name: Setup Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6
         with:
           node-version: ${{ inputs.node_version }}
           cache: ${{ inputs.package_manager }}
