@@ -20,6 +20,10 @@ inputs:
     description: Whether the Dockerfile sets a non-root USER directive
     required: false
     default: "false"
+  prerelease-findings-file:
+    description: 'Path to JSON file with pre-release version findings from the prerelease-check composite. Leave empty to skip.'
+    required: false
+    default: ''
   fail-on-findings:
     description: 'Fail the step with exit code 1 when security findings are detected (true/false)'
     required: false
@@ -44,6 +48,7 @@ runs:
         ENABLE_DOCKER_SCAN: ${{ inputs.enable-docker-scan }}
         ENABLE_HEALTH_SCORE: ${{ inputs.enable-health-score }}
         DOCKERFILE_HAS_NON_ROOT_USER: ${{ inputs.dockerfile-has-non-root-user }}
+        PRERELEASE_FINDINGS_FILE: ${{ inputs.prerelease-findings-file }}
       with:
         github-token: ${{ inputs.github-token }}
         result-encoding: string
@@ -277,12 +282,41 @@ runs:
             return out;
           }
 
+          // ── Pre-release Version Scan ──
+          function buildPrereleaseScan() {
+            const file = process.env.PRERELEASE_FINDINGS_FILE;
+            if (!file) return '';
+
+            try {
+              if (!fs.existsSync(file)) return '';
+              const findings = JSON.parse(fs.readFileSync(file, 'utf8'));
+              if (!Array.isArray(findings) || findings.length === 0) {
+                return `---\n\n## Pre-release Version Check\n\n\u2705 No unstable version pins found.\n\n`;
+              }
+
+              hasFindings = true;
+              let out = `---\n\n## Pre-release Version Check\n\n`;
+              out += `\u{1F6AB} **Found ${findings.length} unstable version pin(s).** Only stable releases (\`x.y.z\`) and SHA-based pins are allowed.\n\n`;
+              out += `| File | Line | Content |\n`;
+              out += `|------|------|----------|\n`;
+              for (const f of findings) {
+                out += `| \`${md(f.file)}\` | ${f.line} | \`${md(f.content)}\` |\n`;
+              }
+              out += `\n`;
+              out += `> Replace pre-release suffixes (\`-alpha\`, \`-beta\`, \`-rc\`, \`-dev\`, etc.) with stable releases.\n\n`;
+              return out;
+            } catch (e) {
+              return `---\n\n## Pre-release Version Check\n\n\u26A0\uFE0F Could not parse findings: ${e.message}\n\n`;
+            }
+          }
+
           // ── Build Report ──
           body += `## \u{1F512} Security Scan Results \u2014 \`${appName}\`\n\n`;
           body += `## Trivy\n\n`;
           body += buildTrivyFsScan();
           body += buildTrivyDockerScan();
           body += buildHealthScoreSection();
+          body += buildPrereleaseScan();
 
           // ── Useful Links ──
           const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
