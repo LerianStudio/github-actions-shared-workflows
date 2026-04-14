@@ -288,9 +288,15 @@ runs:
             if (!file) return '';
 
             try {
-              if (!fs.existsSync(file)) return '';
+              if (!fs.existsSync(file)) {
+                hasScanErrors = true;
+                return `---\n\n## Pre-release Version Check\n\n\u26A0\uFE0F Findings artifact not found.\n\n`;
+              }
               const findings = JSON.parse(fs.readFileSync(file, 'utf8'));
-              if (!Array.isArray(findings) || findings.length === 0) {
+              if (!Array.isArray(findings)) {
+                throw new Error('Expected a JSON array of findings');
+              }
+              if (findings.length === 0) {
                 return `---\n\n## Pre-release Version Check\n\n\u2705 No unstable version pins found.\n\n`;
               }
 
@@ -310,6 +316,7 @@ runs:
               out += `> Replace pre-release suffixes (\`-alpha\`, \`-beta\`, \`-rc\`, \`-dev\`, etc.) with stable releases.\n\n`;
               return out;
             } catch (e) {
+              hasScanErrors = true;
               return `---\n\n## Pre-release Version Check\n\n\u26A0\uFE0F Could not parse findings: ${e.message}\n\n`;
             }
           }
