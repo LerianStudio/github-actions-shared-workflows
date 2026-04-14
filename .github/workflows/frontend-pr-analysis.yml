@@ -419,16 +419,20 @@ jobs:
             BRANCHES=$(jq '.total.branches.pct' coverage/coverage-summary.json)
             FUNCTIONS=$(jq '.total.functions.pct' coverage/coverage-summary.json)
 
-            echo "coverage=$COVERAGE" >> "$GITHUB_OUTPUT"
-            echo "statements=$STATEMENTS" >> "$GITHUB_OUTPUT"
-            echo "branches=$BRANCHES" >> "$GITHUB_OUTPUT"
-            echo "functions=$FUNCTIONS" >> "$GITHUB_OUTPUT"
+            {
+              echo "coverage=$COVERAGE"
+              echo "statements=$STATEMENTS"
+              echo "branches=$BRANCHES"
+              echo "functions=$FUNCTIONS"
+            } >> "$GITHUB_OUTPUT"
             echo "Total line coverage: $COVERAGE%"
           else
-            echo "coverage=0" >> "$GITHUB_OUTPUT"
-            echo "statements=0" >> "$GITHUB_OUTPUT"
-            echo "branches=0" >> "$GITHUB_OUTPUT"
-            echo "functions=0" >> "$GITHUB_OUTPUT"
+            {
+              echo "coverage=0"
+              echo "statements=0"
+              echo "branches=0"
+              echo "functions=0"
+            } >> "$GITHUB_OUTPUT"
             echo "No coverage file found"
           fi
 
@@ -497,15 +501,17 @@ jobs:
 
       - name: Coverage summary
         run: |
-          echo "## Coverage Summary: ${{ matrix.app.name }}" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "| Metric | Value |" >> $GITHUB_STEP_SUMMARY
-          echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
-          echo "| Lines | ${{ steps.coverage.outputs.coverage }}% |" >> $GITHUB_STEP_SUMMARY
-          echo "| Statements | ${{ steps.coverage.outputs.statements }}% |" >> $GITHUB_STEP_SUMMARY
-          echo "| Branches | ${{ steps.coverage.outputs.branches }}% |" >> $GITHUB_STEP_SUMMARY
-          echo "| Functions | ${{ steps.coverage.outputs.functions }}% |" >> $GITHUB_STEP_SUMMARY
-          echo "| Threshold | ${{ inputs.coverage_threshold }}% |" >> $GITHUB_STEP_SUMMARY
+          {
+            echo "## Coverage Summary: ${{ matrix.app.name }}"
+            echo ""
+            echo "| Metric | Value |"
+            echo "|--------|-------|"
+            echo "| Lines | ${{ steps.coverage.outputs.coverage }}% |"
+            echo "| Statements | ${{ steps.coverage.outputs.statements }}% |"
+            echo "| Branches | ${{ steps.coverage.outputs.branches }}% |"
+            echo "| Functions | ${{ steps.coverage.outputs.functions }}% |"
+            echo "| Threshold | ${{ inputs.coverage_threshold }}% |"
+          } >> "$GITHUB_STEP_SUMMARY"
 
   # ============================================
   # BUILD VERIFICATION
