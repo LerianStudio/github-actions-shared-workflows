@@ -228,7 +228,7 @@ jobs:
       - name: Post Security Scan Results to PR
         id: post-results
         if: always() && github.event_name == 'pull_request'
-        uses: LerianStudio/github-actions-shared-workflows/src/security/pr-security-reporter@v1.23.1
+        uses: LerianStudio/github-actions-shared-workflows/src/security/pr-security-reporter@feat/pr-security-scan-codeql-prerelease
         with:
           github-token: ${{ secrets.MANAGE_TOKEN || secrets.GITHUB_TOKEN }}
           app-name: ${{ env.APP_NAME }}
