@@ -305,13 +305,15 @@ runs:
               // step in the workflow. Setting hasFindings would make the reporter's
               // own gate (fail-on-findings) exit 1 on ALL branches, bypassing the
               // warn-on-develop / block-on-rc-main semantics.
+              const MAX_PRERELEASE = 50;
               let out = `---\n\n## Pre-release Version Check\n\n`;
               out += `\u{1F6AB} **Found ${findings.length} unstable version pin(s).** Only stable releases (\`x.y.z\`) and SHA-based pins are allowed.\n\n`;
               out += `| File | Line | Content |\n`;
               out += `|------|------|----------|\n`;
-              for (const f of findings) {
-                out += `| \`${md(f.file)}\` | ${f.line} | \`${md(f.content)}\` |\n`;
+              for (const f of findings.slice(0, MAX_PRERELEASE)) {
+                out += `| \`${md(f.file)}\` | ${f.line} | \`${md(truncate(String(f.content ?? ''), 120))}\` |\n`;
               }
+              if (findings.length > MAX_PRERELEASE) out += `\n_... and ${findings.length - MAX_PRERELEASE} more findings._\n`;
               out += `\n`;
               out += `> Replace pre-release suffixes (\`-alpha\`, \`-beta\`, \`-rc\`, \`-dev\`, etc.) with stable releases.\n\n`;
               return out;
