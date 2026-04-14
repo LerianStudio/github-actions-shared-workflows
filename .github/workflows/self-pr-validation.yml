@@ -208,6 +208,7 @@ jobs:
         uses: ./src/security/codeql-analyze
         with:
           category: '/language:actions'
+          upload: 'true'
 
       - name: Post CodeQL Results to PR
         if: always() && github.event_name == 'pull_request' && steps.codeql-config.outputs.skip != 'true'
