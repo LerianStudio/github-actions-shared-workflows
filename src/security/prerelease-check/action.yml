@@ -159,4 +159,3 @@ runs:
           echo "[]" > "$ARTIFACT_FILE"
           echo "No pre-release version pins found."
         fi
-

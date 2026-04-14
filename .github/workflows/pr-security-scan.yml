@@ -68,7 +68,9 @@ on:
         type: boolean
         default: true
       docker_build_args:
-        description: 'Newline-separated Docker build arguments (e.g., "APP_NAME=spi\nCOMPONENT_NAME=api"). For sensitive values (tokens, keys, passwords), use BuildKit secrets instead — build arguments are visible in image history.'
+        description: >-
+          Newline-separated Docker build arguments (e.g., "APP_NAME=spi\nCOMPONENT_NAME=api").
+          For sensitive values, use BuildKit secrets — build arguments are visible in image history.
         type: string
         required: false
         default: ''
@@ -186,6 +188,7 @@ jobs:
         if: always() && inputs.enable_docker_scan
         uses: docker/build-push-action@d08e5c354a6adb9ed34480a06d141179aa583294 # v7
         with:
+          # yamllint disable-line rule:line-length
           context: ${{ inputs.build_context_from_working_dir == true && matrix.working_dir || (inputs.monorepo_type == 'type2' && matrix.working_dir == inputs.frontend_folder && inputs.frontend_folder || '.') }}
           file: ${{ env.DOCKERFILE_PATH }}
           platforms: linux/amd64
@@ -334,6 +337,15 @@ jobs:
         uses: LerianStudio/github-actions-shared-workflows/src/notify/slack-notify@v1.23.1
         with:
           webhook-url: ${{ secrets.SLACK_WEBHOOK_URL }}
+          # yamllint disable-line rule:line-length
           status: ${{ (needs.security_scan.result == 'failure' || needs.codeql_scan.result == 'failure') && 'failure' || needs.security_scan.result }}
           workflow-name: "PR Security Scan"
-          failed-jobs: ${{ needs.security_scan.result == 'failure' && needs.codeql_scan.result == 'failure' && 'Security Scan, CodeQL Scan' || needs.security_scan.result == 'failure' && 'Security Scan' || needs.codeql_scan.result == 'failure' && 'CodeQL Scan' || '' }}
+          # yamllint disable-line rule:line-length
+          failed-jobs: >-
+            ${{
+              needs.security_scan.result == 'failure' && needs.codeql_scan.result == 'failure'
+                && 'Security Scan, CodeQL Scan'
+              || needs.security_scan.result == 'failure' && 'Security Scan'
+              || needs.codeql_scan.result == 'failure' && 'CodeQL Scan'
+              || ''
+            }}
