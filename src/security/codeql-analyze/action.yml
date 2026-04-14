@@ -9,12 +9,17 @@ inputs:
     description: 'Output directory for SARIF files'
     required: false
     default: '../results'
+  upload:
+    description: 'Upload SARIF to GitHub Security tab (requires Code Security / GHAS enabled on the repo)'
+    required: false
+    default: 'false'
 
 runs:
   using: composite
   steps:
     - name: Perform CodeQL Analysis
-      uses: github/codeql-action/analyze@v4
+      uses: github/codeql-action/analyze@c10b8064de6f491fea524254123dbe5e09572f13  # v4
       with:
         category: ${{ inputs.category }}
         output: ${{ inputs.output }}
+        upload: ${{ inputs.upload }}
