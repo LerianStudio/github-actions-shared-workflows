@@ -104,19 +104,20 @@ jobs:
       - name: Resolve reusable workflow SHA
         id: resolve_sha
         shell: bash
+        env:
+          # `github.job_workflow_sha` is the commit SHA of THIS reusable workflow
+          # (not the caller), so the manifest checkout pins to the exact code the
+          # caller consumes. It is NOT exposed as an auto env var by the runner —
+          # it must be mapped explicitly through `env:` like any other context value.
+          # Docs: https://docs.github.com/en/actions/learn-github-actions/contexts#github-context
+          JOB_WORKFLOW_SHA: ${{ github.job_workflow_sha }}
         run: |
-          # We need the commit SHA of THIS reusable workflow (not the caller) so the
-          # manifest checkout pins to the exact code the caller consumes. The expression
-          # `github.job_workflow_sha` is the documented source, but actionlint v1.7.x
-          # doesn't know that property yet. The runner also exposes it as the auto env
-          # var GITHUB_JOB_WORKFLOW_SHA, which works identically and bypasses the lint gap.
-          # Docs: https://docs.github.com/en/actions/learn-github-actions/variables#default-environment-variables
-          if [[ -z "${GITHUB_JOB_WORKFLOW_SHA:-}" ]]; then
-            echo "::error::GITHUB_JOB_WORKFLOW_SHA is not set — is this job really running as part of a reusable workflow?"
+          if [[ -z "${JOB_WORKFLOW_SHA:-}" ]]; then
+            echo "::error::github.job_workflow_sha is empty — is this job really running as part of a reusable workflow?"
             exit 1
           fi
-          echo "sha=$GITHUB_JOB_WORKFLOW_SHA" >> "$GITHUB_OUTPUT"
-          echo "Reusable workflow SHA: $GITHUB_JOB_WORKFLOW_SHA"
+          echo "sha=$JOB_WORKFLOW_SHA" >> "$GITHUB_OUTPUT"
+          echo "Reusable workflow SHA: $JOB_WORKFLOW_SHA"
 
       - name: Checkout deployment matrix manifest
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
