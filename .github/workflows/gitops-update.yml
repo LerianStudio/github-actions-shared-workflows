@@ -584,14 +584,54 @@ jobs:
       matrix:
         target: ${{ fromJson(needs.update_gitops.outputs.sync_matrix) }}
     steps:
-      - name: Execute ArgoCD Sync
-        uses: LerianStudio/github-actions-argocd-sync@main
-        with:
-          app-name: ${{ matrix.target.server }}-${{ needs.update_gitops.outputs.app_name }}
-          argo-cd-token: ${{ secrets.ARGOCD_GHUSER_TOKEN }}
-          argo-cd-url: ${{ secrets.ARGOCD_URL }}
-          env-prefix: ${{ matrix.target.env }}
-          skip-if-not-exists: 'true'
+      - name: Install ArgoCD CLI
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -sSL -o /tmp/argocd https://github.com/argoproj/argo-cd/releases/download/v3.0.6/argocd-linux-amd64
+          sudo install -m 755 /tmp/argocd /usr/local/bin/argocd
+          argocd version --client
+
+      - name: Sync ArgoCD application
+        shell: bash
+        env:
+          ARGOCD_URL: ${{ secrets.ARGOCD_URL }}
+          ARGOCD_TOKEN: ${{ secrets.ARGOCD_GHUSER_TOKEN }}
+          APP_NAME: ${{ matrix.target.server }}-${{ needs.update_gitops.outputs.app_name }}-${{ matrix.target.env }}
+        run: |
+          set -uo pipefail
+
+          echo "::group::argocd app get $APP_NAME"
+          if ! argocd app get "$APP_NAME" --server "$ARGOCD_URL" --auth-token "$ARGOCD_TOKEN" --grpc-web; then
+            rc=$?
+            echo "::endgroup::"
+            echo "::warning::Failed to get ArgoCD app '$APP_NAME' (exit $rc). Skipping sync — check whether the app exists, auth is valid, and the user has 'applications, get' permission."
+            exit 0
+          fi
+          echo "::endgroup::"
+
+          echo "::group::argocd app sync $APP_NAME"
+          for attempt in 1 2 3 4 5; do
+            if argocd app sync "$APP_NAME" --server "$ARGOCD_URL" --auth-token "$ARGOCD_TOKEN" --grpc-web; then
+              break
+            fi
+            if [[ "$attempt" == "5" ]]; then
+              echo "::endgroup::"
+              echo "::error::Sync failed for $APP_NAME after 5 attempts"
+              exit 1
+            fi
+            echo "Sync attempt $attempt failed, retrying in 5s..."
+            sleep 5
+          done
+          echo "::endgroup::"
+
+          echo "::group::argocd app wait $APP_NAME"
+          if ! argocd app wait "$APP_NAME" --server "$ARGOCD_URL" --auth-token "$ARGOCD_TOKEN" --grpc-web; then
+            echo "::endgroup::"
+            echo "::error::Timeout waiting for sync completion of $APP_NAME"
+            exit 1
+          fi
+          echo "::endgroup::"
 
   # Slack notification
   notify:
