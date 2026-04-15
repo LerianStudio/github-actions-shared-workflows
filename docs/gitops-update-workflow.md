@@ -34,7 +34,7 @@ update_gitops:
 
 > **Required Secrets**: `MANAGE_TOKEN`, `LERIAN_CI_CD_USER_NAME`, `LERIAN_CI_CD_USER_EMAIL`, `ARGOCD_GHUSER_TOKEN`, `ARGOCD_URL`, `DOCKER_USERNAME`, `DOCKER_PASSWORD`
 
-The workflow reads `config/deployment-matrix.yml` (in the shared-workflows repo at the same pinned ref as the workflow itself) and resolves the cluster set automatically based on `app_name`. No `deploy_in_*` inputs are required for the common case.
+The workflow reads `config/deployment-matrix.yml` from the shared-workflows repo (by default from `main`, override via `deployment_matrix_ref`) and resolves the cluster set automatically based on `app_name`. No `deploy_in_*` inputs are required for the common case.
 
 **Auto-generated values** (for repo `my-backend-service`):
 - App name: `my-backend-service` (must be present in the deployment matrix)
@@ -94,6 +94,7 @@ update_gitops:
 | `deploy_in_clotilde` | boolean | `true` | Force-off override for Clotilde (`false` = subtract from manifest-resolved set) |
 | `deploy_in_anacleto` | boolean | `true` | Force-off override for Anacleto (`false` = subtract from manifest-resolved set) |
 | `deployment_matrix_file` | string | `config/deployment-matrix.yml` | Path to the deployment matrix manifest within the shared-workflows checkout |
+| `deployment_matrix_ref` | string | `main` | Git ref of `LerianStudio/github-actions-shared-workflows` to read the deployment matrix from. Default `main` ensures all callers see manifest updates immediately, regardless of the workflow ref they pin. Override only when testing a branch. |
 | `artifact_pattern` | string | `gitops-tags-{app}-*` | Pattern to download artifacts (auto-generated) |
 | `commit_message_prefix` | string | (repo name) | Prefix for commit message (auto-generated) |
 | `runner_type` | string | `blacksmith-4vcpu-ubuntu-2404` | GitHub runner type |
@@ -136,7 +137,7 @@ The workflow's cluster topology is declared in [`config/deployment-matrix.yml`](
 ### How it works
 
 1. The caller invokes the workflow at a pinned ref (e.g. `@v1.24.0`).
-2. The workflow checks out the deployment matrix **at the same ref** (sparse checkout — only the manifest file).
+2. The workflow checks out the deployment matrix from `main` (or from the ref supplied via `deployment_matrix_ref`) — sparse checkout of the manifest file only. This decoupling lets manifest updates propagate to every caller without bumping the pinned workflow tag.
 3. For the caller's `app_name`, the workflow collects every cluster whose `apps:` list contains it.
 4. `deploy_in_<cluster>` inputs are applied as **force-off** overrides on the resolved set.
 5. The remaining cluster set drives both the GitOps file updates and the ArgoCD sync matrix.
