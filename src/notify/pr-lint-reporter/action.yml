@@ -69,6 +69,14 @@ inputs:
     description: Comma-separated list of action files validated by composite-schema
     required: false
     default: ""
+  deployment-matrix-result:
+    description: Result of the deployment-matrix job (success/failure/skipped/cancelled)
+    required: false
+    default: "skipped"
+  deployment-matrix-files:
+    description: Comma-separated list of deployment matrix manifest files validated
+    required: false
+    default: ""
 
 runs:
   using: composite
@@ -85,7 +93,8 @@ runs:
           const typosFiles           = ${{ toJSON(inputs['typos-files']) }};
           const shellcheckFiles      = ${{ toJSON(inputs['shellcheck-files']) }};
           const readmeFiles          = ${{ toJSON(inputs['readme-files']) }};
-          const compositeSchemaFiles = ${{ toJSON(inputs['composite-schema-files']) }};
+          const compositeSchemaFiles   = ${{ toJSON(inputs['composite-schema-files']) }};
+          const deploymentMatrixFiles  = ${{ toJSON(inputs['deployment-matrix-files']) }};
 
           const checks = [
             {
@@ -136,6 +145,12 @@ runs:
               label:   'Composite Schema',
               result:  '${{ inputs.composite-schema-result }}',
               files:   compositeSchemaFiles.trim().split(',').filter(Boolean),
+            },
+            {
+              jobName: 'Deployment Matrix Lint',
+              label:   'Deployment Matrix',
+              result:  '${{ inputs.deployment-matrix-result }}',
+              files:   deploymentMatrixFiles.trim().split(',').filter(Boolean),
             },
           ];
 

@@ -16,13 +16,25 @@ on:
         type: string
         required: false
       deploy_in_firmino:
-        description: 'Deploy to Firmino server'
+        description: 'Force-off override for Firmino. Set to false to suppress deployment even if the manifest includes this app on Firmino.'
         type: boolean
         default: true
       deploy_in_clotilde:
-        description: 'Deploy to Clotilde server'
+        description: 'Force-off override for Clotilde. Set to false to suppress deployment even if the manifest includes this app on Clotilde.'
         type: boolean
         default: true
+      deploy_in_anacleto:
+        description: 'Force-off override for Anacleto. Set to false to suppress deployment even if the manifest includes this app on Anacleto.'
+        type: boolean
+        default: true
+      deployment_matrix_file:
+        description: 'Path (within the shared-workflows checkout) to the deployment matrix manifest. Override only if you maintain a fork/alternative manifest.'
+        type: string
+        default: 'config/deployment-matrix.yml'
+      deployment_matrix_ref:
+        description: 'Git ref of LerianStudio/github-actions-shared-workflows to read the deployment matrix from. Defaults to main (always latest). Override only when testing a branch.'
+        type: string
+        default: 'main'
       artifact_pattern:
         description: 'Pattern to download artifacts (defaults to "gitops-tags-<repo-name>-*" if not provided)'
         type: string
@@ -80,6 +92,11 @@ jobs:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKERHUB_IMAGE_PULL_TOKEN }}
 
+      # Trust model: this is a `workflow_call` reusable workflow, NOT triggered by
+      # untrusted PRs. `inputs.gitops_repository` is supplied by trusted caller
+      # workflows (default: LerianStudio/midaz-firmino-gitops) and the MANAGE_TOKEN
+      # is required for the subsequent commit/push step. CodeQL flags this as
+      # `actions/untrusted-checkout` defensively but the call surface is internal-only.
       - name: Checkout GitOps Repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
@@ -87,6 +104,19 @@ jobs:
           token: ${{ secrets.MANAGE_TOKEN }}
           path: gitops
           fetch-depth: 0
+
+      - name: Checkout deployment matrix manifest
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          repository: LerianStudio/github-actions-shared-workflows
+          ref: ${{ inputs.deployment_matrix_ref }}
+          path: shared-workflows
+          sparse-checkout: |
+            ${{ inputs.deployment_matrix_file }}
+          sparse-checkout-cone-mode: false
+          # Read-only sparse checkout of a single manifest file — no credentials
+          # needed, and we never execute code from this checkout.
+          persist-credentials: false
 
       - name: Setup application name and paths
         id: setup
@@ -100,15 +130,6 @@ jobs:
           fi
           echo "app_name=$APP_NAME" >> "$GITHUB_OUTPUT"
           echo "Application name: $APP_NAME"
-
-          # Determine which servers to deploy to
-          DEPLOY_FIRMINO="${{ inputs.deploy_in_firmino }}"
-          DEPLOY_CLOTILDE="${{ inputs.deploy_in_clotilde }}"
-
-          echo "deploy_firmino=$DEPLOY_FIRMINO" >> "$GITHUB_OUTPUT"
-          echo "deploy_clotilde=$DEPLOY_CLOTILDE" >> "$GITHUB_OUTPUT"
-          echo "Deploy to Firmino: $DEPLOY_FIRMINO"
-          echo "Deploy to Clotilde: $DEPLOY_CLOTILDE"
 
           # Generate commit message prefix if not provided
           if [[ -z "${{ inputs.commit_message_prefix }}" ]]; then
@@ -139,6 +160,98 @@ jobs:
           sudo curl -L "$YQ_URL" -o /usr/local/bin/yq
           sudo chmod +x /usr/local/bin/yq
           yq --version
+
+      - name: Resolve target clusters from deployment matrix
+        id: resolve_clusters
+        shell: bash
+        env:
+          APP_NAME: ${{ steps.setup.outputs.app_name }}
+          MANIFEST: shared-workflows/${{ inputs.deployment_matrix_file }}
+          DEPLOY_FIRMINO: ${{ inputs.deploy_in_firmino }}
+          DEPLOY_CLOTILDE: ${{ inputs.deploy_in_clotilde }}
+          DEPLOY_ANACLETO: ${{ inputs.deploy_in_anacleto }}
+        run: |
+          set -euo pipefail
+
+          if [[ ! -f "$MANIFEST" ]]; then
+            echo "::error::Deployment matrix manifest not found: $MANIFEST"
+            exit 1
+          fi
+
+          echo "Reading deployment matrix: $MANIFEST"
+          echo "App name: $APP_NAME"
+
+          # Resolve clusters whose `apps:` list contains $APP_NAME.
+          # Convert manifest to JSON via yq, then query with jq (more portable than yq's
+          # native env() — and jq is preinstalled on the runner anyway).
+          #
+          # NOTE: We use `index($app)` instead of `contains([$app])` because jq's
+          # contains() does substring matching on strings — "plugin-br-bank-transfer"
+          # would falsely match "plugin-br-bank-transfer-jd". `index()` is exact equality.
+          # Output one cluster per line, sorted for determinism.
+          # Do not swallow yq/jq errors with `|| true` — a corrupt manifest or
+          # broken query should fail fast, not be confused with "app not registered".
+          # Pipefail ensures intermediate failures surface; an empty RESOLVED from
+          # a *successful* query is the legitimate "no matching clusters" case and
+          # is handled below.
+          RESOLVED=$(yq -o=json '.' "$MANIFEST" \
+            | jq -r --arg app "$APP_NAME" \
+              '.clusters | to_entries[] | select(.value.apps // [] | index($app)) | .key' \
+            | sort -u)
+
+          if [[ -z "$RESOLVED" ]]; then
+            echo "::warning::App '$APP_NAME' is not registered in any cluster of the deployment matrix."
+            echo "If this is a new app, add it to $MANIFEST in shared-workflows."
+            echo "clusters=" >> "$GITHUB_OUTPUT"
+            echo "has_clusters=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "Manifest resolution for '$APP_NAME':"
+          while IFS= read -r line; do
+            echo "  - $line"
+          done <<< "$RESOLVED"
+
+          # Apply force-off overrides from inputs.
+          # An input set to "false" removes that cluster from the resolved set,
+          # even if the manifest includes the app on it.
+          FILTERED=""
+          while IFS= read -r cluster; do
+            [[ -z "$cluster" ]] && continue
+            case "$cluster" in
+              firmino)
+                if [[ "$DEPLOY_FIRMINO" == "false" ]]; then
+                  echo "  ✗ firmino — suppressed by deploy_in_firmino=false"
+                  continue
+                fi
+                ;;
+              clotilde)
+                if [[ "$DEPLOY_CLOTILDE" == "false" ]]; then
+                  echo "  ✗ clotilde — suppressed by deploy_in_clotilde=false"
+                  continue
+                fi
+                ;;
+              anacleto)
+                if [[ "$DEPLOY_ANACLETO" == "false" ]]; then
+                  echo "  ✗ anacleto — suppressed by deploy_in_anacleto=false"
+                  continue
+                fi
+                ;;
+            esac
+            FILTERED="${FILTERED:+$FILTERED }$cluster"
+          done <<< "$RESOLVED"
+
+          if [[ -z "$FILTERED" ]]; then
+            echo "::warning::All clusters resolved from the manifest were suppressed by force-off inputs."
+            echo "clusters=" >> "$GITHUB_OUTPUT"
+            echo "has_clusters=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo ""
+          echo "Final cluster set: $FILTERED"
+          echo "clusters=$FILTERED" >> "$GITHUB_OUTPUT"
+          echo "has_clusters=true" >> "$GITHUB_OUTPUT"
 
       - name: Git pull before update
         shell: bash
@@ -205,50 +318,47 @@ jobs:
       - name: Apply tags to values.yaml (multi-server)
         id: apply_tags
         shell: bash
+        env:
+          # Pass through env to avoid `${{ ... }}` interpolation directly into the
+          # script body (CodeQL: actions/code-injection). IS_* are inherited from job env.
+          APP_NAME: ${{ steps.setup.outputs.app_name }}
+          HAS_CLUSTERS: ${{ steps.resolve_clusters.outputs.has_clusters }}
+          RESOLVED_SERVERS: ${{ steps.resolve_clusters.outputs.clusters }}
+          MAPPINGS: ${{ inputs.yaml_key_mappings }}
+          CONFIGMAP_MAPPINGS: ${{ inputs.configmap_updates }}
         run: |
           set -euo pipefail
 
-          # Get app name
-          APP_NAME="${{ steps.setup.outputs.app_name }}"
-
-          # Determine environments to update based on tag type
-          if [[ "${{ env.IS_BETA }}" == "true" ]]; then
+          # Determine environments to update based on tag type (IS_* from job env)
+          if [[ "$IS_BETA" == "true" ]]; then
             ENVIRONMENTS="dev"
             ENV_LABEL="beta/dev"
-          elif [[ "${{ env.IS_RC }}" == "true" ]]; then
+          elif [[ "$IS_RC" == "true" ]]; then
             ENVIRONMENTS="stg"
             ENV_LABEL="rc/stg"
-          elif [[ "${{ env.IS_PRODUCTION }}" == "true" ]]; then
+          elif [[ "$IS_PRODUCTION" == "true" ]]; then
             ENVIRONMENTS="dev stg prd sandbox"
             ENV_LABEL="production"
-          elif [[ "${{ env.IS_SANDBOX }}" == "true" ]]; then
+          elif [[ "$IS_SANDBOX" == "true" ]]; then
             ENVIRONMENTS="sandbox"
             ENV_LABEL="sandbox"
           else
-            echo "Unable to detect environment from tag: ${{ github.ref }}"
+            echo "Unable to detect environment from tag: ${GITHUB_REF}"
             exit 1
           fi
           echo "env_label=$ENV_LABEL" >> "$GITHUB_OUTPUT"
           echo "Detected tag type: $ENV_LABEL"
           echo "Environments to update: $ENVIRONMENTS"
 
-          # Determine servers to deploy to
-          SERVERS=""
-          if [[ "${{ steps.setup.outputs.deploy_firmino }}" == "true" ]]; then
-            SERVERS="firmino"
+          # Servers come from the deployment matrix manifest, filtered by force-off inputs.
+          # See step `resolve_clusters` for resolution logic.
+          if [[ "$HAS_CLUSTERS" != "true" ]]; then
+            echo "No clusters selected for deployment (manifest empty for this app, or all clusters suppressed)."
+            echo "sync_matrix=[]" >> "$GITHUB_OUTPUT"
+            echo "has_sync_targets=false" >> "$GITHUB_OUTPUT"
+            exit 0
           fi
-          if [[ "${{ steps.setup.outputs.deploy_clotilde }}" == "true" ]]; then
-            if [[ -n "$SERVERS" ]]; then
-              SERVERS="$SERVERS clotilde"
-            else
-              SERVERS="clotilde"
-            fi
-          fi
-
-          if [[ -z "$SERVERS" ]]; then
-            echo "No servers selected for deployment. Enable deploy_in_firmino or deploy_in_clotilde."
-            exit 1
-          fi
+          SERVERS="$RESOLVED_SERVERS"
           echo "Servers to deploy to: $SERVERS"
 
           # First, check which artifacts actually exist
@@ -314,7 +424,7 @@ jobs:
               FILE_CHANGED=false
 
               # Apply mappings from inputs - only if artifact exists
-              MAPPINGS='${{ inputs.yaml_key_mappings }}'
+              # MAPPINGS is set in step env: (avoids code-injection from inputs)
               while IFS='|' read -r artifact_key yaml_key; do
                 ARTIFACT_FILE=".gitops-tags/${artifact_key}"
                 if [[ -f "$ARTIFACT_FILE" ]]; then
@@ -336,8 +446,8 @@ jobs:
               done < <(echo "$MAPPINGS" | jq -r 'to_entries[] | "\(.key)|\(.value)"')
 
               # Apply configmap updates if configured - only if artifact exists
-              if [[ -n "${{ inputs.configmap_updates }}" ]]; then
-                CONFIGMAP_MAPPINGS='${{ inputs.configmap_updates }}'
+              # CONFIGMAP_MAPPINGS is set in step env: (avoids code-injection from inputs)
+              if [[ -n "$CONFIGMAP_MAPPINGS" ]]; then
                 while IFS='|' read -r artifact_key configmap_key; do
                   ARTIFACT_FILE=".gitops-tags/${artifact_key}"
                   if [[ -f "$ARTIFACT_FILE" ]]; then
@@ -475,14 +585,54 @@ jobs:
       matrix:
         target: ${{ fromJson(needs.update_gitops.outputs.sync_matrix) }}
     steps:
-      - name: Execute ArgoCD Sync
-        uses: LerianStudio/github-actions-argocd-sync@main
-        with:
-          app-name: ${{ matrix.target.server }}-${{ needs.update_gitops.outputs.app_name }}
-          argo-cd-token: ${{ secrets.ARGOCD_GHUSER_TOKEN }}
-          argo-cd-url: ${{ secrets.ARGOCD_URL }}
-          env-prefix: ${{ matrix.target.env }}
-          skip-if-not-exists: 'true'
+      - name: Install ArgoCD CLI
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -sSL -o /tmp/argocd https://github.com/argoproj/argo-cd/releases/download/v3.0.6/argocd-linux-amd64
+          sudo install -m 755 /tmp/argocd /usr/local/bin/argocd
+          argocd version --client
+
+      - name: Sync ArgoCD application
+        shell: bash
+        env:
+          ARGOCD_URL: ${{ secrets.ARGOCD_URL }}
+          ARGOCD_TOKEN: ${{ secrets.ARGOCD_GHUSER_TOKEN }}
+          APP_NAME: ${{ matrix.target.server }}-${{ needs.update_gitops.outputs.app_name }}-${{ matrix.target.env }}
+        run: |
+          set -uo pipefail
+
+          echo "::group::argocd app get $APP_NAME"
+          if ! argocd app get "$APP_NAME" --server "$ARGOCD_URL" --auth-token "$ARGOCD_TOKEN" --grpc-web; then
+            rc=$?
+            echo "::endgroup::"
+            echo "::warning::Failed to get ArgoCD app '$APP_NAME' (exit $rc). Skipping sync — check whether the app exists, auth is valid, and the user has 'applications, get' permission."
+            exit 0
+          fi
+          echo "::endgroup::"
+
+          echo "::group::argocd app sync $APP_NAME"
+          for attempt in 1 2 3 4 5; do
+            if argocd app sync "$APP_NAME" --server "$ARGOCD_URL" --auth-token "$ARGOCD_TOKEN" --grpc-web; then
+              break
+            fi
+            if [[ "$attempt" == "5" ]]; then
+              echo "::endgroup::"
+              echo "::error::Sync failed for $APP_NAME after 5 attempts"
+              exit 1
+            fi
+            echo "Sync attempt $attempt failed, retrying in 5s..."
+            sleep 5
+          done
+          echo "::endgroup::"
+
+          echo "::group::argocd app wait $APP_NAME"
+          if ! argocd app wait "$APP_NAME" --server "$ARGOCD_URL" --auth-token "$ARGOCD_TOKEN" --grpc-web; then
+            echo "::endgroup::"
+            echo "::error::Timeout waiting for sync completion of $APP_NAME"
+            exit 1
+          fi
+          echo "::endgroup::"
 
   # Slack notification
   notify:
