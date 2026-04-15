@@ -85,6 +85,7 @@ clusters:
       - plugin-access-manager
       - plugin-fees
       - plugin-br-pix-direct-jd
+      - plugin-br-pix-indirect-btg
       - plugin-br-bank-transfer
       - backoffice-console
       - cs-platform

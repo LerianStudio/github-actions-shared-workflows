@@ -31,6 +31,10 @@ on:
         description: 'Path (within the shared-workflows checkout) to the deployment matrix manifest. Override only if you maintain a fork/alternative manifest.'
         type: string
         default: 'config/deployment-matrix.yml'
+      deployment_matrix_ref:
+        description: 'Git ref of LerianStudio/github-actions-shared-workflows to read the deployment matrix from. Defaults to main (always latest). Override only when testing a branch.'
+        type: string
+        default: 'main'
       artifact_pattern:
         description: 'Pattern to download artifacts (defaults to "gitops-tags-<repo-name>-*" if not provided)'
         type: string
@@ -105,10 +109,7 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
           repository: LerianStudio/github-actions-shared-workflows
-          # TEMP: hardcoded to the PR #212 feature branch for end-to-end validation.
-          # Revert to a proper input (`deployment_matrix_ref`, default `main`) before
-          # merging — see PR description.
-          ref: feat/gitops-deployment-matrix-anacleto
+          ref: ${{ inputs.deployment_matrix_ref }}
           path: shared-workflows
           sparse-checkout: |
             ${{ inputs.deployment_matrix_file }}
