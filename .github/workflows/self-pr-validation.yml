@@ -47,7 +47,7 @@ jobs:
       all_files: ${{ steps.detect.outputs.all-files }}
     steps:
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
       - name: Detect changed files
         id: detect
@@ -63,7 +63,7 @@ jobs:
     if: needs.changed-files.outputs.yaml_files != ''
     steps:
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
       - name: YAML Lint
         uses: ./src/lint/yamllint
@@ -78,7 +78,7 @@ jobs:
     if: needs.changed-files.outputs.workflow_files != ''
     steps:
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
       - name: Action Lint
         uses: ./src/lint/actionlint
@@ -93,7 +93,7 @@ jobs:
     if: needs.changed-files.outputs.action_files != ''
     steps:
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
       - name: Pinned Actions Check
         uses: ./src/lint/pinned-actions
@@ -108,7 +108,7 @@ jobs:
     if: needs.changed-files.outputs.markdown_files != ''
     steps:
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
       - name: Markdown Link Check
         uses: ./src/lint/markdown-link-check
@@ -123,7 +123,7 @@ jobs:
     runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
       - name: Spelling Check
         uses: ./src/lint/typos
@@ -138,7 +138,7 @@ jobs:
     if: needs.changed-files.outputs.action_files != ''
     steps:
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
       - name: Shell Check
         uses: ./src/lint/shellcheck
@@ -153,7 +153,7 @@ jobs:
     if: needs.changed-files.outputs.action_files != ''
     steps:
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
       - name: README Check
         uses: ./src/lint/readme-check
@@ -168,12 +168,27 @@ jobs:
     if: needs.changed-files.outputs.composite_files != ''
     steps:
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
       - name: Composite Schema Lint
         uses: ./src/lint/composite-schema
         with:
           files: ${{ needs.changed-files.outputs.composite_files }}
+
+  # ----------------- Deployment Matrix Lint -----------------
+  deployment-matrix:
+    name: Deployment Matrix Lint
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    needs: changed-files
+    if: contains(needs.changed-files.outputs.all_files, 'config/deployment-matrix.yml')
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Deployment Matrix Lint
+        uses: ./src/lint/deployment-matrix
+        with:
+          manifest-file: config/deployment-matrix.yml
 
   # ----------------- CodeQL Analysis -----------------
   codeql:
@@ -188,7 +203,7 @@ jobs:
       actions: read
     steps:
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
       - name: Generate CodeQL config for changed files
         id: codeql-config
@@ -227,11 +242,11 @@ jobs:
       pull-requests: write
       issues: write
       checks: read
-    needs: [changed-files, yamllint, actionlint, pinned-actions, markdown-link-check, typos, shellcheck, readme-check, composite-schema]
+    needs: [changed-files, yamllint, actionlint, pinned-actions, markdown-link-check, typos, shellcheck, readme-check, composite-schema, deployment-matrix]
     if: always() && github.event_name == 'pull_request' && needs.changed-files.result == 'success'
     steps:
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
       - name: Post Lint Report
         uses: ./src/notify/pr-lint-reporter
@@ -253,3 +268,5 @@ jobs:
           readme-files: ${{ needs.changed-files.outputs.action_files }}
           composite-schema-result: ${{ needs.composite-schema.result }}
           composite-schema-files: ${{ needs.changed-files.outputs.composite_files }}
+          deployment-matrix-result: ${{ needs.deployment-matrix.result }}
+          deployment-matrix-files: ${{ contains(needs.changed-files.outputs.all_files, 'config/deployment-matrix.yml') && 'config/deployment-matrix.yml' || '' }}
