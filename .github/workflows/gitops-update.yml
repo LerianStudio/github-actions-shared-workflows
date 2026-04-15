@@ -101,29 +101,14 @@ jobs:
           path: gitops
           fetch-depth: 0
 
-      - name: Resolve reusable workflow SHA
-        id: resolve_sha
-        shell: bash
-        env:
-          # `github.job_workflow_sha` is the commit SHA of THIS reusable workflow
-          # (not the caller), so the manifest checkout pins to the exact code the
-          # caller consumes. It is NOT exposed as an auto env var by the runner —
-          # it must be mapped explicitly through `env:` like any other context value.
-          # Docs: https://docs.github.com/en/actions/learn-github-actions/contexts#github-context
-          JOB_WORKFLOW_SHA: ${{ github.job_workflow_sha }}
-        run: |
-          if [[ -z "${JOB_WORKFLOW_SHA:-}" ]]; then
-            echo "::error::github.job_workflow_sha is empty — is this job really running as part of a reusable workflow?"
-            exit 1
-          fi
-          echo "sha=$JOB_WORKFLOW_SHA" >> "$GITHUB_OUTPUT"
-          echo "Reusable workflow SHA: $JOB_WORKFLOW_SHA"
-
       - name: Checkout deployment matrix manifest
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
           repository: LerianStudio/github-actions-shared-workflows
-          ref: ${{ steps.resolve_sha.outputs.sha }}
+          # TEMP: hardcoded to the PR #212 feature branch for end-to-end validation.
+          # Revert to a proper input (`deployment_matrix_ref`, default `main`) before
+          # merging — see PR description.
+          ref: feat/gitops-deployment-matrix-anacleto
           path: shared-workflows
           sparse-checkout: |
             ${{ inputs.deployment_matrix_file }}
