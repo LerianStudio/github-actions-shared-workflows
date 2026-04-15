@@ -95,3 +95,7 @@
 - name: validate
   color: "1d76db"
   description: Changes to PR validation composite actions (src/validate/)
+
+- name: deployment-matrix
+  color: "5319e7"
+  description: Changes to the canonical deployment matrix (config/deployment-matrix.yml)
