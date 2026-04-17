@@ -73,6 +73,18 @@ runs:
           const truncate = (str, max) =>
             str.length > max ? str.substring(0, max - 3) + '...' : str;
 
+          // Normalize file paths to repo-relative form. SARIF can emit absolute
+          // file:// URIs (e.g. file:///github/workspace/src/foo.js) or leading
+          // ./ prefixes, while the Code Scanning API always returns clean
+          // repo-relative paths — normalizing both sides keeps the (rule, path,
+          // line) lookup key aligned.
+          const normalizePath = (p) =>
+            String(p ?? '')
+              .replace(/^file:\/\/\/github\/workspace\//, '')
+              .replace(/^file:\/\//, '')
+              .replace(/^\.\//, '')
+              .replace(/^\//, '');
+
           // ── Read SARIF files ──
           function readSarifFiles() {
             const findings = [];
@@ -109,7 +121,7 @@ runs:
                       rule: result.ruleId || 'unknown',
                       severity: result.level || 'warning',
                       message: result.message?.text || rule.shortDescription?.text || 'No description',
-                      file: location?.artifactLocation?.uri || 'unknown',
+                      file: normalizePath(location?.artifactLocation?.uri) || 'unknown',
                       line: location?.region?.startLine || 0,
                       description: rule.fullDescription?.text || rule.shortDescription?.text || '',
                       tags: rule.properties?.tags || [],
@@ -164,7 +176,7 @@ runs:
             for (const alert of alerts) {
               const ruleId = alert.rule?.id;
               const loc = alert.most_recent_instance?.location;
-              const alertPath = loc?.path;
+              const alertPath = normalizePath(loc?.path);
               if (!ruleId || !alertPath) continue;
               const key = `${ruleId}\u0000${alertPath}\u0000${loc?.start_line ?? 0}`;
               if (!statesByKey.has(key)) statesByKey.set(key, []);
