@@ -255,7 +255,7 @@ jobs:
         uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3
         id: app-token
         with:
-          app-id: ${{ secrets.LERIAN_STUDIO_MIDAZ_PUSH_BOT_APP_ID }}
+          client-id: ${{ secrets.LERIAN_STUDIO_MIDAZ_PUSH_BOT_APP_ID }}
           private-key: ${{ secrets.LERIAN_STUDIO_MIDAZ_PUSH_BOT_PRIVATE_KEY }}
 
       - name: Checkout repository
@@ -393,32 +393,31 @@ jobs:
             echo "📝 Commits for $APP_NAME:"
             echo "$COMMITS_TEXT"
 
-            # Get unique contributors (GitHub usernames) for this app
-            # Try to extract GitHub username from email (format: user@users.noreply.github.com or id+username@users.noreply.github.com)
+            # Resolve contributors via GitHub's commit->author.login mapping.
+            # Guessing handles from email local-parts is unreliable and has produced
+            # false @mentions of unrelated third parties when authors commit with a
+            # corporate/personal email instead of @users.noreply.github.com.
             if [ "$WORKING_DIR" != "." ]; then
-              RAW_EMAILS=$(git log "$SINCE".."$LAST_TAG" --format='%ae' -- "$WORKING_DIR" 2>/dev/null | sort -u)
+              SHAS=$(git log "$SINCE".."$LAST_TAG" --format='%H' -- "$WORKING_DIR" 2>/dev/null)
             else
-              RAW_EMAILS=$(git log "$SINCE".."$LAST_TAG" --format='%ae' 2>/dev/null | sort -u)
+              SHAS=$(git log "$SINCE".."$LAST_TAG" --format='%H' 2>/dev/null)
             fi
 
-            # Collect unique usernames (same user may have multiple emails)
             USERNAMES_FILE=$(mktemp)
-            for EMAIL in $RAW_EMAILS; do
-              # Skip service accounts used for automated commits
-              if [[ "$EMAIL" == *"srv.iam"* ]] || [[ "$EMAIL" == *"noreply"* && "$EMAIL" != *"users.noreply.github.com" ]]; then
-                continue
+            for SHA in $SHAS; do
+              LOGIN=$(gh api "repos/${GITHUB_REPOSITORY}/commits/${SHA}" \
+                --jq '.author.login // empty' 2>/dev/null || true)
+              # Skip bots and unresolved authors (null login).
+              if [[ -n "$LOGIN" && "$LOGIN" != *"[bot]" ]]; then
+                echo "$LOGIN" >> "$USERNAMES_FILE"
               fi
-              if [[ "$EMAIL" == *"@users.noreply.github.com" ]]; then
-                # Extract username from GitHub noreply email
-                USERNAME=$(echo "$EMAIL" | sed 's/@users.noreply.github.com//' | sed 's/.*+//')
-              else
-                # Use email prefix as fallback
-                USERNAME=$(echo "$EMAIL" | cut -d@ -f1)
-              fi
-              echo "$USERNAME" >> "$USERNAMES_FILE"
             done
-            # Deduplicate usernames and format as @username
-            CONTRIBUTORS=$(sort -u "$USERNAMES_FILE" | sed 's/^/@/' | tr '\n' ', ' | sed 's/, $//')
+
+            if [ -s "$USERNAMES_FILE" ]; then
+              CONTRIBUTORS=$(sort -u "$USERNAMES_FILE" | sed 's/^/@/' | tr '\n' ', ' | sed 's/, $//')
+            else
+              CONTRIBUTORS=""
+            fi
             rm -f "$USERNAMES_FILE"
             echo "👥 Contributors: $CONTRIBUTORS"
 

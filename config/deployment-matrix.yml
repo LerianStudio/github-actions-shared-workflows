@@ -1,0 +1,109 @@
+# Deployment Matrix
+#
+# Source of truth for which apps deploy to which Kubernetes clusters via the
+# `gitops-update.yml` reusable workflow.
+#
+# Cluster-centric layout — mirrors how clusters are operated (lifecycle,
+# capacity, incident response). To answer "what runs on cluster X?", read
+# the cluster block. To answer "where does app X deploy?", run the helper
+# script described in docs/gitops-update-workflow.md (or grep across blocks).
+#
+# Schema:
+#   version            integer, required, currently 1
+#   apps.registry      list of every app name allowed to appear in any cluster
+#   clusters.<name>    cluster block with explicit `apps:` list (no `all_apps`
+#                      shortcut today — every cluster has its own subset)
+#
+# Resolution at runtime:
+#   1. Workflow reads this file at the pinned ref of the shared-workflows repo.
+#   2. For the caller's `app_name`, the loader collects every cluster whose
+#      `apps:` list contains it.
+#   3. The `deploy_in_<cluster>` workflow inputs act as **force-off** overrides:
+#      setting any of them to `false` removes that cluster from the resolved
+#      set even if the manifest includes the app.
+#
+# Out of scope (managed manually or by other tooling — do NOT add here):
+#   - underwriter, jd-mock-api, mock-btg-server, control-plane,
+#     platform-console (no CI commit history in gitops repo)
+#   - ledger, dockerhub-secret (no values.yaml — kustomize / k8s Secret)
+#   - hortencia-apps (legacy umbrella, not workflow-managed)
+#   - environments/production/* (platform infra: addons, observability)
+
+version: 1
+
+apps:
+  registry:
+    # Core platform
+    - midaz
+    - fetcher
+    - flowker
+    - matcher
+    - reporter
+    - tracer
+    - product-console
+
+    # Plugins
+    - plugin-access-manager       # caller repo may push as plugin-identity / plugin-auth / casdoor
+    - plugin-fees
+    - plugin-br-pix-direct-jd
+    - plugin-br-pix-indirect-btg
+    - plugin-br-bank-transfer     # generic build (firmino + clotilde)
+    - plugin-br-bank-transfer-jd  # JD-specific build (anacleto only)
+
+    # Clotilde-exclusive Lerian platform suite
+    - backoffice-console
+    - cs-platform
+    - forge
+    - lerian-map
+    - tenant-manager
+
+clusters:
+  firmino:
+    apps:
+      - midaz
+      - fetcher
+      - flowker
+      - matcher
+      - reporter
+      - tracer
+      - product-console
+      - plugin-access-manager
+      - plugin-fees
+      - plugin-br-pix-direct-jd
+      - plugin-br-pix-indirect-btg
+      - plugin-br-bank-transfer
+
+  clotilde:
+    apps:
+      - midaz
+      - fetcher
+      - flowker
+      - matcher
+      - reporter
+      - tracer
+      - product-console
+      - plugin-access-manager
+      - plugin-fees
+      - plugin-br-pix-direct-jd
+      - plugin-br-pix-indirect-btg
+      - plugin-br-bank-transfer
+      - backoffice-console
+      - cs-platform
+      - forge
+      - lerian-map
+      - tenant-manager
+
+  anacleto:
+    apps:
+      - midaz
+      - fetcher
+      - flowker
+      - matcher
+      - reporter
+      - tracer
+      - product-console
+      - plugin-access-manager
+      - plugin-fees
+      - plugin-br-pix-direct-jd
+      - plugin-br-pix-indirect-btg
+      - plugin-br-bank-transfer-jd

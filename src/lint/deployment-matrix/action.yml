@@ -1,0 +1,149 @@
+name: Deployment Matrix Lint
+description: Validate the deployment matrix manifest schema, app/cluster integrity, and detect duplicates or orphans.
+
+inputs:
+  manifest-file:
+    description: Path to the deployment matrix YAML manifest
+    required: false
+    default: "config/deployment-matrix.yml"
+
+runs:
+  using: composite
+  steps:
+    # ----------------- Setup -----------------
+    - name: Install dependencies
+      shell: bash
+      run: |
+        if ! python3 -c "import yaml" 2>/dev/null; then
+          sudo apt-get install -y --no-install-recommends python3-yaml
+        fi
+
+    # ----------------- Log -----------------
+    - name: Log manifest under analysis
+      shell: bash
+      env:
+        MANIFEST: ${{ inputs.manifest-file }}
+      run: |
+        echo "::group::Deployment matrix file"
+        echo "  - $MANIFEST"
+        echo "::endgroup::"
+
+    # ----------------- Check -----------------
+    - name: Validate deployment matrix
+      shell: bash
+      env:
+        MANIFEST: ${{ inputs.manifest-file }}
+      run: |
+        python3 - <<'PYEOF'
+        import os, sys, yaml
+
+        path = os.environ.get('MANIFEST', '')
+        violations = 0
+        warnings   = 0
+
+        def err(msg, line=None):
+            global violations
+            loc = f',line={line}' if line else ''
+            print(f'::error file={path}{loc}::{msg}')
+            violations += 1
+
+        def warn(msg):
+            global warnings
+            print(f'::warning file={path}::{msg}')
+            warnings += 1
+
+        if not path or not os.path.isfile(path):
+            print(f'::error::Manifest file not found: {path!r}')
+            sys.exit(1)
+
+        try:
+            with open(path) as f:
+                data = yaml.safe_load(f)
+        except Exception as e:
+            err(f'Could not parse YAML: {e}')
+            sys.exit(1)
+
+        if not isinstance(data, dict):
+            err('Manifest root must be a YAML mapping.')
+            sys.exit(1)
+
+        # ── version ──
+        version = data.get('version')
+        if not isinstance(version, int):
+            err('"version" must be an integer.')
+        elif version != 1:
+            err(f'Unsupported manifest version {version}; this composite only knows version 1.')
+
+        # ── apps.registry ──
+        apps_block = data.get('apps')
+        if not isinstance(apps_block, dict):
+            err('"apps" must be a mapping containing a "registry" list.')
+            registry = []
+        else:
+            registry = apps_block.get('registry')
+            if not isinstance(registry, list):
+                err('"apps.registry" must be a list of app names.')
+                registry = []
+            else:
+                for i, item in enumerate(registry):
+                    if not isinstance(item, str) or not item.strip():
+                        err(f'apps.registry[{i}] must be a non-empty string.')
+                seen = set()
+                for item in registry:
+                    if isinstance(item, str):
+                        if item in seen:
+                            err(f'Duplicate app in apps.registry: "{item}".')
+                        seen.add(item)
+
+        registry_set = {a for a in registry if isinstance(a, str)}
+
+        # ── clusters ──
+        clusters = data.get('clusters')
+        if not isinstance(clusters, dict):
+            err('"clusters" must be a mapping of <cluster-name> → cluster spec.')
+            clusters = {}
+
+        referenced_apps = set()
+
+        for cluster_name, cluster_spec in clusters.items():
+            if not isinstance(cluster_name, str) or not cluster_name.strip():
+                err(f'Cluster name must be a non-empty string (got {cluster_name!r}).')
+                continue
+
+            if not isinstance(cluster_spec, dict):
+                err(f'clusters.{cluster_name} must be a mapping.')
+                continue
+
+            cluster_apps = cluster_spec.get('apps')
+            if not isinstance(cluster_apps, list):
+                err(f'clusters.{cluster_name}.apps must be a list of app names.')
+                continue
+
+            seen = set()
+            for i, app in enumerate(cluster_apps):
+                if not isinstance(app, str) or not app.strip():
+                    err(f'clusters.{cluster_name}.apps[{i}] must be a non-empty string.')
+                    continue
+                if app in seen:
+                    err(f'Duplicate app "{app}" in clusters.{cluster_name}.apps.')
+                seen.add(app)
+                if app not in registry_set:
+                    err(f'clusters.{cluster_name}.apps lists "{app}" which is missing from apps.registry.')
+                referenced_apps.add(app)
+
+        # ── orphans (warning only) ──
+        orphans = registry_set - referenced_apps
+        for app in sorted(orphans):
+            warn(f'App "{app}" is in apps.registry but not referenced by any cluster — pre-onboarding entry?')
+
+        # ── summary ──
+        if violations > 0:
+            print(f'::error::Deployment matrix has {violations} violation(s) and {warnings} warning(s).')
+            sys.exit(1)
+
+        msg = f'Deployment matrix is valid ({len(registry_set)} apps registered, {len(clusters)} clusters defined'
+        if warnings:
+            msg += f', {warnings} warning(s)'
+        msg += ').'
+        print(msg)
+        PYEOF
