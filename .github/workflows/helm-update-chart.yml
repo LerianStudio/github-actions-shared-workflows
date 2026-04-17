@@ -22,7 +22,7 @@ on:
         type: string
         required: true
       base_branch:
-        description: 'Target branch for the PR (default: develop)'
+        description: 'Target branch for the PR. Allowed: main, develop, master, staging (default: main)'
         type: string
         default: 'main'
       scripts_path:
