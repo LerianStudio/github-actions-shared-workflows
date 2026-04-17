@@ -44,11 +44,11 @@ runs:
 
         VERSION="${LATEST#v}"
         MAJOR="v${VERSION%%.*}"
-        SHA=$(git rev-list -n1 "$LATEST")
+        SHA=$(git rev-list -n1 "refs/tags/$LATEST")
 
         CURRENT_SHA=""
         if git rev-parse --verify --quiet "refs/tags/$MAJOR" >/dev/null; then
-          CURRENT_SHA=$(git rev-list -n1 "$MAJOR")
+          CURRENT_SHA=$(git rev-list -n1 "refs/tags/$MAJOR")
         fi
 
         if [ "$CURRENT_SHA" = "$SHA" ]; then
@@ -64,7 +64,7 @@ runs:
 
         echo "Moving $MAJOR → $LATEST ($SHA)"
         git tag -f -a "$MAJOR" "$SHA" -m "Release $MAJOR ($LATEST)"
-        git push origin "$MAJOR" --force
+        git push origin "refs/tags/$MAJOR:refs/tags/$MAJOR" --force
 
         {
           echo "skip=false"
