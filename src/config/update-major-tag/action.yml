@@ -64,7 +64,13 @@ runs:
 
         echo "Moving $MAJOR → $LATEST ($SHA)"
         git tag -f -a "$MAJOR" "$SHA" -m "Release $MAJOR ($LATEST)"
-        git push origin "refs/tags/$MAJOR:refs/tags/$MAJOR" --force
+
+        # Use --force-with-lease to avoid rewinding $MAJOR if a concurrent
+        # release already advanced it between our fetch and our push.
+        REMOTE_MAJOR_SHA=$(git ls-remote --refs --tags origin "refs/tags/$MAJOR" | awk '{print $1}')
+        LEASE_SHA="${REMOTE_MAJOR_SHA:-0000000000000000000000000000000000000000}"
+        git push origin "refs/tags/$MAJOR:refs/tags/$MAJOR" \
+          --force-with-lease="refs/tags/$MAJOR:$LEASE_SHA"
 
         {
           echo "skip=false"
