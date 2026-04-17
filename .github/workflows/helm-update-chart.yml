@@ -98,6 +98,20 @@ jobs:
     name: Update Chart
     runs-on: ${{ inputs.runner_type }}
     steps:
+      - name: Validate base_branch
+        env:
+          BASE_BRANCH: ${{ inputs.base_branch }}
+        run: |
+          case "${BASE_BRANCH}" in
+            main|develop|master|staging)
+              echo "✅ base_branch '${BASE_BRANCH}' is allowed"
+              ;;
+            *)
+              echo "::error::Invalid base_branch '${BASE_BRANCH}'. Allowed: main, develop, master, staging"
+              exit 1
+              ;;
+          esac
+
       - name: Generate GitHub App Token
         id: app-token
         uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
@@ -149,9 +163,8 @@ jobs:
           # Save components array to file for processing
           jq -c '.components' /tmp/payload.json > /tmp/components.json
 
-      # CodeQL: untrusted-checkout — false positive. This is a workflow_call
-      # triggered by internal dispatch, not a PR event. The ref is a controlled
-      # branch name (develop/main), not an untrusted PR head.
+      # base_branch is validated against an allowlist above before checkout,
+      # so the ref cannot be attacker-controlled even via workflow_call.
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
