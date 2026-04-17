@@ -129,8 +129,72 @@ runs:
           // unpinned-tag is handled by our own pinned-actions lint check with org-aware logic
           const SUPPRESSED_RULES = ['actions/unpinned-tag'];
 
+          // ── Enrich findings with Code Scanning alert states ──
+          // SARIF is structural: it re-reports the same locations on every run, even after
+          // a reviewer dismisses the alert via the Security tab. Cross-reference the REST
+          // API so dismissed/fixed alerts stop showing up in the PR comment.
+          async function filterByAlertStates(rawFindings) {
+            const prNumber = context.payload.pull_request?.number || context.issue?.number;
+            if (!prNumber) {
+              return { findings: rawFindings, hidden: 0, enriched: false };
+            }
+
+            let alerts;
+            try {
+              alerts = await github.paginate(
+                github.rest.codeScanning.listAlertsForRepo,
+                {
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  ref: `refs/pull/${prNumber}/merge`,
+                  per_page: 100,
+                }
+              );
+            } catch (e) {
+              core.warning(
+                `Could not fetch Code Scanning alert states (falling back to SARIF-only view): ${e.message}`
+              );
+              return { findings: rawFindings, hidden: 0, enriched: false };
+            }
+
+            // Bucket alert states by (ruleId, path, startLine). A single location can carry
+            // multiple alert rows across history; if any are currently open, we must not
+            // suppress it — only suppress when every alert at that location is dismissed/fixed.
+            const statesByKey = new Map();
+            for (const alert of alerts) {
+              const ruleId = alert.rule?.id;
+              const loc = alert.most_recent_instance?.location;
+              const alertPath = loc?.path;
+              if (!ruleId || !alertPath) continue;
+              const key = `${ruleId}\u0000${alertPath}\u0000${loc?.start_line ?? 0}`;
+              if (!statesByKey.has(key)) statesByKey.set(key, []);
+              statesByKey.get(key).push(alert.state);
+            }
+
+            const suppressedKeys = new Set();
+            for (const [key, states] of statesByKey) {
+              if (states.includes('open')) continue;
+              if (states.some(s => s === 'dismissed' || s === 'fixed')) {
+                suppressedKeys.add(key);
+              }
+            }
+
+            const kept = [];
+            let hidden = 0;
+            for (const f of rawFindings) {
+              const key = `${f.rule}\u0000${f.file}\u0000${f.line || 0}`;
+              if (suppressedKeys.has(key)) {
+                hidden++;
+              } else {
+                kept.push(f);
+              }
+            }
+            return { findings: kept, hidden, enriched: true };
+          }
+
           // ── Build Report ──
-          const findings = readSarifFiles().filter(f => !SUPPRESSED_RULES.includes(f.rule));
+          const rawFindings = readSarifFiles().filter(f => !SUPPRESSED_RULES.includes(f.rule));
+          const { findings, hidden: hiddenCount, enriched } = await filterByAlertStates(rawFindings);
           findingsCount = findings.length;
 
           body += `## \u{1F6E1}\uFE0F CodeQL Analysis Results\n\n`;
@@ -142,6 +206,9 @@ runs:
             body += `\u26A0\uFE0F Some SARIF files could not be parsed and no findings were recovered. Check the analysis step logs.\n\n`;
           } else if (findings.length === 0) {
             body += `\u2705 No security issues found.\n\n`;
+            if (enriched && hiddenCount > 0) {
+              body += `_${hiddenCount} finding(s) hidden (dismissed or fixed). See the Security tab for the full list._\n\n`;
+            }
           } else {
             hasFindings = true;
 
@@ -179,6 +246,10 @@ runs:
             }
 
             body += '\n';
+
+            if (enriched && hiddenCount > 0) {
+              body += `_${hiddenCount} finding(s) hidden (dismissed or fixed). See the Security tab for the full list._\n\n`;
+            }
           }
 
           // ── Useful Links ──

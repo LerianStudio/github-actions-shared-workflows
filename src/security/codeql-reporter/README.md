@@ -7,6 +7,8 @@
 
 Composite action that reads CodeQL SARIF output and posts a formatted security report as a PR comment. Uses an idempotent comment strategy (updates existing comment on re-runs). Designed to run after [`codeql-analyze`](../codeql-analyze/).
 
+Findings parsed from SARIF are cross-referenced with the Code Scanning REST API (`listAlertsForRepo` on `refs/pull/<pr>/merge`) so alerts that were **dismissed** via the Security tab or are already **fixed** on the merge ref do not show up in the PR comment. A footer notes the number of hidden findings so reviewers know the comment omitted some. If the API call fails (e.g. missing permissions), the action degrades gracefully to the SARIF-only view and emits a warning.
+
 ## Inputs
 
 | Input | Description | Required | Default |
@@ -54,7 +56,9 @@ steps:
 ```yaml
 permissions:
   contents: read
-  security-events: write
+  security-events: write   # required for alert-state enrichment; `read` is enough on its own
   pull-requests: write
   actions: read
 ```
+
+> `security-events: write` (already required by [`codeql-analyze`](../codeql-analyze/)) covers the `listAlertsForRepo` call used to filter dismissed/fixed alerts. If only `read` is granted the enrichment still works; if the permission is missing entirely the action falls back to the raw SARIF view with a warning.
