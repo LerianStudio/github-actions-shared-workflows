@@ -163,14 +163,18 @@ jobs:
           # Save components array to file for processing
           jq -c '.components' /tmp/payload.json > /tmp/components.json
 
-      # base_branch is validated against an allowlist above before checkout,
-      # so the ref cannot be attacker-controlled even via workflow_call.
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
           token: ${{ steps.app-token.outputs.token }}
-          ref: ${{ inputs.base_branch }}
           fetch-depth: 0
+
+      - name: Switch to base branch
+        env:
+          BASE_BRANCH: ${{ inputs.base_branch }}
+        run: |
+          git fetch origin "${BASE_BRANCH}"
+          git checkout "${BASE_BRANCH}"
 
       - name: Import GPG key
         if: ${{ inputs.gpg_sign_commits }}
