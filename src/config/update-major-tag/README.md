@@ -25,6 +25,15 @@ Force-update the floating major version tag (e.g. `v1`) to point at the latest s
 
 _None._ All behavior is derived from the repository's tag list.
 
+## Outputs
+
+| Output | Description |
+|---|---|
+| `skip` | `true` when no tag update was performed — either no stable tag was found, or the major tag already pointed at the latest stable commit |
+| `tag-updated` | `true` when the floating major tag was force-pushed to a new commit |
+| `major-tag` | The major tag name that was considered (e.g. `v1`). Empty when no stable tag was found |
+| `latest-tag` | The latest stable tag the major tag was aligned with (e.g. `v1.26.0`). Empty when no stable tag was found |
+
 ## Usage
 
 ```yaml

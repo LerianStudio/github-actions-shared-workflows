@@ -1,10 +1,25 @@
 name: Update Major Version Tag
 description: Force-update the floating major version tag (e.g. v1) to point at the latest stable semver tag (vX.Y.Z) found in the repository.
 
+outputs:
+  skip:
+    description: 'true when no tag update was performed (no stable tag found, or major already points at the latest stable commit)'
+    value: ${{ steps.update.outputs.skip }}
+  tag-updated:
+    description: 'true when the floating major tag was force-pushed to a new commit'
+    value: ${{ steps.update.outputs.tag-updated }}
+  major-tag:
+    description: 'The major tag name that was considered (e.g. v1). Empty when no stable tag was found.'
+    value: ${{ steps.update.outputs.major-tag }}
+  latest-tag:
+    description: 'The latest stable tag the major tag was aligned with (e.g. v1.26.0). Empty when no stable tag was found.'
+    value: ${{ steps.update.outputs.latest-tag }}
+
 runs:
   using: composite
   steps:
-    - name: Resolve and push major version tag
+    - id: update
+      name: Resolve and push major version tag
       shell: bash
       run: |
         set -euo pipefail
@@ -18,6 +33,12 @@ runs:
 
         if [ -z "$LATEST" ]; then
           echo "::notice::No stable release tag found — skipping major tag update."
+          {
+            echo "skip=true"
+            echo "tag-updated=false"
+            echo "major-tag="
+            echo "latest-tag="
+          } >> "$GITHUB_OUTPUT"
           exit 0
         fi
 
@@ -32,9 +53,22 @@ runs:
 
         if [ "$CURRENT_SHA" = "$SHA" ]; then
           echo "::notice::$MAJOR already points at $LATEST ($SHA) — nothing to do."
+          {
+            echo "skip=true"
+            echo "tag-updated=false"
+            echo "major-tag=$MAJOR"
+            echo "latest-tag=$LATEST"
+          } >> "$GITHUB_OUTPUT"
           exit 0
         fi
 
         echo "Moving $MAJOR → $LATEST ($SHA)"
         git tag -f -a "$MAJOR" "$SHA" -m "Release $MAJOR ($LATEST)"
         git push origin "$MAJOR" --force
+
+        {
+          echo "skip=false"
+          echo "tag-updated=true"
+          echo "major-tag=$MAJOR"
+          echo "latest-tag=$LATEST"
+        } >> "$GITHUB_OUTPUT"
