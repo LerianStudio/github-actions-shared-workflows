@@ -32,3 +32,14 @@ jobs:
     with:
       runner_type: ubuntu-latest
     secrets: inherit
+
+  # Only run after a stable release on main; develop/release-candidate produce
+  # beta/rc tags that the reusable skips anyway via stable_releases_only.
+  generate-changelog:
+    needs: publish-release
+    if: github.ref == 'refs/heads/main'
+    uses: ./.github/workflows/gptchangelog.yml
+    with:
+      runner_type: ubuntu-latest
+      stable_releases_only: true
+    secrets: inherit
