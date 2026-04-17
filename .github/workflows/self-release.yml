@@ -77,38 +77,5 @@ jobs:
           git_user_signingkey: true
           git_tag_gpgsign: true
 
-      - name: Move major version tag to latest stable release
-        env:
-          GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
-        run: |
-          set -euo pipefail
-
-          git fetch --tags --force --prune
-
-          LATEST=$(git tag --list \
-            | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' \
-            | sort -V \
-            | tail -n1 || true)
-
-          if [ -z "$LATEST" ]; then
-            echo "::notice::No stable release tag found — skipping major tag update."
-            exit 0
-          fi
-
-          VERSION="${LATEST#v}"
-          MAJOR="v${VERSION%%.*}"
-          SHA=$(git rev-list -n1 "$LATEST")
-
-          CURRENT_SHA=""
-          if git rev-parse --verify --quiet "refs/tags/$MAJOR" >/dev/null; then
-            CURRENT_SHA=$(git rev-list -n1 "$MAJOR")
-          fi
-
-          if [ "$CURRENT_SHA" = "$SHA" ]; then
-            echo "::notice::$MAJOR already points at $LATEST ($SHA) — nothing to do."
-            exit 0
-          fi
-
-          echo "Moving $MAJOR → $LATEST ($SHA)"
-          git tag -f -a "$MAJOR" "$SHA" -m "Release $MAJOR ($LATEST)"
-          git push origin "$MAJOR" --force
+      - name: Update floating major version tag
+        uses: ./src/config/update-major-tag
