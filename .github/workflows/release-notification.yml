@@ -105,6 +105,9 @@ on:
         type: boolean
         default: false
 
+permissions:
+  contents: read
+
 jobs:
   notify:
     name: Release Notification
