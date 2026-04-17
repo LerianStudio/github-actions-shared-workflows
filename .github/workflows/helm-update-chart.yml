@@ -173,8 +173,8 @@ jobs:
         env:
           BASE_BRANCH: ${{ inputs.base_branch }}
         run: |
-          git fetch origin "${BASE_BRANCH}"
-          git checkout "${BASE_BRANCH}"
+          git fetch --no-tags origin "${BASE_BRANCH}"
+          git checkout -B "${BASE_BRANCH}" "origin/${BASE_BRANCH}"
 
       - name: Import GPG key
         if: ${{ inputs.gpg_sign_commits }}
