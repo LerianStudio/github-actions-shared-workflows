@@ -93,6 +93,9 @@ on:
         description: 'Slack bot user ID for Severino (@severino)'
         required: false
 
+permissions:
+  contents: read
+
 jobs:
   update-chart:
     name: Update Chart
