@@ -530,8 +530,32 @@ jobs:
             echo "$COMPONENTS" | jq -r '.[] | "| \(.name) | \(.version) | \(.env_vars | if . == {} then "-" else (. | keys | join(", ")) end) |"'
           } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Send Slack notification
+      # Skip the sync PR Slack notification when the Slack bot token or
+      # channel are not configured. Consumers may enable `slack_notification`
+      # without supplying `SLACK_BOT_TOKEN_HELM` / `SLACK_CHANNEL_DEVOPS`;
+      # in that case we quietly skip instead of firing a curl with an empty
+      # bearer token and surfacing a noisy `::warning::`.
+      - name: Check Slack notification config
+        id: check_slack
         if: ${{ inputs.slack_notification && steps.commit.outputs.has_changes == 'true' }}
+        env:
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN_HELM }}
+          SLACK_CHANNEL: ${{ inputs.slack_channel || secrets.SLACK_CHANNEL_DEVOPS }}
+        run: |
+          if [ -z "$SLACK_BOT_TOKEN" ]; then
+            echo "::notice::slack_notification enabled but SLACK_BOT_TOKEN_HELM is not set — skipping Slack notification"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [ -z "$SLACK_CHANNEL" ]; then
+            echo "::notice::slack_notification enabled but no Slack channel resolved (inputs.slack_channel / SLACK_CHANNEL_DEVOPS) — skipping Slack notification"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "skip=false" >> "$GITHUB_OUTPUT"
+
+      - name: Send Slack notification
+        if: ${{ inputs.slack_notification && steps.commit.outputs.has_changes == 'true' && steps.check_slack.outputs.skip != 'true' }}
         env:
           CHART: ${{ steps.payload.outputs.chart }}
           HAS_NEW_ENV_VARS: ${{ steps.payload.outputs.has_new_env_vars }}
