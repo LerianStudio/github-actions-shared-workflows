@@ -575,14 +575,16 @@ jobs:
         run: |
           if [[ -f coverage.txt ]]; then
             COVERAGE=$(go tool cover -func=coverage.txt | grep total | awk '{print $3}' | sed 's/%//')
-            echo "coverage=$COVERAGE" >> $GITHUB_OUTPUT
+            echo "coverage=$COVERAGE" >> "$GITHUB_OUTPUT"
             echo "Total coverage: $COVERAGE%"
 
             # Generate coverage by package table
-            echo "## Coverage by Package" > coverage-report.md
-            echo "" >> coverage-report.md
-            echo "| Package | Coverage |" >> coverage-report.md
-            echo "|---------|----------|" >> coverage-report.md
+            {
+              echo "## Coverage by Package"
+              echo ""
+              echo "| Package | Coverage |"
+              echo "|---------|----------|"
+            } > coverage-report.md
 
             # Aggregate coverage by package
             go tool cover -func=coverage.txt | grep -v "total:" | awk '
@@ -613,7 +615,7 @@ jobs:
               }
             }' | sort >> coverage-report.md
           else
-            echo "coverage=0" >> $GITHUB_OUTPUT
+            echo "coverage=0" >> "$GITHUB_OUTPUT"
             echo "No coverage file found"
             echo "No coverage data available" > coverage-report.md
           fi
@@ -716,17 +718,21 @@ jobs:
       - name: Coverage summary
         working-directory: ${{ matrix.app.working_dir }}
         run: |
-          echo "## Coverage Summary: ${{ matrix.app.name }}" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "- **Total Coverage**: ${{ steps.coverage.outputs.coverage }}%" >> $GITHUB_STEP_SUMMARY
-          echo "- **Threshold**: ${{ inputs.coverage_threshold }}%" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
+          {
+            echo "## Coverage Summary: ${{ matrix.app.name }}"
+            echo ""
+            echo "- **Total Coverage**: ${{ steps.coverage.outputs.coverage }}%"
+            echo "- **Threshold**: ${{ inputs.coverage_threshold }}%"
+            echo ""
+          } >> "$GITHUB_STEP_SUMMARY"
           if [[ -f coverage.txt ]]; then
-            echo "### Coverage by Function" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo '```' >> $GITHUB_STEP_SUMMARY
-            go tool cover -func=coverage.txt >> $GITHUB_STEP_SUMMARY
-            echo '```' >> $GITHUB_STEP_SUMMARY
+            {
+              echo "### Coverage by Function"
+              echo ""
+              echo '```'
+              go tool cover -func=coverage.txt
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
           fi
 
   # ============================================
