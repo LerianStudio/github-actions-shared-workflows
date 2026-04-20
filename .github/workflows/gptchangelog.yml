@@ -731,7 +731,20 @@ jobs:
     if: needs.generate_changelog.result == 'success' && needs.generate_changelog.outputs.sync_pr != ''
     runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
+      - name: Check if Slack webhook is configured
+        id: check_webhook
+        env:
+          SLACK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        run: |
+          if [ -n "$SLACK_URL" ]; then
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::SLACK_WEBHOOK_URL not configured — skipping sync PR notification"
+          fi
+
       - name: Send Slack notification for sync PR
+        if: steps.check_webhook.outputs.configured == 'true'
         uses: slackapi/slack-github-action@af78098f536edbc4de71162a307590698245be95 # v3.0.1
         with:
           webhook: ${{ secrets.SLACK_WEBHOOK_URL }}
