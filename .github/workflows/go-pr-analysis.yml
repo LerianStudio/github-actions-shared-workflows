@@ -247,8 +247,10 @@ jobs:
           GOPRIVATE: ${{ inputs.go_private_modules }}
 
       - name: Install golangci-lint
+        env:
+          GOLANGCI_LINT_VERSION: ${{ inputs.golangci_lint_version }}
         run: |
-          curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b "$(go env GOPATH)/bin" "${{ inputs.golangci_lint_version }}"
+          curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b "$(go env GOPATH)/bin" "$GOLANGCI_LINT_VERSION"
           echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
 
       - name: Detect Makefile lint target
@@ -717,12 +719,16 @@ jobs:
 
       - name: Coverage summary
         working-directory: ${{ matrix.app.working_dir }}
+        env:
+          APP_NAME: ${{ matrix.app.name }}
+          COVERAGE: ${{ steps.coverage.outputs.coverage }}
+          THRESHOLD: ${{ inputs.coverage_threshold }}
         run: |
           {
-            echo "## Coverage Summary: ${{ matrix.app.name }}"
+            echo "## Coverage Summary: $APP_NAME"
             echo ""
-            echo "- **Total Coverage**: ${{ steps.coverage.outputs.coverage }}%"
-            echo "- **Threshold**: ${{ inputs.coverage_threshold }}%"
+            echo "- **Total Coverage**: ${COVERAGE}%"
+            echo "- **Threshold**: ${THRESHOLD}%"
             echo ""
           } >> "$GITHUB_STEP_SUMMARY"
           if [[ -f coverage.txt ]]; then
