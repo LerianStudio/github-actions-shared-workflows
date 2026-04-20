@@ -771,14 +771,14 @@ jobs:
           if [[ -f "Makefile" ]] || [[ -f "makefile" ]] || [[ -f "GNUmakefile" ]]; then
             if make -n build >/dev/null 2>&1; then
               echo "Makefile with 'build' target detected"
-              echo "use_make=true" >> $GITHUB_OUTPUT
+              echo "use_make=true" >> "$GITHUB_OUTPUT"
             else
               echo "Makefile exists but no 'build' target found"
-              echo "use_make=false" >> $GITHUB_OUTPUT
+              echo "use_make=false" >> "$GITHUB_OUTPUT"
             fi
           else
             echo "No Makefile found"
-            echo "use_make=false" >> $GITHUB_OUTPUT
+            echo "use_make=false" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Download dependencies
@@ -873,7 +873,7 @@ jobs:
 
           for i in $(seq 1 ${{ inputs.test_determinism_runs }}); do
             echo "Run $i/${{ inputs.test_determinism_runs }}"
-            if ! echo $PACKAGES | xargs go test -count=1 -shuffle=on; then
+            if ! echo "$PACKAGES" | xargs go test -count=1 -shuffle=on; then
               echo "Tests failed on run $i"
               exit 1
             fi
