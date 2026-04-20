@@ -109,21 +109,26 @@ jobs:
       - name: Get changed files
         id: changed
         shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          BASE_REF: ${{ github.base_ref }}
+          EVENT_BEFORE: ${{ github.event.before }}
+          GITHUB_SHA_ENV: ${{ github.sha }}
         run: |
-          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+          if [[ "$EVENT_NAME" == "pull_request" ]]; then
             # For PRs, compare base and head
-            BASE_SHA="${{ github.event.pull_request.base.sha }}"
-            HEAD_SHA="${{ github.event.pull_request.head.sha }}"
-            git fetch origin $BASE_SHA --depth=1 2>/dev/null || true
-            FILES=$(git diff --name-only $BASE_SHA $HEAD_SHA 2>/dev/null || git diff --name-only origin/${{ github.base_ref }}...HEAD)
-          elif [[ "${{ github.event.before }}" == "0000000000000000000000000000000000000000" ]] || [[ -z "${{ github.event.before }}" ]]; then
+            git fetch origin "$PR_BASE_SHA" --depth=1 2>/dev/null || true
+            FILES=$(git diff --name-only "$PR_BASE_SHA" "$PR_HEAD_SHA" 2>/dev/null || git diff --name-only "origin/${BASE_REF}...HEAD")
+          elif [[ "$EVENT_BEFORE" == "0000000000000000000000000000000000000000" ]] || [[ -z "$EVENT_BEFORE" ]]; then
             if PREV_COMMIT=$(git rev-parse HEAD^); then
               FILES=$(git diff --name-only "$PREV_COMMIT" HEAD)
             else
               FILES=$(git ls-tree -r --name-only HEAD)
             fi
           else
-            FILES=$(git diff --name-only ${{ github.event.before }} ${{ github.sha }})
+            FILES=$(git diff --name-only "$EVENT_BEFORE" "$GITHUB_SHA_ENV")
           fi
           printf "files<<EOF\n%s\nEOF\n" "$FILES" >> "$GITHUB_OUTPUT"
 
@@ -250,7 +255,11 @@ jobs:
         env:
           GOLANGCI_LINT_VERSION: ${{ inputs.golangci_lint_version }}
         run: |
-          curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b "$(go env GOPATH)/bin" "$GOLANGCI_LINT_VERSION"
+          if [[ ! "$GOLANGCI_LINT_VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Invalid golangci-lint version: $GOLANGCI_LINT_VERSION (expected format vMAJOR.MINOR.PATCH)"
+            exit 1
+          fi
+          go install "github.com/golangci/golangci-lint/cmd/golangci-lint@${GOLANGCI_LINT_VERSION}"
           echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
 
       - name: Detect Makefile lint target
