@@ -102,7 +102,7 @@ jobs:
       has_changes: ${{ steps.set-matrix.outputs.has_changes }}
     steps:
       - name: Checkout code
-        uses: actions/checkout@v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
           fetch-depth: 0
 
@@ -117,9 +117,8 @@ jobs:
             git fetch origin $BASE_SHA --depth=1 2>/dev/null || true
             FILES=$(git diff --name-only $BASE_SHA $HEAD_SHA 2>/dev/null || git diff --name-only origin/${{ github.base_ref }}...HEAD)
           elif [[ "${{ github.event.before }}" == "0000000000000000000000000000000000000000" ]] || [[ -z "${{ github.event.before }}" ]]; then
-            PREV_COMMIT=$(git rev-parse HEAD^)
-            if [[ $? -eq 0 ]]; then
-              FILES=$(git diff --name-only $PREV_COMMIT HEAD)
+            if PREV_COMMIT=$(git rev-parse HEAD^); then
+              FILES=$(git diff --name-only "$PREV_COMMIT" HEAD)
             else
               FILES=$(git ls-tree -r --name-only HEAD)
             fi
@@ -232,10 +231,10 @@ jobs:
         app: ${{ fromJson(needs.detect-changes.outputs.matrix) }}
     steps:
       - name: Checkout code
-        uses: actions/checkout@v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
       - name: Setup Go
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
         with:
           go-version: ${{ inputs.go_version }}
           cache: true
@@ -249,8 +248,8 @@ jobs:
 
       - name: Install golangci-lint
         run: |
-          curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(go env GOPATH)/bin ${{ inputs.golangci_lint_version }}
-          echo "$(go env GOPATH)/bin" >> $GITHUB_PATH
+          curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b "$(go env GOPATH)/bin" "${{ inputs.golangci_lint_version }}"
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
 
       - name: Detect Makefile lint target
         id: detect-make
@@ -259,14 +258,14 @@ jobs:
           if [[ -f "Makefile" ]] || [[ -f "makefile" ]] || [[ -f "GNUmakefile" ]]; then
             if make -n lint >/dev/null 2>&1; then
               echo "Makefile with 'lint' target detected"
-              echo "use_make=true" >> $GITHUB_OUTPUT
+              echo "use_make=true" >> "$GITHUB_OUTPUT"
             else
               echo "Makefile exists but no 'lint' target found"
-              echo "use_make=false" >> $GITHUB_OUTPUT
+              echo "use_make=false" >> "$GITHUB_OUTPUT"
             fi
           else
             echo "No Makefile found"
-            echo "use_make=false" >> $GITHUB_OUTPUT
+            echo "use_make=false" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Run GolangCI-Lint (make)
@@ -293,10 +292,10 @@ jobs:
         app: ${{ fromJson(needs.detect-changes.outputs.matrix) }}
     steps:
       - name: Checkout code
-        uses: actions/checkout@v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
       - name: Setup Go
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
         with:
           go-version: ${{ inputs.go_version }}
           cache: true
@@ -315,14 +314,14 @@ jobs:
           if [[ -f "Makefile" ]] || [[ -f "makefile" ]] || [[ -f "GNUmakefile" ]]; then
             if make -n sec >/dev/null 2>&1; then
               echo "Makefile with 'sec' target detected"
-              echo "use_make=true" >> $GITHUB_OUTPUT
+              echo "use_make=true" >> "$GITHUB_OUTPUT"
             else
               echo "Makefile exists but no 'sec' target found"
-              echo "use_make=false" >> $GITHUB_OUTPUT
+              echo "use_make=false" >> "$GITHUB_OUTPUT"
             fi
           else
             echo "No Makefile found"
-            echo "use_make=false" >> $GITHUB_OUTPUT
+            echo "use_make=false" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Run Security (make)
@@ -333,13 +332,13 @@ jobs:
 
       - name: Run Gosec for SARIF
         id: gosec-sarif
-        uses: securego/gosec@v2.25.0
+        uses: securego/gosec@223e19b8856e00f02cc67804499a83f77e208f3c # v2.25.0
         with:
           args: -no-fail -fmt sarif -out gosec-${{ matrix.app.name }}.sarif ./${{ matrix.app.working_dir }}/...
 
       - name: Upload Gosec SARIF
         if: always()
-        uses: github/codeql-action/upload-sarif@v4
+        uses: github/codeql-action/upload-sarif@95e58e9a2cdfd71adc6e0353d5c52f41a045d225 # v4
         with:
           sarif_file: gosec-${{ matrix.app.name }}.sarif
           category: gosec-${{ matrix.app.name }}
@@ -367,10 +366,10 @@ jobs:
         app: ${{ fromJson(needs.detect-changes.outputs.matrix) }}
     steps:
       - name: Checkout code
-        uses: actions/checkout@v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
       - name: Setup Go
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
         with:
           go-version: ${{ inputs.go_version }}
           cache: true
@@ -476,7 +475,7 @@ jobs:
           echo "$PACKAGES" | xargs go test -v -race -coverprofile=coverage.txt -covermode=atomic
 
       - name: Upload coverage artifact
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: coverage-${{ matrix.app.name }}
           path: ${{ matrix.app.working_dir }}/coverage.txt
@@ -496,10 +495,10 @@ jobs:
         app: ${{ fromJson(needs.detect-changes.outputs.matrix) }}
     steps:
       - name: Checkout code
-        uses: actions/checkout@v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
       - name: Setup Go
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
         with:
           go-version: ${{ inputs.go_version }}
           cache: true
@@ -512,7 +511,7 @@ jobs:
           GOPRIVATE: ${{ inputs.go_private_modules }}
 
       - name: Download coverage artifact
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           name: coverage-${{ matrix.app.name }}
           path: ${{ matrix.app.working_dir }}
@@ -621,7 +620,7 @@ jobs:
           fi
 
       - name: Upload coverage report
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: coverage-report-${{ matrix.app.name }}
           path: |
@@ -738,10 +737,10 @@ jobs:
         app: ${{ fromJson(needs.detect-changes.outputs.matrix) }}
     steps:
       - name: Checkout code
-        uses: actions/checkout@v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
       - name: Setup Go
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
         with:
           go-version: ${{ inputs.go_version }}
           cache: true
@@ -799,10 +798,10 @@ jobs:
         app: ${{ fromJson(needs.detect-changes.outputs.matrix) }}
     steps:
       - name: Checkout code
-        uses: actions/checkout@v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
       - name: Setup Go
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
         with:
           go-version: ${{ inputs.go_version }}
           cache: true
@@ -832,10 +831,10 @@ jobs:
         app: ${{ fromJson(needs.detect-changes.outputs.matrix) }}
     steps:
       - name: Checkout code
-        uses: actions/checkout@v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
       - name: Setup Go
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
         with:
           go-version: ${{ inputs.go_version }}
           cache: true
