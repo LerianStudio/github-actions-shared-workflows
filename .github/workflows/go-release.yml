@@ -197,7 +197,7 @@ jobs:
 
       - name: Sign container images with cosign
         if: inputs.enable_cosign_sign
-        uses: LerianStudio/github-actions-shared-workflows/src/security/cosign-sign@v1.23.0
+        uses: LerianStudio/github-actions-shared-workflows/src/security/cosign-sign@v1
         with:
           image-refs: ${{ steps.cosign-refs.outputs.refs }}
 

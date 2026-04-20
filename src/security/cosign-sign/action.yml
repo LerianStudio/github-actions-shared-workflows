@@ -13,6 +13,14 @@ inputs:
     description: Log what would be signed without actually signing
     required: false
     default: "false"
+  max-attempts:
+    description: Maximum number of signing attempts per image reference (retry on transient OIDC/Fulcio failures)
+    required: false
+    default: "3"
+  initial-delay:
+    description: Initial delay in seconds between retry attempts. Delay grows exponentially (×3) after each failed attempt.
+    required: false
+    default: "5"
 
 outputs:
   signed-refs:
@@ -85,13 +93,35 @@ runs:
       env:
         IMAGE_REFS: ${{ inputs.image-refs }}
         VALID_COUNT: ${{ steps.validate.outputs.count }}
+        MAX_ATTEMPTS: ${{ inputs.max-attempts }}
+        INITIAL_DELAY: ${{ inputs.initial-delay }}
       run: |
+        sign_with_retry() {
+          local ref="$1"
+          local attempt
+          local delay="$INITIAL_DELAY"
+
+          for attempt in $(seq 1 "$MAX_ATTEMPTS"); do
+            echo "Signing (attempt $attempt/$MAX_ATTEMPTS): $ref"
+            if cosign sign --yes "$ref"; then
+              return 0
+            fi
+            if [ "$attempt" -lt "$MAX_ATTEMPTS" ]; then
+              echo "::warning::cosign sign failed (attempt $attempt/$MAX_ATTEMPTS) — retrying in ${delay}s…"
+              sleep "$delay"
+              delay=$((delay * 3))
+            fi
+          done
+
+          echo "::error::cosign sign failed after $MAX_ATTEMPTS attempts: $ref"
+          return 1
+        }
+
         SIGNED=""
         while IFS= read -r ref; do
           ref=$(echo "$ref" | xargs)
           [ -z "$ref" ] && continue
-          echo "Signing: $ref"
-          cosign sign --yes "$ref"
+          sign_with_retry "$ref"
           if [ -n "$SIGNED" ]; then
             SIGNED="${SIGNED}"$'\n'"${ref}"
           else
