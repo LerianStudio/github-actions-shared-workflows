@@ -390,24 +390,30 @@ jobs:
           if [[ -f "Makefile" ]] || [[ -f "makefile" ]] || [[ -f "GNUmakefile" ]]; then
             if make -n coverage-unit >/dev/null 2>&1; then
               echo "Makefile with 'coverage-unit' target detected"
-              echo "use_make=true" >> $GITHUB_OUTPUT
-              echo "make_target=coverage-unit" >> $GITHUB_OUTPUT
+              {
+                echo "use_make=true"
+                echo "make_target=coverage-unit"
+              } >> "$GITHUB_OUTPUT"
             elif make -n cover-html >/dev/null 2>&1; then
               echo "Makefile with 'cover-html' target detected"
-              echo "use_make=true" >> $GITHUB_OUTPUT
-              echo "make_target=cover-html" >> $GITHUB_OUTPUT
+              {
+                echo "use_make=true"
+                echo "make_target=cover-html"
+              } >> "$GITHUB_OUTPUT"
             elif make -n test >/dev/null 2>&1; then
               echo "Makefile with 'test' target detected (no coverage)"
-              echo "use_make=true" >> $GITHUB_OUTPUT
-              echo "make_target=test" >> $GITHUB_OUTPUT
-              echo "no_coverage=true" >> $GITHUB_OUTPUT
+              {
+                echo "use_make=true"
+                echo "make_target=test"
+                echo "no_coverage=true"
+              } >> "$GITHUB_OUTPUT"
             else
               echo "No test targets found in Makefile, using go test"
-              echo "use_make=false" >> $GITHUB_OUTPUT
+              echo "use_make=false" >> "$GITHUB_OUTPUT"
             fi
           else
             echo "No Makefile found, using go test"
-            echo "use_make=false" >> $GITHUB_OUTPUT
+            echo "use_make=false" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Download dependencies
