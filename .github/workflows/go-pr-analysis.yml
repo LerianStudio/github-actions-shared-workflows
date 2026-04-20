@@ -451,10 +451,10 @@ jobs:
         run: |
           # make test ran but doesn't generate coverage, run go test for coverage only
           echo "Generating coverage with go test (make test doesn't generate coverage)"
-          
+
           # Get package list, excluding /tests/ and /api/ directories (standard exclusions)
           PACKAGES=$(go list ./... | awk '!/\/tests($|\/)/' | awk '!/\/api($|\/)/')
-          
+
           if [[ -n "$PACKAGES" ]]; then
             echo "$PACKAGES" | xargs go test -coverprofile=coverage.txt -covermode=atomic > /dev/null 2>&1 || true
           else
@@ -470,12 +470,12 @@ jobs:
           # Get package list, excluding /tests/ and /api/ directories (standard exclusions)
           # .ignorecoverunit patterns are applied to the coverage REPORT, not to test execution
           PACKAGES=$(go list ./... | awk '!/\/tests($|\/)/' | awk '!/\/api($|\/)/')
-          
+
           if [[ -z "$PACKAGES" ]]; then
             echo "No packages found after filtering /tests/ and /api/"
             exit 0
           fi
-          
+
           PACKAGE_COUNT=$(echo "$PACKAGES" | wc -l | tr -d ' ')
           echo "Running tests on $PACKAGE_COUNT packages (excluded /tests/, /api/)"
           echo "$PACKAGES" | xargs go test -v -race -coverprofile=coverage.txt -covermode=atomic
@@ -544,29 +544,29 @@ jobs:
           fi
 
           echo "Filtering coverage with .ignorecoverunit patterns..."
-          
+
           # Read patterns, filter comments and empty lines, convert to pipe-separated regex
           PATTERNS=$(grep -v '^#' "$IGNORE_FILE" | grep -v '^[[:space:]]*$' | tr '\n' '|' | sed 's/|$//')
-          
+
           if [[ -z "$PATTERNS" ]]; then
             echo "No patterns found in .ignorecoverunit"
             exit 0
           fi
-          
+
           echo "Patterns: $PATTERNS"
-          
+
           # Convert glob patterns to regex (escape dots, convert * to .*)
           REGEX_PATTERNS=$(echo "$PATTERNS" | sed 's/\./\\./g' | sed 's/\*/.*/g')
           echo "Regex patterns: $REGEX_PATTERNS"
-          
+
           # Keep header line, filter body
           head -1 coverage.txt > coverage_filtered.txt
           tail -n +2 coverage.txt | grep -vE "$REGEX_PATTERNS" >> coverage_filtered.txt || true
-          
+
           BEFORE=$(wc -l < coverage.txt | tr -d ' ')
           AFTER=$(wc -l < coverage_filtered.txt | tr -d ' ')
           echo "Filtered coverage: $BEFORE lines -> $AFTER lines"
-          
+
           mv coverage_filtered.txt coverage.txt
 
       - name: Calculate coverage
@@ -681,7 +681,7 @@ jobs:
               issue_number: context.issue.number,
             });
 
-            const botComment = comments.find(comment => 
+            const botComment = comments.find(comment =>
               comment.body.includes(`Unit Test Coverage Report: \`${appName}\``)
             );
 
