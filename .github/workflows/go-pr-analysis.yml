@@ -255,11 +255,17 @@ jobs:
         env:
           GOLANGCI_LINT_VERSION: ${{ inputs.golangci_lint_version }}
         run: |
-          if [[ ! "$GOLANGCI_LINT_VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+          if [[ ! "$GOLANGCI_LINT_VERSION" =~ ^v([0-9]+)\.[0-9]+\.[0-9]+$ ]]; then
             echo "::error::Invalid golangci-lint version: $GOLANGCI_LINT_VERSION (expected format vMAJOR.MINOR.PATCH)"
             exit 1
           fi
-          go install "github.com/golangci/golangci-lint/cmd/golangci-lint@${GOLANGCI_LINT_VERSION}"
+          MAJOR="${BASH_REMATCH[1]}"
+          if [[ "$MAJOR" -ge 2 ]]; then
+            MODULE_PATH="github.com/golangci/golangci-lint/v${MAJOR}/cmd/golangci-lint"
+          else
+            MODULE_PATH="github.com/golangci/golangci-lint/cmd/golangci-lint"
+          fi
+          go install "${MODULE_PATH}@${GOLANGCI_LINT_VERSION}"
           echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
 
       - name: Detect Makefile lint target
