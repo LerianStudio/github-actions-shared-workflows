@@ -683,7 +683,7 @@ jobs:
 
           # Create PR directly from main to develop
           PR_URL=$(gh pr create \
-            --title "chore: sync $DEFAULT_BRANCH to $TARGET_BRANCH [skip ci]" \
+            --title "chore(changelog): backmerge [skip ci]" \
             --body "## Automatic Changelog Sync
 
           Syncs changelog updates from \`$DEFAULT_BRANCH\` to \`$TARGET_BRANCH\`.
