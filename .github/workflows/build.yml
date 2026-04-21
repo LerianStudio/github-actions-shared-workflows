@@ -152,7 +152,7 @@ jobs:
       - name: Get changed paths (monorepo)
         if: inputs.filter_paths != ''
         id: changed-paths
-        uses: LerianStudio/github-actions-shared-workflows/src/config/changed-paths@v1.18.0
+        uses: LerianStudio/github-actions-shared-workflows/src/config/changed-paths@v1
         with:
           filter-paths: ${{ inputs.filter_paths }}
           shared-paths: ${{ inputs.shared_paths }}
@@ -343,7 +343,7 @@ jobs:
 
       - name: Sign container images with cosign
         if: inputs.enable_cosign_sign
-        uses: LerianStudio/github-actions-shared-workflows/src/security/cosign-sign@v1.23.0
+        uses: LerianStudio/github-actions-shared-workflows/src/security/cosign-sign@v1
         with:
           image-refs: ${{ steps.cosign-refs.outputs.refs }}
 

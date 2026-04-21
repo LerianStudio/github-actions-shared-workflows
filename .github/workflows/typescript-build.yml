@@ -162,7 +162,7 @@ jobs:
       - name: Get changed paths (monorepo)
         if: inputs.components_json == '' && inputs.filter_paths != ''
         id: changed-paths
-        uses: LerianStudio/github-actions-shared-workflows/src/config/changed-paths@v1.18.0
+        uses: LerianStudio/github-actions-shared-workflows/src/config/changed-paths@v1
         with:
           filter-paths: ${{ inputs.filter_paths }}
           shared-paths: ${{ inputs.shared_paths }}
@@ -264,7 +264,7 @@ jobs:
 
       - name: Build and push Docker image
         id: docker-build
-        uses: LerianStudio/github-actions-shared-workflows/src/build/docker-build-ts@v1.18.0
+        uses: LerianStudio/github-actions-shared-workflows/src/build/docker-build-ts@v1
         with:
           enable-dockerhub: ${{ inputs.enable_dockerhub }}
           enable-ghcr: ${{ inputs.enable_ghcr }}
@@ -336,7 +336,7 @@ jobs:
 
       - name: Sign container images with cosign
         if: inputs.enable_cosign_sign && !inputs.dry_run && steps.cosign-refs.outputs.refs != ''
-        uses: LerianStudio/github-actions-shared-workflows/src/security/cosign-sign@v1.23.0
+        uses: LerianStudio/github-actions-shared-workflows/src/security/cosign-sign@v1
         with:
           image-refs: ${{ steps.cosign-refs.outputs.refs }}
 
