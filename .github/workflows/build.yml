@@ -292,7 +292,6 @@ jobs:
           images: ${{ steps.image-names.outputs.images }}
           tags: |
             type=semver,pattern={{version}},value=${{ steps.version.outputs.version }}
-            type=semver,pattern={{major}},value=${{ steps.version.outputs.version }},enable=${{ needs.prepare.outputs.is_release }}
 
       - name: Build and push Docker image
         id: build-push
