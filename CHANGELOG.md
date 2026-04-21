@@ -1,5 +1,21 @@
 # Github-actions-shared-workflows Changelog
 
+## [1.26.3](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.26.3)
+
+- Fixes:
+  - Removed major version tag alias to improve build consistency.
+  - Supported golangci-lint v2 module path in the CI installer.
+  
+- Improvements:
+  - Simplified backmerge PR title for clarity.
+  - Added benedita cluster to the deployment matrix.
+
+Contributors: @bedatty, @lerian-studio
+
+[Compare changes](https://github.com/LerianStudio/github-actions-shared-workflows/compare/v1.26.2...v1.26.3)
+
+---
+
 ## [1.26.2](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.26.2)
 
 - **Fixes:**
