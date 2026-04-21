@@ -1,5 +1,24 @@
 # Github-actions-shared-workflows Changelog
 
+## [1.26.2](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.26.2)
+
+- **Fixes:**
+  - Skip Slack notification in sync PR when webhook is unset.
+  - Add backmerge PR fallback for divergent develop branch in TypeScript release.
+  - Mitigate code injection by mapping inputs to environment variables.
+  - Add retry with exponential backoff for transient OIDC failures in cosign-sign.
+
+- **Improvements:**
+  - Pin changed-paths composite to floating major tag for gptchangelog and TypeScript release.
+  - Harden installer and quote refs per CodeRabbit review.
+  - Pin external actions by SHA and fix shellcheck issues in go-pr-analysis.
+
+Contributors: @bedatty, @lerian-studio
+
+[Compare changes](https://github.com/LerianStudio/github-actions-shared-workflows/compare/v1.26.1...v1.26.2)
+
+---
+
 ## [1.26.1](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.26.1)
 
 - Fixes:
