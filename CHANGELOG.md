@@ -1,5 +1,20 @@
 # Github-actions-shared-workflows Changelog
 
+## [1.27.2](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.27.2)
+
+- Fixes:
+  - Pin `actions/checkout` by SHA in labels-sync to ensure consistency.
+  - Rename input in labels-sync composite and update the default pattern for workflow-runs-cleanup.
+
+- Improvements:
+  - Clarify the semantics of literal substring match in workflow-runs-cleanup documentation.
+
+Contributors: @bedatty, @lerian-studio
+
+[Compare changes](https://github.com/LerianStudio/github-actions-shared-workflows/compare/v1.27.1...v1.27.2)
+
+---
+
 ## [1.27.1](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.27.1)
 
 - Fixes:
