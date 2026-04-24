@@ -85,8 +85,8 @@ jobs:
     secrets: inherit
 
   # ----------------- Labels Sync -----------------
-  # Push-to-main fires when a merge to main changes `.github/labels.yml`.
-  # Other merges (to develop or any branch) do not trigger labels_sync.
+  # Push-to-main fires when `.github/labels.yml` changes (merge commit or direct push).
+  # Pushes/merges to non-main branches do not trigger labels_sync.
 
   labels_sync:
     name: Sync labels
