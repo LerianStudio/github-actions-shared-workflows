@@ -17,7 +17,7 @@ on:
         description: Comma-separated labels exempting a PR from the stale scan
         required: false
         type: string
-        default: "no-stale,security,work-in-progress"
+        default: "no-stale,security,work-in-progress,pinned"
       operations_per_run:
         description: Maximum API operations per run
         required: false

@@ -31,7 +31,7 @@ on:
         description: Comma-separated labels exempting a PR from the stale scan
         required: false
         type: string
-        default: "no-stale,security,work-in-progress"
+        default: "no-stale,security,work-in-progress,pinned"
       exempt_issue_labels:
         description: Comma-separated labels exempting an issue from the stale scan
         required: false

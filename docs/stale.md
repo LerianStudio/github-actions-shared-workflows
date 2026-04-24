@@ -15,7 +15,7 @@
 | `days_before_pr_close` | Days after a PR is marked stale before it is closed | No | `14` |
 | `days_before_issue_stale` | Days of issue inactivity before applying the stale label | No | `60` |
 | `days_before_issue_close` | Days after an issue is marked stale before it is closed | No | `14` |
-| `exempt_pr_labels` | Comma-separated labels exempting a PR from the stale scan | No | `no-stale,security,work-in-progress` |
+| `exempt_pr_labels` | Comma-separated labels exempting a PR from the stale scan | No | `no-stale,security,work-in-progress,pinned` |
 | `exempt_issue_labels` | Comma-separated labels exempting an issue from the stale scan | No | `no-stale,security,pinned` |
 | `operations_per_run` | Maximum API operations per run | No | `60` |
 | `dry_run` | Preview changes without applying them | No | `false` |
