@@ -14,9 +14,12 @@ inputs:
     required: false
     default: "10"
   delete-workflow-pattern:
-    description: Glob pattern matching workflow file names to target (default all)
+    description: |
+      Workflow name or filename to target. Leave empty (default) to target all
+      workflows — the action treats any value, including `*`, as a literal
+      substring match, so wildcards do not expand.
     required: false
-    default: "*"
+    default: ""
   delete-run-by-conclusion-pattern:
     description: |
       Comma-separated run conclusions to target.
