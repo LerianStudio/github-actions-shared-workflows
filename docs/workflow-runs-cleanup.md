@@ -13,7 +13,7 @@ Reusable workflow that deletes old GitHub Actions workflow runs. Wraps the [`wor
 |---|---|:---:|---|
 | `retention_days` | Delete runs older than this many days | No | `90` |
 | `keep_minimum_runs` | Minimum runs to retain per workflow | No | `10` |
-| `delete_workflow_pattern` | Workflow name or filename to target (empty = all) | No | `""` |
+| `delete_workflow_pattern` | Workflow name or filename to target (empty = all; literal substring match, wildcards do not expand) | No | `""` |
 | `delete_run_by_conclusion_pattern` | Comma-separated conclusions to target, or `ALL` | No | `ALL` |
 | `delete_workflow_by_state_pattern` | Comma-separated states to target, or `ALL` | No | `ALL` |
 | `dry_run` | Preview deletions without applying them | No | `false` |

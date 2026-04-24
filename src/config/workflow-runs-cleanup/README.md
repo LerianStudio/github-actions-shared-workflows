@@ -14,7 +14,7 @@ Composite action that deletes old GitHub Actions workflow runs to keep the repos
 | `github-token` | GitHub token with `actions:write` | Yes | — |
 | `retention-days` | Delete runs older than this many days | No | `90` |
 | `keep-minimum-runs` | Minimum runs to retain per workflow | No | `10` |
-| `delete-workflow-pattern` | Workflow name or filename to target (empty = all) | No | `""` |
+| `delete-workflow-pattern` | Workflow name or filename to target (empty = all; literal substring match, wildcards do not expand) | No | `""` |
 | `delete-run-by-conclusion-pattern` | Comma-separated conclusions to target, or `ALL` | No | `ALL` |
 | `delete-workflow-by-state-pattern` | Comma-separated states to target, or `ALL` | No | `ALL` |
 | `dry-run` | Preview deletions without applying them | No | `false` |
