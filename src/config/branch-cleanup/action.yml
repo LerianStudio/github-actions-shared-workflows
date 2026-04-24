@@ -108,8 +108,17 @@ runs:
 
             # Check GitHub branch protection rules — parse HTTP status to
             # distinguish 200 (protected) / 404 (unprotected) / other (abort branch).
+            # Stderr is merged so network/auth errors are visible in the log, but we
+            # only trust the numeric code from a proper `HTTP/X.X NNN` status line.
             protection_response=$(gh api -i "repos/${GH_REPO}/branches/${branch}/protection" 2>&1 || true)
-            read -r _ protection_status _ <<< "${protection_response%%$'\n'*}"
+            protection_status=""
+            while IFS= read -r response_line; do
+              if [[ "$response_line" =~ ^HTTP/[^[:space:]]+[[:space:]]+([0-9]{3}) ]]; then
+                protection_status="${BASH_REMATCH[1]}"
+                break
+              fi
+            done <<< "$protection_response"
+
             case "$protection_status" in
               200)
                 protected_count=$((protected_count + 1))
@@ -117,6 +126,11 @@ runs:
                 continue
                 ;;
               404)
+                ;;
+              "")
+                echo "::warning::Unable to parse protection status for '$branch' — skipping"
+                protection_failures=$((protection_failures + 1))
+                continue
                 ;;
               *)
                 echo "::warning::Unexpected HTTP '$protection_status' checking protection for '$branch' — skipping"
