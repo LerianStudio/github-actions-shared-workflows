@@ -1,5 +1,20 @@
 # Github-actions-shared-workflows Changelog
 
+## [1.26.4](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.26.4)
+
+- Fixes:
+  - Unified entrypoint for repository maintenance routines.
+  - Robust HTTP status parsing from GitHub API output.
+  - Tracking protection-check failures in a dedicated counter.
+  - Hardened protection check and addressed code-injection findings.
+  - Avoided SIGPIPE when checking branch protection.
+
+Contributors: @bedatty, @lerian-studio
+
+[Compare changes](https://github.com/LerianStudio/github-actions-shared-workflows/compare/v1.26.3...v1.26.4)
+
+---
+
 ## [1.26.3](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.26.3)
 
 - Fixes:
