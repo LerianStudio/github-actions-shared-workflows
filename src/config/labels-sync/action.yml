@@ -25,9 +25,9 @@ runs:
       uses: actions/checkout@v6
 
     - name: Sync labels
-      uses: crazy-max/ghaction-github-labeler@v5
+      uses: crazy-max/ghaction-github-labeler@548a7c3603594ec17c819e1239f281a3b801ab4d # v6.0.0
       with:
         github-token: ${{ inputs.github-token }}
-        config: ${{ inputs.config }}
+        yaml-file: ${{ inputs.config }}
         dry-run: ${{ inputs.dry-run }}
         skip-delete: ${{ inputs.skip-delete }}

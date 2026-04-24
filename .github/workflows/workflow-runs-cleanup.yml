@@ -14,10 +14,10 @@ on:
         type: number
         default: 10
       delete_workflow_pattern:
-        description: Glob pattern matching workflow filenames to target (default all)
+        description: Workflow name or filename to target (empty = all workflows)
         required: false
         type: string
-        default: "*"
+        default: ""
       delete_run_by_conclusion_pattern:
         description: Comma-separated run conclusions to target, or ALL
         required: false
