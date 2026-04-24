@@ -53,7 +53,6 @@ jobs:
     name: Clean stale branches
     if: |
       (github.event_name == 'schedule' && github.event.schedule == '0 3 * * 1')
-      || (github.event_name == 'pull_request' && github.event.pull_request.merged == true)
       || (github.event_name == 'workflow_dispatch' && (inputs.routine == 'all' || inputs.routine == 'branch-cleanup-stale'))
     uses: ./.github/workflows/branch-cleanup.yml
     with:
@@ -67,7 +66,6 @@ jobs:
     name: Close stale PRs
     if: |
       (github.event_name == 'schedule' && github.event.schedule == '0 4 * * *')
-      || (github.event_name == 'pull_request' && github.event.pull_request.merged == true)
       || (github.event_name == 'workflow_dispatch' && (inputs.routine == 'all' || inputs.routine == 'stale-pr'))
     uses: ./.github/workflows/stale-pr.yml
     with:
@@ -80,7 +78,6 @@ jobs:
     name: Close stale issues
     if: |
       (github.event_name == 'schedule' && github.event.schedule == '30 4 * * 3')
-      || (github.event_name == 'pull_request' && github.event.pull_request.merged == true)
       || (github.event_name == 'workflow_dispatch' && (inputs.routine == 'all' || inputs.routine == 'stale-issue'))
     uses: ./.github/workflows/stale-issue.yml
     with:
@@ -88,13 +85,14 @@ jobs:
     secrets: inherit
 
   # ----------------- Labels Sync -----------------
+  # Push-to-main fires when `.github/labels.yml` changes (merge commit or direct push).
+  # Pushes/merges to non-main branches do not trigger labels_sync.
 
   labels_sync:
     name: Sync labels
     if: |
       github.event_name == 'push'
       || (github.event_name == 'schedule' && github.event.schedule == '0 5 * * 0')
-      || (github.event_name == 'pull_request' && github.event.pull_request.merged == true)
       || (github.event_name == 'workflow_dispatch' && (inputs.routine == 'all' || inputs.routine == 'labels-sync'))
     uses: ./.github/workflows/labels-sync.yml
     with:
