@@ -1,0 +1,100 @@
+name: Self — Repository Routines
+
+on:
+  schedule:
+    - cron: "0 3 * * 1"   # weekly Mon 03:00 UTC — branch cleanup (stale scan)
+    - cron: "0 4 * * *"   # daily 04:00 UTC       — stale PRs and issues
+    - cron: "0 5 * * 0"   # weekly Sun 05:00 UTC  — labels sync (reconciliation)
+    - cron: "0 6 1 * *"   # monthly 1st 06:00 UTC — workflow runs cleanup
+  pull_request:
+    types: [closed]
+  push:
+    branches: [main]
+    paths:
+      - .github/labels.yml
+  workflow_dispatch:
+    inputs:
+      routine:
+        description: Routine to run
+        type: choice
+        options:
+          - all
+          - branch-cleanup-stale
+          - stale
+          - labels-sync
+          - workflow-runs-cleanup
+        default: all
+      dry_run:
+        description: Preview changes without applying them
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+  actions: write
+
+jobs:
+  # ----------------- Branch Cleanup -----------------
+
+  branch_cleanup_merged:
+    name: Delete merged branch
+    if: github.event_name == 'pull_request' && github.event.pull_request.merged == true
+    uses: ./.github/workflows/branch-cleanup.yml
+    with:
+      merged_branch: ${{ github.head_ref }}
+      dry_run: false
+    secrets: inherit
+
+  branch_cleanup_stale:
+    name: Clean stale branches
+    if: |
+      (github.event_name == 'schedule' && github.event.schedule == '0 3 * * 1')
+      || (github.event_name == 'pull_request' && github.event.pull_request.merged == true)
+      || (github.event_name == 'workflow_dispatch' && (inputs.routine == 'all' || inputs.routine == 'branch-cleanup-stale'))
+    uses: ./.github/workflows/branch-cleanup.yml
+    with:
+      stale_days: 30
+      dry_run: ${{ inputs.dry_run || false }}
+    secrets: inherit
+
+  # ----------------- Stale PRs and Issues -----------------
+
+  stale:
+    name: Close stale PRs and issues
+    if: |
+      (github.event_name == 'schedule' && github.event.schedule == '0 4 * * *')
+      || (github.event_name == 'pull_request' && github.event.pull_request.merged == true)
+      || (github.event_name == 'workflow_dispatch' && (inputs.routine == 'all' || inputs.routine == 'stale'))
+    uses: ./.github/workflows/stale.yml
+    with:
+      dry_run: ${{ inputs.dry_run || false }}
+    secrets: inherit
+
+  # ----------------- Labels Sync -----------------
+
+  labels_sync:
+    name: Sync labels
+    if: |
+      github.event_name == 'push'
+      || (github.event_name == 'schedule' && github.event.schedule == '0 5 * * 0')
+      || (github.event_name == 'pull_request' && github.event.pull_request.merged == true)
+      || (github.event_name == 'workflow_dispatch' && (inputs.routine == 'all' || inputs.routine == 'labels-sync'))
+    uses: ./.github/workflows/labels-sync.yml
+    with:
+      dry_run: ${{ inputs.dry_run || false }}
+    secrets: inherit
+
+  # ----------------- Workflow Runs Cleanup -----------------
+
+  workflow_runs_cleanup:
+    name: Delete old workflow runs
+    if: |
+      (github.event_name == 'schedule' && github.event.schedule == '0 6 1 * *')
+      || (github.event_name == 'workflow_dispatch' && (inputs.routine == 'all' || inputs.routine == 'workflow-runs-cleanup'))
+    uses: ./.github/workflows/workflow-runs-cleanup.yml
+    with:
+      retention_days: 90
+      dry_run: ${{ inputs.dry_run || false }}
+    secrets: inherit

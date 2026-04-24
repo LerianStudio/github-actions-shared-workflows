@@ -1,0 +1,82 @@
+name: Stale PRs and Issues
+description: Flags and closes stale PRs and issues using actions/stale with Lerian defaults.
+
+inputs:
+  github-token:
+    description: GitHub token with pull-requests:write and issues:write permissions
+    required: true
+  days-before-pr-stale:
+    description: Days of PR inactivity before the stale label is applied
+    required: false
+    default: "30"
+  days-before-pr-close:
+    description: Days after a PR is marked stale before it is closed
+    required: false
+    default: "14"
+  days-before-issue-stale:
+    description: Days of issue inactivity before the stale label is applied
+    required: false
+    default: "60"
+  days-before-issue-close:
+    description: Days after an issue is marked stale before it is closed
+    required: false
+    default: "14"
+  stale-pr-label:
+    description: Label applied to stale PRs
+    required: false
+    default: "stale"
+  stale-issue-label:
+    description: Label applied to stale issues
+    required: false
+    default: "stale"
+  exempt-pr-labels:
+    description: Comma-separated labels that prevent a PR from going stale
+    required: false
+    default: "no-stale,security,work-in-progress"
+  exempt-issue-labels:
+    description: Comma-separated labels that prevent an issue from going stale
+    required: false
+    default: "no-stale,security,pinned"
+  exempt-draft-pr:
+    description: Skip draft PRs when scanning for stale items
+    required: false
+    default: "true"
+  operations-per-run:
+    description: Maximum number of API operations in a single run
+    required: false
+    default: "60"
+  dry-run:
+    description: Preview changes without applying them (debug-only mode)
+    required: false
+    default: "false"
+
+runs:
+  using: composite
+  steps:
+    - name: Flag and close stale PRs and issues
+      uses: actions/stale@b5d41d4e1d5dceea10e7104786b73624c18a190f # v10.2.0
+      with:
+        repo-token: ${{ inputs.github-token }}
+        days-before-pr-stale: ${{ inputs.days-before-pr-stale }}
+        days-before-pr-close: ${{ inputs.days-before-pr-close }}
+        days-before-issue-stale: ${{ inputs.days-before-issue-stale }}
+        days-before-issue-close: ${{ inputs.days-before-issue-close }}
+        stale-pr-label: ${{ inputs.stale-pr-label }}
+        stale-issue-label: ${{ inputs.stale-issue-label }}
+        exempt-pr-labels: ${{ inputs.exempt-pr-labels }}
+        exempt-issue-labels: ${{ inputs.exempt-issue-labels }}
+        exempt-draft-pr: ${{ inputs.exempt-draft-pr }}
+        operations-per-run: ${{ inputs.operations-per-run }}
+        debug-only: ${{ inputs.dry-run }}
+        stale-pr-message: >-
+          This PR has had no activity for ${{ inputs.days-before-pr-stale }} days and is now marked stale.
+          It will be closed in ${{ inputs.days-before-pr-close }} days unless updated.
+          Add the `no-stale` label to keep it open indefinitely.
+        stale-issue-message: >-
+          This issue has had no activity for ${{ inputs.days-before-issue-stale }} days and is now marked stale.
+          It will be closed in ${{ inputs.days-before-issue-close }} days unless updated.
+          Add the `no-stale` label to keep it open indefinitely.
+        close-pr-message: >-
+          Closing this PR due to prolonged inactivity. Reopen if work resumes.
+        close-issue-message: >-
+          Closing this issue due to prolonged inactivity. Reopen if it is still relevant.

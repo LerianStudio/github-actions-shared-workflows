@@ -1,0 +1,54 @@
+name: Workflow Runs Cleanup
+
+on:
+  workflow_call:
+    inputs:
+      retention_days:
+        description: Delete workflow runs older than this many days
+        required: false
+        type: number
+        default: 90
+      keep_minimum_runs:
+        description: Minimum runs to retain per workflow
+        required: false
+        type: number
+        default: 10
+      delete_workflow_pattern:
+        description: Glob pattern matching workflow filenames to target (default all)
+        required: false
+        type: string
+        default: "*"
+      delete_run_by_conclusion_pattern:
+        description: Comma-separated run conclusions to target, or ALL
+        required: false
+        type: string
+        default: "ALL"
+      delete_workflow_by_state_pattern:
+        description: Comma-separated workflow states to target, or ALL
+        required: false
+        type: string
+        default: "ALL"
+      dry_run:
+        description: Preview deletions without applying them
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  actions: write
+
+jobs:
+  cleanup:
+    name: Delete old workflow runs
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    steps:
+      - name: Delete old workflow runs
+        uses: LerianStudio/github-actions-shared-workflows/src/config/workflow-runs-cleanup@v1
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          retention-days: ${{ inputs.retention_days }}
+          keep-minimum-runs: ${{ inputs.keep_minimum_runs }}
+          delete-workflow-pattern: ${{ inputs.delete_workflow_pattern }}
+          delete-run-by-conclusion-pattern: ${{ inputs.delete_run_by_conclusion_pattern }}
+          delete-workflow-by-state-pattern: ${{ inputs.delete_workflow_by_state_pattern }}
+          dry-run: ${{ inputs.dry_run }}

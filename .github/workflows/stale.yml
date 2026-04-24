@@ -1,0 +1,67 @@
+name: Stale PRs and Issues
+
+on:
+  workflow_call:
+    inputs:
+      days_before_pr_stale:
+        description: Days of PR inactivity before the stale label is applied
+        required: false
+        type: number
+        default: 30
+      days_before_pr_close:
+        description: Days after a PR is marked stale before it is closed
+        required: false
+        type: number
+        default: 14
+      days_before_issue_stale:
+        description: Days of issue inactivity before the stale label is applied
+        required: false
+        type: number
+        default: 60
+      days_before_issue_close:
+        description: Days after an issue is marked stale before it is closed
+        required: false
+        type: number
+        default: 14
+      exempt_pr_labels:
+        description: Comma-separated labels exempting a PR from the stale scan
+        required: false
+        type: string
+        default: "no-stale,security,work-in-progress"
+      exempt_issue_labels:
+        description: Comma-separated labels exempting an issue from the stale scan
+        required: false
+        type: string
+        default: "no-stale,security,pinned"
+      operations_per_run:
+        description: Maximum API operations per run
+        required: false
+        type: number
+        default: 60
+      dry_run:
+        description: Preview changes without applying them
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  pull-requests: write
+  issues: write
+
+jobs:
+  stale:
+    name: Flag and close stale PRs and issues
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    steps:
+      - name: Run stale scan
+        uses: LerianStudio/github-actions-shared-workflows/src/config/stale@v1
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          days-before-pr-stale: ${{ inputs.days_before_pr_stale }}
+          days-before-pr-close: ${{ inputs.days_before_pr_close }}
+          days-before-issue-stale: ${{ inputs.days_before_issue_stale }}
+          days-before-issue-close: ${{ inputs.days_before_issue_close }}
+          exempt-pr-labels: ${{ inputs.exempt_pr_labels }}
+          exempt-issue-labels: ${{ inputs.exempt_issue_labels }}
+          operations-per-run: ${{ inputs.operations_per_run }}
+          dry-run: ${{ inputs.dry_run }}
