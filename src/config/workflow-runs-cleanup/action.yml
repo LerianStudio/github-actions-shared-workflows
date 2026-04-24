@@ -1,0 +1,50 @@
+name: Workflow Runs Cleanup
+description: Deletes old workflow runs to keep the repository's Actions history within storage limits.
+
+inputs:
+  github-token:
+    description: GitHub token with actions:write permission
+    required: true
+  retention-days:
+    description: Delete workflow runs older than this many days
+    required: false
+    default: "90"
+  keep-minimum-runs:
+    description: Minimum number of runs to retain per workflow (prevents wiping sparse workflows)
+    required: false
+    default: "10"
+  delete-workflow-pattern:
+    description: Glob pattern matching workflow file names to target (default all)
+    required: false
+    default: "*"
+  delete-run-by-conclusion-pattern:
+    description: |
+      Comma-separated run conclusions to target.
+      Supported values: "action_required,cancelled,failure,skipped,success" or "ALL".
+    required: false
+    default: "ALL"
+  delete-workflow-by-state-pattern:
+    description: |
+      Comma-separated workflow states to target.
+      Supported values: "active,deleted,disabled_fork,disabled_inactivity,disabled_manually".
+    required: false
+    default: "ALL"
+  dry-run:
+    description: Preview deletions without applying them
+    required: false
+    default: "false"
+
+runs:
+  using: composite
+  steps:
+    - name: Delete old workflow runs
+      uses: Mattraks/delete-workflow-runs@39f0bbed25d76b34de5594dceab824811479e5de # v2.0.6
+      with:
+        token: ${{ inputs.github-token }}
+        repository: ${{ github.repository }}
+        retain_days: ${{ inputs.retention-days }}
+        keep_minimum_runs: ${{ inputs.keep-minimum-runs }}
+        delete_workflow_pattern: ${{ inputs.delete-workflow-pattern }}
+        delete_run_by_conclusion_pattern: ${{ inputs.delete-run-by-conclusion-pattern }}
+        delete_workflow_by_state_pattern: ${{ inputs.delete-workflow-by-state-pattern }}
+        dry_run: ${{ inputs.dry-run }}
