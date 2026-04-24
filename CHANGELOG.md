@@ -1,5 +1,16 @@
 # Github-actions-shared-workflows Changelog
 
+## [1.27.1](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.27.1)
+
+- Fixes:
+  - Tightened triggers for self-routine workflows to improve efficiency.
+
+Contributors: @bedatty, @lerian-studio
+
+[Compare changes](https://github.com/LerianStudio/github-actions-shared-workflows/compare/v1.27.0...v1.27.1)
+
+---
+
 ## [1.27.0](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.27.0)
 
 Features:
