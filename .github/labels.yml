@@ -99,3 +99,21 @@
 - name: deployment-matrix
   color: "5319e7"
   description: Changes to the canonical deployment matrix (config/deployment-matrix.yml)
+
+- name: routine
+  color: "1f6feb"
+  description: Changes to periodic maintenance routines (self-routine.yml and related reusables)
+
+# ── Stale management ──────────────────────────────────────────────────────────
+
+- name: stale
+  color: "795548"
+  description: No recent activity — will be closed if not updated
+
+- name: no-stale
+  color: "fef2c0"
+  description: Exempt from stale auto-close
+
+- name: work-in-progress
+  color: "fbca04"
+  description: Active work — exempt from stale auto-close
