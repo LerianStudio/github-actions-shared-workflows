@@ -103,9 +103,8 @@ runs:
             fi
 
             # Check if branch has GitHub branch protection rules
-            status_code=$(gh api -i "repos/${{ github.repository }}/branches/${branch}/protection" \
-              2>/dev/null | head -1 | awk '{print $2}')
-            if [[ "$status_code" == "200" ]]; then
+            if gh api "repos/${{ github.repository }}/branches/${branch}/protection" \
+                 --silent >/dev/null 2>&1; then
               protected_count=$((protected_count + 1))
               [[ "$DRY_RUN" == "true" ]] && echo "  [protected-rule] $branch"
               continue
