@@ -115,9 +115,9 @@
   description: Exempt from stale auto-close
 
 - name: work-in-progress
-  color: "fbca04"
+  color: "ffa500"
   description: Active work — exempt from stale auto-close
 
 - name: pinned
-  color: "1d76db"
+  color: "d4a017"
   description: Pinned discussion/tracker — exempt from stale auto-close
