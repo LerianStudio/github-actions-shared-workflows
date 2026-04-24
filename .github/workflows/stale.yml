@@ -1,0 +1,72 @@
+name: Stale PRs and Issues (compatibility wrapper)
+
+# This workflow is kept as a backward-compatibility wrapper for callers that
+# adopted `stale.yml` in v1.26.4. New callers should consume `stale-pr.yml`
+# and/or `stale-issue.yml` directly.
+
+on:
+  workflow_call:
+    inputs:
+      days_before_pr_stale:
+        description: Days of PR inactivity before the stale label is applied
+        required: false
+        type: number
+        default: 30
+      days_before_pr_close:
+        description: Days after a PR is marked stale before it is closed
+        required: false
+        type: number
+        default: 14
+      days_before_issue_stale:
+        description: Days of issue inactivity before the stale label is applied
+        required: false
+        type: number
+        default: 60
+      days_before_issue_close:
+        description: Days after an issue is marked stale before it is closed
+        required: false
+        type: number
+        default: 14
+      exempt_pr_labels:
+        description: Comma-separated labels exempting a PR from the stale scan
+        required: false
+        type: string
+        default: "no-stale,security,work-in-progress"
+      exempt_issue_labels:
+        description: Comma-separated labels exempting an issue from the stale scan
+        required: false
+        type: string
+        default: "no-stale,security,pinned"
+      operations_per_run:
+        description: Maximum API operations per run
+        required: false
+        type: number
+        default: 60
+      dry_run:
+        description: Preview changes without applying them
+        required: false
+        type: boolean
+        default: false
+
+jobs:
+  stale-pr:
+    name: Stale PRs
+    uses: ./.github/workflows/stale-pr.yml
+    with:
+      days_before_stale: ${{ inputs.days_before_pr_stale }}
+      days_before_close: ${{ inputs.days_before_pr_close }}
+      exempt_labels: ${{ inputs.exempt_pr_labels }}
+      operations_per_run: ${{ inputs.operations_per_run }}
+      dry_run: ${{ inputs.dry_run }}
+    secrets: inherit
+
+  stale-issue:
+    name: Stale issues
+    uses: ./.github/workflows/stale-issue.yml
+    with:
+      days_before_stale: ${{ inputs.days_before_issue_stale }}
+      days_before_close: ${{ inputs.days_before_issue_close }}
+      exempt_labels: ${{ inputs.exempt_issue_labels }}
+      operations_per_run: ${{ inputs.operations_per_run }}
+      dry_run: ${{ inputs.dry_run }}
+    secrets: inherit

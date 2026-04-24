@@ -35,7 +35,7 @@ jobs:
 ```yaml
 jobs:
   stale-pr:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/stale-pr.yml@v1.19.0
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/stale-pr.yml@vX.Y.Z
     secrets: inherit
 ```
 

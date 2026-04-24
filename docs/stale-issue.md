@@ -35,7 +35,7 @@ jobs:
 ```yaml
 jobs:
   stale-issue:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/stale-issue.yml@v1.19.0
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/stale-issue.yml@vX.Y.Z
     secrets: inherit
 ```
 
