@@ -2,10 +2,11 @@ name: Self — Repository Routines
 
 on:
   schedule:
-    - cron: "0 3 * * 1"   # weekly Mon 03:00 UTC — branch cleanup (stale scan)
-    - cron: "0 4 * * *"   # daily 04:00 UTC       — stale PRs and issues
-    - cron: "0 5 * * 0"   # weekly Sun 05:00 UTC  — labels sync (reconciliation)
-    - cron: "0 6 1 * *"   # monthly 1st 06:00 UTC — workflow runs cleanup
+    - cron: "0 3 * * 1"   # weekly Mon 03:00 UTC  — branch cleanup (stale scan)
+    - cron: "0 4 * * *"   # daily 04:00 UTC        — stale PRs
+    - cron: "30 4 * * 3"  # weekly Wed 04:30 UTC   — stale issues
+    - cron: "0 5 * * 0"   # weekly Sun 05:00 UTC   — labels sync (reconciliation)
+    - cron: "0 6 1 * *"   # monthly 1st 06:00 UTC  — workflow runs cleanup
   pull_request:
     types: [closed]
   push:
@@ -20,7 +21,8 @@ on:
         options:
           - all
           - branch-cleanup-stale
-          - stale
+          - stale-pr
+          - stale-issue
           - labels-sync
           - workflow-runs-cleanup
         default: all
@@ -59,15 +61,28 @@ jobs:
       dry_run: ${{ inputs.dry_run || false }}
     secrets: inherit
 
-  # ----------------- Stale PRs and Issues -----------------
+  # ----------------- Stale PRs -----------------
 
-  stale:
-    name: Close stale PRs and issues
+  stale_pr:
+    name: Close stale PRs
     if: |
       (github.event_name == 'schedule' && github.event.schedule == '0 4 * * *')
       || (github.event_name == 'pull_request' && github.event.pull_request.merged == true)
-      || (github.event_name == 'workflow_dispatch' && (inputs.routine == 'all' || inputs.routine == 'stale'))
-    uses: ./.github/workflows/stale.yml
+      || (github.event_name == 'workflow_dispatch' && (inputs.routine == 'all' || inputs.routine == 'stale-pr'))
+    uses: ./.github/workflows/stale-pr.yml
+    with:
+      dry_run: ${{ inputs.dry_run || false }}
+    secrets: inherit
+
+  # ----------------- Stale Issues -----------------
+
+  stale_issue:
+    name: Close stale issues
+    if: |
+      (github.event_name == 'schedule' && github.event.schedule == '30 4 * * 3')
+      || (github.event_name == 'pull_request' && github.event.pull_request.merged == true)
+      || (github.event_name == 'workflow_dispatch' && (inputs.routine == 'all' || inputs.routine == 'stale-issue'))
+    uses: ./.github/workflows/stale-issue.yml
     with:
       dry_run: ${{ inputs.dry_run || false }}
     secrets: inherit
