@@ -51,7 +51,7 @@ on:
 jobs:
   stale-pr:
     name: Stale PRs
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/stale-pr.yml@v1
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/stale-pr.yml@develop
     with:
       days_before_stale: ${{ inputs.days_before_pr_stale }}
       days_before_close: ${{ inputs.days_before_pr_close }}
@@ -62,7 +62,7 @@ jobs:
 
   stale-issue:
     name: Stale issues
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/stale-issue.yml@v1
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/stale-issue.yml@develop
     with:
       days_before_stale: ${{ inputs.days_before_issue_stale }}
       days_before_close: ${{ inputs.days_before_issue_close }}
