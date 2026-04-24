@@ -1,5 +1,19 @@
 # Github-actions-shared-workflows Changelog
 
+## [1.27.0](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.27.0)
+
+Features:
+- Refactor stale logic by splitting stale PR and issue logic into separate workflows.
+
+Fixes:
+- Use external references for reusable workflow composition in stale workflow.
+
+Contributors: @bedatty, @lerian-studio,
+
+[Compare changes](https://github.com/LerianStudio/github-actions-shared-workflows/compare/v1.26.4...v1.27.0)
+
+---
+
 ## [1.26.4](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.26.4)
 
 - Fixes:
