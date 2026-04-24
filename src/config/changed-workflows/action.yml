@@ -33,11 +33,11 @@ runs:
       id: detect
       shell: bash
       run: |
-        if [ "${{ github.event_name }}" = "pull_request" ]; then
+        if [ "$EVENT_NAME" = "pull_request" ]; then
           # `gh pr diff --name-only` lists all changed files including deletions.
           # Filter to files that still exist on disk so downstream linters don't
           # fail trying to open removed paths.
-          changed=$(gh pr diff "${{ github.event.pull_request.number }}" --name-only \
+          changed=$(gh pr diff "$PR_NUMBER" --name-only \
             | while IFS= read -r f; do [ -f "$f" ] && printf '%s\n' "$f"; done)
 
           yaml_files=$(echo "$changed" | grep -E '\.yml$' | tr '\n' ' ' | sed 's/ $//' || true)
@@ -107,3 +107,5 @@ runs:
         } >> "$GITHUB_STEP_SUMMARY"
       env:
         GH_TOKEN: ${{ inputs.github-token }}
+        EVENT_NAME: ${{ github.event_name }}
+        PR_NUMBER: ${{ github.event.pull_request.number }}
