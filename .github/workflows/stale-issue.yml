@@ -40,7 +40,10 @@ jobs:
       - name: Run stale issue scan
         uses: LerianStudio/github-actions-shared-workflows/src/config/stale@v1
         with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
+          # Prefer MANAGE_TOKEN so stale labels and comments are attributed to
+          # the Lerian bot identity; fall back to the job's GITHUB_TOKEN when
+          # the secret is not available (e.g. external consumers without it).
+          github-token: ${{ secrets.MANAGE_TOKEN || secrets.GITHUB_TOKEN }}
           days-before-pr-stale: "-1"
           days-before-pr-close: "-1"
           days-before-issue-stale: ${{ inputs.days_before_stale }}
