@@ -34,17 +34,16 @@ runs:
       shell: bash
       run: |
         if [ "$EVENT_NAME" = "pull_request" ]; then
-          # Capture gh failures explicitly; a pipeline to `while read` would
-          # swallow them (the while always exits 0), silently leaving the file
-          # list empty and letting downstream linters run against nothing.
-          if ! changed_raw=$(gh pr diff "$PR_NUMBER" --name-only); then
+          # Use the REST API directly and filter out removed files via the
+          # returned `status` field. Avoids `gh pr diff` quirks in CI (silent
+          # failures, deleted paths polluting the list) and keeps failures
+          # visible — `gh api` writes errors to stderr and exits non-zero.
+          if ! changed=$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}/files" \
+              --paginate \
+              --jq '.[] | select(.status != "removed") | .filename'); then
             echo "::error::Failed to list changed files for PR #${PR_NUMBER}"
             exit 1
           fi
-          # `gh pr diff --name-only` includes deletions — drop paths that no
-          # longer exist so linters don't fail trying to open removed files.
-          changed=$(printf '%s\n' "$changed_raw" \
-            | while IFS= read -r f; do [ -f "$f" ] && printf '%s\n' "$f"; done)
 
           yaml_files=$(echo "$changed" | grep -E '\.yml$' | tr '\n' ' ' | sed 's/ $//' || true)
           workflow_files=$(echo "$changed" | grep -E '^\.github/workflows/.*\.yml$' | tr '\n' ',' | sed 's/,$//' || true)

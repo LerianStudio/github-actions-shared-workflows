@@ -1,4 +1,8 @@
-name: Stale PRs and Issues
+name: Stale PRs and Issues (compatibility wrapper)
+
+# This workflow is kept as a backward-compatibility wrapper for callers that
+# adopted `stale.yml` in v1.26.4. New callers should consume `stale-pr.yml`
+# and/or `stale-issue.yml` directly.
 
 on:
   workflow_call:
@@ -27,7 +31,7 @@ on:
         description: Comma-separated labels exempting a PR from the stale scan
         required: false
         type: string
-        default: "no-stale,security,work-in-progress"
+        default: "no-stale,security,work-in-progress,pinned"
       exempt_issue_labels:
         description: Comma-separated labels exempting an issue from the stale scan
         required: false
@@ -44,24 +48,25 @@ on:
         type: boolean
         default: false
 
-permissions:
-  pull-requests: write
-  issues: write
-
 jobs:
-  stale:
-    name: Flag and close stale PRs and issues
-    runs-on: blacksmith-4vcpu-ubuntu-2404
-    steps:
-      - name: Run stale scan
-        uses: LerianStudio/github-actions-shared-workflows/src/config/stale@v1
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          days-before-pr-stale: ${{ inputs.days_before_pr_stale }}
-          days-before-pr-close: ${{ inputs.days_before_pr_close }}
-          days-before-issue-stale: ${{ inputs.days_before_issue_stale }}
-          days-before-issue-close: ${{ inputs.days_before_issue_close }}
-          exempt-pr-labels: ${{ inputs.exempt_pr_labels }}
-          exempt-issue-labels: ${{ inputs.exempt_issue_labels }}
-          operations-per-run: ${{ inputs.operations_per_run }}
-          dry-run: ${{ inputs.dry_run }}
+  stale-pr:
+    name: Stale PRs
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/stale-pr.yml@develop
+    with:
+      days_before_stale: ${{ inputs.days_before_pr_stale }}
+      days_before_close: ${{ inputs.days_before_pr_close }}
+      exempt_labels: ${{ inputs.exempt_pr_labels }}
+      operations_per_run: ${{ inputs.operations_per_run }}
+      dry_run: ${{ inputs.dry_run }}
+    secrets: inherit
+
+  stale-issue:
+    name: Stale issues
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/stale-issue.yml@develop
+    with:
+      days_before_stale: ${{ inputs.days_before_issue_stale }}
+      days_before_close: ${{ inputs.days_before_issue_close }}
+      exempt_labels: ${{ inputs.exempt_issue_labels }}
+      operations_per_run: ${{ inputs.operations_per_run }}
+      dry_run: ${{ inputs.dry_run }}
+    secrets: inherit
