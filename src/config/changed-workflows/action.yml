@@ -34,10 +34,16 @@ runs:
       shell: bash
       run: |
         if [ "$EVENT_NAME" = "pull_request" ]; then
-          # `gh pr diff --name-only` lists all changed files including deletions.
-          # Filter to files that still exist on disk so downstream linters don't
-          # fail trying to open removed paths.
-          changed=$(gh pr diff "$PR_NUMBER" --name-only \
+          # Capture gh failures explicitly; a pipeline to `while read` would
+          # swallow them (the while always exits 0), silently leaving the file
+          # list empty and letting downstream linters run against nothing.
+          if ! changed_raw=$(gh pr diff "$PR_NUMBER" --name-only); then
+            echo "::error::Failed to list changed files for PR #${PR_NUMBER}"
+            exit 1
+          fi
+          # `gh pr diff --name-only` includes deletions — drop paths that no
+          # longer exist so linters don't fail trying to open removed files.
+          changed=$(printf '%s\n' "$changed_raw" \
             | while IFS= read -r f; do [ -f "$f" ] && printf '%s\n' "$f"; done)
 
           yaml_files=$(echo "$changed" | grep -E '\.yml$' | tr '\n' ' ' | sed 's/ $//' || true)
