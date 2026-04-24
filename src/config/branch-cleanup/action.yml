@@ -91,6 +91,7 @@ runs:
         deleted=0
         skipped=0
         protected_count=0
+        protection_failures=0
         has_pr=0
         page=1
 
@@ -119,7 +120,7 @@ runs:
                 ;;
               *)
                 echo "::warning::Unexpected HTTP '$protection_status' checking protection for '$branch' — skipping"
-                skipped=$((skipped + 1))
+                protection_failures=$((protection_failures + 1))
                 continue
                 ;;
             esac
@@ -167,9 +168,10 @@ runs:
 
         echo ""
         echo "--- Summary ---"
-        echo "Protected : $protected_count"
-        echo "Active    : $skipped"
-        echo "Has PR    : $has_pr"
+        echo "Protected         : $protected_count"
+        echo "Active            : $skipped"
+        echo "Has PR            : $has_pr"
+        echo "Protection errors : $protection_failures"
         if [[ "$DRY_RUN" == "true" ]]; then
           echo "To delete : $deleted"
           echo "::notice::DRY RUN complete — $deleted branch(es) would be deleted"
