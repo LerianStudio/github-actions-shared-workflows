@@ -1,5 +1,18 @@
 # Github-actions-shared-workflows Changelog
 
+## [1.27.4](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.27.4)
+
+- Fixes:
+  - Fix(stale): Pre-flight scope banner before actions/stale per-item log.
+  - Fix(branch-cleanup): Abort on protected-branch prefetch failure.
+  - Fix(branch-cleanup): Use /branches?protected=true to detect rule-protected branches.
+
+Contributors: @bedatty, @lerian-studio,
+
+[Compare changes](https://github.com/LerianStudio/github-actions-shared-workflows/compare/v1.27.3...v1.27.4)
+
+---
+
 ## [1.27.3](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.27.3)
 
 - Fixes:
