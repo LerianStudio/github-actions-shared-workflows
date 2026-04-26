@@ -1,5 +1,16 @@
 # Github-actions-shared-workflows Changelog
 
+## [1.27.3](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.27.3)
+
+- Fixes:
+  - Unpinned branch-cleanup and labels-sync composites to @v1.
+
+Contributors: @bedatty, @lerian-studio
+
+[Compare changes](https://github.com/LerianStudio/github-actions-shared-workflows/compare/v1.27.2...v1.27.3)
+
+---
+
 ## [1.27.2](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.27.2)
 
 - Fixes:
