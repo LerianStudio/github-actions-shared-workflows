@@ -53,6 +53,65 @@ inputs:
 runs:
   using: composite
   steps:
+    # ----------------- Pre-flight Scope Banner -----------------
+    # actions/stale logs every item as "Issue #N" because it iterates the
+    # unified `/issues` API, where pull requests are a subtype of issue.
+    # That terminology can mislead a reader of the log into thinking the
+    # PR-only or issue-only job is acting on the wrong type. This banner
+    # states the actual scope (decided by the `-1` toggles) and the real
+    # repo counts before actions/stale runs, so the per-item logs that
+    # follow can be read in context.
+    - name: Announce stale scan scope
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+        GH_REPO: ${{ github.repository }}
+        DAYS_BEFORE_PR_STALE: ${{ inputs.days-before-pr-stale }}
+        DAYS_BEFORE_ISSUE_STALE: ${{ inputs.days-before-issue-stale }}
+        DRY_RUN: ${{ inputs.dry-run }}
+      run: |
+        pr_disabled="false"; issue_disabled="false"
+        [ "$DAYS_BEFORE_PR_STALE" = "-1" ] && pr_disabled="true"
+        [ "$DAYS_BEFORE_ISSUE_STALE" = "-1" ] && issue_disabled="true"
+
+        if [ "$pr_disabled" = "true" ] && [ "$issue_disabled" = "true" ]; then
+          scope="nothing — both sides disabled"
+        elif [ "$pr_disabled" = "true" ]; then
+          scope="issues only (PRs disabled via days-before-pr-stale=-1)"
+        elif [ "$issue_disabled" = "true" ]; then
+          scope="pull requests only (issues disabled via days-before-issue-stale=-1)"
+        else
+          scope="pull requests AND issues"
+        fi
+
+        # Count items via dedicated endpoints so the numbers are precise.
+        # `--paginate --slurp` returns an array of pages; aggregate across
+        # all pages so the count isn't capped at 100 on large repos.
+        pr_count=$(gh api --paginate --slurp \
+          "repos/${GH_REPO}/pulls?state=open&per_page=100" \
+          --jq 'map(length) | add' 2>/dev/null || echo "?")
+        issue_count=$(gh api --paginate --slurp \
+          "repos/${GH_REPO}/issues?state=open&per_page=100" \
+          --jq '[.[][] | select(.pull_request == null)] | length' 2>/dev/null || echo "?")
+
+        echo "::notice title=Stale scan scope::${scope}"
+        echo "::notice title=Open items in ${GH_REPO}::${pr_count} pull request(s), ${issue_count} issue(s)"
+        if [ "$DRY_RUN" = "true" ]; then
+          echo "::notice title=Dry run::No labels or comments will be applied (debug-only mode)"
+        fi
+
+        cat <<'NOTE'
+
+        Reading the per-item log below:
+          • actions/stale uses the unified /issues API, so every item is
+            announced as "Issue #N" — even pull requests.
+          • Internally the tool checks isPullRequest and routes each item
+            to the matching rule set (days-before-pr-* vs days-before-issue-*).
+          • Items of a type whose days-before-*-stale is -1 are listed but
+            never marked, commented on, or closed.
+
+        NOTE
+
     - name: Flag and close stale PRs and issues
       uses: actions/stale@b5d41d4e1d5dceea10e7104786b73624c18a190f # v10.2.0
       with:
