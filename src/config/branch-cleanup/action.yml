@@ -91,9 +91,31 @@ runs:
         deleted=0
         skipped=0
         protected_count=0
-        protection_failures=0
         has_pr=0
         page=1
+
+        # Pre-fetch the list of protected branch names once. The
+        # `?protected=true` filter on /branches returns only names that have
+        # branch-protection rules and only requires `contents: read` — unlike
+        # /branches/{branch}/protection, which needs the `administration`
+        # scope (not exposable via the workflow `permissions:` block on
+        # GITHUB_TOKEN). Membership lookups against this set replace the
+        # per-branch protection probe.
+        protected_set=""
+        proto_page=1
+        while :; do
+          proto_chunk=$(gh api "repos/${GH_REPO}/branches?protected=true&per_page=100&page=${proto_page}" \
+            --jq '.[].name' 2>/dev/null)
+          [[ -z "$proto_chunk" ]] && break
+          protected_set+="${proto_chunk}"$'\n'
+          proto_page=$((proto_page + 1))
+        done
+
+        is_protected_by_rule() {
+          local branch="$1"
+          [[ -z "$protected_set" ]] && return 1
+          grep -Fxq -- "$branch" <<< "$protected_set"
+        }
 
         while :; do
           branches=$(gh api "repos/${GH_REPO}/branches?per_page=100&page=${page}" \
@@ -106,38 +128,11 @@ runs:
               continue
             fi
 
-            # Check GitHub branch protection rules — parse HTTP status to
-            # distinguish 200 (protected) / 404 (unprotected) / other (abort branch).
-            # Stderr is merged so network/auth errors are visible in the log, but we
-            # only trust the numeric code from a proper `HTTP/X.X NNN` status line.
-            protection_response=$(gh api -i "repos/${GH_REPO}/branches/${branch}/protection" 2>&1 || true)
-            protection_status=""
-            while IFS= read -r response_line; do
-              if [[ "$response_line" =~ ^HTTP/[^[:space:]]+[[:space:]]+([0-9]{3}) ]]; then
-                protection_status="${BASH_REMATCH[1]}"
-                break
-              fi
-            done <<< "$protection_response"
-
-            case "$protection_status" in
-              200)
-                protected_count=$((protected_count + 1))
-                [[ "$DRY_RUN" == "true" ]] && echo "  [protected-rule] $branch"
-                continue
-                ;;
-              404)
-                ;;
-              "")
-                echo "::warning::Unable to parse protection status for '$branch' — skipping"
-                protection_failures=$((protection_failures + 1))
-                continue
-                ;;
-              *)
-                echo "::warning::Unexpected HTTP '$protection_status' checking protection for '$branch' — skipping"
-                protection_failures=$((protection_failures + 1))
-                continue
-                ;;
-            esac
+            if is_protected_by_rule "$branch"; then
+              protected_count=$((protected_count + 1))
+              [[ "$DRY_RUN" == "true" ]] && echo "  [protected-rule] $branch"
+              continue
+            fi
 
             # Get last commit date
             last_commit_date=$(gh api "repos/${GH_REPO}/commits?sha=${branch}&per_page=1" \
@@ -182,10 +177,9 @@ runs:
 
         echo ""
         echo "--- Summary ---"
-        echo "Protected         : $protected_count"
-        echo "Active            : $skipped"
-        echo "Has PR            : $has_pr"
-        echo "Protection errors : $protection_failures"
+        echo "Protected : $protected_count"
+        echo "Active    : $skipped"
+        echo "Has PR    : $has_pr"
         if [[ "$DRY_RUN" == "true" ]]; then
           echo "To delete : $deleted"
           echo "::notice::DRY RUN complete — $deleted branch(es) would be deleted"
