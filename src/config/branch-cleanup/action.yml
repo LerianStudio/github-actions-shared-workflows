@@ -104,8 +104,16 @@ runs:
         protected_set=""
         proto_page=1
         while :; do
-          proto_chunk=$(gh api "repos/${GH_REPO}/branches?protected=true&per_page=100&page=${proto_page}" \
-            --jq '.[].name' 2>/dev/null)
+          # Don't suppress stderr — a transient gh failure must not look like
+          # the natural end-of-pagination case (exit 0 + empty stdout). If
+          # the call fails we must abort, not silently leave protected_set
+          # empty: that would let `is_protected_by_rule` return false for
+          # every branch and rule-protected branches would be deleted.
+          if ! proto_chunk=$(gh api "repos/${GH_REPO}/branches?protected=true&per_page=100&page=${proto_page}" \
+              --jq '.[].name'); then
+            echo "::error::Failed to list rule-protected branches (page ${proto_page}); aborting to avoid unsafe deletions."
+            exit 1
+          fi
           [[ -z "$proto_chunk" ]] && break
           protected_set+="${proto_chunk}"$'\n'
           proto_page=$((proto_page + 1))
