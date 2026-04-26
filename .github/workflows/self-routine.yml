@@ -36,6 +36,9 @@ permissions:
   pull-requests: write
   issues: write
   actions: write
+  # Branch cleanup reads `branches/{branch}/protection`; without
+  # `administration: read` the call returns 403 and every branch is skipped.
+  administration: read
 
 jobs:
   # ----------------- Branch Cleanup -----------------

@@ -41,6 +41,10 @@ on:
 permissions:
   contents: write
   pull-requests: read
+  # Required so `gh api .../branches/{branch}/protection` returns 200/404
+  # instead of 403 — without this scope every branch is "skipped" with an
+  # `Unexpected HTTP '403'` warning and nothing is ever deleted.
+  administration: read
 
 jobs:
   cleanup:
