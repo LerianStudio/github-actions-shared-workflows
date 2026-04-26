@@ -85,9 +85,14 @@ runs:
         fi
 
         # Count items via dedicated endpoints so the numbers are precise.
-        pr_count=$(gh api "repos/${GH_REPO}/pulls?state=open&per_page=100" --jq 'length' 2>/dev/null || echo "?")
-        issue_count=$(gh api "repos/${GH_REPO}/issues?state=open&per_page=100" \
-          --jq '[.[] | select(.pull_request == null)] | length' 2>/dev/null || echo "?")
+        # `--paginate --slurp` returns an array of pages; aggregate across
+        # all pages so the count isn't capped at 100 on large repos.
+        pr_count=$(gh api --paginate --slurp \
+          "repos/${GH_REPO}/pulls?state=open&per_page=100" \
+          --jq 'map(length) | add' 2>/dev/null || echo "?")
+        issue_count=$(gh api --paginate --slurp \
+          "repos/${GH_REPO}/issues?state=open&per_page=100" \
+          --jq '[.[][] | select(.pull_request == null)] | length' 2>/dev/null || echo "?")
 
         echo "::notice title=Stale scan scope::${scope}"
         echo "::notice title=Open items in ${GH_REPO}::${pr_count} pull request(s), ${issue_count} issue(s)"
