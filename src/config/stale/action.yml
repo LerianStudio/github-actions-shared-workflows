@@ -142,11 +142,20 @@ runs:
       if: always()
       shell: bash
       env:
+        STALE_OUTCOME: ${{ steps.stale.outcome }}
         STALED: ${{ steps.stale.outputs.staled-issues-prs }}
         CLOSED: ${{ steps.stale.outputs.closed-issues-prs }}
       run: |
         echo "::endgroup::"
         echo ""
+
+        # When actions/stale didn't succeed, its outputs are empty for the
+        # wrong reason — reporting 0 marked / 0 closed would lie about the
+        # state of the run. Surface the real outcome instead.
+        if [ "$STALE_OUTCOME" != "success" ]; then
+          echo "::warning title=Stale scan summary unavailable::actions/stale outcome=${STALE_OUTCOME}; counts are not reliable."
+          exit 0
+        fi
 
         count_csv() {
           local csv="$1"
