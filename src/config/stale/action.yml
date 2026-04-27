@@ -100,19 +100,13 @@ runs:
           echo "::notice title=Dry run::No labels or comments will be applied (debug-only mode)"
         fi
 
-        cat <<'NOTE'
-
-        Reading the per-item log below:
-          • actions/stale uses the unified /issues API, so every item is
-            announced as "Issue #N" — even pull requests.
-          • Internally the tool checks isPullRequest and routes each item
-            to the matching rule set (days-before-pr-* vs days-before-issue-*).
-          • Items of a type whose days-before-*-stale is -1 are listed but
-            never marked, commented on, or closed.
-
-        NOTE
+        # Open a collapsible group around the verbose actions/stale per-item
+        # output that follows. The group is closed in the post-run summary
+        # step. Readers see the noisy log collapsed by default in the UI.
+        echo "::group::actions/stale per-item log (verbose; expand to inspect)"
 
     - name: Flag and close stale PRs and issues
+      id: stale
       uses: actions/stale@b5d41d4e1d5dceea10e7104786b73624c18a190f # v10.2.0
       with:
         repo-token: ${{ inputs.github-token }}
@@ -139,3 +133,41 @@ runs:
           Closing this PR due to prolonged inactivity. Reopen if work resumes.
         close-issue-message: >-
           Closing this issue due to prolonged inactivity. Reopen if it is still relevant.
+
+    # ----------------- Post-run Summary -----------------
+    # Closes the collapsible group opened in the pre-flight step and emits
+    # a clean, deduplicated summary derived from the action's outputs so
+    # readers don't have to scan the verbose log to know what happened.
+    - name: Summarize stale scan outcome
+      if: always()
+      shell: bash
+      env:
+        STALE_OUTCOME: ${{ steps.stale.outcome }}
+        STALED: ${{ steps.stale.outputs.staled-issues-prs }}
+        CLOSED: ${{ steps.stale.outputs.closed-issues-prs }}
+      run: |
+        echo "::endgroup::"
+        echo ""
+
+        # When actions/stale didn't succeed, its outputs are empty for the
+        # wrong reason — reporting 0 marked / 0 closed would lie about the
+        # state of the run. Surface the real outcome instead.
+        if [ "$STALE_OUTCOME" != "success" ]; then
+          echo "::warning title=Stale scan summary unavailable::actions/stale outcome=${STALE_OUTCOME}; counts are not reliable."
+          exit 0
+        fi
+
+        count_csv() {
+          local csv="$1"
+          [ -z "$csv" ] && { echo 0; return; }
+          # Items are comma-separated; awk avoids subshell + tr cost.
+          awk -v s="$csv" 'BEGIN { n = split(s, a, ","); print n }'
+        }
+
+        staled_count=$(count_csv "$STALED")
+        closed_count=$(count_csv "$CLOSED")
+
+        echo "::notice title=Stale scan summary::Marked stale: ${staled_count} | Closed: ${closed_count}"
+        [ -n "$STALED" ] && echo "  Marked stale: ${STALED}"
+        [ -n "$CLOSED" ] && echo "  Closed: ${CLOSED}"
+        echo ""
