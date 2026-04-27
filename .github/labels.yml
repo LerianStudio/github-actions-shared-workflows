@@ -30,6 +30,10 @@
   color: "ededed"
   description: Dependency updates (usually opened by Dependabot)
 
+- name: github-actions
+  color: "2088FF"
+  description: Updates to GitHub Actions dependencies (Dependabot ecosystem)
+
 - name: github-config
   color: "f9d0c4"
   description: Changes to repository configuration (templates, CODEOWNERS, labeler, etc.)
