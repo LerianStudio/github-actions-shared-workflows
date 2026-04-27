@@ -70,6 +70,11 @@ jobs:
       || (github.event_name == 'workflow_dispatch' && (inputs.routine == 'all' || inputs.routine == 'stale-pr'))
     uses: ./.github/workflows/stale-pr.yml
     with:
+      # Schedule is weekly here, so we raise the per-run budget from the
+      # reusable's daily-sized default (60) to roughly a week's worth (420)
+      # — keeps stale/close throughput equivalent to the pre-unified-cron
+      # cadence even if the open-PR backlog grows past 60 items.
+      operations_per_run: ${{ github.event_name == 'schedule' && 420 || 60 }}
       dry_run: ${{ inputs.dry_run || false }}
     secrets: inherit
 
@@ -82,6 +87,10 @@ jobs:
       || (github.event_name == 'workflow_dispatch' && (inputs.routine == 'all' || inputs.routine == 'stale-issue'))
     uses: ./.github/workflows/stale-issue.yml
     with:
+      # Same rationale as stale_pr — bump the weekly-scheduled budget to
+      # match the pre-refactor daily refresh, so issue throughput isn't
+      # gated by the 60-op default when running once a week.
+      operations_per_run: ${{ github.event_name == 'schedule' && 420 || 60 }}
       dry_run: ${{ inputs.dry_run || false }}
     secrets: inherit
 
