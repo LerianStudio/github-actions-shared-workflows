@@ -17,6 +17,7 @@ on:
       # The deployment matrix is resolved from main at runtime by callers, so
       # matrix-only changes propagate without a new release tag.
       - 'config/deployment-matrix.yml'
+      - '.github/workflows/self-*.yml'
     tags-ignore:
       - '**'
 
