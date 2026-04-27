@@ -2,11 +2,12 @@ name: Self — Repository Routines
 
 on:
   schedule:
-    - cron: "0 3 * * 1"   # weekly Mon 03:00 UTC  — branch cleanup (stale scan)
-    - cron: "0 4 * * *"   # daily 04:00 UTC        — stale PRs
-    - cron: "30 4 * * 3"  # weekly Wed 04:30 UTC   — stale issues
-    - cron: "0 5 * * 0"   # weekly Sun 05:00 UTC   — labels sync (reconciliation)
-    - cron: "0 6 1 * *"   # monthly 1st 06:00 UTC  — workflow runs cleanup
+    # Single weekly cron — every Monday at 03:00 UTC fires every routine in
+    # the same workflow run. Stale/cleanup actions are idempotent: any item
+    # that doesn't meet the threshold is logged and skipped, so running them
+    # together once a week is the simplest mental model with no real cost
+    # over staggered cadences.
+    - cron: "0 3 * * 1"
   pull_request:
     types: [closed]
   push:
@@ -52,7 +53,7 @@ jobs:
   branch_cleanup_stale:
     name: Clean stale branches
     if: |
-      (github.event_name == 'schedule' && github.event.schedule == '0 3 * * 1')
+      github.event_name == 'schedule'
       || (github.event_name == 'workflow_dispatch' && (inputs.routine == 'all' || inputs.routine == 'branch-cleanup-stale'))
     uses: ./.github/workflows/branch-cleanup.yml
     with:
@@ -65,10 +66,11 @@ jobs:
   stale_pr:
     name: Close stale PRs
     if: |
-      (github.event_name == 'schedule' && github.event.schedule == '0 4 * * *')
+      github.event_name == 'schedule'
       || (github.event_name == 'workflow_dispatch' && (inputs.routine == 'all' || inputs.routine == 'stale-pr'))
     uses: ./.github/workflows/stale-pr.yml
     with:
+      operations_per_run: ${{ github.event_name == 'schedule' && 420 || 60 }}
       dry_run: ${{ inputs.dry_run || false }}
     secrets: inherit
 
@@ -77,7 +79,7 @@ jobs:
   stale_issue:
     name: Close stale issues
     if: |
-      (github.event_name == 'schedule' && github.event.schedule == '30 4 * * 3')
+      github.event_name == 'schedule'
       || (github.event_name == 'workflow_dispatch' && (inputs.routine == 'all' || inputs.routine == 'stale-issue'))
     uses: ./.github/workflows/stale-issue.yml
     with:
@@ -92,7 +94,7 @@ jobs:
     name: Sync labels
     if: |
       github.event_name == 'push'
-      || (github.event_name == 'schedule' && github.event.schedule == '0 5 * * 0')
+      || github.event_name == 'schedule'
       || (github.event_name == 'workflow_dispatch' && (inputs.routine == 'all' || inputs.routine == 'labels-sync'))
     uses: ./.github/workflows/labels-sync.yml
     with:
@@ -104,7 +106,7 @@ jobs:
   workflow_runs_cleanup:
     name: Delete old workflow runs
     if: |
-      (github.event_name == 'schedule' && github.event.schedule == '0 6 1 * *')
+      github.event_name == 'schedule'
       || (github.event_name == 'workflow_dispatch' && (inputs.routine == 'all' || inputs.routine == 'workflow-runs-cleanup'))
     uses: ./.github/workflows/workflow-runs-cleanup.yml
     with:
