@@ -1,5 +1,25 @@
 # Github-actions-shared-workflows Changelog
 
+## [1.27.5](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.27.5)
+
+- **Features:**
+  - Collapse self-routine to a single weekly cron firing all jobs.
+
+- **Fixes:**
+  - Correct upload-artifact v7 SHA in go-security.
+  - Pin remaining external actions by SHA in go-security.
+  - Add missing github-actions label for Dependabot.
+  - Collapse actions/stale verbose log and add custom summary.
+
+- **Improvements:**
+  - Skip release when only self-* workflows change.
+
+Contributors: @bedatty, @lerian-studio
+
+[Compare changes](https://github.com/LerianStudio/github-actions-shared-workflows/compare/v1.27.4...v1.27.5)
+
+---
+
 ## [1.27.4](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.27.4)
 
 - Fixes:
