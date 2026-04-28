@@ -79,7 +79,12 @@ Deletes branches with no commits for **20 days**. Protected patterns (`main`, `m
 Reconciles the repository's labels against `.github/labels.yml`. Also fires immediately when that file changes on `main`.
 
 #### Workflow runs cleanup (`workflow_runs_cleanup`)
-Deletes workflow runs older than **90 days** to keep the Actions tab navigable.
+Deletes old workflow runs from the Actions tab to keep history navigable. Two guards must both be satisfied for a run to be deleted:
+
+- The run is older than **45 days** (`retention_days`).
+- After deletion, the workflow still has at least **10 runs** retained (`keep_minimum_runs`).
+
+The minimum-runs floor protects rarely-triggered workflows (e.g. release backmerges) from having their entire history wiped. By default all workflows, all conclusions (`success`, `failure`, `cancelled`), and all states (active, disabled) are eligible — adjust via `delete_workflow_pattern`, `delete_run_by_conclusion_pattern`, and `delete_workflow_by_state_pattern` if you call the reusable workflow directly.
 
 ### Effective windows
 
