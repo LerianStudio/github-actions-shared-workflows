@@ -34,7 +34,7 @@ None.
 <!-- Shared workflows can't be unit-tested locally. Describe how you validated the change. -->
 
 - [ ] YAML syntax validated locally
-- [ ] Triggered a real workflow run on a caller repository using `@develop` or the beta tag
+- [ ] Triggered a real workflow run on a caller repository using `@this-branch` or the beta tag
 - [ ] Verified all existing inputs still work with default values
 - [ ] Confirmed no secrets or tokens are printed in logs
 - [ ] Checked that unrelated workflows are not affected
