@@ -49,6 +49,7 @@ apps:
     - plugin-br-pix-indirect-btg
     - plugin-br-bank-transfer     # generic build (firmino + clotilde)
     - plugin-br-bank-transfer-jd  # JD-specific build (anacleto only)
+    - plugin-bc-correios
 
     # Clotilde-exclusive Lerian platform suite
     - backoffice-console
@@ -72,6 +73,7 @@ clusters:
       - plugin-br-pix-direct-jd
       - plugin-br-pix-indirect-btg
       - plugin-br-bank-transfer
+      - plugin-bc-correios
 
   clotilde:
     apps:
@@ -87,6 +89,7 @@ clusters:
       - plugin-br-pix-direct-jd
       - plugin-br-pix-indirect-btg
       - plugin-br-bank-transfer
+      - plugin-bc-correios
       - backoffice-console
       - cs-platform
       - forge
