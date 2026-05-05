@@ -16,6 +16,7 @@ Composite action that runs Trivy filesystem scans for secrets and vulnerabilitie
 | `skip-dirs` | Comma-separated directories to skip during scanning | No | `.git,node_modules,dist,build,.next,coverage,vendor` |
 | `trivy-version` | Trivy version to install | No | `v0.69.3` |
 | `exit-code-secret-scan` | Exit code when secrets are found in table output (`1` to fail, `0` to warn only) | No | `1` |
+| `ignorefile` | Path to Trivy ignore file (e.g., `.trivyignore.yaml` for path-scoped suppression) | No | `''` |
 
 ## Outputs
 
@@ -46,7 +47,7 @@ jobs:
 
       - name: Trivy Filesystem Scan
         id: fs-scan
-        uses: LerianStudio/github-actions-shared-workflows/src/security/trivy-fs-scan@v1.x.x
+        uses: LerianStudio/github-actions-shared-workflows/src/security/trivy-fs-scan@v1
         with:
           scan-ref: '.'
           app-name: 'my-service'
@@ -56,18 +57,33 @@ jobs:
 
 ```yaml
 - name: Trivy Filesystem Scan
-  uses: LerianStudio/github-actions-shared-workflows/src/security/trivy-fs-scan@v1.x.x
+  uses: LerianStudio/github-actions-shared-workflows/src/security/trivy-fs-scan@v1
   with:
     scan-ref: ${{ matrix.working_dir }}
     app-name: ${{ matrix.name }}
 ```
 
-### Production usage
+### With path-scoped suppression (ignorefile)
+
+Use `.trivyignore.yaml` to suppress findings only for specific paths (e.g., docs containing sample tokens from third-party specs):
 
 ```yaml
-- uses: LerianStudio/github-actions-shared-workflows/src/security/trivy-fs-scan@v1.0.0
+- name: Trivy Filesystem Scan
+  uses: LerianStudio/github-actions-shared-workflows/src/security/trivy-fs-scan@v1
   with:
+    scan-ref: '.'
     app-name: my-service
+    ignorefile: .trivyignore.yaml
+```
+
+Example `.trivyignore.yaml`:
+
+```yaml
+vulnerabilities: []
+secrets:
+  - id: jwt-token
+    paths:
+      - docs/specs/openapi-example.yaml
 ```
 
 ## Permissions required
