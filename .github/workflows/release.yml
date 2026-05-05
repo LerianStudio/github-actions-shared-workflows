@@ -1,7 +1,7 @@
 name: "Release Workflow"
 
-# This reusable workflow handles semantic versioning and release management
-# It creates releases based on conventional commits and manages version tags
+# This reusable workflow handles semantic versioning, release management, and
+# optional changelog generation.
 #
 # Monorepo Support:
 # - If filter_paths is provided: detects changes and runs release for each changed app
@@ -32,6 +32,26 @@ on:
         description: 'Limits the path to the first N segments (e.g., 2 -> "apps/agent")'
         type: string
         default: '2'
+      enable_changelog:
+        description: 'Generate CHANGELOG.md files via GPT after a successful release'
+        required: false
+        type: boolean
+        default: false
+      stable_releases_only:
+        description: 'Only generate changelogs for stable releases (skip beta/rc/alpha tags)'
+        required: false
+        type: boolean
+        default: true
+      openai_model:
+        description: 'Model to use for changelog generation (OpenRouter format)'
+        required: false
+        type: string
+        default: 'openai/gpt-4o'
+      max_context_tokens:
+        description: 'Maximum context tokens for changelog API call'
+        required: false
+        type: string
+        default: '80000'
 
 permissions:
   contents: read
@@ -203,15 +223,47 @@ jobs:
           echo "::error::Semantic release failed before publishing a new version"
           exit 1
 
+  # ----------------- Changelog Generation -----------------
+  generate_changelog:
+    name: Generate Changelog
+    needs: publish_release
+    if: inputs.enable_changelog && needs.publish_release.result == 'success'
+    runs-on: ${{ inputs.runner_type }}
+    steps:
+      - name: Create GitHub App Token
+        uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+        id: app-token
+        with:
+          client-id: ${{ secrets.LERIAN_STUDIO_MIDAZ_PUSH_BOT_APP_ID }}
+          private-key: ${{ secrets.LERIAN_STUDIO_MIDAZ_PUSH_BOT_PRIVATE_KEY }}
+
+      - name: Generate Changelog
+        uses: LerianStudio/github-actions-shared-workflows/src/changelog/gptchangelog@develop
+        with:
+          github-token: ${{ steps.app-token.outputs.token }}
+          gpg-private-key: ${{ secrets.LERIAN_CI_CD_USER_GPG_KEY }}
+          gpg-passphrase: ${{ secrets.LERIAN_CI_CD_USER_GPG_KEY_PASSWORD }}
+          git-committer-name: ${{ secrets.LERIAN_CI_CD_USER_NAME }}
+          git-committer-email: ${{ secrets.LERIAN_CI_CD_USER_EMAIL }}
+          openrouter-api-key: ${{ secrets.OPENROUTER_API_KEY }}
+          filter-paths: ${{ inputs.filter_paths }}
+          stable-releases-only: ${{ inputs.stable_releases_only }}
+          openai-model: ${{ inputs.openai_model }}
+          max-context-tokens: ${{ inputs.max_context_tokens }}
+
   # Slack notification
   notify:
     name: Notify
-    needs: [prepare, publish_release]
+    needs: [prepare, publish_release, generate_changelog]
     if: always() && needs.prepare.outputs.has_changes == 'true'
     uses: ./.github/workflows/slack-notify.yml
     with:
-      status: ${{ needs.publish_release.result }}
+      status: ${{ contains(needs.*.result, 'failure') && 'failure' || 'success' }}
       workflow_name: "Release"
-      failed_jobs: ${{ needs.publish_release.result == 'failure' && 'Publish Release' || '' }}
+      failed_jobs: >-
+        ${{
+          (needs.publish_release.result == 'failure' && 'Publish Release' || '') +
+          (needs.generate_changelog.result == 'failure' && ' / Generate Changelog' || '')
+        }}
     secrets:
       SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}

@@ -34,16 +34,27 @@ jobs:
       runner_type: ubuntu-latest
     secrets: inherit
 
-  # Only run after a stable release on main; develop/release-candidate produce
-  # beta/rc tags that the reusable skips anyway via stable_releases_only.
   generate-changelog:
     needs: publish-release
-    if: github.ref == 'refs/heads/main'
-    uses: ./.github/workflows/gptchangelog.yml
-    with:
-      runner_type: ubuntu-latest
-      stable_releases_only: true
-    secrets: inherit
+    if: github.ref == 'refs/heads/main' && needs.publish-release.result == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+        id: app-token
+        with:
+          client-id: ${{ secrets.LERIAN_STUDIO_MIDAZ_PUSH_BOT_APP_ID }}
+          private-key: ${{ secrets.LERIAN_STUDIO_MIDAZ_PUSH_BOT_PRIVATE_KEY }}
+
+      - name: Generate Changelog
+        uses: ./src/changelog/gptchangelog
+        with:
+          github-token: ${{ steps.app-token.outputs.token }}
+          gpg-private-key: ${{ secrets.LERIAN_CI_CD_USER_GPG_KEY }}
+          gpg-passphrase: ${{ secrets.LERIAN_CI_CD_USER_GPG_KEY_PASSWORD }}
+          git-committer-name: ${{ secrets.LERIAN_CI_CD_USER_NAME }}
+          git-committer-email: ${{ secrets.LERIAN_CI_CD_USER_EMAIL }}
+          openrouter-api-key: ${{ secrets.OPENROUTER_API_KEY }}
+          stable-releases-only: 'true'
 
   # Force-update the floating major version tag (e.g. v1) to point at the
   # latest stable release. Enables downstream composites to pin to @v1 and

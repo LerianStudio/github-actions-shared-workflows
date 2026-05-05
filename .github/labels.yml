@@ -100,6 +100,10 @@
   color: "1d76db"
   description: Changes to PR validation composite actions (src/validate/)
 
+- name: changelog
+  color: "0052cc"
+  description: Changes to changelog generation composite actions (src/changelog/)
+
 - name: deployment-matrix
   color: "5319e7"
   description: Changes to the canonical deployment matrix (config/deployment-matrix.yml)
