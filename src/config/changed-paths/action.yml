@@ -203,8 +203,11 @@ runs:
             DIRS="$FILTER_PATHS"
           fi
         else
-          # Get directory for each file
-          DIRS=$(echo "$FILES" | xargs -n1 dirname)
+          # Get directory for each file (while/read preserves filenames with spaces)
+          DIRS=$(while IFS= read -r file; do
+            [[ -z "$file" ]] && continue
+            dirname -- "$file"
+          done <<< "$FILES")
 
           # Trim to first N path segments if specified
           if [[ -n "$PATH_LEVEL" ]] && [[ "$PATH_LEVEL" -gt 0 ]]; then
