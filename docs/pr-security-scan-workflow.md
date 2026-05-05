@@ -199,6 +199,7 @@ When enabled, the workflow scans `go.mod`, `package.json`, and `Dockerfile` for 
 | `codeql_upload_sarif` | boolean | `false` | Upload CodeQL SARIF results to the GitHub Security tab. Requires Code Security (GHAS) enabled on the repo |
 | `enable_prerelease_check` | boolean | `true` | Block dependencies pinned to pre-release versions (`-beta`, `-rc`) |
 | `prerelease_block_branches` | string | `release-candidate,main` | Comma-separated PR target branches where pre-release versions cause a hard failure. On other branches, findings are reported as warnings only |
+| `ignore_file` | string | `''` | Path to Trivy ignore file (e.g., `.trivyignore.yaml`) for path-scoped suppression of secrets and vulnerabilities. Passed through to `trivy-fs-scan` via `--ignorefile`. Supports Trivy's structured YAML format with `paths:` constraints |
 
 ## Secrets
 
