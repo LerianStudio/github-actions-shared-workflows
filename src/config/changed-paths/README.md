@@ -52,7 +52,7 @@ Composite action that detects changed files between commits and outputs a matrix
 steps:
   - name: Get changed paths
     id: changed-paths
-    uses: LerianStudio/github-actions-shared-workflows/src/config/changed-paths@v1.0.0
+    uses: LerianStudio/github-actions-shared-workflows/src/config/changed-paths@v1
     with:
       filter-paths: '["components/api", "components/web"]'
       path-level: 2
@@ -213,3 +213,7 @@ permissions:
 ## Requirements
 
 This action uses `jq` for JSON processing, which is preinstalled on all GitHub-hosted runners.
+
+## Notes
+
+Filenames containing shell-special characters (parentheses, single quotes, semicolons, backticks) are handled safely. All inputs and the changed-files list are passed via step `env:` instead of template interpolation, so the rendered shell script is never broken by special characters in filenames (e.g., third-party docs/specs with names like `pain.009 - solicitação confirmação (1).xml`).
