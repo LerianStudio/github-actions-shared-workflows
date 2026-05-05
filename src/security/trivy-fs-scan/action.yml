@@ -21,7 +21,7 @@ inputs:
     description: 'Exit code when secrets are found in table output (1 to fail, 0 to warn only)'
     required: false
     default: '1'
-  ignorefile:
+  ignore-file:
     description: 'Path to Trivy ignore file (e.g., .trivyignore.yaml for path-scoped suppression)'
     required: false
     default: ''
@@ -48,7 +48,7 @@ runs:
         exit-code: ${{ inputs.exit-code-secret-scan }}
         hide-progress: true
         skip-dirs: ${{ inputs.skip-dirs }}
-        trivyignores: ${{ inputs.ignorefile }}
+        trivyignores: ${{ inputs.ignore-file }}
         version: ${{ inputs.trivy-version }}
 
     - name: Trivy Secret Scan (SARIF Output)
@@ -63,7 +63,7 @@ runs:
         exit-code: '0'
         hide-progress: true
         skip-dirs: ${{ inputs.skip-dirs }}
-        trivyignores: ${{ inputs.ignorefile }}
+        trivyignores: ${{ inputs.ignore-file }}
         version: ${{ inputs.trivy-version }}
 
     # ----------------- Vulnerability Scanning -----------------
@@ -79,7 +79,7 @@ runs:
         exit-code: '0'
         hide-progress: true
         skip-dirs: ${{ inputs.skip-dirs }}
-        trivyignores: ${{ inputs.ignorefile }}
+        trivyignores: ${{ inputs.ignore-file }}
         version: ${{ inputs.trivy-version }}
 
     # ----------------- Outputs -----------------

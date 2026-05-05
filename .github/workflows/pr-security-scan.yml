@@ -103,7 +103,7 @@ on:
         description: 'Comma-separated list of PR target branches where pre-release versions cause a hard failure. On other branches, findings are reported as warnings only.'
         type: string
         default: 'release-candidate,main'
-      ignorefile:
+      ignore_file:
         description: 'Path to Trivy ignore file (e.g., .trivyignore.yaml for path-scoped suppression of secrets/vulnerabilities)'
         type: string
         required: false
@@ -187,7 +187,7 @@ jobs:
         with:
           scan-ref: ${{ matrix.working_dir }}
           app-name: ${{ env.APP_NAME }}
-          ignorefile: ${{ inputs.ignorefile }}
+          ignore-file: ${{ inputs.ignore_file }}
 
       # ----------------- Docker Build -----------------
       - name: Build Docker Image for Scanning

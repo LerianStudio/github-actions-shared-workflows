@@ -16,7 +16,7 @@ Composite action that runs Trivy filesystem scans for secrets and vulnerabilitie
 | `skip-dirs` | Comma-separated directories to skip during scanning | No | `.git,node_modules,dist,build,.next,coverage,vendor` |
 | `trivy-version` | Trivy version to install | No | `v0.69.3` |
 | `exit-code-secret-scan` | Exit code when secrets are found in table output (`1` to fail, `0` to warn only) | No | `1` |
-| `ignorefile` | Path to Trivy ignore file (e.g., `.trivyignore.yaml` for path-scoped suppression) | No | `''` |
+| `ignore-file` | Path to Trivy ignore file (e.g., `.trivyignore.yaml` for path-scoped suppression) | No | `''` |
 
 ## Outputs
 
@@ -73,7 +73,7 @@ Use `.trivyignore.yaml` to suppress findings only for specific paths (e.g., docs
   with:
     scan-ref: '.'
     app-name: my-service
-    ignorefile: .trivyignore.yaml
+    ignore-file: .trivyignore.yaml
 ```
 
 Example `.trivyignore.yaml`:
