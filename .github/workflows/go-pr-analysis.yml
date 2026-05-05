@@ -248,7 +248,7 @@ jobs:
         env:
           SYSTEM_PACKAGES: ${{ inputs.system_packages }}
         run: |
-          read -r -a PACKAGES <<< "$SYSTEM_PACKAGES"
+          mapfile -t PACKAGES < <(printf '%s' "$SYSTEM_PACKAGES" | tr -s '[:space:]' '\n' | grep -v '^[[:space:]]*$')
           if [[ ${#PACKAGES[@]} -eq 0 ]]; then
             echo "::notice::No valid package names in system_packages; skipping."
             exit 0
@@ -340,7 +340,7 @@ jobs:
         env:
           SYSTEM_PACKAGES: ${{ inputs.system_packages }}
         run: |
-          read -r -a PACKAGES <<< "$SYSTEM_PACKAGES"
+          mapfile -t PACKAGES < <(printf '%s' "$SYSTEM_PACKAGES" | tr -s '[:space:]' '\n' | grep -v '^[[:space:]]*$')
           if [[ ${#PACKAGES[@]} -eq 0 ]]; then
             echo "::notice::No valid package names in system_packages; skipping."
             exit 0
@@ -433,7 +433,7 @@ jobs:
         env:
           SYSTEM_PACKAGES: ${{ inputs.system_packages }}
         run: |
-          read -r -a PACKAGES <<< "$SYSTEM_PACKAGES"
+          mapfile -t PACKAGES < <(printf '%s' "$SYSTEM_PACKAGES" | tr -s '[:space:]' '\n' | grep -v '^[[:space:]]*$')
           if [[ ${#PACKAGES[@]} -eq 0 ]]; then
             echo "::notice::No valid package names in system_packages; skipping."
             exit 0
@@ -839,7 +839,7 @@ jobs:
         env:
           SYSTEM_PACKAGES: ${{ inputs.system_packages }}
         run: |
-          read -r -a PACKAGES <<< "$SYSTEM_PACKAGES"
+          mapfile -t PACKAGES < <(printf '%s' "$SYSTEM_PACKAGES" | tr -s '[:space:]' '\n' | grep -v '^[[:space:]]*$')
           if [[ ${#PACKAGES[@]} -eq 0 ]]; then
             echo "::notice::No valid package names in system_packages; skipping."
             exit 0
@@ -919,7 +919,7 @@ jobs:
         env:
           SYSTEM_PACKAGES: ${{ inputs.system_packages }}
         run: |
-          read -r -a PACKAGES <<< "$SYSTEM_PACKAGES"
+          mapfile -t PACKAGES < <(printf '%s' "$SYSTEM_PACKAGES" | tr -s '[:space:]' '\n' | grep -v '^[[:space:]]*$')
           if [[ ${#PACKAGES[@]} -eq 0 ]]; then
             echo "::notice::No valid package names in system_packages; skipping."
             exit 0
@@ -971,7 +971,7 @@ jobs:
         env:
           SYSTEM_PACKAGES: ${{ inputs.system_packages }}
         run: |
-          read -r -a PACKAGES <<< "$SYSTEM_PACKAGES"
+          mapfile -t PACKAGES < <(printf '%s' "$SYSTEM_PACKAGES" | tr -s '[:space:]' '\n' | grep -v '^[[:space:]]*$')
           if [[ ${#PACKAGES[@]} -eq 0 ]]; then
             echo "::notice::No valid package names in system_packages; skipping."
             exit 0
