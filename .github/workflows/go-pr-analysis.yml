@@ -84,6 +84,11 @@ on:
         description: 'Number of times to run tests for determinism check'
         type: number
         default: 3
+      system_packages:
+        description: 'Space-separated list of apt packages to install before running Go commands (e.g., "libxml2-dev pkg-config"). Required for CGO repositories that depend on native system libraries.'
+        type: string
+        required: false
+        default: ''
 
 permissions:
   contents: read
@@ -238,6 +243,14 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
+      - name: Install system dependencies
+        if: inputs.system_packages != ''
+        env:
+          SYSTEM_PACKAGES: ${{ inputs.system_packages }}
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends $SYSTEM_PACKAGES
+
       - name: Setup Go
         uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
         with:
@@ -310,6 +323,14 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Install system dependencies
+        if: inputs.system_packages != ''
+        env:
+          SYSTEM_PACKAGES: ${{ inputs.system_packages }}
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends $SYSTEM_PACKAGES
 
       - name: Setup Go
         uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
@@ -384,6 +405,14 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Install system dependencies
+        if: inputs.system_packages != ''
+        env:
+          SYSTEM_PACKAGES: ${{ inputs.system_packages }}
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends $SYSTEM_PACKAGES
 
       - name: Setup Go
         uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
@@ -772,6 +801,14 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
+      - name: Install system dependencies
+        if: inputs.system_packages != ''
+        env:
+          SYSTEM_PACKAGES: ${{ inputs.system_packages }}
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends $SYSTEM_PACKAGES
+
       - name: Setup Go
         uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
         with:
@@ -833,6 +870,14 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
+      - name: Install system dependencies
+        if: inputs.system_packages != ''
+        env:
+          SYSTEM_PACKAGES: ${{ inputs.system_packages }}
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends $SYSTEM_PACKAGES
+
       - name: Setup Go
         uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
         with:
@@ -865,6 +910,14 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Install system dependencies
+        if: inputs.system_packages != ''
+        env:
+          SYSTEM_PACKAGES: ${{ inputs.system_packages }}
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends $SYSTEM_PACKAGES
 
       - name: Setup Go
         uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
