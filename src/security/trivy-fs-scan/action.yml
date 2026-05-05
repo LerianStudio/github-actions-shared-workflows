@@ -39,7 +39,7 @@ runs:
   steps:
     # ----------------- Secret Scanning -----------------
     - name: Trivy Secret Scan (Table Output)
-      uses: aquasecurity/trivy-action@0.35.0
+      uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # 0.35.0
       with:
         scan-type: fs
         scanners: secret
@@ -52,7 +52,7 @@ runs:
         version: ${{ inputs.trivy-version }}
 
     - name: Trivy Secret Scan (SARIF Output)
-      uses: aquasecurity/trivy-action@0.35.0
+      uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # 0.35.0
       if: always()
       with:
         scan-type: fs
@@ -68,7 +68,7 @@ runs:
 
     # ----------------- Vulnerability Scanning -----------------
     - name: Trivy Vulnerability Scan - Filesystem (JSON Output)
-      uses: aquasecurity/trivy-action@0.35.0
+      uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # 0.35.0
       if: always()
       with:
         scan-type: fs
