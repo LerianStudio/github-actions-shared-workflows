@@ -106,8 +106,7 @@ runs:
             fi
           else
             # Not a tag — compare with previous commit
-            PREV_COMMIT=$(git rev-parse HEAD^)
-            if [[ $? -eq 0 ]]; then
+            if PREV_COMMIT=$(git rev-parse HEAD^ 2>/dev/null); then
               FILES=$(git diff --name-only "$PREV_COMMIT" HEAD)
             else
               # Fallback for first commit
