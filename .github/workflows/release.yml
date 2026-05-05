@@ -261,9 +261,9 @@ jobs:
       status: ${{ contains(needs.*.result, 'failure') && 'failure' || 'success' }}
       workflow_name: "Release"
       failed_jobs: >-
-        ${{
-          (needs.publish_release.result == 'failure' && 'Publish Release' || '') +
+        ${{ format('{0}{1}',
+          (needs.publish_release.result == 'failure' && 'Publish Release' || ''),
           (needs.generate_changelog.result == 'failure' && ' / Generate Changelog' || '')
-        }}
+        ) }}
     secrets:
       SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
