@@ -427,12 +427,17 @@ jobs:
             if [[ -n "$KUSTOMIZE_ENVIRONMENTS" ]]; then
               ENVIRONMENTS="$KUSTOMIZE_ENVIRONMENTS"
               echo "Kustomize: env loop overridden via kustomize_environments: $ENVIRONMENTS"
-            elif [[ "$KUSTOMIZE_BASE_PATH" != *'${ENV}'* ]]; then
-              # No ${ENV} placeholder in path → run once per server with sentinel env "-"
-              ENVIRONMENTS="-"
-              echo "Kustomize: no \${ENV} placeholder in path, running once per server (sentinel env '-')"
             else
-              echo "Kustomize: \${ENV} placeholder present, using tag-based env list"
+              # Detect literal "${ENV}" placeholder in the path. Build the needle
+              # by concatenating to avoid SC2016 (single-quoted "${ENV}" looks like
+              # an unexpanded expression to shellcheck).
+              ENV_NEEDLE='$''{ENV}'
+              if [[ "$KUSTOMIZE_BASE_PATH" != *"$ENV_NEEDLE"* ]]; then
+                ENVIRONMENTS="-"
+                echo "Kustomize: no \${ENV} placeholder in path, running once per server (sentinel env '-')"
+              else
+                echo "Kustomize: \${ENV} placeholder present, using tag-based env list"
+              fi
             fi
           fi
 
