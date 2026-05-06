@@ -40,9 +40,10 @@ on:
         type: string
         required: false
       yaml_key_mappings:
-        description: 'JSON object mapping artifact names to YAML keys (e.g., {"backend.tag": ".auth.image.tag", "frontend.tag": ".frontend.image.tag"})'
+        description: 'JSON object mapping artifact names to YAML keys (e.g., {"backend.tag": ".auth.image.tag", "frontend.tag": ".frontend.image.tag"}). Required for gitops_layout=helmfile, ignored for gitops_layout=kustomize.'
         type: string
-        required: true
+        required: false
+        default: ''
       commit_message_prefix:
         description: 'Prefix for commit message (defaults to repository name if not provided)'
         type: string
@@ -68,9 +69,33 @@ on:
         type: boolean
         default: false
       configmap_updates:
-        description: 'JSON object mapping artifact names to configmap keys (e.g., {"pix.tag": ".pix.configmap.VERSION"})'
+        description: 'JSON object mapping artifact names to configmap keys (e.g., {"pix.tag": ".pix.configmap.VERSION"}). Helmfile layout only; ignored when gitops_layout=kustomize.'
         type: string
         required: false
+      gitops_layout:
+        description: 'GitOps layout strategy: "helmfile" (default, current behavior) or "kustomize".'
+        type: string
+        default: 'helmfile'
+      kustomize_base_path:
+        description: 'Required when gitops_layout=kustomize. Path within the gitops repo to the kustomization folder (e.g. environments/anacleto/kustomize/ungoliant-controller). Supports ${SERVER} and ${ENV} placeholders.'
+        type: string
+        default: ''
+      kustomize_image_name:
+        description: 'Required when gitops_layout=kustomize. Image reference matched by `kustomize edit set image` (e.g. ghcr.io/lerianstudio/ungoliant-controller).'
+        type: string
+        default: ''
+      kustomize_environments:
+        description: 'Optional space-separated env list overriding the default tag-based env loop when gitops_layout=kustomize. Leave empty for layouts without env split.'
+        type: string
+        default: ''
+      kustomize_version:
+        description: 'Version of kustomize CLI to install (used only when gitops_layout=kustomize).'
+        type: string
+        default: 'v5.4.3'
+      argocd_app_name_template:
+        description: 'Template for the ArgoCD application name. Supports placeholders {server}, {app}, {env}. Default {server}-{app}-{env} preserves current behavior. For kustomize layouts without env split, use e.g. {server}-{app}.'
+        type: string
+        default: '{server}-{app}-{env}'
 
 jobs:
   update_gitops:
@@ -160,6 +185,49 @@ jobs:
           sudo curl -L "$YQ_URL" -o /usr/local/bin/yq
           sudo chmod +x /usr/local/bin/yq
           yq --version
+
+      - name: Install kustomize
+        if: ${{ inputs.gitops_layout == 'kustomize' }}
+        shell: bash
+        env:
+          KUSTOMIZE_VERSION: ${{ inputs.kustomize_version }}
+        run: |
+          set -euo pipefail
+          VERSION_NO_V="${KUSTOMIZE_VERSION#v}"
+          URL="https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize/${VERSION_NO_V}/kustomize_${VERSION_NO_V}_linux_amd64.tar.gz"
+          curl -sSL "$URL" -o /tmp/kustomize.tar.gz
+          tar -xzf /tmp/kustomize.tar.gz -C /tmp
+          sudo install -m 755 /tmp/kustomize /usr/local/bin/kustomize
+          kustomize version
+
+      - name: Validate kustomize inputs
+        if: ${{ inputs.gitops_layout == 'kustomize' }}
+        shell: bash
+        env:
+          KUSTOMIZE_BASE_PATH: ${{ inputs.kustomize_base_path }}
+          KUSTOMIZE_IMAGE_NAME: ${{ inputs.kustomize_image_name }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$KUSTOMIZE_BASE_PATH" ]]; then
+            echo "::error::gitops_layout=kustomize requires kustomize_base_path."
+            exit 1
+          fi
+          if [[ -z "$KUSTOMIZE_IMAGE_NAME" ]]; then
+            echo "::error::gitops_layout=kustomize requires kustomize_image_name."
+            exit 1
+          fi
+
+      - name: Validate helmfile inputs
+        if: ${{ inputs.gitops_layout == 'helmfile' }}
+        shell: bash
+        env:
+          MAPPINGS: ${{ inputs.yaml_key_mappings }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$MAPPINGS" ]]; then
+            echo "::error::gitops_layout=helmfile requires yaml_key_mappings."
+            exit 1
+          fi
 
       - name: Resolve target clusters from deployment matrix
         id: resolve_clusters
@@ -326,6 +394,10 @@ jobs:
           RESOLVED_SERVERS: ${{ steps.resolve_clusters.outputs.clusters }}
           MAPPINGS: ${{ inputs.yaml_key_mappings }}
           CONFIGMAP_MAPPINGS: ${{ inputs.configmap_updates }}
+          GITOPS_LAYOUT: ${{ inputs.gitops_layout }}
+          KUSTOMIZE_BASE_PATH: ${{ inputs.kustomize_base_path }}
+          KUSTOMIZE_IMAGE_NAME: ${{ inputs.kustomize_image_name }}
+          KUSTOMIZE_ENVIRONMENTS: ${{ inputs.kustomize_environments }}
         run: |
           set -euo pipefail
 
@@ -348,7 +420,21 @@ jobs:
           fi
           echo "env_label=$ENV_LABEL" >> "$GITHUB_OUTPUT"
           echo "Detected tag type: $ENV_LABEL"
-          echo "Environments to update: $ENVIRONMENTS"
+          echo "Default environments (helmfile/tag-based): $ENVIRONMENTS"
+
+          # Kustomize layout overrides the env loop based on user input or path placeholders.
+          if [[ "$GITOPS_LAYOUT" == "kustomize" ]]; then
+            if [[ -n "$KUSTOMIZE_ENVIRONMENTS" ]]; then
+              ENVIRONMENTS="$KUSTOMIZE_ENVIRONMENTS"
+              echo "Kustomize: env loop overridden via kustomize_environments: $ENVIRONMENTS"
+            elif [[ "$KUSTOMIZE_BASE_PATH" != *'${ENV}'* ]]; then
+              # No ${ENV} placeholder in path → run once per server with sentinel env "-"
+              ENVIRONMENTS="-"
+              echo "Kustomize: no \${ENV} placeholder in path, running once per server (sentinel env '-')"
+            else
+              echo "Kustomize: \${ENV} placeholder present, using tag-based env list"
+            fi
+          fi
 
           # Servers come from the deployment matrix manifest, filtered by force-off inputs.
           # See step `resolve_clusters` for resolution logic.
@@ -407,6 +493,57 @@ jobs:
           # Process each server and environment
           for SERVER in $SERVERS; do
             for ENV in $ENVIRONMENTS; do
+
+              if [[ "$GITOPS_LAYOUT" == "kustomize" ]]; then
+                # Resolve kustomize target dir (substitute ${SERVER} / ${ENV} placeholders).
+                TARGET_DIR="$KUSTOMIZE_BASE_PATH"
+                TARGET_DIR="${TARGET_DIR//\$\{SERVER\}/$SERVER}"
+                TARGET_DIR="${TARGET_DIR//\$\{ENV\}/$ENV}"
+                KUSTOMIZATION_FILE="gitops/${TARGET_DIR}/kustomization.yaml"
+
+                echo ""
+                echo "Processing: $SERVER/$ENV (kustomize)"
+                echo "  Path: $KUSTOMIZATION_FILE"
+
+                if [[ ! -f "$KUSTOMIZATION_FILE" ]]; then
+                  echo "  WARNING: kustomization.yaml not found: $KUSTOMIZATION_FILE"
+                  MISSING_FILES="${MISSING_FILES}${SERVER}/${ENV}:${KUSTOMIZATION_FILE}\n"
+                  continue
+                fi
+
+                FILE_CHANGED=false
+                FILE_BEFORE_HASH=$(sha256sum "$KUSTOMIZATION_FILE" | cut -d' ' -f1)
+
+                # Apply each available artifact tag via `kustomize edit set image`.
+                # The artifact value (TAG) is the only thing that varies; we set the
+                # same image_name for every artifact since kustomize layouts typically
+                # have a single image per kustomization.yaml. If an app has multiple
+                # images, callers can extend kustomize_image_name later (out of scope here).
+                for artifact_file in .gitops-tags/*; do
+                  [[ -f "$artifact_file" ]] || continue
+                  TAG="$(cut -d= -f2 < "$artifact_file" | tr -d '[:space:]')"
+                  [[ -n "$TAG" ]] || continue
+                  echo "    kustomize edit set image ${KUSTOMIZE_IMAGE_NAME}=${KUSTOMIZE_IMAGE_NAME}:${TAG}"
+                  ( cd "gitops/${TARGET_DIR}" && kustomize edit set image "${KUSTOMIZE_IMAGE_NAME}=${KUSTOMIZE_IMAGE_NAME}:${TAG}" )
+                done
+
+                FILE_AFTER_HASH=$(sha256sum "$KUSTOMIZATION_FILE" | cut -d' ' -f1)
+                if [[ "$FILE_BEFORE_HASH" != "$FILE_AFTER_HASH" ]]; then
+                  FILE_CHANGED=true
+                  UPDATED_FILES="${UPDATED_FILES}${KUSTOMIZATION_FILE}\n"
+                  UPDATED_SERVERS_ENVS="${UPDATED_SERVERS_ENVS}${SERVER}:${ENV}\n"
+                  echo "  Updated kustomization.yaml"
+                else
+                  echo "  No changes needed for this kustomization.yaml"
+                fi
+
+                if [[ -n "$CONFIGMAP_MAPPINGS" ]]; then
+                  echo "::warning::configmap_updates is ignored when gitops_layout=kustomize (out of scope for v1)."
+                fi
+
+                continue
+              fi
+
               VALUES_FILE="gitops/environments/${SERVER}/helmfile/applications/${ENV}/${APP_NAME}/values.yaml"
 
               echo ""
@@ -593,12 +730,33 @@ jobs:
           sudo install -m 755 /tmp/argocd /usr/local/bin/argocd
           argocd version --client
 
+      - name: Resolve ArgoCD application name
+        id: resolve_argocd_app
+        shell: bash
+        env:
+          TEMPLATE: ${{ inputs.argocd_app_name_template }}
+          SERVER: ${{ matrix.target.server }}
+          APP: ${{ needs.update_gitops.outputs.app_name }}
+          ENV_NAME: ${{ matrix.target.env }}
+        run: |
+          set -euo pipefail
+          NAME="$TEMPLATE"
+          NAME="${NAME//\{server\}/$SERVER}"
+          NAME="${NAME//\{app\}/$APP}"
+          NAME="${NAME//\{env\}/$ENV_NAME}"
+          # Collapse "--" sequences (sentinel env "-" produces "--" inside template).
+          while [[ "$NAME" == *--* ]]; do NAME="${NAME//--/-}"; done
+          # Strip trailing "-" left over when sentinel env "-" lands at the end.
+          NAME="${NAME%-}"
+          echo "name=$NAME" >> "$GITHUB_OUTPUT"
+          echo "Resolved ArgoCD app name: $NAME"
+
       - name: Sync ArgoCD application
         shell: bash
         env:
           ARGOCD_URL: ${{ secrets.ARGOCD_URL }}
           ARGOCD_TOKEN: ${{ secrets.ARGOCD_GHUSER_TOKEN }}
-          APP_NAME: ${{ matrix.target.server }}-${{ needs.update_gitops.outputs.app_name }}-${{ matrix.target.env }}
+          APP_NAME: ${{ steps.resolve_argocd_app.outputs.name }}
         run: |
           set -uo pipefail
 
