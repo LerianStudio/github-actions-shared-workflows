@@ -25,8 +25,8 @@ Generates `CHANGELOG.md` files using GPT (via OpenRouter) and opens a signed PR 
 
 | Output | Description |
 |---|---|
-| `has_changes` | `'true'` if the composite identified apps eligible for changelog generation |
-| `apps_updated` | Comma-separated list of apps whose CHANGELOGs were updated (empty if none) |
+| `has-changes` | `'true'` if the composite identified apps eligible for changelog generation |
+| `apps-updated` | Comma-separated list of apps whose CHANGELOGs were updated (empty if none) |
 
 ## Usage as composite step
 

@@ -34,10 +34,10 @@ inputs:
     default: 'openai/gpt-4o'
 
 outputs:
-  has_changes:
+  has-changes:
     description: Whether the composite identified apps eligible for changelog generation
     value: ${{ steps.set-matrix.outputs.has_changes }}
-  apps_updated:
+  apps-updated:
     description: Comma-separated list of apps whose CHANGELOGs were updated (empty if none)
     value: ${{ steps.generate.outputs.apps_updated }}
 
