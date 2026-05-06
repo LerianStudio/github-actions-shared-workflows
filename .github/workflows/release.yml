@@ -1,7 +1,7 @@
 name: "Release Workflow"
 
-# This reusable workflow handles semantic versioning and release management
-# It creates releases based on conventional commits and manages version tags
+# This reusable workflow handles semantic versioning, release management, and
+# optional changelog generation.
 #
 # Monorepo Support:
 # - If filter_paths is provided: detects changes and runs release for each changed app
@@ -32,6 +32,26 @@ on:
         description: 'Limits the path to the first N segments (e.g., 2 -> "apps/agent")'
         type: string
         default: '2'
+      enable_changelog:
+        description: 'Generate CHANGELOG.md files via GPT after a successful release'
+        required: false
+        type: boolean
+        default: false
+      enable_major_tag:
+        description: 'Force-update the floating major version tag (e.g. v1) after a successful release'
+        required: false
+        type: boolean
+        default: false
+      stable_releases_only:
+        description: 'Only generate changelogs for stable releases (skip beta/rc/alpha tags)'
+        required: false
+        type: boolean
+        default: true
+      openai_model:
+        description: 'Model to use for changelog generation (OpenRouter format)'
+        required: false
+        type: string
+        default: 'openai/gpt-4o'
 
 permissions:
   contents: read
@@ -63,7 +83,7 @@ jobs:
       - name: Get changed paths (monorepo)
         if: inputs.filter_paths != ''
         id: changed-paths
-        uses: LerianStudio/github-actions-shared-workflows/src/config/changed-paths@v1.18.0
+        uses: LerianStudio/github-actions-shared-workflows/src/config/changed-paths@v1
         with:
           filter-paths: ${{ inputs.filter_paths }}
           shared-paths: ${{ inputs.shared_paths }}
@@ -153,7 +173,7 @@ jobs:
       # ----------------- Snapshot tags before release -----------------
       - name: Snapshot tags before release
         id: pre-tags
-        uses: LerianStudio/github-actions-shared-workflows/src/config/release-tag-snapshot@v1.22.0
+        uses: LerianStudio/github-actions-shared-workflows/src/config/release-tag-snapshot@v1
 
       - name: Semantic Release
         uses: cycjimmy/semantic-release-action@b12c8f6015dc215fe37bc154d4ad456dd3833c90 # v6
@@ -177,7 +197,7 @@ jobs:
       - name: Detect if release was published
         if: always() && steps.semantic.outcome == 'failure'
         id: detect-release
-        uses: LerianStudio/github-actions-shared-workflows/src/config/release-tag-check@v1.21.0
+        uses: LerianStudio/github-actions-shared-workflows/src/config/release-tag-check@v1
         with:
           previous-tag: ${{ steps.pre-tags.outputs.latest-tag }}
 
@@ -188,7 +208,7 @@ jobs:
             steps.semantic.outputs.new_release_published == 'true' ||
             steps.detect-release.outputs.release-published == 'true'
           )
-        uses: LerianStudio/github-actions-shared-workflows/src/config/backmerge-pr@v1.21.0
+        uses: LerianStudio/github-actions-shared-workflows/src/config/backmerge-pr@v1
         with:
           github-token: ${{ steps.app-token.outputs.token }}
           source-branch: ${{ github.ref_name }}
@@ -203,15 +223,149 @@ jobs:
           echo "::error::Semantic release failed before publishing a new version"
           exit 1
 
+      # ----------------- Per-leg release publish marker -----------------
+      # Matrix job outputs are last-writer-wins, so we persist each leg's
+      # publish signal as an artifact and aggregate downstream.
+      - name: Mark publish status
+        if: always()
+        env:
+          SEMANTIC_PUBLISHED: ${{ steps.semantic.outputs.new_release_published }}
+          DETECT_PUBLISHED: ${{ steps.detect-release.outputs.release-published }}
+          APP_NAME: ${{ matrix.app.name }}
+          STATUS_DIR: ${{ runner.temp }}/publish-status
+        run: |
+          mkdir -p "$STATUS_DIR"
+          if [[ "$SEMANTIC_PUBLISHED" == "true" || "$DETECT_PUBLISHED" == "true" ]]; then
+            echo "true" > "$STATUS_DIR/${APP_NAME}.txt"
+            echo "✅ ${APP_NAME}: release published"
+          else
+            echo "false" > "$STATUS_DIR/${APP_NAME}.txt"
+            echo "ℹ️ ${APP_NAME}: no release published"
+          fi
+
+      - name: Upload publish status
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: publish-status-${{ matrix.app.name }}
+          path: ${{ runner.temp }}/publish-status/
+          retention-days: 1
+
+  # ----------------- Aggregate publish status across matrix legs -----------------
+  publish_release_status:
+    name: Aggregate Publish Status
+    needs: publish_release
+    if: always() && needs.publish_release.result != 'cancelled'
+    runs-on: ${{ inputs.runner_type }}
+    outputs:
+      release_published: ${{ steps.aggregate.outputs.published }}
+    steps:
+      - name: Download all publish status artifacts
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          pattern: publish-status-*
+          path: /tmp/publish-status
+          merge-multiple: true
+
+      - name: Aggregate published signal
+        id: aggregate
+        run: |
+          shopt -s nullglob
+          published=false
+          for f in /tmp/publish-status/*.txt; do
+            if [[ "$(cat "$f")" == "true" ]]; then
+              published=true
+              echo "✅ $(basename "$f" .txt) reported a release"
+            fi
+          done
+          echo "published=$published" >> "$GITHUB_OUTPUT"
+          if [[ "$published" == "true" ]]; then
+            echo "✅ At least one matrix leg published a release"
+          else
+            echo "ℹ️ No release published across matrix legs"
+          fi
+
+  # ----------------- Changelog Generation -----------------
+  generate_changelog:
+    name: Generate Changelog
+    needs: [publish_release, publish_release_status]
+    if: inputs.enable_changelog && needs.publish_release_status.outputs.release_published == 'true'
+    runs-on: ${{ inputs.runner_type }}
+    environment:
+      name: create_release
+    steps:
+      - name: Create GitHub App Token
+        uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+        id: app-token
+        with:
+          client-id: ${{ secrets.LERIAN_STUDIO_MIDAZ_PUSH_BOT_APP_ID }}
+          private-key: ${{ secrets.LERIAN_STUDIO_MIDAZ_PUSH_BOT_PRIVATE_KEY }}
+
+      - name: Generate Changelog
+        uses: LerianStudio/github-actions-shared-workflows/src/changelog/gptchangelog@v1
+        with:
+          github-token: ${{ steps.app-token.outputs.token }}
+          gpg-private-key: ${{ secrets.LERIAN_CI_CD_USER_GPG_KEY }}
+          gpg-passphrase: ${{ secrets.LERIAN_CI_CD_USER_GPG_KEY_PASSWORD }}
+          git-committer-name: ${{ secrets.LERIAN_CI_CD_USER_NAME }}
+          git-committer-email: ${{ secrets.LERIAN_CI_CD_USER_EMAIL }}
+          openrouter-api-key: ${{ secrets.OPENROUTER_API_KEY }}
+          filter-paths: ${{ inputs.filter_paths }}
+          stable-releases-only: ${{ inputs.stable_releases_only }}
+          openai-model: ${{ inputs.openai_model }}
+
+  # ----------------- Major Tag Update -----------------
+  update_major_tag:
+    name: Update Major Tag
+    needs: [publish_release, publish_release_status]
+    if: inputs.enable_major_tag && needs.publish_release_status.outputs.release_published == 'true'
+    runs-on: ${{ inputs.runner_type }}
+    environment:
+      name: create_release
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+        id: app-token
+        with:
+          client-id: ${{ secrets.LERIAN_STUDIO_MIDAZ_PUSH_BOT_APP_ID }}
+          private-key: ${{ secrets.LERIAN_STUDIO_MIDAZ_PUSH_BOT_PRIVATE_KEY }}
+
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          fetch-depth: 0
+          token: ${{ steps.app-token.outputs.token }}
+
+      - name: Import GPG key
+        uses: crazy-max/ghaction-import-gpg@2dc316deee8e90f13e1a351ab510b4d5bc0c82cd # v7
+        with:
+          gpg_private_key: ${{ secrets.LERIAN_CI_CD_USER_GPG_KEY }}
+          passphrase: ${{ secrets.LERIAN_CI_CD_USER_GPG_KEY_PASSWORD }}
+          git_committer_name: ${{ secrets.LERIAN_CI_CD_USER_NAME }}
+          git_committer_email: ${{ secrets.LERIAN_CI_CD_USER_EMAIL }}
+          git_config_global: true
+          git_user_signingkey: true
+          git_tag_gpgsign: true
+
+      - name: Update floating major version tag
+        uses: LerianStudio/github-actions-shared-workflows/src/config/update-major-tag@v1
+
   # Slack notification
   notify:
     name: Notify
-    needs: [prepare, publish_release]
+    needs: [prepare, publish_release, publish_release_status, generate_changelog, update_major_tag]
     if: always() && needs.prepare.outputs.has_changes == 'true'
     uses: ./.github/workflows/slack-notify.yml
     with:
-      status: ${{ needs.publish_release.result }}
+      status: >-
+        ${{ (contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled'))
+            && 'failure' || 'success' }}
       workflow_name: "Release"
-      failed_jobs: ${{ needs.publish_release.result == 'failure' && 'Publish Release' || '' }}
+      failed_jobs: >-
+        ${{ format('{0}{1}{2}',
+          (needs.publish_release.result == 'failure' && 'Publish Release' || ''),
+          (needs.generate_changelog.result == 'failure' && ' / Generate Changelog' || ''),
+          (needs.update_major_tag.result == 'failure' && ' / Update Major Tag' || '')
+        ) }}
     secrets:
       SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
