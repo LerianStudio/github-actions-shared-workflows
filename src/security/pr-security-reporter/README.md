@@ -7,6 +7,8 @@
 
 Composite action that posts a formatted security scan summary as a PR comment, combining Trivy filesystem scan, Docker image scan, and Docker Hub Health Score compliance checks. Updates the comment on subsequent runs instead of creating duplicates.
 
+The comment opens with a **merge-readiness verdict** (`✅ PR Mergeable` / `🚫 PR Blocked`) and a per-stage summary table indicating which stages contain blocking findings vs advisory-only findings, before showing the detailed per-stage tables.
+
 ## Inputs
 
 | Input | Description | Required | Default |
@@ -16,6 +18,9 @@ Composite action that posts a formatted security scan summary as a PR comment, c
 | `enable-docker-scan` | Whether Docker image scan artifacts are present and should be included | No | `true` |
 | `enable-health-score` | Whether Docker Hub Health Score compliance checks should be included | No | `false` |
 | `dockerfile-has-non-root-user` | Whether the Dockerfile sets a non-root USER directive | No | `false` |
+| `prerelease-findings-file` | Path to JSON findings file from the `prerelease-check` composite. Empty = stage skipped. | No | `''` |
+| `prerelease-target-branch` | Target branch of the PR (typically `github.base_ref`). Used to mark pre-release findings as blocking or advisory in the summary table. | No | `''` |
+| `prerelease-block-branches` | Comma-separated branches where pre-release version pins are blocking. | No | `release-candidate,main` |
 | `fail-on-findings` | Fail the step with exit code 1 when security findings are detected | No | `false` |
 
 ## Outputs

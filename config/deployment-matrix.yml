@@ -58,6 +58,9 @@ apps:
     - lerian-map
     - tenant-manager
 
+    # Anacleto-exclusive
+    - ungoliant-controller
+
 clusters:
   firmino:
     apps:
@@ -110,6 +113,7 @@ clusters:
       - plugin-br-pix-direct-jd
       - plugin-br-pix-indirect-btg
       - plugin-br-bank-transfer-jd
+      - ungoliant-controller
 
   benedita:
     apps:

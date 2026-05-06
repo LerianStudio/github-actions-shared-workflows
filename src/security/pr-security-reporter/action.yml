@@ -24,6 +24,14 @@ inputs:
     description: 'Path to JSON file with pre-release version findings from the prerelease-check composite. Leave empty to skip.'
     required: false
     default: ''
+  prerelease-target-branch:
+    description: 'Target branch of the PR (typically github.base_ref). Used to decide whether pre-release findings are blocking.'
+    required: false
+    default: ''
+  prerelease-block-branches:
+    description: 'Comma-separated branches where pre-release version pins are blocking (e.g. "release-candidate,main").'
+    required: false
+    default: 'release-candidate,main'
   fail-on-findings:
     description: 'Fail the step with exit code 1 when security findings are detected (true/false)'
     required: false
@@ -49,6 +57,8 @@ runs:
         ENABLE_HEALTH_SCORE: ${{ inputs.enable-health-score }}
         DOCKERFILE_HAS_NON_ROOT_USER: ${{ inputs.dockerfile-has-non-root-user }}
         PRERELEASE_FINDINGS_FILE: ${{ inputs.prerelease-findings-file }}
+        PRERELEASE_TARGET_BRANCH: ${{ inputs.prerelease-target-branch }}
+        PRERELEASE_BLOCK_BRANCHES: ${{ inputs.prerelease-block-branches }}
       with:
         github-token: ${{ inputs.github-token }}
         result-encoding: string
@@ -60,14 +70,20 @@ runs:
           const dockerScanEnabled = process.env.ENABLE_DOCKER_SCAN === 'true';
           const healthScoreEnabled = process.env.ENABLE_HEALTH_SCORE === 'true';
           const dockerfileHasNonRootUser = process.env.DOCKERFILE_HAS_NON_ROOT_USER === 'true';
+          const prereleaseTargetBranch = (process.env.PRERELEASE_TARGET_BRANCH || '').trim();
+          const prereleaseBlockBranches = (process.env.PRERELEASE_BLOCK_BRANCHES || '')
+            .split(',').map(s => s.trim()).filter(Boolean);
+          const prereleaseIsBlockingBranch =
+            prereleaseTargetBranch !== '' && prereleaseBlockBranches.includes(prereleaseTargetBranch);
 
           let body = '';
           let hasFindings = false;
           let hasScanErrors = false;
+          const stages = [];
 
           // ── Helpers ──
           const SEVERITY_ORDER = { CRITICAL: 0, HIGH: 1, MEDIUM: 2, LOW: 3, UNKNOWN: 4 };
-          const SEVERITY_ICONS = { CRITICAL: '\u{1F534}', HIGH: '\u{1F7E0}', MEDIUM: '\u{1F7E1}', LOW: '\u{1F535}', UNKNOWN: '\u26AA' };
+          const SEVERITY_ICONS = { CRITICAL: '\u{1F534}', HIGH: '\u{1F7E0}', MEDIUM: '\u{1F7E1}', LOW: '\u{1F535}', UNKNOWN: '⚪' };
 
           const md = (value) =>
             String(value ?? '').replace(/\|/g, '\\|').replace(/\r?\n/g, ' ').replace(/`/g, '\\`');
@@ -78,13 +94,18 @@ runs:
           const sortBySeverity = (items, key = 'severity', order = SEVERITY_ORDER) =>
             items.sort((a, b) => (order[a[key]] ?? 5) - (order[b[key]] ?? 5));
 
+          const recordStage = (name, status, count, blocking) => {
+            stages.push({ name, status, count: count || 0, blocking: !!blocking });
+          };
+
           // ── Trivy: Filesystem Scan ──
           function buildTrivyFsScan() {
             try {
               const file = `trivy-fs-vuln-${appName}.json`;
               if (!fs.existsSync(file)) {
                 hasScanErrors = true;
-                return `#### Filesystem Scan\n\n\u26A0\uFE0F Scan artifact not found.\n\n`;
+                recordStage('Filesystem Scan', 'error', 0, false);
+                return `#### Filesystem Scan\n\n⚠️ Scan artifact not found.\n\n`;
               }
 
               const data = JSON.parse(fs.readFileSync(file, 'utf8'));
@@ -114,10 +135,12 @@ runs:
               }
 
               if (vulns.length === 0) {
-                return `#### Filesystem Scan\n\n\u2705 No vulnerabilities or secrets found.\n\n`;
+                recordStage('Filesystem Scan', 'clean', 0, false);
+                return `#### Filesystem Scan\n\n✅ No vulnerabilities or secrets found.\n\n`;
               }
 
               hasFindings = true;
+              recordStage('Filesystem Scan', 'findings', vulns.length, true);
               sortBySeverity(vulns);
 
               const MAX = 50;
@@ -126,7 +149,7 @@ runs:
               out += `|----------|---------|---------------|-----------|-------|-------|\n`;
 
               for (const v of vulns.slice(0, MAX)) {
-                const icon = SEVERITY_ICONS[v.severity] || '\u26AA';
+                const icon = SEVERITY_ICONS[v.severity] || '⚪';
                 out += `| ${icon} ${md(v.severity)} | \`${md(v.library)}\` | ${md(v.id)} | ${md(v.installed)} | ${md(v.fixed)} | ${md(truncate(v.title, 60))} |\n`;
               }
 
@@ -134,19 +157,24 @@ runs:
               return out + `\n`;
             } catch (e) {
               hasScanErrors = true;
-              return `#### Filesystem Scan\n\n\u26A0\uFE0F Could not parse scan results: ${e.message}\n\n`;
+              recordStage('Filesystem Scan', 'error', 0, false);
+              return `#### Filesystem Scan\n\n⚠️ Could not parse scan results: ${e.message}\n\n`;
             }
           }
 
           // ── Trivy: Docker Image Scan ──
           function buildTrivyDockerScan() {
-            if (!dockerScanEnabled) return '';
+            if (!dockerScanEnabled) {
+              recordStage('Docker Image Scan', 'skipped', 0, false);
+              return '';
+            }
 
             try {
               const file = `trivy-vulnerability-scan-docker-${appName}.sarif`;
               if (!fs.existsSync(file)) {
                 hasScanErrors = true;
-                return `#### Docker Image Scan\n\n\u26A0\uFE0F Scan artifact not found.\n\n`;
+                recordStage('Docker Image Scan', 'error', 0, false);
+                return `#### Docker Image Scan\n\n⚠️ Scan artifact not found.\n\n`;
               }
 
               const sarif = JSON.parse(fs.readFileSync(file, 'utf8'));
@@ -165,10 +193,12 @@ runs:
               }
 
               if (vulns.length === 0) {
-                return `#### Docker Image Scan\n\n\u2705 No vulnerabilities found.\n\n`;
+                recordStage('Docker Image Scan', 'clean', 0, false);
+                return `#### Docker Image Scan\n\n✅ No vulnerabilities found.\n\n`;
               }
 
               hasFindings = true;
+              recordStage('Docker Image Scan', 'findings', vulns.length, true);
               const dockerOrder = { 'CRITICAL/HIGH': 0, CRITICAL: 0, HIGH: 1, MEDIUM: 2, LOW: 3, UNKNOWN: 4 };
               sortBySeverity(vulns, 'severity', dockerOrder);
 
@@ -185,20 +215,24 @@ runs:
               return out + `\n`;
             } catch (e) {
               hasScanErrors = true;
-              return `#### Docker Image Scan\n\n\u26A0\uFE0F Could not parse scan results: ${e.message}\n\n`;
+              recordStage('Docker Image Scan', 'error', 0, false);
+              return `#### Docker Image Scan\n\n⚠️ Could not parse scan results: ${e.message}\n\n`;
             }
           }
 
           // ── Docker Hub Health Score Compliance ──
           function buildHealthScoreSection() {
-            if (!healthScoreEnabled || !dockerScanEnabled) return '';
+            if (!healthScoreEnabled || !dockerScanEnabled) {
+              recordStage('Docker Hub Health Score', 'skipped', 0, false);
+              return '';
+            }
 
             const policies = [];
             let passCount = 0;
 
             // Policy 1: Default non-root user
             const nonRootPassed = dockerfileHasNonRootUser;
-            policies.push({ name: 'Default non-root user', status: nonRootPassed ? '\u2705 Passed' : '\u26A0\uFE0F Failed', passed: nonRootPassed });
+            policies.push({ name: 'Default non-root user', status: nonRootPassed ? '✅ Passed' : '⚠️ Failed', passed: nonRootPassed });
             if (nonRootPassed) passCount++;
 
             // Policy 2: No fixable critical or high vulnerabilities (from Trivy Docker SARIF)
@@ -216,7 +250,7 @@ runs:
                 fixableCvesPassed = critHighCount === 0;
               }
             } catch {}
-            policies.push({ name: 'No fixable critical/high CVEs', status: fixableCvesPassed ? '\u2705 Passed' : '\u26A0\uFE0F Failed', passed: fixableCvesPassed });
+            policies.push({ name: 'No fixable critical/high CVEs', status: fixableCvesPassed ? '✅ Passed' : '⚠️ Failed', passed: fixableCvesPassed });
             if (fixableCvesPassed) passCount++;
 
             // Policy 3: No high-profile vulnerabilities (cross-reference Trivy CVEs with CISA KEV catalog)
@@ -239,7 +273,7 @@ runs:
                 }
               }
             } catch {}
-            policies.push({ name: 'No high-profile vulnerabilities', status: kevPassed ? '\u2705 Passed' : '\u26A0\uFE0F Failed', passed: kevPassed });
+            policies.push({ name: 'No high-profile vulnerabilities', status: kevPassed ? '✅ Passed' : '⚠️ Failed', passed: kevPassed });
             if (kevPassed) passCount++;
 
             // Policy 4: No AGPL v3 licenses (from Trivy license scan)
@@ -259,15 +293,15 @@ runs:
                 }
               }
             } catch {}
-            policies.push({ name: 'No AGPL v3 licenses', status: licensePassed ? '\u2705 Passed' : '\u26A0\uFE0F Failed', passed: licensePassed });
+            policies.push({ name: 'No AGPL v3 licenses', status: licensePassed ? '✅ Passed' : '⚠️ Failed', passed: licensePassed });
             if (licensePassed) passCount++;
 
             const totalPolicies = policies.length;
             const failCount = totalPolicies - passCount;
-            const icon = failCount > 0 ? '\u26A0\uFE0F' : '\u2705';
+            const icon = failCount > 0 ? '⚠️' : '✅';
 
             let out = `---\n\n## Docker Hub Health Score Compliance\n\n`;
-            out += `#### ${icon} Policies \u2014 ${passCount}/${totalPolicies} met\n\n`;
+            out += `#### ${icon} Policies — ${passCount}/${totalPolicies} met\n\n`;
             out += `| Policy | Status |\n|--------|--------|\n`;
             for (const p of policies) {
               out += `| ${p.name} | ${p.status} |\n`;
@@ -276,7 +310,10 @@ runs:
 
             if (failCount > 0) {
               hasFindings = true;
-              out += `> \u26A0\uFE0F **Some Docker Hub health score policies are not met. Review the table above.**\n\n`;
+              recordStage('Docker Hub Health Score', 'findings', failCount, true);
+              out += `> ⚠️ **Some Docker Hub health score policies are not met. Review the table above.**\n\n`;
+            } else {
+              recordStage('Docker Hub Health Score', 'clean', 0, false);
             }
 
             return out;
@@ -285,19 +322,24 @@ runs:
           // ── Pre-release Version Scan ──
           function buildPrereleaseScan() {
             const file = process.env.PRERELEASE_FINDINGS_FILE;
-            if (!file) return '';
+            if (!file) {
+              recordStage('Pre-release Version Check', 'skipped', 0, false);
+              return '';
+            }
 
             try {
               if (!fs.existsSync(file)) {
                 hasScanErrors = true;
-                return `---\n\n## Pre-release Version Check\n\n\u26A0\uFE0F Findings artifact not found.\n\n`;
+                recordStage('Pre-release Version Check', 'error', 0, false);
+                return `---\n\n## Pre-release Version Check\n\n⚠️ Findings artifact not found.\n\n`;
               }
               const findings = JSON.parse(fs.readFileSync(file, 'utf8'));
               if (!Array.isArray(findings)) {
                 throw new Error('Expected a JSON array of findings');
               }
               if (findings.length === 0) {
-                return `---\n\n## Pre-release Version Check\n\n\u2705 No unstable version pins found.\n\n`;
+                recordStage('Pre-release Version Check', 'clean', 0, false);
+                return `---\n\n## Pre-release Version Check\n\n✅ No unstable version pins found.\n\n`;
               }
 
               // Do NOT set hasFindings here — prerelease findings are gated
@@ -305,6 +347,7 @@ runs:
               // step in the workflow. Setting hasFindings would make the reporter's
               // own gate (fail-on-findings) exit 1 on ALL branches, bypassing the
               // warn-on-develop / block-on-rc-main semantics.
+              recordStage('Pre-release Version Check', 'findings', findings.length, prereleaseIsBlockingBranch);
               const MAX_PRERELEASE = 50;
               let out = `---\n\n## Pre-release Version Check\n\n`;
               out += `\u{1F6AB} **Found ${findings.length} unstable version pin(s).** Only stable releases (\`x.y.z\`) and SHA-based pins are allowed.\n\n`;
@@ -319,17 +362,49 @@ runs:
               return out;
             } catch (e) {
               hasScanErrors = true;
-              return `---\n\n## Pre-release Version Check\n\n\u26A0\uFE0F Could not parse findings: ${e.message}\n\n`;
+              recordStage('Pre-release Version Check', 'error', 0, false);
+              return `---\n\n## Pre-release Version Check\n\n⚠️ Could not parse findings: ${e.message}\n\n`;
             }
           }
 
-          // ── Build Report ──
-          body += `## \u{1F512} Security Scan Results \u2014 \`${appName}\`\n\n`;
+          // ── Build detail sections (also populates `stages`) ──
+          const fsMd        = buildTrivyFsScan();
+          const dockerMd    = buildTrivyDockerScan();
+          const healthMd    = buildHealthScoreSection();
+          const prereleaseMd = buildPrereleaseScan();
+
+          // ── Merge-readiness verdict + summary table ──
+          const blockingStages = stages.filter(s => s.status === 'findings' && s.blocking);
+          const verdictHeader = blockingStages.length > 0
+            ? `## \u{1F6AB} PR Blocked — ${blockingStages.length} blocking finding${blockingStages.length === 1 ? '' : 's'}\n\n`
+            : `## ✅ PR Mergeable — no blocking findings\n\n`;
+
+          let summaryTable = `| Stage | Status | Blocking? |\n|-------|--------|-----------|\n`;
+          for (const s of stages) {
+            let statusCell;
+            if (s.status === 'clean')        statusCell = '✅ Clean';
+            else if (s.status === 'skipped') statusCell = '➖ Skipped';
+            else if (s.status === 'error')   statusCell = '⚠️ Scan error';
+            else                             statusCell = `⚠️ ${s.count} finding${s.count === 1 ? '' : 's'}`;
+
+            let blockCell;
+            if (s.status !== 'findings') blockCell = '—';
+            else if (s.blocking)         blockCell = '\u{1F534} Yes';
+            else                         blockCell = '\u{1F7E1} No (advisory)';
+
+            summaryTable += `| ${s.name} | ${statusCell} | ${blockCell} |\n`;
+          }
+          summaryTable += '\n';
+
+          // ── Assemble final body ──
+          body  = `## \u{1F512} Security Scan Results — \`${appName}\`\n\n`;
+          body += verdictHeader;
+          body += summaryTable;
           body += `## Trivy\n\n`;
-          body += buildTrivyFsScan();
-          body += buildTrivyDockerScan();
-          body += buildHealthScoreSection();
-          body += buildPrereleaseScan();
+          body += fsMd;
+          body += dockerMd;
+          body += healthMd;
+          body += prereleaseMd;
 
           // ── Useful Links ──
           const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
