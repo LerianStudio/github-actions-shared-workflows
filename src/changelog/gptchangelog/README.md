@@ -5,7 +5,7 @@
   </tr>
 </table>
 
-Generates `CHANGELOG.md` files using GPT (via OpenRouter) and opens a signed PR with the updates. Supports both single-app and monorepo layouts. Skips prerelease tags when `stable-releases-only` is enabled.
+Generates `CHANGELOG.md` files using GPT (via OpenRouter) and pushes a signed commit directly to the default branch. Backmerges into `develop` automatically; falls back to a PR only when a conflict prevents the direct push. Supports both single-app and monorepo layouts. Skips prerelease tags when `stable-releases-only` is enabled.
 
 ## Inputs
 
