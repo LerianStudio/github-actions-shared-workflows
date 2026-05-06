@@ -306,7 +306,16 @@ runs:
           echo "👥 Contributors: $CONTRIBUTORS"
 
           PROMPT="Generate a changelog for ${APP_NAME} ONLY. Commits: ${COMMITS_TEXT} --- STRICT RULES: 1) NEVER mention other components - only ${APP_NAME}. 2) Use bullet points. 3) Group by Features, Fixes, Improvements (skip empty sections). 4) No markdown headers. 5) Max 5 bullet points. 6) End with Contributors: ${CONTRIBUTORS}"
-          ESCAPED_PROMPT=$(echo "$PROMPT" | jq -Rs .)
+
+          REQUEST_BODY=$(jq -n \
+            --arg model "$OPENAI_MODEL" \
+            --arg prompt "$PROMPT" \
+            '{
+              model: $model,
+              messages: [{role: "user", content: $prompt}],
+              temperature: 0.3,
+              max_tokens: 1000
+            }')
 
           HTTP_CODE=$(curl -s -w "%{http_code}" --max-time 60 --connect-timeout 10 -o /tmp/api_response.json \
             https://openrouter.ai/api/v1/chat/completions \
@@ -314,12 +323,7 @@ runs:
             -H "Authorization: Bearer $OPENROUTER_API_KEY" \
             -H "HTTP-Referer: https://github.com/${GITHUB_REPOSITORY}" \
             -H "X-Title: GPT Changelog" \
-            -d "{
-              \"model\": \"${OPENAI_MODEL}\",
-              \"messages\": [{\"role\": \"user\", \"content\": $ESCAPED_PROMPT}],
-              \"temperature\": 0.3,
-              \"max_tokens\": 1000
-            }")
+            -d "$REQUEST_BODY")
 
           if [ "$HTTP_CODE" -ge 400 ]; then
             echo "⚠️ API returned HTTP $HTTP_CODE for $APP_NAME - skipping"
