@@ -37,6 +37,11 @@ on:
         required: false
         type: boolean
         default: false
+      enable_major_tag:
+        description: 'Force-update the floating major version tag (e.g. v1) after a successful release'
+        required: false
+        type: boolean
+        default: false
       stable_releases_only:
         description: 'Only generate changelogs for stable releases (skip beta/rc/alpha tags)'
         required: false
@@ -247,10 +252,46 @@ jobs:
           stable-releases-only: ${{ inputs.stable_releases_only }}
           openai-model: ${{ inputs.openai_model }}
 
+  # ----------------- Major Tag Update -----------------
+  update_major_tag:
+    name: Update Major Tag
+    needs: publish_release
+    if: inputs.enable_major_tag && needs.publish_release.result == 'success'
+    runs-on: ${{ inputs.runner_type }}
+    environment:
+      name: create_release
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+        id: app-token
+        with:
+          client-id: ${{ secrets.LERIAN_STUDIO_MIDAZ_PUSH_BOT_APP_ID }}
+          private-key: ${{ secrets.LERIAN_STUDIO_MIDAZ_PUSH_BOT_PRIVATE_KEY }}
+
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          fetch-depth: 0
+          token: ${{ steps.app-token.outputs.token }}
+
+      - name: Import GPG key
+        uses: crazy-max/ghaction-import-gpg@2dc316deee8e90f13e1a351ab510b4d5bc0c82cd # v7
+        with:
+          gpg_private_key: ${{ secrets.LERIAN_CI_CD_USER_GPG_KEY }}
+          passphrase: ${{ secrets.LERIAN_CI_CD_USER_GPG_KEY_PASSWORD }}
+          git_committer_name: ${{ secrets.LERIAN_CI_CD_USER_NAME }}
+          git_committer_email: ${{ secrets.LERIAN_CI_CD_USER_EMAIL }}
+          git_config_global: true
+          git_user_signingkey: true
+          git_tag_gpgsign: true
+
+      - name: Update floating major version tag
+        uses: LerianStudio/github-actions-shared-workflows/src/config/update-major-tag@v1
+
   # Slack notification
   notify:
     name: Notify
-    needs: [prepare, publish_release, generate_changelog]
+    needs: [prepare, publish_release, generate_changelog, update_major_tag]
     if: always() && needs.prepare.outputs.has_changes == 'true'
     uses: ./.github/workflows/slack-notify.yml
     with:
@@ -259,9 +300,10 @@ jobs:
             && 'failure' || 'success' }}
       workflow_name: "Release"
       failed_jobs: >-
-        ${{ format('{0}{1}',
+        ${{ format('{0}{1}{2}',
           (needs.publish_release.result == 'failure' && 'Publish Release' || ''),
-          (needs.generate_changelog.result == 'failure' && ' / Generate Changelog' || '')
+          (needs.generate_changelog.result == 'failure' && ' / Generate Changelog' || ''),
+          (needs.update_major_tag.result == 'failure' && ' / Update Major Tag' || '')
         ) }}
     secrets:
       SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
