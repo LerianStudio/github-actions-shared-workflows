@@ -1,5 +1,26 @@
 # Github-actions-shared-workflows Changelog
 
+## [1.28.0](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.28.0)
+
+- **Features:**
+  - Register `plugin-bc-correios` in the deployment matrix.
+
+- **Fixes:**
+  - Handle filenames with spaces in directory names and validate `system_packages` tokens in `changed-paths` and `go-pr-analysis`.
+  - Use `mapfile` to parse `system_packages` handling spaces and newlines in `go-pr-analysis`.
+  - Use `read -ra array` to avoid SC2086 in `system_packages` install for `go-pr-analysis`.
+  - Expose `ignorefile` input for path-scoped suppression in `trivy-fs-scan`.
+
+- **Improvements:**
+  - Pin `actions/checkout` by SHA and standardize internal composite refs to `@v1` in `changed-paths`.
+  - Reduce workflow runs retention to 45 days and tighten stale thresholds.
+
+Contributors: @bedatty, @lerian-studio, @prymax10
+
+[Compare changes](https://github.com/LerianStudio/github-actions-shared-workflows/compare/v1.27.5...v1.28.0)
+
+---
+
 ## [1.27.5](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.27.5)
 
 - **Features:**
