@@ -58,6 +58,9 @@ apps:
     - lerian-map
     - tenant-manager
 
+    # Anacleto-exclusive
+    - ungoliant-controller
+
 clusters:
   firmino:
     apps:
