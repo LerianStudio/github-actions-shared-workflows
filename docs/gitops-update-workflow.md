@@ -61,6 +61,30 @@ update_gitops:
 
 `deploy_in_<cluster>` inputs only **subtract** clusters from the resolved set — they cannot add a cluster the manifest does not list.
 
+### Kustomize Example (Single-Cluster, No Env Split)
+
+For apps managed via kustomize manifests (no helm chart, no env split), set `gitops_layout: kustomize` and provide the path + image reference. The workflow runs `kustomize edit set image` instead of patching `values.yaml`.
+
+```yaml
+update_gitops:
+  needs: build
+  if: needs.build.result == 'success'
+  uses: LerianStudio/github-actions-shared-workflows/.github/workflows/gitops-update.yml@v1.0.0
+  with:
+    gitops_repository: LerianStudio/midaz-firmino-gitops
+    gitops_layout: kustomize
+    kustomize_base_path: environments/anacleto/kustomize/ungoliant-controller
+    kustomize_image_name: ghcr.io/lerianstudio/ungoliant-controller
+    argocd_app_name_template: '{server}-{app}'
+  secrets: inherit
+```
+
+Notes:
+- `yaml_key_mappings` is **not required** for kustomize layouts.
+- When `kustomize_base_path` does not contain `${ENV}` and `kustomize_environments` is empty, the workflow runs once per resolved cluster (no env loop).
+- Use `${SERVER}` / `${ENV}` placeholders in `kustomize_base_path` for multi-cluster / multi-env kustomize layouts (e.g. `environments/${SERVER}/kustomize/${ENV}/my-app`).
+- `configmap_updates` is ignored under `gitops_layout=kustomize` (out of scope for v1).
+
 ### Multi-Component Example (Midaz)
 
 ```yaml
@@ -82,7 +106,7 @@ update_gitops:
 
 | Input | Description | Example |
 |-------|-------------|---------|
-| `yaml_key_mappings` | JSON object mapping artifact names to YAML keys | `{"backend.tag": ".auth.image.tag"}` |
+| `yaml_key_mappings` | JSON object mapping artifact names to YAML keys. Required when `gitops_layout=helmfile` (default); ignored when `gitops_layout=kustomize` | `{"backend.tag": ".auth.image.tag"}` |
 
 ### Optional Inputs
 
@@ -102,7 +126,13 @@ update_gitops:
 | `use_dynamic_mapping` | boolean | `false` | Use dynamic mapping for multiple components |
 | `yq_version` | string | `v4.44.3` | Version of yq to install |
 | `enable_docker_login` | boolean | `true` | Enable Docker Hub login to avoid rate limits |
-| `configmap_updates` | string | - | JSON object mapping artifact names to configmap keys |
+| `configmap_updates` | string | - | JSON object mapping artifact names to configmap keys. Helmfile layout only; ignored for kustomize |
+| `gitops_layout` | string | `helmfile` | GitOps layout strategy: `helmfile` (default) or `kustomize` |
+| `kustomize_base_path` | string | - | Required when `gitops_layout=kustomize`. Path within the gitops repo to the kustomization folder. Supports `${SERVER}` / `${ENV}` placeholders |
+| `kustomize_image_name` | string | - | Required when `gitops_layout=kustomize`. Image reference matched by `kustomize edit set image` |
+| `kustomize_environments` | string | - | Optional space-separated env list overriding the default tag-based env loop when `gitops_layout=kustomize`. Leave empty for layouts without env split |
+| `kustomize_version` | string | `v5.4.3` | Version of kustomize CLI to install (only when `gitops_layout=kustomize`) |
+| `argocd_app_name_template` | string | `{server}-{app}-{env}` | Template for the ArgoCD application name. Supports `{server}`, `{app}`, `{env}`. For kustomize layouts without env split, use e.g. `{server}-{app}` |
 
 ## Secrets
 
