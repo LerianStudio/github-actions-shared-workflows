@@ -32,10 +32,14 @@ inputs:
     description: Model to use for changelog generation (OpenRouter format)
     required: false
     default: 'openai/gpt-4o'
-  max-context-tokens:
-    description: Maximum context tokens for the API call
-    required: false
-    default: '80000'
+
+outputs:
+  has_changes:
+    description: Whether the composite identified apps eligible for changelog generation
+    value: ${{ steps.set-matrix.outputs.has_changes }}
+  apps_updated:
+    description: Comma-separated list of apps whose CHANGELOGs were updated (empty if none)
+    value: ${{ steps.generate.outputs.apps_updated }}
 
 runs:
   using: composite
@@ -430,7 +434,7 @@ runs:
           BASE_BRANCH=$(gh repo view --json defaultBranchRef -q '.defaultBranchRef.name')
           echo "📌 Triggered by tag, using default branch: $BASE_BRANCH"
         else
-          BASE_BRANCH="${GITHUB_REF##*/}"
+          BASE_BRANCH="$GITHUB_REF_NAME"
           echo "📌 Triggered by branch: $BASE_BRANCH"
         fi
 

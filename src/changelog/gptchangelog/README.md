@@ -20,7 +20,13 @@ Generates `CHANGELOG.md` files using GPT (via OpenRouter) and opens a signed PR 
 | `filter-paths` | Newline-separated path prefixes for monorepo support. Empty = single-app mode. | no | `''` |
 | `stable-releases-only` | Skip beta/rc/alpha tags | no | `'true'` |
 | `openai-model` | Model to use (OpenRouter format) | no | `'openai/gpt-4o'` |
-| `max-context-tokens` | Maximum context tokens for the API call | no | `'80000'` |
+
+## Outputs
+
+| Output | Description |
+|---|---|
+| `has_changes` | `'true'` if the composite identified apps eligible for changelog generation |
+| `apps_updated` | Comma-separated list of apps whose CHANGELOGs were updated (empty if none) |
 
 ## Usage as composite step
 
@@ -37,7 +43,7 @@ jobs:
           private-key: ${{ secrets.LERIAN_STUDIO_MIDAZ_PUSH_BOT_PRIVATE_KEY }}
 
       - name: Generate Changelog
-        uses: LerianStudio/github-actions-shared-workflows/src/changelog/gptchangelog@develop
+        uses: LerianStudio/github-actions-shared-workflows/src/changelog/gptchangelog@v1
         with:
           github-token: ${{ steps.app-token.outputs.token }}
           gpg-private-key: ${{ secrets.LERIAN_CI_CD_USER_GPG_KEY }}
