@@ -431,6 +431,7 @@ runs:
 
     # ----------------- Branch & PR -----------------
     - name: Create changelog PR
+      id: pr
       if: steps.generate.outputs.apps_updated != ''
       shell: bash
       env:
@@ -447,11 +448,14 @@ runs:
           echo "📌 Triggered by branch: $BASE_BRANCH"
         fi
 
-        TIMESTAMP=$(date +%Y%m%d%H%M%S)
-        BRANCH_NAME="release/update-changelog-${TIMESTAMP}"
+        # Deterministic branch name keeps the duplicate-PR guard effective:
+        # reruns force-push to the same branch and update an existing open PR
+        # instead of opening a new one.
+        BRANCH_NAME="release/update-changelog"
 
-        echo "📌 Creating branch: $BRANCH_NAME"
-        git checkout -b "$BRANCH_NAME"
+        echo "📌 Creating/updating branch: $BRANCH_NAME"
+        git fetch origin "$BRANCH_NAME" 2>/dev/null || true
+        git checkout -B "$BRANCH_NAME"
 
         if [ -f /tmp/apps_updated.txt ]; then
           while IFS=: read -r _APP_NAME _VERSION WORKING_DIR; do
@@ -513,10 +517,16 @@ runs:
           echo "⚠️ PR already exists"
         fi
 
-        gh pr merge --merge --delete-branch 2>&1 || echo "⚠️ Could not auto-merge PR (check above for details)"
+        if gh pr merge --merge --delete-branch 2>&1; then
+          echo "merged=true" >> "$GITHUB_OUTPUT"
+          echo "✅ PR auto-merged"
+        else
+          echo "merged=false" >> "$GITHUB_OUTPUT"
+          echo "⚠️ Could not auto-merge PR — backmerge to develop will be skipped"
+        fi
 
     - name: Sync main to develop branch
-      if: steps.generate.outputs.apps_updated != ''
+      if: steps.generate.outputs.apps_updated != '' && steps.pr.outputs.merged == 'true'
       shell: bash
       env:
         GH_TOKEN: ${{ inputs.github-token }}
