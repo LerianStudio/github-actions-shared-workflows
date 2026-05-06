@@ -59,18 +59,23 @@ runs:
   using: composite
   steps:
     - name: Checkout code
-      uses: actions/checkout@v6
+      uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
       with:
         fetch-depth: 0
 
     - name: Get changed files
       id: changed
       shell: bash
+      env:
+        EVENT_NAME: ${{ github.event_name }}
+        PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        EVENT_BEFORE: ${{ github.event.before }}
+        EVENT_SHA: ${{ github.sha }}
       run: |
-        if [[ "${{ github.event_name }}" == "pull_request" || "${{ github.event_name }}" == "pull_request_target" ]]; then
+        if [[ "$EVENT_NAME" == "pull_request" || "$EVENT_NAME" == "pull_request_target" ]]; then
           # For PRs, diff between the base branch and current HEAD
-          FILES=$(git diff --name-only ${{ github.event.pull_request.base.sha }} HEAD)
-        elif [[ "${{ github.event.before }}" == "0000000000000000000000000000000000000000" ]] || [[ -z "${{ github.event.before }}" ]]; then
+          FILES=$(git diff --name-only "$PR_BASE_SHA" HEAD)
+        elif [[ "$EVENT_BEFORE" == "0000000000000000000000000000000000000000" ]] || [[ -z "$EVENT_BEFORE" ]]; then
           # Tag push or missing before ref
           CURRENT_TAG=$(git describe --tags --exact-match HEAD 2>/dev/null || echo "")
           if [[ -n "$CURRENT_TAG" ]]; then
@@ -101,9 +106,8 @@ runs:
             fi
           else
             # Not a tag — compare with previous commit
-            PREV_COMMIT=$(git rev-parse HEAD^)
-            if [[ $? -eq 0 ]]; then
-              FILES=$(git diff --name-only $PREV_COMMIT HEAD)
+            if PREV_COMMIT=$(git rev-parse HEAD^ 2>/dev/null); then
+              FILES=$(git diff --name-only "$PREV_COMMIT" HEAD)
             else
               # Fallback for first commit
               FILES=$(git ls-tree -r --name-only HEAD)
@@ -111,27 +115,27 @@ runs:
           fi
         else
           # Normal case - diff between commits
-          FILES=$(git diff --name-only ${{ github.event.before }} ${{ github.sha }})
+          FILES=$(git diff --name-only "$EVENT_BEFORE" "$EVENT_SHA")
         fi
         printf "files<<EOF\n%s\nEOF\n" "$FILES" >> "$GITHUB_OUTPUT"
 
     - name: Extract changed directories
       id: dirs
       shell: bash
+      env:
+        FILES: ${{ steps.changed.outputs.files }}
+        FILTER_PATHS: ${{ inputs.filter-paths }}
+        SHARED_PATHS: ${{ inputs.shared-paths }}
+        PATH_LEVEL: ${{ inputs.path-level }}
+        GET_APP_NAME: ${{ inputs.get-app-name }}
+        APP_NAME_PREFIX: ${{ inputs.app-name-prefix }}
+        APP_NAME_OVERRIDES: ${{ inputs.app-name-overrides }}
+        NORMALIZE_TO_FILTER: ${{ inputs.normalize-to-filter }}
+        IGNORE_DIRS: ${{ inputs.ignore-dirs }}
+        FALLBACK_APP_NAME: ${{ inputs.fallback-app-name }}
+        CONSOLIDATE_TO_ROOT: ${{ inputs.consolidate-to-root }}
+        CONSOLIDATE_KEEP_DIRS: ${{ inputs.consolidate-keep-dirs }}
       run: |
-        FILES="${{ steps.changed.outputs.files }}"
-        FILTER_PATHS='${{ inputs.filter-paths }}'
-        SHARED_PATHS='${{ inputs.shared-paths }}'
-        PATH_LEVEL="${{ inputs.path-level }}"
-        GET_APP_NAME="${{ inputs.get-app-name }}"
-        APP_NAME_PREFIX="${{ inputs.app-name-prefix }}"
-        APP_NAME_OVERRIDES="${{ inputs.app-name-overrides }}"
-        NORMALIZE_TO_FILTER="${{ inputs.normalize-to-filter }}"
-        IGNORE_DIRS='${{ inputs.ignore-dirs }}'
-        FALLBACK_APP_NAME="${{ inputs.fallback-app-name }}"
-        CONSOLIDATE_TO_ROOT="${{ inputs.consolidate-to-root }}"
-        CONSOLIDATE_KEEP_DIRS='${{ inputs.consolidate-keep-dirs }}'
-
         # Single app fallback: when filter_paths is empty and fallback_app_name is set,
         # return a single-item matrix without detecting changes
         if [[ ( -z "$FILTER_PATHS" || "$FILTER_PATHS" == "[]" ) && -n "$FALLBACK_APP_NAME" ]]; then
@@ -199,8 +203,11 @@ runs:
             DIRS="$FILTER_PATHS"
           fi
         else
-          # Get directory for each file
-          DIRS=$(echo "$FILES" | xargs -n1 dirname)
+          # Get directory for each file (while/read preserves filenames with spaces)
+          DIRS=$(while IFS= read -r file; do
+            [[ -z "$file" ]] && continue
+            dirname -- "$file"
+          done <<< "$FILES")
 
           # Trim to first N path segments if specified
           if [[ -n "$PATH_LEVEL" ]] && [[ "$PATH_LEVEL" -gt 0 ]]; then
