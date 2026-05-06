@@ -1,5 +1,22 @@
 # Github-actions-shared-workflows Changelog
 
+## [1.28.1](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.28.1)
+
+Features:
+- Extracted `gptchangelog` into a reusable composite for improved workflow management.
+
+Improvements:
+- Updated CHANGELOGs for `github-actions-shared-workflows` to version v1.28.0.
+
+Fixes:
+- Bumped `securego/gosec` in the security-scanners group to enhance security measures.
+
+Contributors: @bedatty, @lerian-studio
+
+[Compare changes](https://github.com/LerianStudio/github-actions-shared-workflows/compare/v1.28.0...v1.28.1)
+
+---
+
 ## [1.28.0](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.28.0)
 
 - **Features:**
