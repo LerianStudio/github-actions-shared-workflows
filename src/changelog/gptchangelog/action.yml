@@ -536,6 +536,9 @@ runs:
         # Fallback: open a backmerge PR for manual resolution
         BACKMERGE_BRANCH="release/backmerge-${DEFAULT_BRANCH}-into-${TARGET_BRANCH}"
         echo "📌 Creating backmerge branch: $BACKMERGE_BRANCH"
+        # Fetch the backmerge branch (if it exists) so --force-with-lease
+        # compares against the current remote state, not a stale tracking ref.
+        git fetch origin "$BACKMERGE_BRANCH" 2>/dev/null || true
         git checkout -B "$BACKMERGE_BRANCH" "origin/$DEFAULT_BRANCH"
         git push --force-with-lease origin "$BACKMERGE_BRANCH"
 
