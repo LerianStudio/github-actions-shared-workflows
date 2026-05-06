@@ -1,5 +1,19 @@
 # Github-actions-shared-workflows Changelog
 
+## [1.28.2](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.28.2)
+
+- Fixes:
+  - Direct push to default branch and auto-backmerge functionality improved in the gptchangelog workflow.
+
+- Improvements:
+  - Updated CHANGELOGs for version v1.28.1 to ensure accurate release documentation.
+
+Contributors: @bedatty, @lerian-studio
+
+[Compare changes](https://github.com/LerianStudio/github-actions-shared-workflows/compare/v1.28.1...v1.28.2)
+
+---
+
 ## [1.28.1](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.28.1)
 
 Features:
