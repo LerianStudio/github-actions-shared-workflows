@@ -512,16 +512,24 @@ runs:
         fi
 
         # Try clean merge first — push directly if no conflicts
-        if git merge --no-ff -S \
-            -m "chore(changelog): backmerge $DEFAULT_BRANCH into $TARGET_BRANCH [skip ci]" \
-            "origin/$DEFAULT_BRANCH"; then
+        set +e
+        git merge --no-ff -S \
+          -m "chore(changelog): backmerge $DEFAULT_BRANCH into $TARGET_BRANCH [skip ci]" \
+          "origin/$DEFAULT_BRANCH"
+        MERGE_EXIT=$?
+        set -e
+
+        if [ $MERGE_EXIT -eq 0 ]; then
           if git push origin "$TARGET_BRANCH"; then
             echo "✅ Backmerged $DEFAULT_BRANCH into $TARGET_BRANCH (direct push)"
             exit 0
           fi
           echo "⚠️ Direct push to $TARGET_BRANCH rejected — falling back to PR"
+        elif [ $MERGE_EXIT -eq 1 ]; then
+          echo "⚠️ Merge conflict between $DEFAULT_BRANCH and $TARGET_BRANCH — falling back to PR for manual resolution"
+          git merge --abort 2>/dev/null || true
         else
-          echo "⚠️ Merge conflict — falling back to PR for manual resolution"
+          echo "⚠️ Merge failed (exit $MERGE_EXIT) — falling back to PR"
           git merge --abort 2>/dev/null || true
         fi
 
