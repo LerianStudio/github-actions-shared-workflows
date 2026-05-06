@@ -481,7 +481,7 @@ runs:
 
         git push --force-with-lease origin "$BRANCH_NAME"
 
-        if ! gh pr view "$BRANCH_NAME" --base "$BASE_BRANCH" > /dev/null 2>&1; then
+        if [[ "$(gh pr list --head "$BRANCH_NAME" --base "$BASE_BRANCH" --state open --json number --jq 'length')" == "0" ]]; then
           gh pr create \
             --title "chore(release): Update CHANGELOGs [skip ci]" \
             --body "## Automatic Changelog Update

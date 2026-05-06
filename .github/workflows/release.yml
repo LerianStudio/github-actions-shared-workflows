@@ -124,7 +124,6 @@ jobs:
 
     outputs:
       gpg_fingerprint: ${{ steps.import_gpg.outputs.fingerprint }}
-      release_published: ${{ steps.release-status.outputs.published }}
 
     steps:
       - uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
@@ -224,27 +223,73 @@ jobs:
           echo "::error::Semantic release failed before publishing a new version"
           exit 1
 
-      # ----------------- Aggregate release publish signal -----------------
-      - name: Set release published output
-        id: release-status
+      # ----------------- Per-leg release publish marker -----------------
+      # Matrix job outputs are last-writer-wins, so we persist each leg's
+      # publish signal as an artifact and aggregate downstream.
+      - name: Mark publish status
         if: always()
         env:
           SEMANTIC_PUBLISHED: ${{ steps.semantic.outputs.new_release_published }}
           DETECT_PUBLISHED: ${{ steps.detect-release.outputs.release-published }}
+          APP_NAME: ${{ matrix.app.name }}
+          STATUS_DIR: ${{ runner.temp }}/publish-status
         run: |
+          mkdir -p "$STATUS_DIR"
           if [[ "$SEMANTIC_PUBLISHED" == "true" || "$DETECT_PUBLISHED" == "true" ]]; then
-            echo "published=true" >> "$GITHUB_OUTPUT"
-            echo "✅ Release was published"
+            echo "true" > "$STATUS_DIR/${APP_NAME}.txt"
+            echo "✅ ${APP_NAME}: release published"
           else
-            echo "published=false" >> "$GITHUB_OUTPUT"
-            echo "ℹ️ No release published (semantic-release found nothing to release)"
+            echo "false" > "$STATUS_DIR/${APP_NAME}.txt"
+            echo "ℹ️ ${APP_NAME}: no release published"
+          fi
+
+      - name: Upload publish status
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: publish-status-${{ matrix.app.name }}
+          path: ${{ runner.temp }}/publish-status/
+          retention-days: 1
+
+  # ----------------- Aggregate publish status across matrix legs -----------------
+  publish_release_status:
+    name: Aggregate Publish Status
+    needs: publish_release
+    if: always() && needs.publish_release.result != 'cancelled'
+    runs-on: ${{ inputs.runner_type }}
+    outputs:
+      release_published: ${{ steps.aggregate.outputs.published }}
+    steps:
+      - name: Download all publish status artifacts
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          pattern: publish-status-*
+          path: /tmp/publish-status
+          merge-multiple: true
+
+      - name: Aggregate published signal
+        id: aggregate
+        run: |
+          shopt -s nullglob
+          published=false
+          for f in /tmp/publish-status/*.txt; do
+            if [[ "$(cat "$f")" == "true" ]]; then
+              published=true
+              echo "✅ $(basename "$f" .txt) reported a release"
+            fi
+          done
+          echo "published=$published" >> "$GITHUB_OUTPUT"
+          if [[ "$published" == "true" ]]; then
+            echo "✅ At least one matrix leg published a release"
+          else
+            echo "ℹ️ No release published across matrix legs"
           fi
 
   # ----------------- Changelog Generation -----------------
   generate_changelog:
     name: Generate Changelog
-    needs: publish_release
-    if: inputs.enable_changelog && needs.publish_release.outputs.release_published == 'true'
+    needs: [publish_release, publish_release_status]
+    if: inputs.enable_changelog && needs.publish_release_status.outputs.release_published == 'true'
     runs-on: ${{ inputs.runner_type }}
     environment:
       name: create_release
@@ -272,8 +317,8 @@ jobs:
   # ----------------- Major Tag Update -----------------
   update_major_tag:
     name: Update Major Tag
-    needs: publish_release
-    if: inputs.enable_major_tag && needs.publish_release.outputs.release_published == 'true'
+    needs: [publish_release, publish_release_status]
+    if: inputs.enable_major_tag && needs.publish_release_status.outputs.release_published == 'true'
     runs-on: ${{ inputs.runner_type }}
     environment:
       name: create_release
@@ -308,7 +353,7 @@ jobs:
   # Slack notification
   notify:
     name: Notify
-    needs: [prepare, publish_release, generate_changelog, update_major_tag]
+    needs: [prepare, publish_release, publish_release_status, generate_changelog, update_major_tag]
     if: always() && needs.prepare.outputs.has_changes == 'true'
     uses: ./.github/workflows/slack-notify.yml
     with:
