@@ -1,5 +1,18 @@
 # Github-actions-shared-workflows Changelog
 
+## [1.28.3](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.28.3)
+
+- Fixes:
+  - Register ungoliant-controller on anacleto.
+  - Add merge-readiness verdict and per-stage summary to pr-security-reporter.
+  - Add kustomize layout support to gitops-update.
+
+Contributors: @bedatty, @lerian-studio,
+
+[Compare changes](https://github.com/LerianStudio/github-actions-shared-workflows/compare/v1.28.2...v1.28.3)
+
+---
+
 ## [1.28.2](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.28.2)
 
 - Fixes:
