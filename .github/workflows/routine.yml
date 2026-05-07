@@ -1,0 +1,144 @@
+name: Repository Routines
+
+on:
+  workflow_call:
+    inputs:
+      routine:
+        description: Routine to run (all, branch-cleanup-stale, stale-pr, stale-issue, labels-sync, workflow-runs-cleanup)
+        required: false
+        type: string
+        default: all
+      dry_run:
+        description: Preview changes without applying them
+        required: false
+        type: boolean
+        default: false
+      merged_branch:
+        description: Branch name to delete in merged-PR mode (typically github.head_ref)
+        required: false
+        type: string
+        default: ""
+      branch_stale_days:
+        description: Days without commits before a branch is considered stale
+        required: false
+        type: number
+        default: 20
+      pr_days_before_stale:
+        description: Days of PR inactivity before the stale label is applied
+        required: false
+        type: number
+        default: 20
+      pr_days_before_close:
+        description: Days after a PR is marked stale before it is closed
+        required: false
+        type: number
+        default: 7
+      pr_operations_per_run:
+        description: Maximum API operations per run for stale PR scan
+        required: false
+        type: number
+        default: 60
+      pr_operations_per_run_schedule:
+        description: Maximum API operations per run for stale PR scan when triggered by schedule
+        required: false
+        type: number
+        default: 420
+      issue_days_before_stale:
+        description: Days of issue inactivity before the stale label is applied
+        required: false
+        type: number
+        default: 30
+      issue_days_before_close:
+        description: Days after an issue is marked stale before it is closed
+        required: false
+        type: number
+        default: 7
+      workflow_runs_retention_days:
+        description: Delete workflow runs older than this many days
+        required: false
+        type: number
+        default: 45
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+  actions: write
+
+jobs:
+  # ----------------- Branch Cleanup -----------------
+
+  branch_cleanup_merged:
+    name: Delete merged branch
+    if: github.event_name == 'pull_request' && github.event.pull_request.merged == true && inputs.merged_branch != ''
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/branch-cleanup.yml@develop
+    with:
+      merged_branch: ${{ inputs.merged_branch }}
+      dry_run: false
+    secrets: inherit
+
+  branch_cleanup_stale:
+    name: Clean stale branches
+    if: |
+      github.event_name == 'schedule'
+      || (github.event_name == 'workflow_dispatch' && (inputs.routine == 'all' || inputs.routine == 'branch-cleanup-stale'))
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/branch-cleanup.yml@develop
+    with:
+      stale_days: ${{ inputs.branch_stale_days }}
+      dry_run: ${{ inputs.dry_run }}
+    secrets: inherit
+
+  # ----------------- Stale PRs -----------------
+
+  stale_pr:
+    name: Close stale PRs
+    if: |
+      github.event_name == 'schedule'
+      || (github.event_name == 'workflow_dispatch' && (inputs.routine == 'all' || inputs.routine == 'stale-pr'))
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/stale-pr.yml@develop
+    with:
+      days_before_stale: ${{ inputs.pr_days_before_stale }}
+      days_before_close: ${{ inputs.pr_days_before_close }}
+      operations_per_run: ${{ github.event_name == 'schedule' && inputs.pr_operations_per_run_schedule || inputs.pr_operations_per_run }}
+      dry_run: ${{ inputs.dry_run }}
+    secrets: inherit
+
+  # ----------------- Stale Issues -----------------
+
+  stale_issue:
+    name: Close stale issues
+    if: |
+      github.event_name == 'schedule'
+      || (github.event_name == 'workflow_dispatch' && (inputs.routine == 'all' || inputs.routine == 'stale-issue'))
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/stale-issue.yml@develop
+    with:
+      days_before_stale: ${{ inputs.issue_days_before_stale }}
+      days_before_close: ${{ inputs.issue_days_before_close }}
+      dry_run: ${{ inputs.dry_run }}
+    secrets: inherit
+
+  # ----------------- Labels Sync -----------------
+
+  labels_sync:
+    name: Sync labels
+    if: |
+      github.event_name == 'push'
+      || github.event_name == 'schedule'
+      || (github.event_name == 'workflow_dispatch' && (inputs.routine == 'all' || inputs.routine == 'labels-sync'))
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/labels-sync.yml@develop
+    with:
+      dry_run: ${{ inputs.dry_run }}
+    secrets: inherit
+
+  # ----------------- Workflow Runs Cleanup -----------------
+
+  workflow_runs_cleanup:
+    name: Delete old workflow runs
+    if: |
+      github.event_name == 'schedule'
+      || (github.event_name == 'workflow_dispatch' && (inputs.routine == 'all' || inputs.routine == 'workflow-runs-cleanup'))
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/workflow-runs-cleanup.yml@develop
+    with:
+      retention_days: ${{ inputs.workflow_runs_retention_days }}
+      dry_run: ${{ inputs.dry_run }}
+    secrets: inherit
