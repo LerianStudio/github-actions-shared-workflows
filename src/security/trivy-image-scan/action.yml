@@ -32,6 +32,10 @@ inputs:
     description: 'Trivy version to install'
     required: false
     default: 'v0.69.3'
+  ignore-file:
+    description: 'Path to Trivy ignore file (forwarded to trivy-action as trivyignores → Trivy --ignorefile). Leave empty to disable.'
+    required: false
+    default: ''
 
 outputs:
   vuln-scan-sarif:
@@ -55,6 +59,7 @@ runs:
         severity: ${{ inputs.severity-table }}
         exit-code: '0'
         version: ${{ inputs.trivy-version }}
+        trivyignores: ${{ inputs.ignore-file }}
 
     - name: Trivy Vulnerability Scan (SARIF Output)
       uses: aquasecurity/trivy-action@0.35.0
@@ -68,6 +73,7 @@ runs:
         severity: ${{ inputs.severity-sarif }}
         exit-code: '0'
         version: ${{ inputs.trivy-version }}
+        trivyignores: ${{ inputs.ignore-file }}
 
     # ----------------- License Scanning -----------------
     - name: Trivy License Scan (JSON Output)
@@ -80,6 +86,7 @@ runs:
         output: 'trivy-license-scan-docker-${{ inputs.app-name }}.json'
         exit-code: '0'
         version: ${{ inputs.trivy-version }}
+        trivyignores: ${{ inputs.ignore-file }}
 
     # ----------------- Outputs -----------------
     - name: Set output paths
