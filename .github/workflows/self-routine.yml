@@ -26,6 +26,14 @@ on:
         description: Preview changes without applying them
         type: boolean
         default: true
+      protected_branches:
+        description: Comma-separated branch patterns to never delete (full override of default)
+        type: string
+        default: "main,master,develop,release-candidate,hotfix/*"
+      extra_protected_branches:
+        description: Comma-separated branch patterns appended to protected_branches
+        type: string
+        default: ""
 
 permissions:
   contents: write
@@ -40,4 +48,6 @@ jobs:
       routine: ${{ inputs.routine || 'all' }}
       dry_run: ${{ inputs.dry_run || false }}
       merged_branch: ${{ github.head_ref }}
+      protected_branches: ${{ inputs.protected_branches || 'main,master,develop,release-candidate,hotfix/*' }}
+      extra_protected_branches: ${{ inputs.extra_protected_branches || '' }}
     secrets: inherit
