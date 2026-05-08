@@ -1,5 +1,21 @@
 # Github-actions-shared-workflows Changelog
 
+## [1.28.6](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.28.6)
+
+- **Fixes**
+  - Expose cosign retry tuning and continue GitOps process on signing failure.
+  - Forward `ignore_file` to Trivy Image Scan for improved security scan handling.
+  - Correct Kustomize download URL in GitOps update process.
+
+- **Improvements**
+  - Pin `aquasecurity/trivy-action` to version `v0.35.0` for stability.
+
+Contributors: @bedatty, @lerian-studio
+
+[Compare changes](https://github.com/LerianStudio/github-actions-shared-workflows/compare/v1.28.5...v1.28.6)
+
+---
+
 ## [1.28.5](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.28.5)
 
 - Fixes:
