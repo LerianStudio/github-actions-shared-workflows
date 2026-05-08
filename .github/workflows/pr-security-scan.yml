@@ -215,6 +215,7 @@ jobs:
           image-ref: '${{ env.DOCKERHUB_ORG }}/${{ env.APP_NAME }}:pr-scan-${{ github.sha }}'
           app-name: ${{ env.APP_NAME }}
           enable-license-scan: ${{ inputs.enable_health_score }}
+          ignore-file: ${{ inputs.ignore_file }}
 
       # ----------------- Dockerfile Compliance Checks -----------------
       - name: Dockerfile Compliance Checks
