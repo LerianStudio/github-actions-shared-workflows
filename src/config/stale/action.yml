@@ -49,6 +49,10 @@ inputs:
     description: Preview changes without applying them (debug-only mode)
     required: false
     default: "false"
+  docs-url:
+    description: URL appended to stale/close comments so contributors can read about the routine and exempt labels
+    required: false
+    default: "https://github.com/LerianStudio/github-actions-shared-workflows/blob/main/instructions/repository-routines.md"
 
 runs:
   using: composite
@@ -125,14 +129,26 @@ runs:
           This PR has had no activity for ${{ inputs.days-before-pr-stale }} days and is now marked stale.
           It will be closed in ${{ inputs.days-before-pr-close }} days unless updated.
           Add the `no-stale` label to keep it open indefinitely.
+
+
+          Learn more about the routine and exempt labels: ${{ inputs.docs-url }}
         stale-issue-message: >-
           This issue has had no activity for ${{ inputs.days-before-issue-stale }} days and is now marked stale.
           It will be closed in ${{ inputs.days-before-issue-close }} days unless updated.
           Add the `no-stale` label to keep it open indefinitely.
+
+
+          Learn more about the routine and exempt labels: ${{ inputs.docs-url }}
         close-pr-message: >-
           Closing this PR due to prolonged inactivity. Reopen if work resumes.
+
+
+          Learn more about the routine and exempt labels: ${{ inputs.docs-url }}
         close-issue-message: >-
           Closing this issue due to prolonged inactivity. Reopen if it is still relevant.
+
+
+          Learn more about the routine and exempt labels: ${{ inputs.docs-url }}
 
     # ----------------- Post-run Summary -----------------
     # Closes the collapsible group opened in the pre-flight step and emits
