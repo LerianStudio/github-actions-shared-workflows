@@ -108,6 +108,9 @@ jobs:
 | `enable_gitops_artifacts` | boolean | `false` | Upload artifacts for gitops-update workflow |
 | `force_multiplatform` | boolean | `false` | Force multi-platform build (amd64+arm64) even for beta/rc tags |
 | `enable_cosign_sign` | boolean | `true` | Sign images with cosign keyless (OIDC) signing. Requires `id-token: write` in caller |
+| `cosign_max_attempts` | string | `3` | Max cosign signing attempts per image. Increase to absorb transient OIDC/Fulcio rate limits |
+| `cosign_initial_delay` | string | `5` | Initial delay (seconds) between cosign retries. Grows ×3 each failed attempt |
+| `continue_gitops_on_signing_failure` | boolean | `false` | Allow GitOps artifact upload to continue when cosign signing fails after all retries. Image stays unsigned in registry; manual `cosign sign` required |
 
 ## Secrets
 
@@ -260,6 +263,41 @@ jobs:
       enable_cosign_sign: false
     secrets: inherit
 ```
+
+### Resilience: retries and GitOps continuation
+
+Cosign signing depends on the Sigstore OIDC/Fulcio infrastructure, which can hit transient rate limits or 5xx responses. Two layers protect releases:
+
+1. **Retry with exponential backoff** — controlled by `cosign_max_attempts` (default `3`) and `cosign_initial_delay` (default `5`s, grows ×3 between attempts). Increase both for releases that consistently brush against rate limits.
+
+2. **Optional GitOps continuation** — when `continue_gitops_on_signing_failure: true`, signing failure does not block the GitOps artifact upload. The image is already pushed and immutable in the registry; this prevents a transient signing failure from leaving the release in a broken half-state where the image exists but no GitOps PR was opened.
+
+```yaml
+jobs:
+  build:
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/build.yml@v1.28.5
+    with:
+      enable_cosign_sign: true
+      cosign_max_attempts: 5
+      cosign_initial_delay: 15
+      continue_gitops_on_signing_failure: true
+    secrets: inherit
+```
+
+When continuation kicks in, the workflow:
+
+- Logs a `::warning::` with the unsigned digest
+- Writes a "manual action required" block to the GitHub Actions step summary listing the digest and image refs
+- Lets the `dispatch-helm` / GitOps job proceed normally
+
+**Manual recovery** — sign the digest after the fact, then verify:
+
+```bash
+cosign sign --yes <registry>/<org>/<app>@<sha256-digest>
+cosign verify --certificate-identity-regexp '...' --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' <ref>
+```
+
+Treat any release with a "Unsigned image" summary block as **not production-ready** until the manual sign step is completed.
 
 ### Verifying signatures
 
