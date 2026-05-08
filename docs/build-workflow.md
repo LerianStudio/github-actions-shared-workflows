@@ -171,6 +171,47 @@ When `enable_gitops_artifacts: true`:
 
 **Artifact pattern:** `gitops-tags-{app_name}`
 
+## Helm Dispatch
+
+When `enable_helm_dispatch: true`, the workflow dispatches a chart update to the configured Helm repository (default: `LerianStudio/helm`) after a successful build.
+
+### Default policy: production releases only
+
+By default, Helm dispatch runs **only on production release tags** (non-`-rc`, non-`-beta`). This is enforced by:
+
+- `helm_dispatch_on_rc` → `default: false`
+- `helm_dispatch_on_beta` → `default: false`
+
+This is intentional. RC and beta tags are pre-release artifacts — dispatching them to the Helm repo creates noisy PRs in `LerianStudio/helm` for charts that should not roll forward to staging or production.
+
+### Opt-in for RC/beta dispatch (use sparingly)
+
+Only enable `helm_dispatch_on_rc` or `helm_dispatch_on_beta` when there is a deliberate reason — for example, a chart that must be staged from RC builds in a specific environment. Document the reason in the caller workflow.
+
+```yaml
+# ✅ Correct — production-only dispatch (recommended)
+jobs:
+  build:
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/build.yml@v1.28.5
+    with:
+      enable_helm_dispatch: true
+      helm_chart: my-chart
+      # helm_dispatch_on_rc and helm_dispatch_on_beta default to false
+    secrets: inherit
+```
+
+```yaml
+# ⚠️ Opt-in — only when intentional, document why
+jobs:
+  build:
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/build.yml@v1.28.5
+    with:
+      enable_helm_dispatch: true
+      helm_chart: my-chart
+      helm_dispatch_on_rc: true   # staging environment promotes from RC tags
+    secrets: inherit
+```
+
 ## Slack Notifications
 
 Automatically sends notifications on completion:
