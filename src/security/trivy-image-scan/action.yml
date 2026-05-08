@@ -50,7 +50,7 @@ runs:
   steps:
     # ----------------- Vulnerability Scanning -----------------
     - name: Trivy Vulnerability Scan (Table Output)
-      uses: aquasecurity/trivy-action@0.35.0
+      uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # v0.35.0
       with:
         image-ref: ${{ inputs.image-ref }}
         format: table
@@ -62,7 +62,7 @@ runs:
         trivyignores: ${{ inputs.ignore-file }}
 
     - name: Trivy Vulnerability Scan (SARIF Output)
-      uses: aquasecurity/trivy-action@0.35.0
+      uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # v0.35.0
       if: always()
       with:
         image-ref: ${{ inputs.image-ref }}
@@ -77,7 +77,7 @@ runs:
 
     # ----------------- License Scanning -----------------
     - name: Trivy License Scan (JSON Output)
-      uses: aquasecurity/trivy-action@0.35.0
+      uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # v0.35.0
       if: always() && inputs.enable-license-scan == 'true'
       with:
         image-ref: ${{ inputs.image-ref }}
