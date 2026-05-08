@@ -37,6 +37,8 @@ The caller controls the triggers (schedule cron, push paths, pull_request types,
 | `issue_days_before_stale` | `number` | No | `30` | Days of issue inactivity before the stale label is applied |
 | `issue_days_before_close` | `number` | No | `7` | Days after an issue is marked stale before it is closed |
 | `workflow_runs_retention_days` | `number` | No | `45` | Delete workflow runs older than this many days |
+| `protected_branches` | `string` | No | `main,master,develop,release-candidate,hotfix/*` | Branch patterns the cleanup never deletes — full override |
+| `extra_protected_branches` | `string` | No | `""` | Branch patterns appended to `protected_branches` (use this when you only want to add patterns) |
 
 ## Secrets
 
@@ -122,6 +124,32 @@ jobs:
       pr_days_before_close: 14
       issue_days_before_stale: 60
       workflow_runs_retention_days: 90
+      merged_branch: ${{ github.head_ref }}
+    secrets: inherit
+```
+
+### Adding extra protected branches
+
+Use `extra_protected_branches` when you only want to add patterns to the default and keep the rest:
+
+```yaml
+jobs:
+  routine:
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/routine.yml@v1
+    with:
+      extra_protected_branches: "develop-*,feature-stable"
+      merged_branch: ${{ github.head_ref }}
+    secrets: inherit
+```
+
+Use `protected_branches` to fully override the default (not recommended unless you really need to drop one of the standard patterns):
+
+```yaml
+jobs:
+  routine:
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/routine.yml@v1
+    with:
+      protected_branches: "main,trunk,prod-*"
       merged_branch: ${{ github.head_ref }}
     secrets: inherit
 ```

@@ -58,6 +58,16 @@ on:
         required: false
         type: number
         default: 45
+      protected_branches:
+        description: Comma-separated branch patterns to never delete (full override of default)
+        required: false
+        type: string
+        default: "main,master,develop,release-candidate,hotfix/*"
+      extra_protected_branches:
+        description: Comma-separated branch patterns appended to protected_branches
+        required: false
+        type: string
+        default: ""
 
 permissions:
   contents: write
@@ -71,9 +81,10 @@ jobs:
   branch_cleanup_merged:
     name: Delete merged branch
     if: github.event_name == 'pull_request' && github.event.pull_request.merged == true && inputs.merged_branch != ''
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/branch-cleanup.yml@develop
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/branch-cleanup.yml@v1
     with:
       merged_branch: ${{ inputs.merged_branch }}
+      protected_branches: ${{ inputs.extra_protected_branches != '' && format('{0},{1}', inputs.protected_branches, inputs.extra_protected_branches) || inputs.protected_branches }}
       dry_run: false
     secrets: inherit
 
@@ -82,9 +93,10 @@ jobs:
     if: |
       github.event_name == 'schedule'
       || (github.event_name == 'workflow_dispatch' && (inputs.routine == 'all' || inputs.routine == 'branch-cleanup-stale'))
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/branch-cleanup.yml@develop
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/branch-cleanup.yml@v1
     with:
       stale_days: ${{ inputs.branch_stale_days }}
+      protected_branches: ${{ inputs.extra_protected_branches != '' && format('{0},{1}', inputs.protected_branches, inputs.extra_protected_branches) || inputs.protected_branches }}
       dry_run: ${{ inputs.dry_run }}
     secrets: inherit
 
@@ -95,7 +107,7 @@ jobs:
     if: |
       github.event_name == 'schedule'
       || (github.event_name == 'workflow_dispatch' && (inputs.routine == 'all' || inputs.routine == 'stale-pr'))
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/stale-pr.yml@develop
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/stale-pr.yml@v1
     with:
       days_before_stale: ${{ inputs.pr_days_before_stale }}
       days_before_close: ${{ inputs.pr_days_before_close }}
@@ -110,7 +122,7 @@ jobs:
     if: |
       github.event_name == 'schedule'
       || (github.event_name == 'workflow_dispatch' && (inputs.routine == 'all' || inputs.routine == 'stale-issue'))
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/stale-issue.yml@develop
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/stale-issue.yml@v1
     with:
       days_before_stale: ${{ inputs.issue_days_before_stale }}
       days_before_close: ${{ inputs.issue_days_before_close }}
@@ -125,7 +137,7 @@ jobs:
       github.event_name == 'push'
       || github.event_name == 'schedule'
       || (github.event_name == 'workflow_dispatch' && (inputs.routine == 'all' || inputs.routine == 'labels-sync'))
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/labels-sync.yml@develop
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/labels-sync.yml@v1
     with:
       dry_run: ${{ inputs.dry_run }}
     secrets: inherit
@@ -137,7 +149,7 @@ jobs:
     if: |
       github.event_name == 'schedule'
       || (github.event_name == 'workflow_dispatch' && (inputs.routine == 'all' || inputs.routine == 'workflow-runs-cleanup'))
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/workflow-runs-cleanup.yml@develop
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/workflow-runs-cleanup.yml@v1
     with:
       retention_days: ${{ inputs.workflow_runs_retention_days }}
       dry_run: ${{ inputs.dry_run }}
