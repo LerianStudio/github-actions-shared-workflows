@@ -86,7 +86,7 @@ If you operate this routine in your repository (or you're configuring it for a n
 - [`docs/labels-sync.md`](../docs/labels-sync.md) — labels sync reference
 - [`docs/workflow-runs-cleanup.md`](../docs/workflow-runs-cleanup.md) — workflow runs cleanup reference
 
-To customize the link the bot posts in stale comments, set the `docs_url` input on the `routine.yml` (or `stale-pr.yml` / `stale-issue.yml`) workflow call. Default points to this page on `main`.
+The link the bot posts in stale comments is set by the `docs-url` input on the `src/config/stale` composite, defaulting to this page on `main`. To customize per repository, expose `docs_url` as a `workflow_call` input on `stale-pr.yml` / `stale-issue.yml` / `routine.yml` and forward it to the composite.
 
 ---
 
