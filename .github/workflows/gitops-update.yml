@@ -193,9 +193,14 @@ jobs:
           KUSTOMIZE_VERSION: ${{ inputs.kustomize_version }}
         run: |
           set -euo pipefail
-          VERSION_NO_V="${KUSTOMIZE_VERSION#v}"
-          URL="https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize/${VERSION_NO_V}/kustomize_${VERSION_NO_V}_linux_amd64.tar.gz"
-          curl -sSL "$URL" -o /tmp/kustomize.tar.gz
+          # The kustomize release tag is "kustomize/vX.Y.Z" — the "/" must be
+          # URL-encoded as %2F, and the asset filename keeps the "v" prefix.
+          # Stripping "v" or leaving the slash unencoded produces a 404 page,
+          # which then fails extraction with "gzip: stdin: not in gzip format".
+          VERSION="${KUSTOMIZE_VERSION#v}"
+          VERSION="v${VERSION}"
+          URL="https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2F${VERSION}/kustomize_${VERSION}_linux_amd64.tar.gz"
+          curl -fsSL "$URL" -o /tmp/kustomize.tar.gz
           tar -xzf /tmp/kustomize.tar.gz -C /tmp
           sudo install -m 755 /tmp/kustomize /usr/local/bin/kustomize
           kustomize version
