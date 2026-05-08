@@ -1,5 +1,16 @@
 # Github-actions-shared-workflows Changelog
 
+## [1.28.5](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.28.5)
+
+- Fixes:
+  - Expose `protected_branches` input and pin sub-refs to `@v1`.
+
+Contributors: @bedatty, @lerian-studio
+
+[Compare changes](https://github.com/LerianStudio/github-actions-shared-workflows/compare/v1.28.4...v1.28.5)
+
+---
+
 ## [1.28.4](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.28.4)
 
 - Fixes:
