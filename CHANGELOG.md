@@ -1,5 +1,16 @@
 # Github-actions-shared-workflows Changelog
 
+## [1.28.4](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.28.4)
+
+- Fixes:
+  - Added reusable repository-routine workflow.
+
+Contributors: @bedatty, @lerian-studio
+
+[Compare changes](https://github.com/LerianStudio/github-actions-shared-workflows/compare/v1.28.3...v1.28.4)
+
+---
+
 ## [1.28.3](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.28.3)
 
 - Fixes:
