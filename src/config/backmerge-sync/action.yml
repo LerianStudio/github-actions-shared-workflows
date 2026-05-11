@@ -1,0 +1,248 @@
+name: Backmerge Sync
+description: "Syncs a source branch into a target branch via direct push, PR, or direct-with-PR-fallback."
+
+inputs:
+  github-token:
+    description: GitHub token with contents:write and pull-requests:write permissions
+    required: true
+  source-branch:
+    description: Source branch to merge from (e.g., develop)
+    required: true
+  target-branch:
+    description: Target branch to merge into (e.g., develop-fetcher)
+    required: true
+  mode:
+    description: 'Sync strategy: "direct" (push merge commit, fail on conflict), "pr" (always open a PR), or "direct-with-pr-fallback" (try direct push, open PR on conflict).'
+    required: false
+    default: direct-with-pr-fallback
+  commit-message:
+    description: Commit message for direct merge. Supports ${source} and ${target} placeholders.
+    required: false
+    default: "chore(backmerge): sync ${source} into ${target} [skip ci]"
+  pr-title:
+    description: PR title template. Supports ${source} and ${target} placeholders.
+    required: false
+    default: "chore(backmerge): sync ${source} → ${target}"
+  pr-labels:
+    description: Comma-separated labels applied to the PR opened in `pr` or fallback mode. Default empty so the composite works in any repo; opt in by passing labels that exist in the caller repo.
+    required: false
+    default: ""
+  git-user-name:
+    description: Git user.name for the merge commit
+    required: false
+    default: "github-actions[bot]"
+  git-user-email:
+    description: Git user.email for the merge commit
+    required: false
+    default: "41898282+github-actions[bot]@users.noreply.github.com"
+  dry-run:
+    description: Preview actions without pushing or opening PRs
+    required: false
+    default: "false"
+
+outputs:
+  action:
+    description: "Action taken: skipped | pushed | pr-opened | pr-existing | failed"
+    value: ${{ steps.sync.outputs.action }}
+  pr-url:
+    description: URL of the PR opened or reused in `pr` or fallback mode (empty when no PR was created)
+    value: ${{ steps.sync.outputs.pr-url }}
+  pr-number:
+    description: Number of the PR opened or reused in `pr` or fallback mode (empty when no PR was created)
+    value: ${{ steps.sync.outputs.pr-number }}
+
+runs:
+  using: composite
+  steps:
+    # ----------------- Validate Inputs -----------------
+    - name: Validate inputs
+      shell: bash
+      env:
+        MODE: ${{ inputs.mode }}
+        SOURCE_BRANCH: ${{ inputs.source-branch }}
+        TARGET_BRANCH: ${{ inputs.target-branch }}
+        DRY_RUN: ${{ inputs.dry-run }}
+      run: |
+        case "$MODE" in
+          direct|pr|direct-with-pr-fallback) ;;
+          *)
+            echo "::error::Invalid mode '$MODE'. Must be one of: direct, pr, direct-with-pr-fallback"
+            exit 1
+            ;;
+        esac
+        case "$DRY_RUN" in
+          true|false) ;;
+          *)
+            echo "::error::Invalid dry-run '$DRY_RUN'. Must be 'true' or 'false'"
+            exit 1
+            ;;
+        esac
+        if [ "$SOURCE_BRANCH" = "$TARGET_BRANCH" ]; then
+          echo "::error::source-branch and target-branch must differ (got '$SOURCE_BRANCH')"
+          exit 1
+        fi
+        if ! git check-ref-format --branch "$SOURCE_BRANCH" >/dev/null 2>&1; then
+          echo "::error::Invalid source-branch ref: '$SOURCE_BRANCH'"
+          exit 1
+        fi
+        if ! git check-ref-format --branch "$TARGET_BRANCH" >/dev/null 2>&1; then
+          echo "::error::Invalid target-branch ref: '$TARGET_BRANCH'"
+          exit 1
+        fi
+
+    # ----------------- Fetch Branches -----------------
+    - name: Fetch branches
+      shell: bash
+      env:
+        SOURCE_BRANCH: ${{ inputs.source-branch }}
+        TARGET_BRANCH: ${{ inputs.target-branch }}
+      run: |
+        git fetch --no-tags --prune origin \
+          "+refs/heads/${SOURCE_BRANCH}:refs/remotes/origin/${SOURCE_BRANCH}" \
+          "+refs/heads/${TARGET_BRANCH}:refs/remotes/origin/${TARGET_BRANCH}"
+
+    # ----------------- Sync Branches -----------------
+    - name: Sync branches
+      id: sync
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+        SOURCE_BRANCH: ${{ inputs.source-branch }}
+        TARGET_BRANCH: ${{ inputs.target-branch }}
+        MODE: ${{ inputs.mode }}
+        COMMIT_MESSAGE_TEMPLATE: ${{ inputs.commit-message }}
+        PR_TITLE_TEMPLATE: ${{ inputs.pr-title }}
+        PR_LABELS: ${{ inputs.pr-labels }}
+        GIT_USER_NAME: ${{ inputs.git-user-name }}
+        GIT_USER_EMAIL: ${{ inputs.git-user-email }}
+        DRY_RUN: ${{ inputs.dry-run }}
+      run: |
+        set -euo pipefail
+
+        render() {
+          local rendered="$1"
+          rendered=${rendered//'${source}'/$SOURCE_BRANCH}
+          rendered=${rendered//'${target}'/$TARGET_BRANCH}
+          printf '%s' "$rendered"
+        }
+
+        emit() {
+          echo "action=$1" >> "$GITHUB_OUTPUT"
+          echo "pr-url=${2:-}" >> "$GITHUB_OUTPUT"
+          echo "pr-number=${3:-}" >> "$GITHUB_OUTPUT"
+        }
+
+        SOURCE_SHA=$(git rev-parse "origin/${SOURCE_BRANCH}")
+        TARGET_SHA=$(git rev-parse "origin/${TARGET_BRANCH}")
+
+        if git merge-base --is-ancestor "$SOURCE_SHA" "$TARGET_SHA"; then
+          echo "::notice::${TARGET_BRANCH} already contains ${SOURCE_BRANCH} — skipping"
+          emit "skipped"
+          exit 0
+        fi
+
+        COMMIT_MESSAGE=$(render "$COMMIT_MESSAGE_TEMPLATE")
+        PR_TITLE=$(render "$PR_TITLE_TEMPLATE")
+
+        open_pr() {
+          EXISTING_PR=$(gh pr list --base "$TARGET_BRANCH" --head "$SOURCE_BRANCH" --state open --json number,url --jq 'if length>0 then .[0] else empty end' 2>/dev/null || echo "")
+          if [ -n "$EXISTING_PR" ]; then
+            PR_NUM=$(echo "$EXISTING_PR" | jq -r '.number')
+            PR_URL=$(echo "$EXISTING_PR" | jq -r '.url')
+            echo "::notice::Backmerge PR #${PR_NUM} already exists: ${PR_URL}"
+            emit "pr-existing" "$PR_URL" "$PR_NUM"
+            return 0
+          fi
+
+          PR_BODY="## Description
+
+        Automated backmerge from \`${SOURCE_BRANCH}\` into \`${TARGET_BRANCH}\`.
+
+        ${1:-A direct push could not be performed.} This PR needs review and merge to keep \`${TARGET_BRANCH}\` in sync.
+
+        > Created automatically by the \`backmerge-sync\` composite action."
+
+          if [ "$DRY_RUN" = "true" ]; then
+            echo "::notice::[dry-run] would open PR: ${PR_TITLE} (${SOURCE_BRANCH} → ${TARGET_BRANCH})"
+            emit "pr-opened" "" ""
+            return 0
+          fi
+
+          LABEL_ARGS=()
+          if [ -n "$PR_LABELS" ]; then
+            EXISTING_LABELS=$(gh api --paginate "repos/${GITHUB_REPOSITORY}/labels?per_page=100" --jq '.[].name' 2>/dev/null || echo "")
+            IFS=',' read -ra LABELS <<< "$PR_LABELS"
+            for L in "${LABELS[@]}"; do
+              L_TRIMMED="${L#"${L%%[![:space:]]*}"}"
+              L_TRIMMED="${L_TRIMMED%"${L_TRIMMED##*[![:space:]]}"}"
+              [ -z "$L_TRIMMED" ] && continue
+              if echo "$EXISTING_LABELS" | grep -qFx "$L_TRIMMED"; then
+                LABEL_ARGS+=(--label "$L_TRIMMED")
+              else
+                echo "::warning::Label '$L_TRIMMED' does not exist in this repository — skipping"
+              fi
+            done
+          fi
+
+          PR_URL=$(gh pr create \
+            --base "$TARGET_BRANCH" \
+            --head "$SOURCE_BRANCH" \
+            --title "$PR_TITLE" \
+            --body "$PR_BODY" \
+            "${LABEL_ARGS[@]}")
+
+          PR_NUM=$(echo "$PR_URL" | grep -oE '[0-9]+$')
+          echo "::notice::Opened backmerge PR #${PR_NUM}: ${PR_URL}"
+          emit "pr-opened" "$PR_URL" "$PR_NUM"
+        }
+
+        if [ "$MODE" = "pr" ]; then
+          open_pr "PR-only mode."
+          exit 0
+        fi
+
+        # direct or direct-with-pr-fallback: try direct merge
+        git config user.name "$GIT_USER_NAME"
+        git config user.email "$GIT_USER_EMAIL"
+
+        git checkout -B "$TARGET_BRANCH" "origin/${TARGET_BRANCH}"
+
+        if ! git merge --no-ff "origin/${SOURCE_BRANCH}" -m "$COMMIT_MESSAGE"; then
+          git merge --abort || true
+          if [ "$MODE" = "direct" ]; then
+            echo "::error::Merge conflict between ${SOURCE_BRANCH} and ${TARGET_BRANCH} (mode=direct)"
+            emit "failed"
+            exit 1
+          fi
+          echo "::warning::Merge conflict — falling back to PR"
+          open_pr "A direct merge conflicts with \`${TARGET_BRANCH}\`."
+          exit 0
+        fi
+
+        if [ "$DRY_RUN" = "true" ]; then
+          echo "::notice::[dry-run] would push ${TARGET_BRANCH} (${SOURCE_BRANCH} merged cleanly)"
+          emit "pushed"
+          exit 0
+        fi
+
+        if ! git push origin "$TARGET_BRANCH"; then
+          # A rejected push can mean another worker advanced target — refetch and re-check ancestry.
+          git fetch --no-tags origin \
+            "+refs/heads/${TARGET_BRANCH}:refs/remotes/origin/${TARGET_BRANCH}"
+          if git merge-base --is-ancestor "$SOURCE_SHA" "origin/${TARGET_BRANCH}"; then
+            echo "::notice::${TARGET_BRANCH} already contains ${SOURCE_BRANCH} after push rejection — skipping"
+            emit "skipped"
+            exit 0
+          fi
+          if [ "$MODE" = "direct" ]; then
+            echo "::error::Push to ${TARGET_BRANCH} rejected (mode=direct)"
+            emit "failed"
+            exit 1
+          fi
+          echo "::warning::Push rejected — falling back to PR"
+          open_pr "A direct push to \`${TARGET_BRANCH}\` was rejected."
+          exit 0
+        fi
+
+        echo "::notice::Pushed merge of ${SOURCE_BRANCH} into ${TARGET_BRANCH}"
+        emit "pushed"
