@@ -99,3 +99,4 @@ The caller must run `actions/checkout` with `fetch-depth: 0` and `persist-creden
 - Idempotent: re-running with an already-merged target outputs `skipped`; re-running after a fallback PR was opened outputs `pr-existing`.
 - `dry-run: true` logs every intended action via `::notice::` annotations without pushing or calling `gh pr create`.
 - `[skip ci]` is included in the default commit message to avoid re-triggering CI on the target branch. Override `commit-message` to change this.
+- Labels passed via `pr-labels` are filtered against the caller repo's existing labels — entries that do not exist are skipped with a `::warning::` rather than failing the PR creation.
