@@ -24,9 +24,9 @@ inputs:
     required: false
     default: "chore(backmerge): sync ${source} → ${target}"
   pr-labels:
-    description: Comma-separated labels applied to the fallback PR
+    description: Comma-separated labels applied to the fallback PR. Default empty so the composite works in any repo; opt in by passing labels that exist in the caller repo.
     required: false
-    default: "backmerge,automation"
+    default: ""
   git-user-name:
     description: Git user.name for the merge commit
     required: false
@@ -54,6 +54,7 @@ outputs:
 runs:
   using: composite
   steps:
+    # ----------------- Validate Inputs -----------------
     - name: Validate inputs
       shell: bash
       env:
@@ -72,7 +73,16 @@ runs:
           echo "::error::source-branch and target-branch must differ (got '$SOURCE_BRANCH')"
           exit 1
         fi
+        if ! git check-ref-format --branch "$SOURCE_BRANCH" >/dev/null 2>&1; then
+          echo "::error::Invalid source-branch ref: '$SOURCE_BRANCH'"
+          exit 1
+        fi
+        if ! git check-ref-format --branch "$TARGET_BRANCH" >/dev/null 2>&1; then
+          echo "::error::Invalid target-branch ref: '$TARGET_BRANCH'"
+          exit 1
+        fi
 
+    # ----------------- Fetch Branches -----------------
     - name: Fetch branches
       shell: bash
       env:
@@ -83,6 +93,7 @@ runs:
           "+refs/heads/${SOURCE_BRANCH}:refs/remotes/origin/${SOURCE_BRANCH}" \
           "+refs/heads/${TARGET_BRANCH}:refs/remotes/origin/${TARGET_BRANCH}"
 
+    # ----------------- Sync Branches -----------------
     - name: Sync branches
       id: sync
       shell: bash
@@ -101,7 +112,10 @@ runs:
         set -euo pipefail
 
         render() {
-          printf '%s' "$1" | sed -e "s|\${source}|${SOURCE_BRANCH}|g" -e "s|\${target}|${TARGET_BRANCH}|g"
+          local rendered="$1"
+          rendered=${rendered//'${source}'/$SOURCE_BRANCH}
+          rendered=${rendered//'${target}'/$TARGET_BRANCH}
+          printf '%s' "$rendered"
         }
 
         emit() {
@@ -195,6 +209,14 @@ runs:
         fi
 
         if ! git push origin "$TARGET_BRANCH"; then
+          # A rejected push can mean another worker advanced target — refetch and re-check ancestry.
+          git fetch --no-tags origin \
+            "+refs/heads/${TARGET_BRANCH}:refs/remotes/origin/${TARGET_BRANCH}"
+          if git merge-base --is-ancestor "$SOURCE_SHA" "origin/${TARGET_BRANCH}"; then
+            echo "::notice::${TARGET_BRANCH} already contains ${SOURCE_BRANCH} after push rejection — skipping"
+            emit "skipped"
+            exit 0
+          fi
           if [ "$MODE" = "direct" ]; then
             echo "::error::Push to ${TARGET_BRANCH} rejected (mode=direct)"
             emit "failed"
