@@ -52,7 +52,7 @@ If the target branch already contains the source (`merge-base --is-ancestor`), t
     persist-credentials: true   # required for direct push
 
 - name: Sync develop into develop-fetcher
-  uses: LerianStudio/github-actions-shared-workflows/src/config/backmerge-sync@v1.x.x
+  uses: LerianStudio/github-actions-shared-workflows/src/config/backmerge-sync@v1
   with:
     github-token: ${{ secrets.GITHUB_TOKEN }}
     source-branch: develop
@@ -77,7 +77,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: LerianStudio/github-actions-shared-workflows/src/config/backmerge-sync@v1.x.x
+      - uses: LerianStudio/github-actions-shared-workflows/src/config/backmerge-sync@v1
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           source-branch: develop
