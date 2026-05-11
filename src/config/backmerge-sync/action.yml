@@ -169,11 +169,19 @@ runs:
           fi
 
           LABEL_ARGS=()
-          IFS=',' read -ra LABELS <<< "$PR_LABELS"
-          for L in "${LABELS[@]}"; do
-            L_TRIMMED=$(echo "$L" | xargs)
-            [ -n "$L_TRIMMED" ] && LABEL_ARGS+=(--label "$L_TRIMMED")
-          done
+          if [ -n "$PR_LABELS" ]; then
+            EXISTING_LABELS=$(gh label list --limit 200 --json name --jq '.[].name' 2>/dev/null || echo "")
+            IFS=',' read -ra LABELS <<< "$PR_LABELS"
+            for L in "${LABELS[@]}"; do
+              L_TRIMMED=$(echo "$L" | xargs)
+              [ -z "$L_TRIMMED" ] && continue
+              if echo "$EXISTING_LABELS" | grep -qFx "$L_TRIMMED"; then
+                LABEL_ARGS+=(--label "$L_TRIMMED")
+              else
+                echo "::warning::Label '$L_TRIMMED' does not exist in this repository — skipping"
+              fi
+            done
+          fi
 
           PR_URL=$(gh pr create \
             --base "$TARGET_BRANCH" \
