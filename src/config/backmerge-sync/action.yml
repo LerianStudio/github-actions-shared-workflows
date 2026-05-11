@@ -24,7 +24,7 @@ inputs:
     required: false
     default: "chore(backmerge): sync ${source} → ${target}"
   pr-labels:
-    description: Comma-separated labels applied to the fallback PR. Default empty so the composite works in any repo; opt in by passing labels that exist in the caller repo.
+    description: Comma-separated labels applied to the PR opened in `pr` or fallback mode. Default empty so the composite works in any repo; opt in by passing labels that exist in the caller repo.
     required: false
     default: ""
   git-user-name:
@@ -45,10 +45,10 @@ outputs:
     description: "Action taken: skipped | pushed | pr-opened | pr-existing | failed"
     value: ${{ steps.sync.outputs.action }}
   pr-url:
-    description: URL of the fallback PR (empty when no PR was created)
+    description: URL of the PR opened or reused in `pr` or fallback mode (empty when no PR was created)
     value: ${{ steps.sync.outputs.pr-url }}
   pr-number:
-    description: Number of the fallback PR (empty when no PR was created)
+    description: Number of the PR opened or reused in `pr` or fallback mode (empty when no PR was created)
     value: ${{ steps.sync.outputs.pr-number }}
 
 runs:
@@ -61,11 +61,19 @@ runs:
         MODE: ${{ inputs.mode }}
         SOURCE_BRANCH: ${{ inputs.source-branch }}
         TARGET_BRANCH: ${{ inputs.target-branch }}
+        DRY_RUN: ${{ inputs.dry-run }}
       run: |
         case "$MODE" in
           direct|pr|direct-with-pr-fallback) ;;
           *)
             echo "::error::Invalid mode '$MODE'. Must be one of: direct, pr, direct-with-pr-fallback"
+            exit 1
+            ;;
+        esac
+        case "$DRY_RUN" in
+          true|false) ;;
+          *)
+            echo "::error::Invalid dry-run '$DRY_RUN'. Must be 'true' or 'false'"
             exit 1
             ;;
         esac

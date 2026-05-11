@@ -19,7 +19,7 @@ Single source → single target. For fan-out across multiple targets (e.g., `dev
 | `mode` | `direct`, `pr`, or `direct-with-pr-fallback` | No | `direct-with-pr-fallback` |
 | `commit-message` | Direct-merge commit message. Supports `${source}` / `${target}` | No | `chore(backmerge): sync ${source} into ${target} [skip ci]` |
 | `pr-title` | Fallback PR title. Supports `${source}` / `${target}` | No | `chore(backmerge): sync ${source} → ${target}` |
-| `pr-labels` | Comma-separated labels for the fallback PR. Empty by default — only opt in to labels that exist in the caller repo. | No | `""` |
+| `pr-labels` | Comma-separated labels applied to the PR opened in `pr` or fallback mode. Empty by default — only opt in to labels that exist in the caller repo. | No | `""` |
 | `git-user-name` | Git `user.name` for the merge commit | No | `github-actions[bot]` |
 | `git-user-email` | Git `user.email` for the merge commit | No | `41898282+github-actions[bot]@users.noreply.github.com` |
 | `dry-run` | Preview actions without pushing or opening PRs | No | `false` |
@@ -29,8 +29,8 @@ Single source → single target. For fan-out across multiple targets (e.g., `dev
 | Output | Description |
 |--------|-------------|
 | `action` | One of `skipped`, `pushed`, `pr-opened`, `pr-existing`, `failed` |
-| `pr-url` | URL of the fallback PR (empty when no PR was created) |
-| `pr-number` | Number of the fallback PR (empty when no PR was created) |
+| `pr-url` | URL of the PR opened or reused in `pr` or fallback mode (empty when no PR was created) |
+| `pr-number` | Number of the PR opened or reused in `pr` or fallback mode (empty when no PR was created) |
 
 ## Modes
 
