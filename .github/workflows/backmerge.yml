@@ -1,0 +1,200 @@
+name: Backmerge
+
+# Configurable backmerge orchestrator. Receives a list of source→target rules
+# (literal or glob), expands globs against the remote, and delegates each pair
+# to the `backmerge-sync` composite via matrix.
+
+on:
+  workflow_call:
+    outputs:
+      has_pairs:
+        description: Whether rule expansion resolved at least one source→target pair
+        value: ${{ jobs.expand.outputs.has_pairs }}
+      matrix:
+        description: JSON matrix of resolved pairs (empty when has_pairs is false)
+        value: ${{ jobs.expand.outputs.matrix }}
+    inputs:
+      rules:
+        description: |
+          JSON array of backmerge rules. Each rule:
+            { "from": "develop", "to": "develop-*", "mode": "direct-with-pr-fallback" }
+          Fields:
+            from            (required)  Literal source branch.
+            to              (required)  Literal target branch or glob (e.g. develop-*).
+            mode            (optional)  direct | pr | direct-with-pr-fallback. Default: direct-with-pr-fallback.
+            commit_message  (optional)  Direct-merge commit message (${source}/${target} placeholders).
+            pr_title        (optional)  PR title template (${source}/${target} placeholders).
+            pr_labels       (optional)  Comma-separated labels overriding workflow-level pr_labels.
+        required: true
+        type: string
+      pr_labels:
+        description: Default comma-separated labels applied to PRs (overridden per rule when set)
+        required: false
+        type: string
+        default: ""
+      dry_run:
+        description: Preview merges and PRs without applying changes
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  # ----------------- Expand Rules -----------------
+  expand:
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    outputs:
+      matrix: ${{ steps.expand.outputs.matrix }}
+      has_pairs: ${{ steps.expand.outputs.has_pairs }}
+    steps:
+      - name: Validate and expand rules
+        id: expand
+        env:
+          RULES: ${{ inputs.rules }}
+          REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          if ! echo "$RULES" | jq empty 2>/dev/null; then
+            echo "::error::rules input is not valid JSON"
+            exit 1
+          fi
+          if [ "$(echo "$RULES" | jq 'type')" != '"array"' ]; then
+            echo "::error::rules input must be a JSON array"
+            exit 1
+          fi
+
+          PAIRS='[]'
+          while IFS= read -r rule; do
+            FROM=$(echo "$rule" | jq -r '.from // ""')
+            TO=$(echo "$rule" | jq -r '.to // ""')
+            MODE=$(echo "$rule" | jq -r '.mode // "direct-with-pr-fallback"')
+            CMSG=$(echo "$rule" | jq -r '.commit_message // ""')
+            PTITLE=$(echo "$rule" | jq -r '.pr_title // ""')
+            PLABELS=$(echo "$rule" | jq -r '.pr_labels // ""')
+
+            if [ -z "$FROM" ] || [ -z "$TO" ]; then
+              echo "::error::rule missing required 'from' or 'to': $rule"
+              exit 1
+            fi
+
+            if ! git check-ref-format --branch "$FROM" >/dev/null 2>&1; then
+              echo "::error::Invalid 'from' branch ref: '$FROM'"
+              exit 1
+            fi
+            if [[ "$TO" != *"*"* ]] && ! git check-ref-format --branch "$TO" >/dev/null 2>&1; then
+              echo "::error::Invalid 'to' branch ref: '$TO'"
+              exit 1
+            fi
+
+            case "$MODE" in
+              direct|pr|direct-with-pr-fallback) ;;
+              *)
+                echo "::error::Invalid mode '$MODE' in rule (must be: direct, pr, direct-with-pr-fallback)"
+                exit 1
+                ;;
+            esac
+
+            if [[ "$TO" == *"*"* ]]; then
+              TARGETS=$(git ls-remote --heads "https://x-access-token:${GH_TOKEN}@github.com/${REPO}.git" "$TO" | awk '{print $2}' | sed 's|refs/heads/||')
+              if [ -z "$TARGETS" ]; then
+                echo "::warning::No remote branches match pattern '$TO' — rule skipped"
+                continue
+              fi
+            else
+              TARGETS="$TO"
+            fi
+
+            while IFS= read -r T; do
+              [ -z "$T" ] && continue
+              [ "$T" = "$FROM" ] && continue
+              PAIR=$(jq -n \
+                --arg from "$FROM" --arg to "$T" --arg mode "$MODE" \
+                --arg commit_message "$CMSG" --arg pr_title "$PTITLE" --arg pr_labels "$PLABELS" \
+                '{from: $from, to: $to, mode: $mode, commit_message: $commit_message, pr_title: $pr_title, pr_labels: $pr_labels}')
+              PAIRS=$(echo "$PAIRS" | jq --argjson p "$PAIR" '. += [$p]')
+            done <<< "$TARGETS"
+          done < <(echo "$RULES" | jq -c '.[]')
+
+          COUNT=$(echo "$PAIRS" | jq 'length')
+          echo "Resolved $COUNT (from, to) pair(s):"
+          echo "$PAIRS" | jq .
+
+          if [ "$COUNT" -eq 0 ]; then
+            echo "has_pairs=false" >> "$GITHUB_OUTPUT"
+            echo 'matrix={"include":[]}' >> "$GITHUB_OUTPUT"
+          else
+            echo "has_pairs=true" >> "$GITHUB_OUTPUT"
+            MATRIX=$(jq -nc --argjson p "$PAIRS" '{include: $p}')
+            echo "matrix=$MATRIX" >> "$GITHUB_OUTPUT"
+          fi
+
+  # ----------------- Sync Branches -----------------
+  sync:
+    needs: expand
+    if: needs.expand.outputs.has_pairs == 'true'
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.expand.outputs.matrix) }}
+    steps:
+      - uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+        id: app-token
+        with:
+          client-id: ${{ secrets.LERIAN_STUDIO_MIDAZ_PUSH_BOT_APP_ID }}
+          private-key: ${{ secrets.LERIAN_STUDIO_MIDAZ_PUSH_BOT_PRIVATE_KEY }}
+
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          fetch-depth: 0
+          token: ${{ steps.app-token.outputs.token }}
+          persist-credentials: true
+
+      - name: Import GPG key
+        uses: crazy-max/ghaction-import-gpg@2dc316deee8e90f13e1a351ab510b4d5bc0c82cd # v7
+        with:
+          gpg_private_key: ${{ secrets.LERIAN_CI_CD_USER_GPG_KEY }}
+          passphrase: ${{ secrets.LERIAN_CI_CD_USER_GPG_KEY_PASSWORD }}
+          git_committer_name: ${{ secrets.LERIAN_CI_CD_USER_NAME }}
+          git_committer_email: ${{ secrets.LERIAN_CI_CD_USER_EMAIL }}
+          git_config_global: true
+          git_user_signingkey: true
+          git_commit_gpgsign: true
+
+      - name: Backmerge ${{ matrix.from }} → ${{ matrix.to }}
+        id: sync
+        uses: LerianStudio/github-actions-shared-workflows/src/config/backmerge-sync@develop
+        with:
+          github-token: ${{ steps.app-token.outputs.token }}
+          source-branch: ${{ matrix.from }}
+          target-branch: ${{ matrix.to }}
+          mode: ${{ matrix.mode }}
+          commit-message: "${{ matrix.commit_message != '' && matrix.commit_message || 'chore(backmerge): sync ${source} into ${target} [skip ci]' }}"
+          pr-title: "${{ matrix.pr_title != '' && matrix.pr_title || 'chore(backmerge): sync ${source} → ${target}' }}"
+          pr-labels: ${{ matrix.pr_labels != '' && matrix.pr_labels || inputs.pr_labels }}
+          git-user-name: ${{ secrets.LERIAN_CI_CD_USER_NAME }}
+          git-user-email: ${{ secrets.LERIAN_CI_CD_USER_EMAIL }}
+          dry-run: ${{ inputs.dry_run }}
+
+      - name: Report
+        if: always()
+        env:
+          FROM: ${{ matrix.from }}
+          TO: ${{ matrix.to }}
+          ACTION: ${{ steps.sync.outputs.action }}
+          PR_URL: ${{ steps.sync.outputs.pr-url }}
+        run: |
+          {
+            echo "### \`${FROM}\` → \`${TO}\`"
+            echo ""
+            echo "- **action:** \`${ACTION:-failed}\`"
+            if [ -n "${PR_URL:-}" ]; then
+              echo "- **PR:** ${PR_URL}"
+            fi
+            echo ""
+          } >> "$GITHUB_STEP_SUMMARY"
