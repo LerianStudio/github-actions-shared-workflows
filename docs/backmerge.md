@@ -29,7 +29,7 @@ Decouples backmerge from semantic-release events. Suited for fan-out scenarios l
 ```yaml
 jobs:
   backmerge:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/backmerge.yml@develop
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/backmerge.yml@v1.28.8
     with:
       rules: '[{ "from": "develop", "to": "develop-*" }]'
     secrets: inherit
@@ -88,7 +88,7 @@ on:
 
 jobs:
   backmerge:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/backmerge.yml@develop
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/backmerge.yml@v1.28.8
     with:
       rules: |
         [
@@ -107,7 +107,7 @@ on:
 
 jobs:
   backmerge:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/backmerge.yml@develop
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/backmerge.yml@v1.28.8
     with:
       rules: |
         [
@@ -124,7 +124,7 @@ jobs:
 > jobs:
 >   backmerge:
 >     if: github.ref_name == 'main' || github.ref_name == 'develop'
->     uses: LerianStudio/github-actions-shared-workflows/.github/workflows/backmerge.yml@develop
+>     uses: LerianStudio/github-actions-shared-workflows/.github/workflows/backmerge.yml@v1.28.8
 >     with:
 >       rules: ${{ github.ref_name == 'main'
 >         && '[{ "from": "main", "to": "develop" }]'
@@ -145,7 +145,7 @@ on:
 
 jobs:
   run:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/backmerge.yml@develop
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/backmerge.yml@v1.28.8
     with:
       rules: |
         [{ "from": "develop", "to": "develop-*" }]
