@@ -12,6 +12,7 @@ Reusable workflow for comprehensive Frontend/Node.js PR analysis in monorepos. H
 - **Unit Tests**: Runs tests with Jest/Vitest and coverage
 - **Coverage Check**: Threshold enforcement with PR comments
 - **Build Verification**: Ensures code compiles successfully
+- **i18n Key Checks**: Optional FormatJS extraction-parity and locale-parity validation
 - **Skip Logic**: Gracefully skips when no frontend changes detected
 - **Package Manager Support**: npm, yarn, and pnpm
 
@@ -104,6 +105,29 @@ jobs:
     secrets: inherit
 ```
 
+### With i18n Key Checks (FormatJS)
+
+```yaml
+jobs:
+  analysis:
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/frontend-pr-analysis.yml@v1.0.0
+    with:
+      app_name_prefix: "product-console"
+      enable_i18n_check: true
+      # i18n_check_script and i18n_keys_check_script default to
+      # 'check:i18n' and 'check:i18n:keys' — override if your package.json
+      # uses different script names.
+    secrets: inherit
+```
+
+Warning-only mode during rollout (does not fail the workflow):
+
+```yaml
+with:
+  enable_i18n_check: true
+  i18n_check_fail_on_violation: false
+```
+
 ### With pnpm
 
 ```yaml
@@ -136,6 +160,10 @@ jobs:
 | `enable_tests` | Enable unit tests | No | `true` |
 | `enable_coverage` | Enable coverage check with PR comment | No | `true` |
 | `enable_build` | Enable build verification | No | `true` |
+| `enable_i18n_check` | Enable i18n key validation (runs both i18n scripts) | No | `false` |
+| `i18n_check_script` | npm script for extraction-parity check | No | `check:i18n` |
+| `i18n_keys_check_script` | npm script for locale-parity check | No | `check:i18n:keys` |
+| `i18n_check_fail_on_violation` | Fail the workflow on i18n violations (set `false` for warning-only rollout) | No | `true` |
 
 ## Secrets
 
@@ -178,6 +206,14 @@ Calculates coverage and posts PR comment per changed app:
 
 ### build
 Verifies code compiles/builds successfully per changed app.
+
+### i18n-check
+Optional. Validates internationalization keys per changed app by running two npm scripts:
+
+- `i18n_check_script` (default `check:i18n`) — extraction parity: catches keys used in source that were never extracted to locale files.
+- `i18n_keys_check_script` (default `check:i18n:keys`) — locale parity: catches keys present in some locale files but missing from others.
+
+Gated by `enable_i18n_check` (default `false`). When `i18n_check_fail_on_violation: false`, violations are reported but do not fail the workflow — useful during initial rollout in noisy codebases.
 
 ### no-changes
 Runs when no frontend changes are detected - outputs skip message.

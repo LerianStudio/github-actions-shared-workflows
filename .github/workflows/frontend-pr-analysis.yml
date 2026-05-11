@@ -83,6 +83,22 @@ on:
         description: 'Enable build verification'
         type: boolean
         default: true
+      enable_i18n_check:
+        description: 'Enable i18n key validation (runs i18n_check_script and i18n_keys_check_script)'
+        type: boolean
+        default: false
+      i18n_check_script:
+        description: 'npm script name for extraction-parity check (verifies no new keys leaked unextracted)'
+        type: string
+        default: 'check:i18n'
+      i18n_keys_check_script:
+        description: 'npm script name for locale-parity check (verifies key parity across locale files)'
+        type: string
+        default: 'check:i18n:keys'
+      i18n_check_fail_on_violation:
+        description: 'Fail the workflow if any i18n check reports violations. Set false to surface as warning only during rollout.'
+        type: boolean
+        default: true
 
 permissions:
   contents: read
@@ -568,6 +584,62 @@ jobs:
           esac
 
   # ============================================
+  # I18N KEY CHECKS
+  # ============================================
+  i18n-check:
+    name: i18n Check (${{ matrix.app.name }})
+    needs: detect-changes
+    if: needs.detect-changes.outputs.has_changes == 'true' && inputs.enable_i18n_check
+    runs-on: ${{ inputs.runner_type }}
+    strategy:
+      fail-fast: false
+      matrix:
+        app: ${{ fromJson(needs.detect-changes.outputs.matrix) }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6
+        with:
+          node-version: ${{ inputs.node_version }}
+          cache: ${{ inputs.package_manager }}
+          cache-dependency-path: ${{ matrix.app.working_dir }}/package-lock.json
+
+      - name: Install dependencies
+        working-directory: ${{ matrix.app.working_dir }}
+        run: |
+          case "${{ inputs.package_manager }}" in
+            yarn) yarn install --frozen-lockfile ;;
+            pnpm) pnpm install --frozen-lockfile ;;
+            *) npm ci ;;
+          esac
+
+      - name: Check i18n keys (extraction parity)
+        working-directory: ${{ matrix.app.working_dir }}
+        continue-on-error: ${{ !inputs.i18n_check_fail_on_violation }}
+        env:
+          I18N_SCRIPT: ${{ inputs.i18n_check_script }}
+        run: |
+          case "${{ inputs.package_manager }}" in
+            yarn) yarn run "$I18N_SCRIPT" ;;
+            pnpm) pnpm run "$I18N_SCRIPT" ;;
+            *) npm run "$I18N_SCRIPT" ;;
+          esac
+
+      - name: Check i18n keys (locale parity)
+        working-directory: ${{ matrix.app.working_dir }}
+        continue-on-error: ${{ !inputs.i18n_check_fail_on_violation }}
+        env:
+          I18N_KEYS_SCRIPT: ${{ inputs.i18n_keys_check_script }}
+        run: |
+          case "${{ inputs.package_manager }}" in
+            yarn) yarn run "$I18N_KEYS_SCRIPT" ;;
+            pnpm) pnpm run "$I18N_KEYS_SCRIPT" ;;
+            *) npm run "$I18N_KEYS_SCRIPT" ;;
+          esac
+
+  # ============================================
   # NO CHANGES DETECTED
   # ============================================
   no-changes:
@@ -586,12 +658,12 @@ jobs:
   # ============================================
   notify:
     name: Notify
-    needs: [detect-changes, lint, typecheck, security, tests, build]
+    needs: [detect-changes, lint, typecheck, security, tests, build, i18n-check]
     if: always() && needs.detect-changes.outputs.has_changes == 'true'
     uses: ./.github/workflows/slack-notify.yml
     with:
-      status: ${{ (needs.lint.result == 'failure' || needs.typecheck.result == 'failure' || needs.security.result == 'failure' || needs.tests.result == 'failure' || needs.build.result == 'failure') && 'failure' || 'success' }}
+      status: ${{ (needs.lint.result == 'failure' || needs.typecheck.result == 'failure' || needs.security.result == 'failure' || needs.tests.result == 'failure' || needs.build.result == 'failure' || needs.i18n-check.result == 'failure') && 'failure' || 'success' }}
       workflow_name: "Frontend PR Analysis"
-      failed_jobs: ${{ needs.lint.result == 'failure' && 'Lint, ' || '' }}${{ needs.typecheck.result == 'failure' && 'TypeCheck, ' || '' }}${{ needs.security.result == 'failure' && 'Security, ' || '' }}${{ needs.tests.result == 'failure' && 'Tests, ' || '' }}${{ needs.build.result == 'failure' && 'Build' || '' }}
+      failed_jobs: ${{ needs.lint.result == 'failure' && 'Lint, ' || '' }}${{ needs.typecheck.result == 'failure' && 'TypeCheck, ' || '' }}${{ needs.security.result == 'failure' && 'Security, ' || '' }}${{ needs.tests.result == 'failure' && 'Tests, ' || '' }}${{ needs.build.result == 'failure' && 'Build, ' || '' }}${{ needs.i18n-check.result == 'failure' && 'i18n Check' || '' }}
     secrets:
       SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
