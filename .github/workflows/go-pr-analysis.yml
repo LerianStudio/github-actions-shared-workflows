@@ -653,7 +653,7 @@ jobs:
         working-directory: ${{ matrix.app.working_dir }}
         run: |
           if [[ -f coverage.txt ]]; then
-            COVERAGE=$(go tool cover -func=coverage.txt | grep total | awk '{print $3}' | sed 's/%//')
+            COVERAGE=$(go tool cover -func=coverage.txt | grep '^total:' | awk '{print $3}' | sed 's/%//')
             echo "coverage=$COVERAGE" >> "$GITHUB_OUTPUT"
             echo "Total coverage: $COVERAGE%"
 
