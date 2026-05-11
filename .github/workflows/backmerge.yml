@@ -6,6 +6,13 @@ name: Backmerge
 
 on:
   workflow_call:
+    outputs:
+      has_pairs:
+        description: Whether rule expansion resolved at least one source→target pair
+        value: ${{ jobs.expand.outputs.has_pairs }}
+      matrix:
+        description: JSON matrix of resolved pairs (empty when has_pairs is false)
+        value: ${{ jobs.expand.outputs.matrix }}
     inputs:
       rules:
         description: |
@@ -72,6 +79,15 @@ jobs:
 
             if [ -z "$FROM" ] || [ -z "$TO" ]; then
               echo "::error::rule missing required 'from' or 'to': $rule"
+              exit 1
+            fi
+
+            if ! git check-ref-format --branch "$FROM" >/dev/null 2>&1; then
+              echo "::error::Invalid 'from' branch ref: '$FROM'"
+              exit 1
+            fi
+            if [[ "$TO" != *"*"* ]] && ! git check-ref-format --branch "$TO" >/dev/null 2>&1; then
+              echo "::error::Invalid 'to' branch ref: '$TO'"
               exit 1
             fi
 

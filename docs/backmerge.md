@@ -107,7 +107,7 @@ jobs:
 >     secrets: inherit
 > ```
 
-### Manual trigger from a `self-*` workflow in the caller
+### Manual trigger with `workflow_dispatch`
 
 ```yaml
 name: Self — Backmerge
@@ -120,7 +120,7 @@ on:
 
 jobs:
   run:
-    uses: ./.github/workflows/backmerge-impl.yml
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/backmerge.yml@develop
     with:
       rules: |
         [{ "from": "develop", "to": "develop-*" }]
