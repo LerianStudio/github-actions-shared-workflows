@@ -93,7 +93,19 @@ jobs:
     secrets: inherit
 ```
 
-The workflow filters rules by whether the **caller's** pushed branch is the rule's `from`: on push to `main`, only the first rule runs; on push to `develop`, only the second. Filtering happens implicitly via the source-branch matching — rules whose `from` is not the current ref still execute and emit `skipped` when the target is already up to date, so this is cheap rather than incorrect. For tight filtering, gate the job with `if:` in the caller.
+> **Heads up:** the workflow does **not** filter rules by `github.ref` — every rule in `rules` runs on every invocation. The `merge-base --is-ancestor` short-circuit inside the composite makes irrelevant rules cheap (they exit as `skipped`), but if you want to scope which rules execute by trigger branch, gate the job in the caller:
+>
+> ```yaml
+> jobs:
+>   backmerge:
+>     if: github.ref_name == 'main' || github.ref_name == 'develop'
+>     uses: LerianStudio/github-actions-shared-workflows/.github/workflows/backmerge.yml@develop
+>     with:
+>       rules: ${{ github.ref_name == 'main'
+>         && '[{ "from": "main", "to": "develop" }]'
+>         || '[{ "from": "develop", "to": "develop-*" }]' }}
+>     secrets: inherit
+> ```
 
 ### Manual trigger from a `self-*` workflow in the caller
 
