@@ -145,7 +145,7 @@ runs:
         PR_TITLE=$(render "$PR_TITLE_TEMPLATE")
 
         open_pr() {
-          EXISTING_PR=$(gh pr list --base "$TARGET_BRANCH" --head "$SOURCE_BRANCH" --state open --json number,url --jq '.[0]' 2>/dev/null || echo "")
+          EXISTING_PR=$(gh pr list --base "$TARGET_BRANCH" --head "$SOURCE_BRANCH" --state open --json number,url --jq 'if length>0 then .[0] else empty end' 2>/dev/null || echo "")
           if [ -n "$EXISTING_PR" ]; then
             PR_NUM=$(echo "$EXISTING_PR" | jq -r '.number')
             PR_URL=$(echo "$EXISTING_PR" | jq -r '.url')

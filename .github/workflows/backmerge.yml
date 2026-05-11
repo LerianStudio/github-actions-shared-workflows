@@ -86,7 +86,7 @@ jobs:
               echo "::error::Invalid 'from' branch ref: '$FROM'"
               exit 1
             fi
-            if [[ "$TO" != *"*"* ]] && ! git check-ref-format --branch "$TO" >/dev/null 2>&1; then
+            if [[ "$TO" != *[\*\?\[]* ]] && ! git check-ref-format --branch "$TO" >/dev/null 2>&1; then
               echo "::error::Invalid 'to' branch ref: '$TO'"
               exit 1
             fi
@@ -99,7 +99,7 @@ jobs:
                 ;;
             esac
 
-            if [[ "$TO" == *"*"* ]]; then
+            if [[ "$TO" == *[\*\?\[]* ]]; then
               TARGETS=$(git ls-remote --heads "https://x-access-token:${GH_TOKEN}@github.com/${REPO}.git" "$TO" | awk '{print $2}' | sed 's|refs/heads/||')
               if [ -z "$TARGETS" ]; then
                 echo "::warning::No remote branches match pattern '$TO' — rule skipped"

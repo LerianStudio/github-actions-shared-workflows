@@ -77,7 +77,8 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: LerianStudio/github-actions-shared-workflows/src/config/backmerge-sync@v1
+          persist-credentials: true
+      - uses: LerianStudio/github-actions-shared-workflows/src/config/backmerge-sync@v1.x.x
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           source-branch: develop
