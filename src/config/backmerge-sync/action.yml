@@ -170,10 +170,11 @@ runs:
 
           LABEL_ARGS=()
           if [ -n "$PR_LABELS" ]; then
-            EXISTING_LABELS=$(gh label list --limit 200 --json name --jq '.[].name' 2>/dev/null || echo "")
+            EXISTING_LABELS=$(gh api --paginate "repos/${GITHUB_REPOSITORY}/labels?per_page=100" --jq '.[].name' 2>/dev/null || echo "")
             IFS=',' read -ra LABELS <<< "$PR_LABELS"
             for L in "${LABELS[@]}"; do
-              L_TRIMMED=$(echo "$L" | xargs)
+              L_TRIMMED="${L#"${L%%[![:space:]]*}"}"
+              L_TRIMMED="${L_TRIMMED%"${L_TRIMMED##*[![:space:]]}"}"
               [ -z "$L_TRIMMED" ] && continue
               if echo "$EXISTING_LABELS" | grep -qFx "$L_TRIMMED"; then
                 LABEL_ARGS+=(--label "$L_TRIMMED")
