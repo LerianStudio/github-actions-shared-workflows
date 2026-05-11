@@ -17,6 +17,31 @@ Decouples backmerge from semantic-release events. Suited for fan-out scenarios l
 | `pr_labels` | Default comma-separated labels for fallback PRs. Overridden per rule when `rules[].pr_labels` is set. | No | `""` |
 | `dry_run` | Preview merges and PRs without applying changes. | No | `false` |
 
+## Outputs
+
+| Output | Description |
+|--------|-------------|
+| `has_pairs` | `"true"` when rule expansion resolved at least one source→target pair, `"false"` otherwise. Use to gate downstream jobs. |
+| `matrix` | JSON object `{ "include": [...] }` listing every resolved pair. Always valid JSON — `{"include":[]}` when `has_pairs` is `"false"`. |
+
+### Downstream gating example
+
+```yaml
+jobs:
+  backmerge:
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/backmerge.yml@develop
+    with:
+      rules: '[{ "from": "develop", "to": "develop-*" }]'
+    secrets: inherit
+
+  notify:
+    needs: backmerge
+    if: needs.backmerge.outputs.has_pairs == 'true'
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    steps:
+      - run: echo "${{ needs.backmerge.outputs.matrix }}"
+```
+
 ### Rules schema
 
 Each entry in `rules` is an object:

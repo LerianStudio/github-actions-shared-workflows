@@ -126,6 +126,7 @@ jobs:
 
           if [ "$COUNT" -eq 0 ]; then
             echo "has_pairs=false" >> "$GITHUB_OUTPUT"
+            echo 'matrix={"include":[]}' >> "$GITHUB_OUTPUT"
           else
             echo "has_pairs=true" >> "$GITHUB_OUTPUT"
             MATRIX=$(jq -nc --argjson p "$PAIRS" '{include: $p}')
