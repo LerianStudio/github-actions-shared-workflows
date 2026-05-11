@@ -608,8 +608,10 @@ jobs:
 
       - name: Install dependencies
         working-directory: ${{ matrix.app.working_dir }}
+        env:
+          PKG_MANAGER: ${{ inputs.package_manager }}
         run: |
-          case "${{ inputs.package_manager }}" in
+          case "$PKG_MANAGER" in
             yarn) yarn install --frozen-lockfile ;;
             pnpm) pnpm install --frozen-lockfile ;;
             *) npm ci ;;
@@ -619,9 +621,10 @@ jobs:
         working-directory: ${{ matrix.app.working_dir }}
         continue-on-error: ${{ !inputs.i18n_check_fail_on_violation }}
         env:
+          PKG_MANAGER: ${{ inputs.package_manager }}
           I18N_SCRIPT: ${{ inputs.i18n_check_script }}
         run: |
-          case "${{ inputs.package_manager }}" in
+          case "$PKG_MANAGER" in
             yarn) yarn run "$I18N_SCRIPT" ;;
             pnpm) pnpm run "$I18N_SCRIPT" ;;
             *) npm run "$I18N_SCRIPT" ;;
@@ -631,9 +634,10 @@ jobs:
         working-directory: ${{ matrix.app.working_dir }}
         continue-on-error: ${{ !inputs.i18n_check_fail_on_violation }}
         env:
+          PKG_MANAGER: ${{ inputs.package_manager }}
           I18N_KEYS_SCRIPT: ${{ inputs.i18n_keys_check_script }}
         run: |
-          case "${{ inputs.package_manager }}" in
+          case "$PKG_MANAGER" in
             yarn) yarn run "$I18N_KEYS_SCRIPT" ;;
             pnpm) pnpm run "$I18N_KEYS_SCRIPT" ;;
             *) npm run "$I18N_KEYS_SCRIPT" ;;
