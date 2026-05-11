@@ -1,5 +1,22 @@
 # Github-actions-shared-workflows Changelog
 
+## [1.28.8](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.28.8)
+
+- **Fixes**
+  - Corrected empty-PR detection and broadened glob matching for backmerge.
+  - Skipped non-existent labels instead of failing PR creation in backmerge-sync.
+  - Added composite for branch sync with direct/PR/fallback modes in backmerge-sync.
+
+- **Improvements**
+  - Pinned composite to @v1 and workflow examples to @v1.28.8 for backmerge.
+  - Added persist-credentials to matrix fan-out example in backmerge-sync documentation.
+
+Contributors: @bedatty, @lerian-studio
+
+[Compare changes](https://github.com/LerianStudio/github-actions-shared-workflows/compare/v1.28.7...v1.28.8)
+
+---
+
 ## [1.28.7](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.28.7)
 
 - Fixes:
