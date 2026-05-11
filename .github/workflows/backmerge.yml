@@ -168,7 +168,7 @@ jobs:
 
       - name: Backmerge ${{ matrix.from }} → ${{ matrix.to }}
         id: sync
-        uses: LerianStudio/github-actions-shared-workflows/src/config/backmerge-sync@develop
+        uses: LerianStudio/github-actions-shared-workflows/src/config/backmerge-sync@v1
         with:
           github-token: ${{ steps.app-token.outputs.token }}
           source-branch: ${{ matrix.from }}
