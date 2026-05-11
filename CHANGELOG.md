@@ -1,5 +1,16 @@
 # Github-actions-shared-workflows Changelog
 
+## [1.28.7](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.28.7)
+
+- Fixes:
+  - Anchor coverage grep to summary line only in go-pr-analysis.
+
+Contributors: @fredcamaral, @lerian-studio,
+
+[Compare changes](https://github.com/LerianStudio/github-actions-shared-workflows/compare/v1.28.6...v1.28.7)
+
+---
+
 ## [1.28.6](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.28.6)
 
 - **Fixes**
