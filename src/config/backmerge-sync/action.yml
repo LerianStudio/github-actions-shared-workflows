@@ -46,10 +46,10 @@ outputs:
     value: ${{ steps.sync.outputs.action }}
   pr-url:
     description: URL of the fallback PR (empty when no PR was created)
-    value: ${{ steps.sync.outputs.pr_url }}
+    value: ${{ steps.sync.outputs.pr-url }}
   pr-number:
     description: Number of the fallback PR (empty when no PR was created)
-    value: ${{ steps.sync.outputs.pr_number }}
+    value: ${{ steps.sync.outputs.pr-number }}
 
 runs:
   using: composite
@@ -106,8 +106,8 @@ runs:
 
         emit() {
           echo "action=$1" >> "$GITHUB_OUTPUT"
-          echo "pr_url=${2:-}" >> "$GITHUB_OUTPUT"
-          echo "pr_number=${3:-}" >> "$GITHUB_OUTPUT"
+          echo "pr-url=${2:-}" >> "$GITHUB_OUTPUT"
+          echo "pr-number=${3:-}" >> "$GITHUB_OUTPUT"
         }
 
         SOURCE_SHA=$(git rev-parse "origin/${SOURCE_BRANCH}")
