@@ -16,6 +16,24 @@ if [[ ! -f "$config" ]]; then
   exit 1
 fi
 
+# Schema version gate: refuse anything other than v1 to surface intentional
+# schema bumps as a clear error instead of letting a v2 config drift through.
+schema_version=$(yq -r '.version // 0' "$config")
+if [[ "$schema_version" != "1" ]]; then
+  echo "unsupported config schema version: '$schema_version' (expected: 1)" >&2
+  exit 1
+fi
+
+# Repository keys must match `owner/name`. Catching this upfront gives a
+# better error than the downstream `git clone` failure.
+while IFS= read -r key; do
+  [[ -z "$key" ]] && continue
+  if [[ ! "$key" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]]; then
+    echo "invalid repository key: '$key' (expected: owner/name)" >&2
+    exit 1
+  fi
+done < <(yq -r '.repositories | keys | .[]' "$config")
+
 yq -o=json '
   .defaults as $d
   | .repositories
