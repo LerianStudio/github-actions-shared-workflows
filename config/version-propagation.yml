@@ -48,6 +48,10 @@ repositories:
   # Trunk-based consumer (no `develop` branch): push the bump directly to main.
   LerianStudio/go-boilerplate-ddd:
     target_branch: main
+    auto_merge_pr_fallback:
+      patch: true
+      minor: true
+      major: false
 
   # ---------------------------------------------------------------------------
   # Examples — uncomment and adapt to onboard a new repository.
