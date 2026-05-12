@@ -32,6 +32,11 @@ if [[ "$repositories_kind" != "!!map" ]]; then
   echo "invalid config: .repositories must be a mapping (got: ${repositories_kind})" >&2
   exit 1
 fi
+repositories_count=$(yq -r '.repositories | length' "$config")
+if [[ "$repositories_count" -eq 0 ]]; then
+  echo "invalid config: .repositories must be a non-empty mapping" >&2
+  exit 1
+fi
 
 # Repository keys must match `owner/name`. Catching this upfront gives a
 # better error than the downstream `git clone` failure.
