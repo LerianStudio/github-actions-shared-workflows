@@ -129,10 +129,11 @@ runs:
           if [[ ${#globs[@]} -eq 0 ]]; then
             # Would silently report "already on $NEW_TAG" downstream (same
             # failure shape as the bug this composite was built to avoid).
+            # No `::endgroup::` here — the per-target `::group::` is opened
+            # only after this guard passes.
             echo "::warning::workflow_files is empty for $repo@$branch — check config defaults"
             printf '| %s | %s | skip | invalid-config |\n' "$repo" "$branch" >> "$summary_file"
             had_failure=1
-            echo "::endgroup::"
             continue
           fi
           auto_merge=$(jq -r ".auto_merge.${BUMP_LEVEL}" <<<"$target")
