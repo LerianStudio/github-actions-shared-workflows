@@ -618,8 +618,9 @@ jobs:
           esac
 
       - name: Check i18n keys (extraction parity)
+        id: i18n_extraction
         working-directory: ${{ matrix.app.working_dir }}
-        continue-on-error: ${{ !inputs.i18n_check_fail_on_violation }}
+        continue-on-error: true
         env:
           PKG_MANAGER: ${{ inputs.package_manager }}
           I18N_SCRIPT: ${{ inputs.i18n_check_script }}
@@ -631,8 +632,9 @@ jobs:
           esac
 
       - name: Check i18n keys (locale parity)
+        id: i18n_locale
         working-directory: ${{ matrix.app.working_dir }}
-        continue-on-error: ${{ !inputs.i18n_check_fail_on_violation }}
+        continue-on-error: true
         env:
           PKG_MANAGER: ${{ inputs.package_manager }}
           I18N_KEYS_SCRIPT: ${{ inputs.i18n_keys_check_script }}
@@ -642,6 +644,15 @@ jobs:
             pnpm) pnpm run "$I18N_KEYS_SCRIPT" ;;
             *) npm run "$I18N_KEYS_SCRIPT" ;;
           esac
+
+      - name: Fail on i18n violations
+        if: inputs.i18n_check_fail_on_violation && (steps.i18n_extraction.outcome == 'failure' || steps.i18n_locale.outcome == 'failure')
+        env:
+          EXTRACTION_OUTCOME: ${{ steps.i18n_extraction.outcome }}
+          LOCALE_OUTCOME: ${{ steps.i18n_locale.outcome }}
+        run: |
+          echo "::error::i18n validation failed (extraction=$EXTRACTION_OUTCOME, locale=$LOCALE_OUTCOME)"
+          exit 1
 
   # ============================================
   # NO CHANGES DETECTED

@@ -208,6 +208,7 @@ Calculates coverage and posts PR comment per changed app:
 Verifies code compiles/builds successfully per changed app.
 
 ### i18n-check
+
 Optional. Validates internationalization keys per changed app by running two npm scripts:
 
 - `i18n_check_script` (default `check:i18n`) — extraction parity: catches keys used in source that were never extracted to locale files.
