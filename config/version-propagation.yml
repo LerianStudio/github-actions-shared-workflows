@@ -45,5 +45,54 @@ defaults:
   enabled: true
 
 repositories:
+  # Trunk-based consumer (no `develop` branch): push the bump directly to main.
   LerianStudio/go-boilerplate-ddd:
     target_branch: main
+
+  # ---------------------------------------------------------------------------
+  # Examples — uncomment and adapt to onboard a new repository.
+  # ---------------------------------------------------------------------------
+
+  # Gitflow consumer using all defaults: bump enters on `develop` and flows
+  # through `release-candidate -> main` via the normal promotion pipeline.
+  # An empty block `{}` means "use every default above".
+  #
+  # LerianStudio/midaz: {}
+
+  # Gitflow consumer that wants minor bumps auto-merged when push falls back to
+  # PR (e.g. because branch protection blocks the direct push). Patches and
+  # minors land without human approval; majors still require review.
+  #
+  # LerianStudio/plugin-fees:
+  #   auto_merge_pr_fallback:
+  #     patch: true
+  #     minor: true
+  #     major: false
+
+  # Repo with third-party workflows in `.github/workflows/` that must NOT be
+  # touched — restrict the propagation to specific files via glob.
+  #
+  # LerianStudio/plugin-br-pix-direct-jd:
+  #   workflow_files:
+  #     - "build.yml"
+  #     - "release.yml"
+  #     - "pr-*.yml"
+
+  # Trunk-based consumer with a custom workflow filename and conservative
+  # auto-merge policy (manual review for everything).
+  #
+  # LerianStudio/lerian-map:
+  #   target_branch: main
+  #   workflow_files:
+  #     - "ci.yml"
+  #     - "deploy.yml"
+  #   auto_merge_pr_fallback:
+  #     patch: false
+  #     minor: false
+  #     major: false
+
+  # Temporarily paused target — kept in the matrix for traceability, but the
+  # controller skips it. Flip to `enabled: true` (or remove the key) to resume.
+  #
+  # LerianStudio/legacy-service:
+  #   enabled: false
