@@ -1,0 +1,102 @@
+# Version Propagation Matrix
+#
+# Source of truth for which downstream repositories receive automatic version
+# bumps when `LerianStudio/github-actions-shared-workflows` publishes a new
+# production release on `main`.
+#
+# Scope today: rewrite `uses: LerianStudio/github-actions-shared-workflows/...@vX.Y.Z`
+# references inside `.github/workflows/*.yml` of each listed repository.
+# Nothing else (no input/secret/structure edits).
+#
+# Layout: repository-keyed map. Each `owner/name` is a key whose value is the
+# per-repo configuration block. An empty block (`{}`) means "use all defaults".
+# This shape lets us add per-repo specifics later without touching siblings.
+#
+# Per-repo keys (all optional unless noted):
+#   target_branch          branch where the bump is pushed (default `develop`)
+#   workflow_files         glob list relative to `.github/workflows/`
+#   auto_merge_pr_fallback when push falls back to PR, enable `gh pr merge
+#                          --auto --squash` keyed by bump level
+#   enabled                false skips the repo without removing the entry
+#                          (handy for short-term pauses; default true)
+#
+# Resolution at runtime (executed by `src/config/version-propagation`):
+#   1. Controller fires from `release: published` on this repo's `main`.
+#   2. Reads this file at the published tag of shared-workflows.
+#   3. For each enabled repo: clone target_branch shallow, rewrite version
+#      pins, try direct push; on failure OR when bump is `major`, open a PR.
+#   4. Pre-releases (`v*-beta.N` from `develop`) are skipped.
+#
+# Out of scope (do NOT add here):
+#   - Workflow input or secret renames (manual migration only).
+#   - Repos not consuming shared-workflows.
+#   - Non-workflow files (Dockerfile, go.mod, etc. — Dependabot handles those).
+
+version: 1
+
+defaults:
+  target_branch: develop
+  workflow_files:
+    - "*.yml"
+  auto_merge_pr_fallback:
+    patch: true
+    minor: false
+    major: false
+  enabled: true
+
+repositories:
+  # Trunk-based consumer (no `develop` branch): push the bump directly to main.
+  LerianStudio/go-boilerplate-ddd:
+    target_branch: main
+    auto_merge_pr_fallback:
+      patch: true
+      minor: true
+      major: false
+
+  # ---------------------------------------------------------------------------
+  # Examples — uncomment and adapt to onboard a new repository.
+  # ---------------------------------------------------------------------------
+
+  # Gitflow consumer using all defaults: bump enters on `develop` and flows
+  # through `release-candidate -> main` via the normal promotion pipeline.
+  # An empty block `{}` means "use every default above".
+  #
+  # LerianStudio/midaz: {}
+
+  # Gitflow consumer that wants minor bumps auto-merged when push falls back to
+  # PR (e.g. because branch protection blocks the direct push). Patches and
+  # minors land without human approval; majors still require review.
+  #
+  # LerianStudio/plugin-fees:
+  #   auto_merge_pr_fallback:
+  #     patch: true
+  #     minor: true
+  #     major: false
+
+  # Repo with third-party workflows in `.github/workflows/` that must NOT be
+  # touched — restrict the propagation to specific files via glob.
+  #
+  # LerianStudio/plugin-br-pix-direct-jd:
+  #   workflow_files:
+  #     - "build.yml"
+  #     - "release.yml"
+  #     - "pr-*.yml"
+
+  # Trunk-based consumer with a custom workflow filename and conservative
+  # auto-merge policy (manual review for everything).
+  #
+  # LerianStudio/lerian-map:
+  #   target_branch: main
+  #   workflow_files:
+  #     - "ci.yml"
+  #     - "deploy.yml"
+  #   auto_merge_pr_fallback:
+  #     patch: false
+  #     minor: false
+  #     major: false
+
+  # Temporarily paused target — kept in the matrix for traceability, but the
+  # controller skips it. Flip to `enabled: true` (or remove the key) to resume.
+  #
+  # LerianStudio/legacy-service:
+  #   enabled: false

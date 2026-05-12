@@ -1,0 +1,183 @@
+name: Version Propagation
+description: |
+  Propagates a new `LerianStudio/github-actions-shared-workflows` release to
+  the downstream repositories listed in `config/version-propagation.yml`.
+  Direct push by default; falls back to PR on failure; major bumps always open
+  a PR.
+
+inputs:
+  new-tag:
+    description: Tag to propagate (e.g. v1.28.6). Must match `^v\d+\.\d+\.\d+$`.
+    required: true
+  previous-tag:
+    description: Previous tag, used to compute bump level. If empty, fetched from `gh release list`.
+    required: false
+    default: ""
+  config:
+    description: Path to the propagation matrix YAML file (in this repo).
+    required: false
+    default: config/version-propagation.yml
+  target-filter:
+    description: Optional CSV of `owner/name` to limit the run to a subset.
+    required: false
+    default: ""
+  dry-run:
+    description: When `true`, print the diff and intended action but do not push/PR.
+    required: false
+    default: "false"
+  github-token:
+    description: Token with `contents:write`, `pull-requests:write`, `workflows:write` on every target repo. Typically `secrets.MANAGE_TOKEN`.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Validate inputs
+      shell: bash
+      run: |
+        set -euo pipefail
+        if [[ ! "${{ inputs.new-tag }}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+          echo "::error::new-tag must match ^v\\d+\\.\\d+\\.\\d+$ — got '${{ inputs.new-tag }}'"
+          exit 1
+        fi
+
+    - name: Resolve previous tag
+      id: prev
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+      run: |
+        set -euo pipefail
+        prev="${{ inputs.previous-tag }}"
+        if [[ -z "$prev" ]]; then
+          prev=$(gh release list \
+            --repo LerianStudio/github-actions-shared-workflows \
+            --exclude-drafts --exclude-pre-releases --limit 5 \
+            --json tagName --jq '.[].tagName' \
+            | grep -v -F "${{ inputs.new-tag }}" \
+            | head -n 1 || true)
+        fi
+        if [[ -z "$prev" ]]; then
+          echo "::error::could not resolve previous tag"
+          exit 1
+        fi
+        echo "previous-tag=$prev" >> "$GITHUB_OUTPUT"
+
+    - name: Compute bump level
+      id: level
+      shell: bash
+      run: |
+        set -euo pipefail
+        chmod +x "${{ github.action_path }}/scripts/bump-level.sh"
+        level=$("${{ github.action_path }}/scripts/bump-level.sh" \
+          "${{ steps.prev.outputs.previous-tag }}" "${{ inputs.new-tag }}")
+        echo "level=$level" >> "$GITHUB_OUTPUT"
+        echo "Bump level: $level (${{ steps.prev.outputs.previous-tag }} -> ${{ inputs.new-tag }})"
+        if [[ "$level" == "none" ]]; then
+          echo "::warning::new-tag is not greater than previous-tag — exiting"
+          exit 0
+        fi
+
+    - name: Install yq
+      uses: mikefarah/yq@751d8ad57b84f1794661bc70c0afb92a22ad7b3c # v4.53.2
+
+    - name: Resolve targets
+      id: targets
+      shell: bash
+      run: |
+        set -euo pipefail
+        chmod +x "${{ github.action_path }}/scripts/resolve-targets.sh"
+        CONFIG_PATH="${{ inputs.config }}" \
+          "${{ github.action_path }}/scripts/resolve-targets.sh" "${{ inputs.target-filter }}" \
+          > /tmp/targets.ndjson
+        count=$(wc -l < /tmp/targets.ndjson | tr -d ' ')
+        echo "count=$count" >> "$GITHUB_OUTPUT"
+        echo "Targets resolved: $count"
+        cat /tmp/targets.ndjson
+
+    - name: Propagate to each target
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+        NEW_TAG: ${{ inputs.new-tag }}
+        BUMP_LEVEL: ${{ steps.level.outputs.level }}
+        DRY_RUN: ${{ inputs.dry-run }}
+        ACTION_PATH: ${{ github.action_path }}
+      run: |
+        set -euo pipefail
+        chmod +x "$ACTION_PATH/scripts/apply-bump.sh" "$ACTION_PATH/scripts/push-or-pr.sh"
+
+        summary_file="$GITHUB_STEP_SUMMARY"
+        printf '## Version propagation: %s\n\n' "$NEW_TAG" >> "$summary_file"
+        printf '| Repo | Branch | Action | Result |\n|---|---|---|---|\n' >> "$summary_file"
+
+        force_pr=0
+        if [[ "$BUMP_LEVEL" == "major" ]]; then force_pr=1; fi
+
+        had_failure=0
+
+        while IFS= read -r target; do
+          repo=$(jq -r '.repo' <<<"$target")
+          branch=$(jq -r '.target_branch' <<<"$target")
+          globs=$(jq -r '.workflow_files | join(" ")' <<<"$target")
+          auto_merge=$(jq -r ".auto_merge.${BUMP_LEVEL}" <<<"$target")
+
+          echo "::group::$repo ($branch)"
+          workdir=$(mktemp -d)
+          if ! git clone --depth=1 --branch="$branch" \
+              "https://x-access-token:${GH_TOKEN}@github.com/${repo}.git" "$workdir" 2>&1; then
+            echo "::warning::clone failed for $repo@$branch"
+            printf '| %s | %s | skip | clone-failed |\n' "$repo" "$branch" >> "$summary_file"
+            had_failure=1
+            echo "::endgroup::"
+            continue
+          fi
+
+          pushd "$workdir" >/dev/null
+          rc=0
+          "$ACTION_PATH/scripts/apply-bump.sh" "$NEW_TAG" $globs || rc=$?
+          if [[ "$rc" -eq 10 ]]; then
+            echo "no version changes for $repo (already on $NEW_TAG)"
+            printf '| %s | %s | skip | up-to-date |\n' "$repo" "$branch" >> "$summary_file"
+            popd >/dev/null; rm -rf "$workdir"
+            echo "::endgroup::"
+            continue
+          elif [[ "$rc" -ne 0 ]]; then
+            printf '| %s | %s | skip | apply-failed |\n' "$repo" "$branch" >> "$summary_file"
+            had_failure=1
+            popd >/dev/null; rm -rf "$workdir"
+            echo "::endgroup::"
+            continue
+          fi
+
+          if [[ "$DRY_RUN" == "true" ]]; then
+            echo "DRY-RUN diff for $repo:"
+            git --no-pager diff
+            printf '| %s | %s | dry-run | %s |\n' "$repo" "$branch" "$BUMP_LEVEL" >> "$summary_file"
+            popd >/dev/null; rm -rf "$workdir"
+            echo "::endgroup::"
+            continue
+          fi
+
+          git add -A
+          REPO="$repo" TARGET_BRANCH="$branch" NEW_TAG="$NEW_TAG" \
+          BUMP_LEVEL="$BUMP_LEVEL" FORCE_PR="$force_pr" AUTO_MERGE="$auto_merge" \
+          GH_TOKEN="$GH_TOKEN" \
+            "$ACTION_PATH/scripts/push-or-pr.sh" > /tmp/result.json || {
+              printf '| %s | %s | fail | exec-failed |\n' "$repo" "$branch" >> "$summary_file"
+              had_failure=1
+              popd >/dev/null; rm -rf "$workdir"
+              echo "::endgroup::"
+              continue
+            }
+          action=$(jq -r '.action' /tmp/result.json)
+          url=$(jq -r '.url' /tmp/result.json)
+          printf '| %s | %s | %s | %s |\n' "$repo" "$branch" "$action" "${url:-ok}" >> "$summary_file"
+
+          popd >/dev/null; rm -rf "$workdir"
+          echo "::endgroup::"
+        done < /tmp/targets.ndjson
+
+        if [[ "$had_failure" -eq 1 ]]; then
+          echo "::warning::one or more targets failed — see summary"
+        fi

@@ -1,0 +1,122 @@
+name: Version Propagation
+
+# Reusable workflow that propagates a new shared-workflows release to the
+# downstream repositories declared in `config/version-propagation.yml`.
+#
+# Internal-only: this workflow reads a config that lives in THIS repo, so
+# external callers have no use for it. The companion `self-release.yml` is
+# the only intended entrypoint — it invokes this workflow as a follow-up
+# job after `release.yml` publishes a new tag on `main`.
+#
+# Secrets pattern: relies on `secrets: inherit` from the caller (same model
+# used by `gitops-update.yml`). The org-level secrets required are:
+#   MANAGE_TOKEN                       PAT with contents:write,
+#                                      pull-requests:write, workflows:write
+#                                      on every target repository.
+#   LERIAN_CI_CD_USER_GPG_KEY          GPG private key for signed commits.
+#   LERIAN_CI_CD_USER_GPG_KEY_PASSWORD GPG passphrase.
+#   LERIAN_CI_CD_USER_NAME             Committer name (Lerian CI/CD identity).
+#   LERIAN_CI_CD_USER_EMAIL            Committer email.
+
+on:
+  workflow_call:
+    inputs:
+      new_tag:
+        description: Tag to propagate (e.g. v1.28.6). Empty resolves the latest stable release of this repo.
+        type: string
+        required: false
+        default: ""
+      previous_tag:
+        description: Previous tag for bump-level computation. Empty = release prior to new_tag.
+        type: string
+        required: false
+        default: ""
+      config:
+        description: Path to the propagation matrix.
+        type: string
+        required: false
+        default: config/version-propagation.yml
+      target_filter:
+        description: CSV of `owner/name` to restrict the run.
+        type: string
+        required: false
+        default: ""
+      dry_run:
+        description: Preview changes without applying them
+        type: boolean
+        required: false
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  propagate:
+    name: Propagate ${{ inputs.new_tag || 'latest stable' }}
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    steps:
+      # ----------------- Source Checkout -----------------
+      # Pin to the immutable workflow-file SHA that originated this run.
+      # Avoids races where a push to main between release and propagation
+      # would change the matrix or composite code under our feet.
+      - name: Checkout shared-workflows
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          ref: ${{ github.workflow_sha }}
+
+      # ----------------- Tag Resolution -----------------
+      - name: Resolve target tag
+        id: tag
+        env:
+          # Read-only same-repo query — use the implicit GITHUB_TOKEN
+          # (least-privilege) instead of the cross-repo MANAGE_TOKEN.
+          GH_TOKEN: ${{ github.token }}
+          INPUT_TAG: ${{ inputs.new_tag }}
+        run: |
+          set -euo pipefail
+          if [[ -n "$INPUT_TAG" ]]; then
+            tag="$INPUT_TAG"
+          else
+            tag=$(gh release list \
+              --repo "${GITHUB_REPOSITORY}" \
+              --exclude-drafts --exclude-pre-releases --limit 1 \
+              --json tagName --jq '.[0].tagName')
+          fi
+          if [[ -z "$tag" ]]; then
+            echo "::error::could not resolve a tag to propagate"
+            exit 1
+          fi
+          if [[ ! "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::resolved tag '$tag' is not a stable semver — refusing to propagate"
+            exit 1
+          fi
+          echo "value=$tag" >> "$GITHUB_OUTPUT"
+          echo "Resolved tag to propagate: $tag"
+
+      # ----------------- Commit Signing Setup -----------------
+      - name: Import GPG key
+        uses: crazy-max/ghaction-import-gpg@2dc316deee8e90f13e1a351ab510b4d5bc0c82cd # v7
+        with:
+          gpg_private_key: ${{ secrets.LERIAN_CI_CD_USER_GPG_KEY }}
+          passphrase: ${{ secrets.LERIAN_CI_CD_USER_GPG_KEY_PASSWORD }}
+          git_committer_name: ${{ secrets.LERIAN_CI_CD_USER_NAME }}
+          git_committer_email: ${{ secrets.LERIAN_CI_CD_USER_EMAIL }}
+          git_config_global: true
+          git_user_signingkey: true
+          git_commit_gpgsign: true
+
+      # ----------------- Propagation -----------------
+      # Intentional local path: this reusable workflow is internal-only
+      # (see header) and the caller `self-release.yml` is always this repo.
+      # The preceding checkout at github.workflow_sha materializes the
+      # composite under the workspace, so `./src/...` resolves correctly.
+      # External consumers are out of scope by design.
+      - name: Run propagation
+        uses: ./src/config/version-propagation
+        with:
+          new-tag: ${{ steps.tag.outputs.value }}
+          previous-tag: ${{ inputs.previous_tag }}
+          config: ${{ inputs.config }}
+          target-filter: ${{ inputs.target_filter }}
+          dry-run: ${{ inputs.dry_run }}
+          github-token: ${{ secrets.MANAGE_TOKEN }}
