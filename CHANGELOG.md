@@ -1,5 +1,16 @@
 # Github-actions-shared-workflows Changelog
 
+## [1.28.9](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.28.9)
+
+- Fixes:
+  - Always wrap version references in backticks to ensure consistency in `gptchangelog`.
+
+Contributors: @bedatty, @lerian-studio
+
+[Compare changes](https://github.com/LerianStudio/github-actions-shared-workflows/compare/v1.28.8...v1.28.9)
+
+---
+
 ## [1.28.8](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.28.8)
 
 - **Fixes**
