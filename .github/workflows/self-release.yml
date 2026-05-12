@@ -17,6 +17,9 @@ on:
       # The deployment matrix is resolved from main at runtime by callers, so
       # matrix-only changes propagate without a new release tag.
       - 'config/deployment-matrix.yml'
+      # Same rationale: the version-propagation matrix is metadata for the
+      # propagation controller; editing it must not cut a release.
+      - 'config/version-propagation.yml'
       - '.github/workflows/self-*.yml'
     tags-ignore:
       - '**'
@@ -34,4 +37,16 @@ jobs:
       runner_type: ubuntu-latest
       enable_changelog: ${{ github.ref == 'refs/heads/main' }}
       enable_major_tag: ${{ github.ref == 'refs/heads/main' }}
+    secrets: inherit
+
+  # After every stable release on main, propagate the new `@vX.Y.Z` pin to
+  # every downstream repo declared in `config/version-propagation.yml`.
+  # Idempotent: targets already on the latest tag are skipped at apply time.
+  propagate-version:
+    needs: publish-release
+    if: github.ref == 'refs/heads/main' && needs.publish-release.result == 'success'
+    uses: ./.github/workflows/version-propagation.yml
+    with:
+      new_tag: ""           # auto-resolve from `gh release list` in the workflow
+      dry_run: false
     secrets: inherit
