@@ -24,6 +24,15 @@ if [[ "$schema_version" != "1" ]]; then
   exit 1
 fi
 
+# `.repositories` must exist and be a mapping; otherwise the pipeline below
+# would silently emit zero targets and the workflow would "succeed" without
+# doing anything. Fail loudly instead.
+repositories_kind=$(yq -r '.repositories | type' "$config")
+if [[ "$repositories_kind" != "!!map" ]]; then
+  echo "invalid config: .repositories must be a mapping (got: ${repositories_kind})" >&2
+  exit 1
+fi
+
 # Repository keys must match `owner/name`. Catching this upfront gives a
 # better error than the downstream `git clone` failure.
 while IFS= read -r key; do
