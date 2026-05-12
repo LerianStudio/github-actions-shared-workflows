@@ -1,5 +1,20 @@
 # Github-actions-shared-workflows Changelog
 
+## [1.28.11](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.28.11)
+
+- Fixes:
+  - Drop unmatched `::endgroup::` in empty-globs guard to prevent errors.
+  - Pass `workflow_files` as a bash array to `apply-bump` for better handling of file lists.
+
+- Improvements:
+  - Refuse empty `workflow_files` for a target to ensure proper configuration.
+
+Contributors: @bedatty, @lerian-studio
+
+[Compare changes](https://github.com/LerianStudio/github-actions-shared-workflows/compare/v1.28.10...v1.28.11)
+
+---
+
 ## [1.28.10](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.28.10)
 
 - Fixes:
