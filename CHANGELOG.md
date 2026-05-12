@@ -1,5 +1,16 @@
 # Github-actions-shared-workflows Changelog
 
+## [1.28.10](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.28.10)
+
+- Fixes:
+  - Chain version propagation into self-release on `main`.
+
+Contributors: @bedatty, @lerian-studio.
+
+[Compare changes](https://github.com/LerianStudio/github-actions-shared-workflows/compare/v1.28.9...v1.28.10)
+
+---
+
 ## [1.28.9](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.28.9)
 
 - Fixes:
