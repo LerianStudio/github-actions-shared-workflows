@@ -126,6 +126,15 @@ runs:
           # apply-bump.sh, which then matches nothing and reports a false
           # "already on $NEW_TAG".
           mapfile -t globs < <(jq -r '.workflow_files[]' <<<"$target")
+          if [[ ${#globs[@]} -eq 0 ]]; then
+            # Would silently report "already on $NEW_TAG" downstream (same
+            # failure shape as the bug this composite was built to avoid).
+            echo "::warning::workflow_files is empty for $repo@$branch — check config defaults"
+            printf '| %s | %s | skip | invalid-config |\n' "$repo" "$branch" >> "$summary_file"
+            had_failure=1
+            echo "::endgroup::"
+            continue
+          fi
           auto_merge=$(jq -r ".auto_merge.${BUMP_LEVEL}" <<<"$target")
 
           echo "::group::$repo ($branch)"
