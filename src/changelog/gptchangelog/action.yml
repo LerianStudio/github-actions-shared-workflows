@@ -308,7 +308,7 @@ runs:
           rm -f "$USERNAMES_FILE"
           echo "👥 Contributors: $CONTRIBUTORS"
 
-          PROMPT="Generate a changelog for ${APP_NAME} ONLY. Commits: ${COMMITS_TEXT} --- STRICT RULES: 1) NEVER mention other components - only ${APP_NAME}. 2) Use bullet points. 3) Group by Features, Fixes, Improvements (skip empty sections). 4) No markdown headers. 5) Max 5 bullet points. 6) End with Contributors: ${CONTRIBUTORS}"
+          PROMPT="Generate a changelog for ${APP_NAME} ONLY. Commits: ${COMMITS_TEXT} --- STRICT RULES: 1) NEVER mention other components - only ${APP_NAME}. 2) Use bullet points. 3) Group by Features, Fixes, Improvements (skip empty sections). 4) No markdown headers. 5) Max 5 bullet points. 6) End with Contributors: ${CONTRIBUTORS}. 7) ALWAYS wrap version references in backticks - this includes tag names (\`v1\`, \`v1.28.8\`, \`v2.0.0-beta.1\`), action refs (\`@v1\`, \`@v1.28.8\`), and any semver-like token. Never emit a bare version."
 
           REQUEST_BODY=$(jq -n \
             --arg model "$OPENAI_MODEL" \
