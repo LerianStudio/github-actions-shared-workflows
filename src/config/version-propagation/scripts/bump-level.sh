@@ -3,8 +3,23 @@
 # Usage: bump-level.sh v1.28.5 v1.28.6  -> patch
 set -euo pipefail
 
+if [[ $# -lt 2 ]]; then
+  echo "usage: bump-level.sh <prev-tag> <next-tag>" >&2
+  exit 1
+fi
+
 prev="${1#v}"
 next="${2#v}"
+
+semver_re='^[0-9]+\.[0-9]+\.[0-9]+$'
+if [[ ! "$prev" =~ $semver_re ]]; then
+  echo "invalid semver: '$1'" >&2
+  exit 1
+fi
+if [[ ! "$next" =~ $semver_re ]]; then
+  echo "invalid semver: '$2'" >&2
+  exit 1
+fi
 
 IFS='.' read -r pM pm pp <<<"$prev"
 IFS='.' read -r nM nm np <<<"$next"

@@ -56,10 +56,13 @@ jobs:
     runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
       # ----------------- Source Checkout -----------------
+      # Pin to the immutable workflow-file SHA that originated this run.
+      # Avoids races where a push to main between release and propagation
+      # would change the matrix or composite code under our feet.
       - name: Checkout shared-workflows
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
-          ref: ${{ inputs.new_tag || github.ref }}
+          ref: ${{ job.workflow_sha }}
 
       # ----------------- Tag Resolution -----------------
       - name: Resolve target tag

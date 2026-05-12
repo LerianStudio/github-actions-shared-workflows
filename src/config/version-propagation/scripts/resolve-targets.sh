@@ -37,7 +37,7 @@ yq -o=json '
         echo "$line"
       else
         repo=$(jq -r '.repo' <<<"$line")
-        if grep -q -F -x "$repo" <<<"$(tr ',' '\n' <<<"$filter")"; then
+        if grep -q -F -x "$repo" <<<"$(tr ',' '\n' <<<"$filter" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')"; then
           echo "$line"
         fi
       fi

@@ -20,7 +20,7 @@ shopt -s nullglob globstar
 for glob in "$@"; do
   for f in .github/workflows/$glob; do
     [[ -f "$f" ]] || continue
-    if grep -qE 'LerianStudio/github-actions-shared-workflows[^@]*@v[0-9]+\.[0-9]+\.[0-9]+' "$f"; then
+    if grep -qE 'LerianStudio/github-actions-shared-workflows[^@[:space:]]*@v[0-9]+\.[0-9]+\.[0-9]+' "$f"; then
       before=$(sha1sum "$f" | awk '{print $1}')
       sed -E -i \
         "s|(LerianStudio/github-actions-shared-workflows[^@[:space:]]*@)v[0-9]+\\.[0-9]+\\.[0-9]+|\\1${new_tag}|g" \
