@@ -68,7 +68,9 @@ jobs:
       - name: Resolve target tag
         id: tag
         env:
-          GH_TOKEN: ${{ secrets.MANAGE_TOKEN }}
+          # Read-only same-repo query — use the implicit GITHUB_TOKEN
+          # (least-privilege) instead of the cross-repo MANAGE_TOKEN.
+          GH_TOKEN: ${{ github.token }}
           INPUT_TAG: ${{ inputs.new_tag }}
         run: |
           set -euo pipefail
@@ -104,6 +106,11 @@ jobs:
           git_commit_gpgsign: true
 
       # ----------------- Propagation -----------------
+      # Intentional local path: this reusable workflow is internal-only
+      # (see header) and the caller `self-release.yml` is always this repo.
+      # The preceding checkout at github.workflow_sha materializes the
+      # composite under the workspace, so `./src/...` resolves correctly.
+      # External consumers are out of scope by design.
       - name: Run propagation
         uses: ./src/config/version-propagation
         with:
