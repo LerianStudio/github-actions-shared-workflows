@@ -119,7 +119,23 @@ runs:
         while IFS= read -r target; do
           repo=$(jq -r '.repo' <<<"$target")
           branch=$(jq -r '.target_branch' <<<"$target")
-          globs=$(jq -r '.workflow_files | join(" ")' <<<"$target")
+          # Read globs into an array so we never expose the patterns to
+          # word-splitting + pathname expansion in the parent shell. Otherwise a
+          # `*.yml` literal at the target repo root (e.g. docker-compose.yml)
+          # would silently rewrite the glob to that filename before reaching
+          # apply-bump.sh, which then matches nothing and reports a false
+          # "already on $NEW_TAG".
+          mapfile -t globs < <(jq -r '.workflow_files[]' <<<"$target")
+          if [[ ${#globs[@]} -eq 0 ]]; then
+            # Would silently report "already on $NEW_TAG" downstream (same
+            # failure shape as the bug this composite was built to avoid).
+            # No `::endgroup::` here — the per-target `::group::` is opened
+            # only after this guard passes.
+            echo "::warning::workflow_files is empty for $repo@$branch — check config defaults"
+            printf '| %s | %s | skip | invalid-config |\n' "$repo" "$branch" >> "$summary_file"
+            had_failure=1
+            continue
+          fi
           auto_merge=$(jq -r ".auto_merge.${BUMP_LEVEL}" <<<"$target")
 
           echo "::group::$repo ($branch)"
@@ -135,7 +151,7 @@ runs:
 
           pushd "$workdir" >/dev/null
           rc=0
-          "$ACTION_PATH/scripts/apply-bump.sh" "$NEW_TAG" $globs || rc=$?
+          "$ACTION_PATH/scripts/apply-bump.sh" "$NEW_TAG" "${globs[@]}" || rc=$?
           if [[ "$rc" -eq 10 ]]; then
             echo "no version changes for $repo (already on $NEW_TAG)"
             printf '| %s | %s | skip | up-to-date |\n' "$repo" "$branch" >> "$summary_file"
