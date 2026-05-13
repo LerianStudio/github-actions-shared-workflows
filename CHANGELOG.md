@@ -1,5 +1,16 @@
 # Github-actions-shared-workflows Changelog
 
+## [1.28.12](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.28.12)
+
+- Fixes:
+  - Keep chatty git/gh output off the JSON result stream to prevent leaks in propagation.
+
+- Contributors: @bedatty, @lerian-studio,
+
+[Compare changes](https://github.com/LerianStudio/github-actions-shared-workflows/compare/v1.28.11...v1.28.12)
+
+---
+
 ## [1.28.11](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.28.11)
 
 - Fixes:
