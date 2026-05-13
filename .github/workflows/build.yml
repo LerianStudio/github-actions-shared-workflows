@@ -181,14 +181,19 @@ jobs:
 
       - name: Set matrix
         id: set-matrix
+        env:
+          APP_NAME_INPUT: ${{ inputs.app_name }}
+          REPO_NAME: ${{ github.event.repository.name }}
+          FILTER_PATHS: ${{ inputs.filter_paths }}
+          CHANGED_MATRIX: ${{ steps.changed-paths.outputs.matrix }}
         run: |
-          if [ -z "${{ inputs.filter_paths }}" ]; then
+          if [ -z "$FILTER_PATHS" ]; then
             # Single app mode - build from root
-            APP_NAME="${{ inputs.app_name != '' && inputs.app_name || github.event.repository.name }}"
+            APP_NAME="${APP_NAME_INPUT:-$REPO_NAME}"
             echo "matrix=[{\"name\": \"${APP_NAME}\", \"working_dir\": \".\"}]" >> "$GITHUB_OUTPUT"
             echo "has_builds=true" >> "$GITHUB_OUTPUT"
           else
-            MATRIX='${{ steps.changed-paths.outputs.matrix }}'
+            MATRIX="$CHANGED_MATRIX"
             if [ "$MATRIX" == "[]" ] || [ -z "$MATRIX" ]; then
               echo "matrix=[]" >> "$GITHUB_OUTPUT"
               echo "has_builds=false" >> "$GITHUB_OUTPUT"
