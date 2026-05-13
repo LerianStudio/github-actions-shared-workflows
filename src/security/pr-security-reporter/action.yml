@@ -461,8 +461,14 @@ runs:
           exit 1
         fi
 
-        HAS_FINDINGS=$(echo "$RESULT" | jq -r '.has_findings')
-        HAS_ERRORS=$(echo "$RESULT" | jq -r '.has_errors')
+        HAS_FINDINGS=$(echo "$RESULT" | jq -er '.has_findings | if type=="boolean" then tostring else error("has_findings must be boolean") end') || {
+          echo "::error::pr-security-reporter: github-script output missing or invalid \`has_findings\` (expected boolean). Raw output: $RESULT"
+          exit 1
+        }
+        HAS_ERRORS=$(echo "$RESULT" | jq -er '.has_errors | if type=="boolean" then tostring else error("has_errors must be boolean") end') || {
+          echo "::error::pr-security-reporter: github-script output missing or invalid \`has_errors\` (expected boolean). Raw output: $RESULT"
+          exit 1
+        }
         echo "has_findings=$HAS_FINDINGS" >> "$GITHUB_OUTPUT"
         echo "has_errors=$HAS_ERRORS" >> "$GITHUB_OUTPUT"
         echo "Parsed outputs: has_findings=$HAS_FINDINGS, has_errors=$HAS_ERRORS"

@@ -319,8 +319,14 @@ runs:
           exit 1
         fi
 
-        HAS_FINDINGS=$(echo "$RESULT" | jq -r '.has_findings')
-        FINDINGS_COUNT=$(echo "$RESULT" | jq -r '.findings_count')
+        HAS_FINDINGS=$(echo "$RESULT" | jq -er '.has_findings | if type=="boolean" then tostring else error("has_findings must be boolean") end') || {
+          echo "::error::codeql-reporter: github-script output missing or invalid \`has_findings\` (expected boolean). Raw output: $RESULT"
+          exit 1
+        }
+        FINDINGS_COUNT=$(echo "$RESULT" | jq -er '.findings_count | if (type=="number" and . >= 0 and floor == .) then tostring else error("findings_count must be a non-negative integer") end') || {
+          echo "::error::codeql-reporter: github-script output missing or invalid \`findings_count\` (expected non-negative integer). Raw output: $RESULT"
+          exit 1
+        }
         echo "has_findings=$HAS_FINDINGS" >> "$GITHUB_OUTPUT"
         echo "findings_count=$FINDINGS_COUNT" >> "$GITHUB_OUTPUT"
         echo "Parsed outputs: has_findings=$HAS_FINDINGS, findings_count=$FINDINGS_COUNT"
