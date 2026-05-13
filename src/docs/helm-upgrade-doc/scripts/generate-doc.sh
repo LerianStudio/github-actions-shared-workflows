@@ -26,7 +26,7 @@ fi
 # Diff between previous tag and current tag
 CHART_DIFF=$(git diff "${PREV_TAG}".."${CURRENT_TAG}" -- "${CHART_PATH}/Chart.yaml" 2>/dev/null || true)
 VALUES_DIFF=$(git diff "${PREV_TAG}".."${CURRENT_TAG}" -- "${CHART_PATH}/values.yaml" 2>/dev/null | head -400 || true)
-TEMPLATE_DIFF=$(git diff --name-status "${PREV_TAG}".."${CURRENT_TAG}" -- "${CHART_PATH}/templates/" 2>/dev/null || true)
+TEMPLATE_DIFF=$(git diff "${PREV_TAG}".."${CURRENT_TAG}" -- "${CHART_PATH}/templates/" 2>/dev/null | head -300 || true)
 
 # Load 2 most recent existing UPGRADE docs as few-shot examples
 EXAMPLES=""
@@ -86,9 +86,11 @@ PROMPT=$(jq -rn \
    "   - For every changed value: show a before/after table (| Setting | v\($bv) | v\($nv) |)\n" +
    "   - For every new or modified config block: show a concrete YAML example with the exact keys and values\n" +
    "   - For removed fields: show what was removed and what operators should do instead\n" +
-   "   - For template changes: explain what Kubernetes resource changed and the operational impact\n" +
+   "   - For template changes: show a before/after YAML block for each modified resource, then explain the operational impact\n" +
    "   - Use callout blocks (> **Note:**, > **Warning:**) for important migration caveats\n" +
    "   - Include numbered migration steps when action is required from the operator\n" +
+   "   - Every bash or helm command (including examples, migration steps, and suggestions) must be inside a ```bash code block — never inline as plain text\n" +
+   "   - For every new environment variable added (in values.yaml, ConfigMap, or Deployment templates): list it with its key, default value, and a brief description of what it controls\n" +
    "4. The second-to-last section must always be:\n## Preview changes before upgrading\n```bash\n\($diff)\n```\n> **Note:** Requires the [helm-diff plugin](https://github.com/databus23/helm-diff). Install with: `helm plugin install https://github.com/databus23/helm-diff`\n\n" +
    "5. The final section must always be:\n## Command to upgrade\n```bash\n\($cmd)\n```\n" +
    "6. Base content ONLY on what the diffs show. Do not invent changes not in the diff.\n" +
