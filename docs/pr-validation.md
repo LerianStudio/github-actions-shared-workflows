@@ -17,7 +17,8 @@ Comprehensive pull request validation workflow that enforces best practices, cod
 - **Draft PR support** — Skips validations for draft PRs
 - **Source branch validation** — Enforce PRs to protected branches come from specific source branches
 - **Dry run mode** — Preview validations without posting comments or labels
-- **Summary report** — Aggregated validation status
+- **Summary report** — Aggregated validation status (step summary + idempotent PR comment)
+- **Idempotent feedback** — Source branch failures and the mergeability summary are upserted via stable markers (no stacked duplicates across commits)
 
 ## Architecture
 
@@ -36,7 +37,9 @@ pr-validation.yml (reusable workflow)
     ├── src/validate/pr-size            (size calculation + labeling)
     └── src/validate/pr-labels          (auto-label by files)
               ↓
-  Summary — pr-checks-summary (always runs)
+  Summary — pr-checks-summary (always runs, step summary)
+              ↓
+  Report  — pr-validation-reporter (always runs, PR comment)
               ↓
   Notify  — slack-notify.yml (optional)
 ```
@@ -145,7 +148,8 @@ feat fix docs style refactor perf test chore ci build revert
 |-----|------|------------|-----------|
 | `blocking-checks` | 1 (fail-fast) | `pr-source-branch`, `pr-title`, `pr-description` | non-draft |
 | `advisory-checks` | 2 (informational) | `pr-metadata`, `pr-size`, `pr-labels` | non-draft, blocking-checks passed |
-| `pr-checks-summary` | — | `pr-checks-summary` | always |
+| `pr-checks-summary` | — | `pr-checks-summary` | always (writes to step summary) |
+| `pr-validation-report` | — | `pr-validation-reporter` | non-draft (upserts single PR comment) |
 | `notify` | — | `slack-notify.yml` | non-draft, `!dry_run` |
 
 ### Blocking checks (Tier 1)
@@ -163,7 +167,7 @@ feat fix docs style refactor perf test chore ci build revert
 When `dry_run: true`:
 - Title, description, and metadata validations still run (read-only checks)
 - Size is calculated and logged but **labels are not applied**
-- Source branch is validated but **REQUEST_CHANGES review is not posted**
+- Source branch is validated but **the failure comment is not posted/updated**
 - Auto-labeling is **skipped entirely**
 - Slack notification is **skipped**
 - Summary report includes a DRY RUN banner

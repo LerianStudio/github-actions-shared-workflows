@@ -58,22 +58,46 @@ runs:
             }
           }
 
-          if (!isAllowed) {
-            if (dryRun) {
-              core.notice(`DRY RUN — would post REQUEST_CHANGES review: source '${sourceBranch}' not allowed for target '${targetBranch}'`);
-            } else {
-              const message = `⚠️ **Invalid Source Branch**\n\nPull requests to **${targetBranch}** can only come from:\n${allowedBranches.map(b => `- \`${b}\``).join('\n')}\n\nYour source branch: \`${sourceBranch}\`\n\nPlease **change the base branch** or create a PR from an allowed branch.`;
+          const marker = '<!-- pr-source-branch-validation -->';
 
-              await github.rest.pulls.createReview({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                pull_number: context.issue.number,
-                body: message,
-                event: 'REQUEST_CHANGES'
-              });
+          async function findExistingComment() {
+            const comments = await github.paginate(github.rest.issues.listComments, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              per_page: 100,
+            });
+            return comments.find(c => c.body?.includes(marker));
+          }
+
+          async function upsertComment(body) {
+            const fullBody = `${marker}\n${body}`;
+            const existing = await findExistingComment();
+            const params = { owner: context.repo.owner, repo: context.repo.repo, body: fullBody };
+            if (existing) {
+              await github.rest.issues.updateComment({ ...params, comment_id: existing.id });
+            } else {
+              await github.rest.issues.createComment({ ...params, issue_number: context.issue.number });
+            }
+          }
+
+          if (!isAllowed) {
+            const message = `⚠️ **Invalid Source Branch**\n\nPull requests to **${targetBranch}** can only come from:\n${allowedBranches.map(b => `- \`${b}\``).join('\n')}\n\nYour source branch: \`${sourceBranch}\`\n\nPlease **change the base branch** or create a PR from an allowed branch.`;
+
+            if (dryRun) {
+              core.notice(`DRY RUN — would upsert source-branch validation comment for '${sourceBranch}' → '${targetBranch}'`);
+            } else {
+              await upsertComment(message);
             }
 
             core.setFailed(`Source branch '${sourceBranch}' is not allowed for PRs to '${targetBranch}'`);
           } else {
             console.log(`✅ Source branch '${sourceBranch}' is allowed`);
+            if (!dryRun) {
+              const existing = await findExistingComment();
+              if (existing) {
+                const message = `✅ **Source Branch — now valid**\n\nSource branch \`${sourceBranch}\` is allowed for target \`${targetBranch}\`.`;
+                await upsertComment(message);
+              }
+            }
           }

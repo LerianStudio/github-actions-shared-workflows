@@ -190,6 +190,26 @@ jobs:
           metadata-result: ${{ needs.advisory-checks.outputs.metadata-result || 'skipped' }}
           dry-run: ${{ inputs.dry_run && 'true' || 'false' }}
 
+  # ----------------- PR Validation Summary Comment -----------------
+  pr-validation-report:
+    name: PR Validation Report
+    runs-on: ${{ inputs.runner_type }}
+    needs: [blocking-checks, advisory-checks]
+    if: always() && github.event.pull_request.draft != true
+
+    steps:
+      - name: Post PR validation summary comment
+        uses: LerianStudio/github-actions-shared-workflows/src/notify/pr-validation-reporter@develop
+        with:
+          github-token: ${{ secrets.MANAGE_TOKEN || github.token }}
+          source-branch-result: ${{ needs.blocking-checks.outputs.source-branch-result || 'skipped' }}
+          title-result: ${{ needs.blocking-checks.outputs.title-result || 'skipped' }}
+          description-result: ${{ needs.blocking-checks.outputs.description-result || 'skipped' }}
+          size-result: ${{ needs.advisory-checks.outputs.size-result || 'skipped' }}
+          label-result: ${{ needs.advisory-checks.outputs.label-result || 'skipped' }}
+          metadata-result: ${{ needs.advisory-checks.outputs.metadata-result || 'skipped' }}
+          dry-run: ${{ inputs.dry_run && 'true' || 'false' }}
+
   # ----------------- Slack Notification -----------------
   notify:
     name: Notify
