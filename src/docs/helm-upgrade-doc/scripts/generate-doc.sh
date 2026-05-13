@@ -111,7 +111,7 @@ if [ -n "${ANTHROPIC_API_KEY:-}" ]; then
   echo "🤖 Using Anthropic API (claude-sonnet-4-6)"
   REQUEST_BODY=$(jq -n \
     --arg prompt "$PROMPT" \
-    '{model: "claude-sonnet-4-6", max_tokens: 4000, messages: [{role: "user", content: $prompt}]}')
+    '{model: "claude-sonnet-4-6", max_tokens: 8000, messages: [{role: "user", content: $prompt}]}')
 
   HTTP_CODE=$(curl -s -w "%{http_code}" --max-time 90 --connect-timeout 10 \
     -o /tmp/upgrade_doc_response.json \
@@ -129,7 +129,7 @@ elif [ -n "${OPENROUTER_API_KEY:-}" ]; then
   REQUEST_BODY=$(jq -n \
     --arg model  "$OPENAI_MODEL" \
     --arg prompt "$PROMPT" \
-    '{model: $model, messages: [{role: "user", content: $prompt}], temperature: 0.3, max_tokens: 4000}')
+    '{model: $model, messages: [{role: "user", content: $prompt}], temperature: 0.3, max_tokens: 8000}')
 
   HTTP_CODE=$(curl -s -w "%{http_code}" --max-time 90 --connect-timeout 10 \
     -o /tmp/upgrade_doc_response.json \
@@ -163,7 +163,7 @@ if [ -z "$CONTENT" ]; then
   exit 1
 fi
 
-CONTENT=$(echo "$CONTENT" | sed '/^```/d')
+CONTENT=$(echo "$CONTENT" | sed '/^```$/d')
 
 mkdir -p "$DOCS_PATH"
 printf '%s\n' "$CONTENT" > "$DOC_FILE"
