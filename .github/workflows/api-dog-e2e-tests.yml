@@ -77,13 +77,22 @@ jobs:
         run: |
           echo "Processing tag: $TAG_NAME"
 
+          DELIM="GHA_EOF_$(openssl rand -hex 8)"
           if [[ "$TAG_NAME" == *"-beta."* ]]; then
-            echo "ENVIRONMENT_ID=${DEV_ENVIRONMENT_ID}" >> "$GITHUB_ENV"
-            echo "TAG_TYPE=beta" >> "$GITHUB_ENV"
+            {
+              echo "ENVIRONMENT_ID<<${DELIM}"
+              echo "${DEV_ENVIRONMENT_ID}"
+              echo "${DELIM}"
+              echo "TAG_TYPE=beta"
+            } >> "$GITHUB_ENV"
             echo "Detected beta tag - using dev environment"
           elif [[ "$TAG_NAME" == *"-rc."* ]]; then
-            echo "ENVIRONMENT_ID=${STG_ENVIRONMENT_ID}" >> "$GITHUB_ENV"
-            echo "TAG_TYPE=rc" >> "$GITHUB_ENV"
+            {
+              echo "ENVIRONMENT_ID<<${DELIM}"
+              echo "${STG_ENVIRONMENT_ID}"
+              echo "${DELIM}"
+              echo "TAG_TYPE=rc"
+            } >> "$GITHUB_ENV"
             echo "Detected rc tag - using stg environment"
           else
             echo "::error::Unrecognized tag format for e2e tests: $TAG_NAME. Expected a tag containing '-beta.' or '-rc.'"
@@ -95,8 +104,13 @@ jobs:
         env:
           MANUAL_ENVIRONMENT_ID: ${{ secrets.environment_id }}
         run: |
-          echo "ENVIRONMENT_ID=${MANUAL_ENVIRONMENT_ID}" >> "$GITHUB_ENV"
-          echo "TAG_TYPE=manual" >> "$GITHUB_ENV"
+          DELIM="GHA_EOF_$(openssl rand -hex 8)"
+          {
+            echo "ENVIRONMENT_ID<<${DELIM}"
+            echo "${MANUAL_ENVIRONMENT_ID}"
+            echo "${DELIM}"
+            echo "TAG_TYPE=manual"
+          } >> "$GITHUB_ENV"
 
       - name: Run Apidog Test Scenario
         env:
