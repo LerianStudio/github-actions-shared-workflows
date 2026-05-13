@@ -83,11 +83,13 @@ runs:
         echo "📌 Current tag: $CURRENT_TAG"
 
         # Skip pre-release tags (beta, rc, alpha, dev, snapshot)
-        if echo "$CURRENT_TAG" | grep -qE "-(beta|rc|alpha|dev|snapshot)"; then
-          echo "⚠️ Pre-release tag detected — skipping upgrade doc generation"
-          echo "bump_type=none" >> "$GITHUB_OUTPUT"
-          exit 0
-        fi
+        case "$CURRENT_TAG" in
+          *-beta*|*-rc*|*-alpha*|*-dev*|*-snapshot*)
+            echo "⚠️ Pre-release tag detected — skipping upgrade doc generation"
+            echo "bump_type=none" >> "$GITHUB_OUTPUT"
+            exit 0
+            ;;
+        esac
 
         # Extract chart name from tag: midaz-v6.5.0 → midaz
         # Handles multi-segment names: plugin-access-manager-v1.0.0 → plugin-access-manager
@@ -115,7 +117,7 @@ runs:
         # Find previous stable tag for this chart
         PREV_TAG=$(git tag --sort=-version:refname \
           | grep "^${CHART_NAME}-v[0-9]" \
-          | grep -v -E "-(beta|rc|alpha|dev|snapshot)" \
+          | grep -v -e "-beta" -e "-rc" -e "-alpha" -e "-dev" -e "-snapshot" \
           | sed -n '2p')
 
         if [ -n "$PREV_TAG" ]; then

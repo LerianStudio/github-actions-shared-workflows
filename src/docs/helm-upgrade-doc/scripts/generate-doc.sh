@@ -50,10 +50,16 @@ else
   SECTION_HINT="Include: Topics ToC, Fixes section, Command to upgrade. Keep it concise."
 fi
 
-UPGRADE_CMD="helm upgrade ${CHART_NAME} oci://registry-1.docker.io/lerianstudio/${CHART_NAME}-helm --version ${NEW_VERSION} -n ${CHART_NAME}"
+if [ "$CHART_NAME" = "plugin-access-manager" ] || [ "$CHART_NAME" = "otel-collector-lerian" ]; then
+  PACKAGE_NAME="$CHART_NAME"
+else
+  PACKAGE_NAME="${CHART_NAME}-helm"
+fi
+UPGRADE_CMD="helm upgrade ${CHART_NAME} oci://registry-1.docker.io/lerianstudio/${PACKAGE_NAME} --version ${NEW_VERSION} -n ${CHART_NAME}"
 
 # Build the full prompt via jq to handle special characters safely
 PROMPT=$(jq -rn \
+  --arg cn    "$CHART_NAME" \
   --arg bv    "$BASE_VERSION" \
   --arg nv    "$NEW_VERSION" \
   --arg bt    "$BUMP_TYPE" \
@@ -64,8 +70,8 @@ PROMPT=$(jq -rn \
   --arg tl    "$TITLE_LINE" \
   --arg sh    "$SECTION_HINT" \
   --arg cmd   "$UPGRADE_CMD" \
-  '"You are generating a Helm upgrade documentation file for the midaz-helm chart.\n\n" +
-   "CONTEXT:\n- Chart: midaz-helm\n- Previous version: \($bv)\n- New version: \($nv)\n- Bump type: \($bt)\n\n" +
+  '"You are generating a Helm upgrade documentation file for the \($cn)-helm chart.\n\n" +
+   "CONTEXT:\n- Chart: \($cn)-helm\n- Previous version: \($bv)\n- New version: \($nv)\n- Bump type: \($bt)\n\n" +
    "CHART.YAML DIFF:\n\($cdiff)\n\n" +
    "VALUES.YAML DIFF (first 400 lines):\n\($vdiff)\n\n" +
    "TEMPLATE FILE CHANGES:\n\($tdiff)\n\n" +
