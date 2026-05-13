@@ -41,13 +41,13 @@ fi
 
 if [ "$BUMP_TYPE" = "major" ]; then
   TITLE_LINE="# Helm Upgrade from v${BASE_MAJOR}.x to v${NEW_MAJOR}.x"
-  SECTION_HINT="Include: Topics ToC, Breaking Changes, Features or Additions, Migration Steps, Command to upgrade. Omit empty sections."
+  SECTION_HINT="Include: Topics ToC, Breaking Changes, Features or Additions, Migration Steps, Preview changes before upgrading, Command to upgrade. Omit empty sections."
 elif [ "$BUMP_TYPE" = "minor" ]; then
   TITLE_LINE="# Helm Upgrade from v${BASE_VERSION} to v${NEW_VERSION}"
-  SECTION_HINT="Include: Topics ToC, Features or Additions, Command to upgrade. Add Breaking Changes only if the diff shows any. Omit empty sections."
+  SECTION_HINT="Include: Topics ToC, Features or Additions, Preview changes before upgrading, Command to upgrade. Add Breaking Changes only if the diff shows any. Omit empty sections."
 else
   TITLE_LINE="# Helm Upgrade from v${BASE_VERSION} to v${NEW_VERSION}"
-  SECTION_HINT="Include: Topics ToC, Fixes section, Command to upgrade. Keep it concise."
+  SECTION_HINT="Include: Topics ToC, Fixes section, Preview changes before upgrading, Command to upgrade. Keep it concise."
 fi
 
 if [ "$CHART_NAME" = "plugin-access-manager" ] || [ "$CHART_NAME" = "otel-collector-lerian" ]; then
@@ -56,6 +56,7 @@ else
   PACKAGE_NAME="${CHART_NAME}-helm"
 fi
 UPGRADE_CMD="helm upgrade ${CHART_NAME} oci://registry-1.docker.io/lerianstudio/${PACKAGE_NAME} --version ${NEW_VERSION} -n ${CHART_NAME}"
+DIFF_CMD="helm diff upgrade ${CHART_NAME} oci://registry-1.docker.io/lerianstudio/${PACKAGE_NAME} --version ${NEW_VERSION} -n ${CHART_NAME}"
 
 # Build the full prompt via jq to handle special characters safely
 PROMPT=$(jq -rn \
@@ -70,19 +71,28 @@ PROMPT=$(jq -rn \
   --arg tl    "$TITLE_LINE" \
   --arg sh    "$SECTION_HINT" \
   --arg cmd   "$UPGRADE_CMD" \
-  '"You are generating a Helm upgrade documentation file for the \($cn)-helm chart.\n\n" +
-   "CONTEXT:\n- Chart: \($cn)-helm\n- Previous version: \($bv)\n- New version: \($nv)\n- Bump type: \($bt)\n\n" +
+  --arg diff  "$DIFF_CMD" \
+  '"You are writing a Helm upgrade GUIDE for operators who need to upgrade the \($cn) chart from v\($bv) to v\($nv).\n" +
+   "This is NOT a changelog. It is a practical operator guide that explains WHAT changed, WHY it matters, and HOW to handle it.\n\n" +
+   "CONTEXT:\n- Chart: \($cn)\n- Previous version: \($bv)\n- New version: \($nv)\n- Bump type: \($bt)\n\n" +
    "CHART.YAML DIFF:\n\($cdiff)\n\n" +
    "VALUES.YAML DIFF (first 400 lines):\n\($vdiff)\n\n" +
    "TEMPLATE FILE CHANGES:\n\($tdiff)\n\n" +
-   "EXISTING UPGRADE DOCS (use as format and style reference):\n\($ex)\n\n" +
+   "EXISTING UPGRADE DOCS (mandatory reference for format, depth, and writing style):\n\($ex)\n\n" +
    "INSTRUCTIONS:\n" +
    "1. The first line must be exactly: \($tl)\n" +
    "2. \($sh)\n" +
-   "3. Follow the exact format, writing style, and level of detail from the existing docs above.\n" +
-   "4. The final section must always be:\n## Command to upgrade\n```bash\n\($cmd)\n```\n" +
-   "5. Base content only on what the diffs show. Do not invent changes not present in the diff.\n" +
-   "6. Output ONLY the markdown content. Do not wrap output in code fences."')
+   "3. Match the depth and style of the existing docs exactly:\n" +
+   "   - For every changed value: show a before/after table (| Setting | v\($bv) | v\($nv) |)\n" +
+   "   - For every new or modified config block: show a concrete YAML example with the exact keys and values\n" +
+   "   - For removed fields: show what was removed and what operators should do instead\n" +
+   "   - For template changes: explain what Kubernetes resource changed and the operational impact\n" +
+   "   - Use callout blocks (> **Note:**, > **Warning:**) for important migration caveats\n" +
+   "   - Include numbered migration steps when action is required from the operator\n" +
+   "4. The second-to-last section must always be:\n## Preview changes before upgrading\n```bash\n\($diff)\n```\n> **Note:** Requires the [helm-diff plugin](https://github.com/databus23/helm-diff). Install with: `helm plugin install https://github.com/databus23/helm-diff`\n\n" +
+   "5. The final section must always be:\n## Command to upgrade\n```bash\n\($cmd)\n```\n" +
+   "6. Base content ONLY on what the diffs show. Do not invent changes not in the diff.\n" +
+   "7. Output ONLY the markdown content. Do not wrap output in code fences."')
 
 if [ -n "${ANTHROPIC_API_KEY:-}" ]; then
   echo "🤖 Using Anthropic API (claude-sonnet-4-6)"
