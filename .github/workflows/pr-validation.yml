@@ -215,7 +215,7 @@ jobs:
     name: Notify
     needs: [blocking-checks, advisory-checks, pr-checks-summary]
     if: always() && github.event.pull_request.draft != true && !inputs.dry_run
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/slack-notify.yml@v1.20.1
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/slack-notify.yml@v1.28.12
     with:
       status: ${{ (needs.blocking-checks.outputs.source-branch-result == 'failure' || needs.blocking-checks.outputs.title-result == 'failure' || needs.blocking-checks.outputs.description-result == 'failure') && 'failure' || 'success' }}
       workflow_name: "PR Validation"
