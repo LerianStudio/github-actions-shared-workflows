@@ -199,7 +199,7 @@ jobs:
 
     steps:
       - name: Post PR validation summary comment
-        uses: LerianStudio/github-actions-shared-workflows/src/notify/pr-validation-reporter@develop
+        uses: LerianStudio/github-actions-shared-workflows/src/notify/pr-validation-reporter@fix/pr-validation-dedupe-and-summary
         with:
           github-token: ${{ secrets.MANAGE_TOKEN || github.token }}
           source-branch-result: ${{ needs.blocking-checks.outputs.source-branch-result || 'skipped' }}
