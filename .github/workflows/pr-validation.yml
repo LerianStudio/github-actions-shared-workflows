@@ -199,6 +199,7 @@ jobs:
 
     steps:
       - name: Post PR validation summary comment
+        continue-on-error: true
         uses: LerianStudio/github-actions-shared-workflows/src/notify/pr-validation-reporter@v1
         with:
           github-token: ${{ secrets.MANAGE_TOKEN || github.token }}

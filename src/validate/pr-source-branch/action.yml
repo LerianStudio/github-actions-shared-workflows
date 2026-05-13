@@ -60,6 +60,10 @@ runs:
 
           const marker = '<!-- pr-source-branch-validation -->';
 
+          const viewerLogin = await github.rest.users.getAuthenticated()
+            .then(({ data }) => data.login)
+            .catch(() => null);
+
           async function findExistingComment() {
             const comments = await github.paginate(github.rest.issues.listComments, {
               owner: context.repo.owner,
@@ -67,7 +71,11 @@ runs:
               issue_number: context.issue.number,
               per_page: 100,
             });
-            return comments.find(c => c.body?.includes(marker));
+            const marked = comments.filter(c => c.body?.includes(marker));
+            if (viewerLogin) {
+              return marked.find(c => c.user?.login === viewerLogin);
+            }
+            return marked.find(c => c.user?.type === 'Bot');
           }
 
           async function upsertComment(body) {
