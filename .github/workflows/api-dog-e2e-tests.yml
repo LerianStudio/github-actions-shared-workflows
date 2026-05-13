@@ -26,6 +26,10 @@ on:
         description: 'Enable automatic environment detection from tag (beta/rc)'
         type: boolean
         default: false
+      apidog_cli_version:
+        description: 'Apidog CLI version to install (npm dist-tag or version, e.g. latest, 0.5.2)'
+        type: string
+        default: 'latest'
     secrets:
       test_scenario_id:
         description: 'Apidog test scenario ID'
@@ -56,7 +60,10 @@ jobs:
           node-version: ${{ inputs.node_version }}
 
       - name: Install Apidog CLI
-        run: npm install -g apidog-cli
+        run: |
+          npm install -g apidog-cli@${{ inputs.apidog_cli_version }}
+          echo "Installed apidog-cli version:"
+          apidog --version || echo "Version check not available"
 
       - name: Determine environment ID based on tag
         if: ${{ inputs.auto_detect_environment }}
