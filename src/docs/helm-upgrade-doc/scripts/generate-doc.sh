@@ -163,7 +163,10 @@ if [ -z "$CONTENT" ]; then
   exit 1
 fi
 
-CONTENT=$(echo "$CONTENT" | sed '/^```$/d')
+FIRST_LINE=$(echo "$CONTENT" | head -1)
+if echo "$FIRST_LINE" | grep -q '^```'; then
+  CONTENT=$(echo "$CONTENT" | sed '1d; $d')
+fi
 
 mkdir -p "$DOCS_PATH"
 printf '%s\n' "$CONTENT" > "$DOC_FILE"
