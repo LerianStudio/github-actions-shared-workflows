@@ -99,7 +99,7 @@ PROMPT=$(jq -rn \
    "5. The final section must always be:\n## Command to upgrade\n```bash\n\($cmd)\n```\n" +
    "6. Heading and ToC rules:\n" +
    "   - Use ## for top-level sections and ### for subsections — never skip levels\n" +
-   "   - Section names must be short and consistent: prefer nouns (e.g. 'Resource Changes', 'New Variables', 'Migration Steps') over long descriptive phrases\n" +
+   "   - Section names must be short and consistent: prefer nouns (e.g. Resource Changes, New Variables, Migration Steps) over long descriptive phrases\n" +
    "   - The ToC must use bold links for top-level sections and plain links for subsections, exactly like: - **[Section Title](#section-title)** with indented   - [Subsection](#subsection) entries below each\n" +
    "   - Group related changes under one ## section with ### subsections instead of creating a separate ## per field\n" +
    "7. This is a Helm chart upgrade guide — all operator instructions must use Helm (values overrides, helm upgrade flags). Never suggest kubectl commands to apply, patch, or create resources directly. If a new secret or config value is required, instruct the operator to set it via values.yaml or --set, not via kubectl.\n" +
