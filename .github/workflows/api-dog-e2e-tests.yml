@@ -60,8 +60,10 @@ jobs:
           node-version: ${{ inputs.node_version }}
 
       - name: Install Apidog CLI
+        env:
+          APIDOG_CLI_VERSION: ${{ inputs.apidog_cli_version }}
         run: |
-          npm install -g apidog-cli@${{ inputs.apidog_cli_version }}
+          npm install -g "apidog-cli@${APIDOG_CLI_VERSION}"
           echo "Installed apidog-cli version:"
           apidog --version || echo "Version check not available"
 
