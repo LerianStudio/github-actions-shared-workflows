@@ -139,7 +139,7 @@ Uses `secrets: inherit` pattern. Required secrets:
 ## Jobs
 
 ### detect-changes
-Detects which apps have changes based on `filter_paths`. Outputs a matrix of changed apps for subsequent jobs.
+Detects which apps have changes based on `filter_paths`, delegating to the [`changed-paths`](../src/config/changed-paths/README.md) composite action. Outputs a matrix of changed apps for subsequent jobs.
 
 ### lint
 Runs GolangCI-Lint per changed app. Configurable version and arguments.
