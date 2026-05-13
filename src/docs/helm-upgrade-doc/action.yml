@@ -1,0 +1,255 @@
+name: Helm Upgrade Doc
+description: Generates an UPGRADE-X.Y.md guide for any Helm chart release using OpenRouter or Anthropic AI and opens a PR.
+
+inputs:
+  github-token:
+    description: GitHub token with contents write and pull-requests write permissions
+    required: true
+  gpg-private-key:
+    description: GPG private key for signing commits
+    required: true
+  gpg-passphrase:
+    description: Passphrase for the GPG private key
+    required: true
+  git-committer-name:
+    description: Git committer name for signed commits
+    required: true
+  git-committer-email:
+    description: Git committer email for signed commits
+    required: true
+  openrouter-api-key:
+    description: OpenRouter API key. Required when anthropic-api-key is not provided.
+    required: false
+    default: ''
+  anthropic-api-key:
+    description: Anthropic API key. When provided, uses the Anthropic Messages API instead of OpenRouter.
+    required: false
+    default: ''
+  charts-root:
+    description: Root directory containing all charts (e.g. charts). Used for auto-detecting chart-path from the tag name.
+    required: false
+    default: 'charts'
+  docs-subdir:
+    description: Subdirectory inside the chart directory where UPGRADE docs are stored.
+    required: false
+    default: 'docs'
+  openai-model:
+    description: OpenRouter model to use for doc generation
+    required: false
+    default: 'anthropic/claude-sonnet-4-5'
+  dry-run:
+    description: Generate the doc but skip opening the PR
+    required: false
+    default: 'false'
+
+outputs:
+  doc-generated:
+    description: Whether a new upgrade doc was generated ('true' or 'false')
+    value: ${{ steps.generate.outputs.doc_generated }}
+  doc-path:
+    description: Path to the generated upgrade doc (empty if not generated)
+    value: ${{ steps.generate.outputs.doc_path }}
+  bump-type:
+    description: Version bump type detected — patch, minor, major, or none
+    value: ${{ steps.detect-version.outputs.bump_type }}
+  new-version:
+    description: New chart version extracted from the release tag
+    value: ${{ steps.detect-version.outputs.new_version }}
+  chart-name:
+    description: Chart name extracted from the release tag
+    value: ${{ steps.detect-version.outputs.chart_name }}
+
+runs:
+  using: composite
+  steps:
+    # ----------------- Setup -----------------
+    - name: Checkout repository
+      uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      with:
+        fetch-depth: 0
+        token: ${{ inputs.github-token }}
+
+    # ----------------- Version Detection -----------------
+    - name: Detect chart and versions from tag
+      id: detect-version
+      shell: bash
+      env:
+        CHARTS_ROOT: ${{ inputs.charts-root }}
+        DOCS_SUBDIR: ${{ inputs.docs-subdir }}
+      run: |
+        git fetch --tags --force
+
+        CURRENT_TAG="$GITHUB_REF_NAME"
+        echo "📌 Current tag: $CURRENT_TAG"
+
+        # Skip pre-release tags (beta, rc, alpha, dev, snapshot)
+        if echo "$CURRENT_TAG" | grep -qE "-(beta|rc|alpha|dev|snapshot)"; then
+          echo "⚠️ Pre-release tag detected — skipping upgrade doc generation"
+          echo "bump_type=none" >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
+
+        # Extract chart name from tag: midaz-v6.5.0 → midaz
+        # Handles multi-segment names: plugin-access-manager-v1.0.0 → plugin-access-manager
+        CHART_NAME=$(echo "$CURRENT_TAG" | sed 's/-v[0-9][0-9]*\.[0-9].*//')
+        NEW_VERSION=$(echo "$CURRENT_TAG" | sed "s/^${CHART_NAME}-v//")
+
+        if [ -z "$CHART_NAME" ] || [ -z "$NEW_VERSION" ] || [ "$NEW_VERSION" = "$CURRENT_TAG" ]; then
+          echo "❌ Could not parse chart name and version from tag: $CURRENT_TAG"
+          echo "bump_type=none" >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
+
+        CHART_PATH="${CHARTS_ROOT}/${CHART_NAME}"
+        DOCS_PATH="${CHART_PATH}/${DOCS_SUBDIR}"
+
+        if [ ! -d "$CHART_PATH" ]; then
+          echo "❌ Chart directory not found: $CHART_PATH"
+          echo "bump_type=none" >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
+
+        echo "📌 Chart: $CHART_NAME ($CHART_PATH)"
+        echo "📌 New version: $NEW_VERSION"
+
+        # Find previous stable tag for this chart
+        PREV_TAG=$(git tag --sort=-version:refname \
+          | grep "^${CHART_NAME}-v[0-9]" \
+          | grep -v -E "-(beta|rc|alpha|dev|snapshot)" \
+          | sed -n '2p')
+
+        if [ -n "$PREV_TAG" ]; then
+          BASE_VERSION=$(echo "$PREV_TAG" | sed "s/^${CHART_NAME}-v//")
+          echo "📌 Previous tag: $PREV_TAG (v${BASE_VERSION})"
+        else
+          PREV_TAG=$(git rev-list --max-parents=0 HEAD)
+          BASE_VERSION="0.0.0"
+          echo "📌 No previous stable tag — using first commit as base"
+        fi
+
+        NEW_MAJOR=$(echo "$NEW_VERSION" | cut -d. -f1)
+        NEW_MINOR=$(echo "$NEW_VERSION" | cut -d. -f2)
+        BASE_MAJOR=$(echo "$BASE_VERSION" | cut -d. -f1)
+        BASE_MINOR=$(echo "$BASE_VERSION" | cut -d. -f2)
+
+        if [ "$NEW_MAJOR" != "$BASE_MAJOR" ]; then
+          BUMP_TYPE="major"
+        elif [ "$NEW_MINOR" != "$BASE_MINOR" ]; then
+          BUMP_TYPE="minor"
+        else
+          BUMP_TYPE="patch"
+        fi
+
+        echo "✅ Bump detected: $BUMP_TYPE ($BASE_VERSION → $NEW_VERSION)"
+        echo "bump_type=$BUMP_TYPE"       >> "$GITHUB_OUTPUT"
+        echo "new_version=$NEW_VERSION"   >> "$GITHUB_OUTPUT"
+        echo "base_version=$BASE_VERSION" >> "$GITHUB_OUTPUT"
+        echo "current_tag=$CURRENT_TAG"   >> "$GITHUB_OUTPUT"
+        echo "prev_tag=$PREV_TAG"         >> "$GITHUB_OUTPUT"
+        echo "chart_name=$CHART_NAME"     >> "$GITHUB_OUTPUT"
+        echo "chart_path=$CHART_PATH"     >> "$GITHUB_OUTPUT"
+        echo "docs_path=$DOCS_PATH"       >> "$GITHUB_OUTPUT"
+
+    # ----------------- Doc Generation -----------------
+    - name: Generate upgrade doc
+      id: generate
+      if: steps.detect-version.outputs.bump_type != 'none'
+      shell: bash
+      env:
+        OPENROUTER_API_KEY: ${{ inputs.openrouter-api-key }}
+        ANTHROPIC_API_KEY: ${{ inputs.anthropic-api-key }}
+        CHART_PATH: ${{ steps.detect-version.outputs.chart_path }}
+        DOCS_PATH: ${{ steps.detect-version.outputs.docs_path }}
+        OPENAI_MODEL: ${{ inputs.openai-model }}
+        BUMP_TYPE: ${{ steps.detect-version.outputs.bump_type }}
+        NEW_VERSION: ${{ steps.detect-version.outputs.new_version }}
+        BASE_VERSION: ${{ steps.detect-version.outputs.base_version }}
+        CURRENT_TAG: ${{ steps.detect-version.outputs.current_tag }}
+        PREV_TAG: ${{ steps.detect-version.outputs.prev_tag }}
+        CHART_NAME: ${{ steps.detect-version.outputs.chart_name }}
+      run: bash "$GITHUB_ACTION_PATH/scripts/generate-doc.sh"
+
+    # ----------------- PR Creation -----------------
+    - name: Import GPG key
+      if: steps.generate.outputs.doc_generated == 'true' && inputs.dry-run != 'true'
+      uses: crazy-max/ghaction-import-gpg@2dc316deee8e90f13e1a351ab510b4d5bc0c82cd # v7
+      with:
+        gpg_private_key: ${{ inputs.gpg-private-key }}
+        passphrase: ${{ inputs.gpg-passphrase }}
+        git_committer_name: ${{ inputs.git-committer-name }}
+        git_committer_email: ${{ inputs.git-committer-email }}
+        git_config_global: true
+        git_user_signingkey: true
+        git_commit_gpgsign: true
+
+    - name: Open PR with upgrade doc
+      if: steps.generate.outputs.doc_generated == 'true' && inputs.dry-run != 'true'
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+        DOC_PATH: ${{ steps.generate.outputs.doc_path }}
+        NEW_VERSION: ${{ steps.detect-version.outputs.new_version }}
+        BASE_VERSION: ${{ steps.detect-version.outputs.base_version }}
+        BUMP_TYPE: ${{ steps.detect-version.outputs.bump_type }}
+        CHART_NAME: ${{ steps.detect-version.outputs.chart_name }}
+      run: |
+        BASE_BRANCH=$(gh repo view --json defaultBranchRef -q '.defaultBranchRef.name')
+        BRANCH_NAME="release/upgrade-doc-${CHART_NAME}-v${NEW_VERSION}"
+
+        echo "📌 Base branch : $BASE_BRANCH"
+        echo "📌 New branch  : $BRANCH_NAME"
+
+        git fetch origin "$BASE_BRANCH"
+        git checkout -b "$BRANCH_NAME" "origin/$BASE_BRANCH"
+        git add "$DOC_PATH"
+
+        if git diff --cached --quiet; then
+          echo "⚠️ No staged changes — skipping PR"
+          exit 0
+        fi
+
+        git commit -S -m "docs: add upgrade guide for ${CHART_NAME} v${NEW_VERSION} [skip ci]"
+        git push origin "$BRANCH_NAME"
+
+        gh pr create \
+          --title "docs: add Helm upgrade guide for ${CHART_NAME} v${NEW_VERSION}" \
+          --body "$(printf '## Helm Upgrade Guide — %s v%s\n\nAuto-generated upgrade documentation for the **%s** bump from `v%s` to `v%s`.\n\n### Changes included\n- New `%s` created\n\n---\n*Generated automatically by the helm-upgrade-doc workflow.*' \
+            "$CHART_NAME" "$NEW_VERSION" "$BUMP_TYPE" "$BASE_VERSION" "$NEW_VERSION" "$(basename "$DOC_PATH")")" \
+          --base "$BASE_BRANCH" \
+          --head "$BRANCH_NAME"
+
+        echo "✅ PR opened: $BRANCH_NAME → $BASE_BRANCH"
+
+        gh pr merge --merge --delete-branch 2>&1 \
+          && echo "✅ PR auto-merged" \
+          || echo "⚠️ Auto-merge not available — PR left open for review"
+
+    - name: Dry run summary
+      if: steps.generate.outputs.doc_generated == 'true' && inputs.dry-run == 'true'
+      shell: bash
+      env:
+        DOC_PATH: ${{ steps.generate.outputs.doc_path }}
+        BUMP_TYPE: ${{ steps.detect-version.outputs.bump_type }}
+        NEW_VERSION: ${{ steps.detect-version.outputs.new_version }}
+        BASE_VERSION: ${{ steps.detect-version.outputs.base_version }}
+        CHART_NAME: ${{ steps.detect-version.outputs.chart_name }}
+      run: |
+        echo "::notice::DRY RUN — no PR will be opened"
+        echo "  chart       : $CHART_NAME"
+        echo "  bump-type   : $BUMP_TYPE"
+        echo "  base-version: $BASE_VERSION"
+        echo "  new-version : $NEW_VERSION"
+        echo "  doc-path    : $DOC_PATH"
+        echo ""
+        echo "Full doc content:"
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        cat "$DOC_PATH"
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+    # ----------------- Cleanup -----------------
+    - name: Cleanup temporary files
+      if: always()
+      shell: bash
+      run: |
+        rm -f /tmp/upgrade_doc_response.json
+        echo "🧹 Cleaned up temporary files"
