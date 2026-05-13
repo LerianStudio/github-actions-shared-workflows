@@ -56,6 +56,12 @@ on:
         required: false
       ANTHROPIC_API_KEY:
         required: false
+      SLACK_BOT_TOKEN_HELM:
+        required: false
+      SLACK_CHANNEL_DEVOPS:
+        required: false
+      SLACK_GROUP_TECH_SUPPORT:
+        required: false
 
 permissions:
   contents: write
@@ -83,6 +89,9 @@ jobs:
           git-committer-email: ${{ secrets.LERIAN_CI_CD_USER_EMAIL }}
           anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
           openrouter-api-key: ${{ secrets.OPENROUTER_API_KEY }}
+          slack-bot-token: ${{ secrets.SLACK_BOT_TOKEN_HELM }}
+          slack-channel: ${{ secrets.SLACK_CHANNEL_DEVOPS }}
+          slack-group-ops: ${{ secrets.SLACK_GROUP_TECH_SUPPORT }}
           charts-root: ${{ inputs.charts_root }}
           docs-subdir: ${{ inputs.docs_subdir }}
           openai-model: ${{ inputs.openai_model }}

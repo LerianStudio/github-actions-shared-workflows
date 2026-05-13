@@ -41,6 +41,18 @@ inputs:
     description: Generate the doc but skip opening the PR
     required: false
     default: 'false'
+  slack-bot-token:
+    description: Slack bot token for PR review notification. If not provided, no notification is sent.
+    required: false
+    default: ''
+  slack-channel:
+    description: Slack channel ID to send the PR review notification.
+    required: false
+    default: ''
+  slack-group-ops:
+    description: Slack group ID to mention in the notification (e.g. ops team).
+    required: false
+    default: ''
 
 outputs:
   doc-generated:
@@ -185,6 +197,7 @@ runs:
         git_commit_gpgsign: true
 
     - name: Open PR with upgrade doc
+      id: open-pr
       if: steps.generate.outputs.doc_generated == 'true' && inputs.dry-run != 'true'
       shell: bash
       env:
@@ -221,6 +234,58 @@ runs:
           --head "$BRANCH_NAME"
 
         echo "✅ PR opened: $BRANCH_NAME → $BASE_BRANCH"
+        echo "pr_url=$(gh pr view "$BRANCH_NAME" --json url -q '.url')" >> "$GITHUB_OUTPUT"
+
+    - name: Notify Slack for PR review
+      if: steps.generate.outputs.doc_generated == 'true' && inputs.dry-run != 'true' && inputs.slack-bot-token != '' && inputs.slack-channel != ''
+      shell: bash
+      env:
+        SLACK_BOT_TOKEN: ${{ inputs.slack-bot-token }}
+        SLACK_CHANNEL: ${{ inputs.slack-channel }}
+        SLACK_GROUP_OPS: ${{ inputs.slack-group-ops }}
+        PR_URL: ${{ steps.open-pr.outputs.pr_url }}
+        CHART_NAME: ${{ steps.detect-version.outputs.chart_name }}
+        NEW_VERSION: ${{ steps.detect-version.outputs.new_version }}
+        BUMP_TYPE: ${{ steps.detect-version.outputs.bump_type }}
+      run: |
+        PR_TITLE="docs: add Helm upgrade guide for ${CHART_NAME} v${NEW_VERSION}"
+
+        if [ -n "$SLACK_GROUP_OPS" ]; then
+          MENTION=" <!subteam^${SLACK_GROUP_OPS}>"
+        else
+          MENTION=""
+        fi
+
+        SLACK_PAYLOAD=$(jq -n \
+          --arg channel  "$SLACK_CHANNEL" \
+          --arg title    "$PR_TITLE" \
+          --arg pr_url   "$PR_URL" \
+          --arg mention  "$MENTION" \
+          '{
+            channel: $channel,
+            blocks: [
+              {type: "header", text: {type: "plain_text", text: "Helm Upgrade Guide — Review Requested :memo:", emoji: true}},
+              {type: "section", text: {type: "mrkdwn", text: ("*<" + $pr_url + "|" + $title + ">*")}},
+              {type: "actions", elements: [
+                {type: "button", text: {type: "plain_text", text: "Review PR", emoji: true}, url: $pr_url, style: "primary"}
+              ]},
+              {type: "context", elements: [{type: "mrkdwn", text: ("Please review and merge the upgrade documentation before the next release." + $mention)}]}
+            ],
+            attachments: [{color: "#0075ca", blocks: []}]
+          }')
+
+        RESPONSE=$(curl -s -X POST \
+          -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
+          -H "Content-type: application/json; charset=utf-8" \
+          --data "$SLACK_PAYLOAD" \
+          "https://slack.com/api/chat.postMessage")
+
+        if echo "$RESPONSE" | jq -e '.ok == true' > /dev/null; then
+          echo "✅ Slack notification sent"
+        else
+          echo "::warning::Failed to send Slack notification"
+          echo "$RESPONSE" | jq .
+        fi
 
     - name: Dry run summary
       if: steps.generate.outputs.doc_generated == 'true' && inputs.dry-run == 'true'
