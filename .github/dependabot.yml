@@ -1,7 +1,9 @@
 version: 2
 updates:
   - package-ecosystem: "github-actions"
-    directory: "/"
+    directories:
+      - "/"
+      - "/src/**"
     schedule:
       interval: "weekly"
       day: "monday"
@@ -57,6 +59,7 @@ updates:
           - "sonatype-nexus-community/nancy-github-action"
           - "trufflesecurity/trufflehog"
           - "anchore/sbom-action"
+          - "sigstore/cosign-installer"
         update-types:
           - "minor"
           - "patch"
@@ -122,6 +125,8 @@ updates:
           - "actions/labeler"
           - "actions/github-script"
           - "mikefarah/yq"
+          - "crazy-max/ghaction-github-labeler"
+          - "Mattraks/delete-workflow-runs"
         update-types:
           - "major"
           - "minor"

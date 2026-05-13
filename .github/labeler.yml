@@ -29,6 +29,7 @@ security:
     - any-glob-to-any-file:
       - ".github/workflows/go-security.yml"
       - ".github/workflows/pr-security-scan.yml"
+      - "src/security/**"
       - "SECURITY.md"
 
 # ── Change types ───────────────────────────────────────────────────────────────
@@ -40,6 +41,7 @@ documentation:
       - "docs/**"
       - "*.md"
       - ".github/**/*.md"
+      - "src/**/*.md"
 
 # Changes to dependabot.yml (usually opened automatically by Dependabot itself)
 dependencies:
@@ -62,3 +64,61 @@ github-config:
 deployment-matrix:
   - changed-files:
     - any-glob-to-any-file: "config/deployment-matrix.yml"
+
+# ── Capabilities ──────────────────────────────────────────────────────────────
+
+config:
+  - changed-files:
+    - any-glob-to-any-file: "src/config/**"
+
+notify:
+  - changed-files:
+    - any-glob-to-any-file:
+      - "src/notify/**"
+      - ".github/workflows/slack-notify.yml"
+      - ".github/workflows/release-notification.yml"
+
+lint:
+  - changed-files:
+    - any-glob-to-any-file:
+      - "src/lint/**"
+      - ".yamllint.yml"
+      - ".golangci.yml"
+
+validate:
+  - changed-files:
+    - any-glob-to-any-file:
+      - "src/validate/**"
+      - ".github/workflows/pr-validation.yml"
+      - ".github/workflows/self-pr-validation.yml"
+
+changelog:
+  - changed-files:
+    - any-glob-to-any-file:
+      - "src/changelog/**"
+      - ".github/workflows/gptchangelog.yml"
+
+routine:
+  - changed-files:
+    - any-glob-to-any-file:
+      - ".github/workflows/routine.yml"
+      - ".github/workflows/self-routine.yml"
+      - ".github/workflows/stale.yml"
+      - ".github/workflows/stale-issue.yml"
+      - ".github/workflows/stale-pr.yml"
+      - ".github/workflows/branch-cleanup.yml"
+      - ".github/workflows/workflow-runs-cleanup.yml"
+
+# ── File-type generic rules (apply across all src/ composites) ────────────────
+
+composite:
+  - changed-files:
+    - any-glob-to-any-file:
+      - "src/**/*.yml"
+      - "src/**/*.yaml"
+
+scripts:
+  - changed-files:
+    - any-glob-to-any-file:
+      - "src/**/*.sh"
+      - "src/**/*.bash"
