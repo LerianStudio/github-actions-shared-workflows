@@ -1,5 +1,20 @@
 # Github-actions-shared-workflows Changelog
 
+## [1.28.13](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.28.13)
+
+- Fixes:
+  - Allowlist `gitops_repository` for privileged checkout in `gitops-update`.
+  - Honor SARIF `result.suppressions` in `pr-security-reporter`.
+  - Dedupe source-branch feedback and add summary comment in `pr-validation`.
+  - Make ArgoCD sync resilient with prune/async/timeout in `gitops-update`.
+  - Validate `github-script` output before parsing in `security-reporter`.
+
+Contributors: @bedatty, @lerian-studio
+
+[Compare changes](https://github.com/LerianStudio/github-actions-shared-workflows/compare/v1.28.12...v1.28.13)
+
+---
+
 ## [1.28.12](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.28.12)
 
 - Fixes:
