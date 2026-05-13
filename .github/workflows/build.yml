@@ -190,6 +190,10 @@ jobs:
           if [ -z "$FILTER_PATHS" ]; then
             # Single app mode - build from root
             APP_NAME="${APP_NAME_INPUT:-$REPO_NAME}"
+            if [[ ! "$APP_NAME" =~ ^[a-z0-9]([a-z0-9._-]*[a-z0-9])?$ ]]; then
+              echo "::error::Invalid app_name '${APP_NAME}'. Must match Docker image name rules: ^[a-z0-9]([a-z0-9._-]*[a-z0-9])?$"
+              exit 1
+            fi
             echo "matrix=[{\"name\": \"${APP_NAME}\", \"working_dir\": \".\"}]" >> "$GITHUB_OUTPUT"
             echo "has_builds=true" >> "$GITHUB_OUTPUT"
           else
