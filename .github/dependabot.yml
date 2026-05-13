@@ -20,13 +20,22 @@ updates:
     reviewers:
       - "LerianStudio/devops-team"
     ignore:
-      # LerianStudio internal actions are pinned to @main intentionally
+      # LerianStudio internal actions follow our own pinning strategy:
+      # composites use floating @vN (auto-track minor/patch), reusable workflows
+      # use exact @vN.M.P. Dependabot opt-out — bumps handled via release tooling.
       - dependency-name: "LerianStudio/*"
     groups:
-      # Core GitHub-provided actions (checkout, setup-*, upload/download-artifact, etc.)
+      # Core GitHub-provided actions (checkout, setup-*, upload/download-artifact, etc.).
+      # Specific actions/* entries owned by semantic groups below are excluded so
+      # Dependabot routes them to their intended group instead of this catch-all.
       actions-core:
         patterns:
           - "actions/*"
+        exclude-patterns:
+          - "actions/dependency-review-action"
+          - "actions/create-github-app-token"
+          - "actions/labeler"
+          - "actions/github-script"
         update-types:
           - "major"
           - "minor"
@@ -90,7 +99,6 @@ updates:
       notifications:
         patterns:
           - "rtCamp/action-slack-notify"
-          - "slackapi/slack-github-action"
           - "SethCohen/github-releases-to-discord"
         update-types:
           - "major"
