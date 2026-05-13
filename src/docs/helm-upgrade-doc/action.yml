@@ -222,10 +222,6 @@ runs:
 
         echo "✅ PR opened: $BRANCH_NAME → $BASE_BRANCH"
 
-        gh pr merge --merge --delete-branch 2>&1 \
-          && echo "✅ PR auto-merged" \
-          || echo "⚠️ Auto-merge not available — PR left open for review"
-
     - name: Dry run summary
       if: steps.generate.outputs.doc_generated == 'true' && inputs.dry-run == 'true'
       shell: bash

@@ -41,13 +41,13 @@ fi
 
 if [ "$BUMP_TYPE" = "major" ]; then
   TITLE_LINE="# Helm Upgrade from v${BASE_MAJOR}.x to v${NEW_MAJOR}.x"
-  SECTION_HINT="Include: Topics ToC, Breaking Changes, Features or Additions, Migration Steps, Preview changes before upgrading, Command to upgrade. Omit empty sections."
+  SECTION_HINT="Include sections (omit if empty): Topics ToC, Breaking Changes, Features, Deployment Scenarios (if multiple deployment configs exist), Configuration Reference (full YAML for new fields with a Flag/Default/Description table), Preview changes before upgrading, Command to upgrade."
 elif [ "$BUMP_TYPE" = "minor" ]; then
   TITLE_LINE="# Helm Upgrade from v${BASE_VERSION} to v${NEW_VERSION}"
-  SECTION_HINT="Include: Topics ToC, Features or Additions, Preview changes before upgrading, Command to upgrade. Add Breaking Changes only if the diff shows any. Omit empty sections."
+  SECTION_HINT="Include sections (omit if empty): Topics ToC, Features, Configuration Reference (if new fields were added), Preview changes before upgrading, Command to upgrade. Add Breaking Changes only if the diff shows any."
 else
   TITLE_LINE="# Helm Upgrade from v${BASE_VERSION} to v${NEW_VERSION}"
-  SECTION_HINT="Include: Topics ToC, Fixes section, Preview changes before upgrading, Command to upgrade. Keep it concise."
+  SECTION_HINT="Include sections (omit if empty): Topics ToC, Fixes, Preview changes before upgrading, Command to upgrade. Keep it concise — skip sections with no relevant content."
 fi
 
 if [ "$CHART_NAME" = "plugin-access-manager" ] || [ "$CHART_NAME" = "otel-collector-lerian" ]; then
@@ -84,17 +84,28 @@ PROMPT=$(jq -rn \
    "2. \($sh)\n" +
    "3. Match the depth and style of the existing docs exactly:\n" +
    "   - For every changed value: show a before/after table (| Setting | v\($bv) | v\($nv) |)\n" +
-   "   - For every new or modified config block: show a concrete YAML example with the exact keys and values\n" +
+   "   - For every new or modified config block: show a concrete YAML example inside a ```yaml code block with the exact keys and values — never inline as plain text\n" +
    "   - For removed fields: show what was removed and what operators should do instead\n" +
-   "   - For template changes: show a before/after YAML block for each modified resource, then explain the operational impact\n" +
-   "   - Use callout blocks (> **Note:**, > **Warning:**) for important migration caveats\n" +
+   "   - For template changes: show a before/after using two labeled ```yaml code blocks (**Before (v\($bv)):** and **After (v\($nv)):**), then explain the operational impact\n" +
+   "   - Use callout blocks (> **Note:**, > **Warning:**, > **Important:**) for important migration caveats\n" +
    "   - Include numbered migration steps when action is required from the operator\n" +
-   "   - Every bash or helm command (including examples, migration steps, and suggestions) must be inside a ```bash code block — never inline as plain text\n" +
+   "   - When a section has multiple options or scenarios, use #### for each option (e.g. #### Option 1: Keep existing, #### Option 2: Migrate)\n" +
+   "   - For new configuration flags or fields, include a | Flag | Default | Description | table\n" +
+   "   - Number feature subsections sequentially: ### 1. Feature name, ### 2. Feature name, etc.\n" +
+   "   - Every bash, helm, or kubectl command (including examples, migration steps, and suggestions) must be inside a ```bash code block — never inline as plain text\n" +
+   "   - Every YAML snippet (values overrides, configmap data, secret data, resource specs) must be inside a ```yaml code block — never inline as plain text\n" +
    "   - For every new environment variable added (in values.yaml, ConfigMap, or Deployment templates): list it with its key, default value, and a brief description of what it controls\n" +
    "4. The second-to-last section must always be:\n## Preview changes before upgrading\n```bash\n\($diff)\n```\n> **Note:** Requires the [helm-diff plugin](https://github.com/databus23/helm-diff). Install with: `helm plugin install https://github.com/databus23/helm-diff`\n\n" +
    "5. The final section must always be:\n## Command to upgrade\n```bash\n\($cmd)\n```\n" +
-   "6. Base content ONLY on what the diffs show. Do not invent changes not in the diff.\n" +
-   "7. Output ONLY the markdown content. Do not wrap output in code fences."')
+   "6. Heading and ToC rules:\n" +
+   "   - Use ## for top-level sections and ### for subsections — never skip levels\n" +
+   "   - Section names must be short and consistent: prefer nouns (e.g. 'Resource Changes', 'New Variables', 'Migration Steps') over long descriptive phrases\n" +
+   "   - The ToC must use bold links for top-level sections and plain links for subsections, exactly like: - **[Section Title](#section-title)** with indented   - [Subsection](#subsection) entries below each\n" +
+   "   - Group related changes under one ## section with ### subsections instead of creating a separate ## per field\n" +
+   "7. This is a Helm chart upgrade guide — all operator instructions must use Helm (values overrides, helm upgrade flags). Never suggest kubectl commands to apply, patch, or create resources directly. If a new secret or config value is required, instruct the operator to set it via values.yaml or --set, not via kubectl.\n" +
+   "8. The entire document must be written in English — no exceptions.\n" +
+   "9. Base content ONLY on what the diffs show. Do not invent changes not in the diff.\n" +
+   "10. Output ONLY the markdown content. Do not wrap output in code fences."')
 
 if [ -n "${ANTHROPIC_API_KEY:-}" ]; then
   echo "🤖 Using Anthropic API (claude-sonnet-4-6)"
