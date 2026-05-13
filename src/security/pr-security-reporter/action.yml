@@ -445,10 +445,24 @@ runs:
     - name: Parse outputs
       id: parse-outputs
       shell: bash
+      env:
+        RESULT: ${{ steps.report.outputs.result }}
       run: |
-        RESULT='${{ steps.report.outputs.result }}'
-        HAS_FINDINGS=$(echo "$RESULT" | jq -r '.has_findings // false')
-        HAS_ERRORS=$(echo "$RESULT" | jq -r '.has_errors // false')
+        set -euo pipefail
+
+        if [ -z "$RESULT" ]; then
+          echo "::error::pr-security-reporter: github-script produced no output. The script step likely failed (API error, rate limit, or runtime exception). Check the previous step's logs."
+          exit 1
+        fi
+
+        if ! echo "$RESULT" | jq empty >/dev/null 2>&1; then
+          echo "::error::pr-security-reporter: github-script output is not valid JSON. Raw output:"
+          echo "$RESULT"
+          exit 1
+        fi
+
+        HAS_FINDINGS=$(echo "$RESULT" | jq -r '.has_findings')
+        HAS_ERRORS=$(echo "$RESULT" | jq -r '.has_errors')
         echo "has_findings=$HAS_FINDINGS" >> "$GITHUB_OUTPUT"
         echo "has_errors=$HAS_ERRORS" >> "$GITHUB_OUTPUT"
         echo "Parsed outputs: has_findings=$HAS_FINDINGS, has_errors=$HAS_ERRORS"

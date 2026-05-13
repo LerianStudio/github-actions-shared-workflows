@@ -306,8 +306,21 @@ runs:
       env:
         RESULT: ${{ steps.report.outputs.result }}
       run: |
-        HAS_FINDINGS=$(echo "$RESULT" | jq -r '.has_findings // false')
-        FINDINGS_COUNT=$(echo "$RESULT" | jq -r '.findings_count // 0')
+        set -euo pipefail
+
+        if [ -z "$RESULT" ]; then
+          echo "::error::codeql-reporter: github-script produced no output. The script step likely failed (API error, rate limit, or runtime exception). Check the previous step's logs."
+          exit 1
+        fi
+
+        if ! echo "$RESULT" | jq empty >/dev/null 2>&1; then
+          echo "::error::codeql-reporter: github-script output is not valid JSON. Raw output:"
+          echo "$RESULT"
+          exit 1
+        fi
+
+        HAS_FINDINGS=$(echo "$RESULT" | jq -r '.has_findings')
+        FINDINGS_COUNT=$(echo "$RESULT" | jq -r '.findings_count')
         echo "has_findings=$HAS_FINDINGS" >> "$GITHUB_OUTPUT"
         echo "findings_count=$FINDINGS_COUNT" >> "$GITHUB_OUTPUT"
         echo "Parsed outputs: has_findings=$HAS_FINDINGS, findings_count=$FINDINGS_COUNT"
