@@ -56,6 +56,11 @@ on:
         description: 'Name of the Dockerfile'
         type: string
         default: 'Dockerfile'
+      app_name:
+        description: 'Override app/image name (single-app mode only, i.e. when filter_paths is empty). Defaults to repository name.'
+        type: string
+        required: false
+        default: ''
       app_name_prefix:
         description: 'Prefix for app names in monorepo (e.g., "midaz" results in "midaz-agent")'
         type: string
@@ -176,14 +181,23 @@ jobs:
 
       - name: Set matrix
         id: set-matrix
+        env:
+          APP_NAME_INPUT: ${{ inputs.app_name }}
+          REPO_NAME: ${{ github.event.repository.name }}
+          FILTER_PATHS: ${{ inputs.filter_paths }}
+          CHANGED_MATRIX: ${{ steps.changed-paths.outputs.matrix }}
         run: |
-          if [ -z "${{ inputs.filter_paths }}" ]; then
+          if [ -z "$FILTER_PATHS" ]; then
             # Single app mode - build from root
-            APP_NAME="${{ github.event.repository.name }}"
+            APP_NAME="${APP_NAME_INPUT:-$REPO_NAME}"
+            if [[ ! "$APP_NAME" =~ ^[a-z0-9]([a-z0-9._-]*[a-z0-9])?$ ]]; then
+              echo "::error::Invalid app_name '${APP_NAME}'. Must match Docker image name rules: ^[a-z0-9]([a-z0-9._-]*[a-z0-9])?$"
+              exit 1
+            fi
             echo "matrix=[{\"name\": \"${APP_NAME}\", \"working_dir\": \".\"}]" >> "$GITHUB_OUTPUT"
             echo "has_builds=true" >> "$GITHUB_OUTPUT"
           else
-            MATRIX='${{ steps.changed-paths.outputs.matrix }}'
+            MATRIX="$CHANGED_MATRIX"
             if [ "$MATRIX" == "[]" ] || [ -z "$MATRIX" ]; then
               echo "matrix=[]" >> "$GITHUB_OUTPUT"
               echo "has_builds=false" >> "$GITHUB_OUTPUT"

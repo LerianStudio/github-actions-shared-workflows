@@ -36,7 +36,7 @@ on:
         type: string
         default: 'main'
       artifact_pattern:
-        description: 'Pattern to download artifacts (defaults to "gitops-tags-<repo-name>-*" if not provided)'
+        description: 'Pattern to download artifacts (defaults to "gitops-tags-<repo-name>*" if not provided, matching both single-app and monorepo artifact names)'
         type: string
         required: false
       yaml_key_mappings:
@@ -56,6 +56,10 @@ on:
         description: 'Enable ArgoCD sync after GitOps update'
         type: boolean
         default: true
+      argocd_prune:
+        description: 'Pass --prune to argocd app sync so orphaned resources are cleaned up automatically. Opt-in; safer left disabled in production.'
+        type: boolean
+        default: false
       use_dynamic_mapping:
         description: 'Use dynamic mapping for multiple components (like midaz)'
         type: boolean
@@ -120,8 +124,22 @@ jobs:
       # Trust model: this is a `workflow_call` reusable workflow, NOT triggered by
       # untrusted PRs. `inputs.gitops_repository` is supplied by trusted caller
       # workflows (default: LerianStudio/midaz-firmino-gitops) and the MANAGE_TOKEN
-      # is required for the subsequent commit/push step. CodeQL flags this as
-      # `actions/untrusted-checkout` defensively but the call surface is internal-only.
+      # is required for the subsequent commit/push step. The allowlist step below
+      # enforces that the repository is a LerianStudio-owned `*-gitops` repo so a
+      # compromised caller cannot redirect the privileged checkout to an arbitrary
+      # target (CodeQL: `actions/untrusted-checkout`).
+      - name: Validate gitops_repository against allowlist
+        shell: bash
+        env:
+          GITOPS_REPOSITORY: ${{ inputs.gitops_repository }}
+        run: |
+          set -euo pipefail
+          if [[ ! "$GITOPS_REPOSITORY" =~ ^LerianStudio/[A-Za-z0-9._-]+-gitops$ ]]; then
+            echo "::error::gitops_repository '$GITOPS_REPOSITORY' is not allowed. Must match ^LerianStudio/<name>-gitops$ (e.g. LerianStudio/midaz-firmino-gitops)."
+            exit 1
+          fi
+          echo "gitops_repository validated: $GITOPS_REPOSITORY"
+
       - name: Checkout GitOps Repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
@@ -167,7 +185,7 @@ jobs:
 
           # Generate artifact pattern if not provided
           if [[ -z "${{ inputs.artifact_pattern }}" ]]; then
-            ARTIFACT_PATTERN="gitops-tags-${APP_NAME}-*"
+            ARTIFACT_PATTERN="gitops-tags-${APP_NAME}*"
           else
             ARTIFACT_PATTERN="${{ inputs.artifact_pattern }}"
           fi
@@ -767,8 +785,14 @@ jobs:
           ARGOCD_URL: ${{ secrets.ARGOCD_URL }}
           ARGOCD_TOKEN: ${{ secrets.ARGOCD_GHUSER_TOKEN }}
           APP_NAME: ${{ steps.resolve_argocd_app.outputs.name }}
+          ARGOCD_PRUNE: ${{ inputs.argocd_prune }}
         run: |
           set -uo pipefail
+
+          PRUNE_FLAG=""
+          if [[ "$ARGOCD_PRUNE" == "true" ]]; then
+            PRUNE_FLAG="--prune"
+          fi
 
           echo "::group::argocd app get $APP_NAME"
           if ! argocd app get "$APP_NAME" --server "$ARGOCD_URL" --auth-token "$ARGOCD_TOKEN" --grpc-web; then
@@ -781,7 +805,7 @@ jobs:
 
           echo "::group::argocd app sync $APP_NAME"
           for attempt in 1 2 3 4 5; do
-            if argocd app sync "$APP_NAME" --server "$ARGOCD_URL" --auth-token "$ARGOCD_TOKEN" --grpc-web; then
+            if argocd app sync "$APP_NAME" --server "$ARGOCD_URL" --auth-token "$ARGOCD_TOKEN" --grpc-web --async --timeout 180 $PRUNE_FLAG; then
               break
             fi
             if [[ "$attempt" == "5" ]]; then
@@ -789,13 +813,13 @@ jobs:
               echo "::error::Sync failed for $APP_NAME after 5 attempts"
               exit 1
             fi
-            echo "Sync attempt $attempt failed, retrying in 5s..."
-            sleep 5
+            echo "Sync attempt $attempt failed, retrying in 30s..."
+            sleep 30
           done
           echo "::endgroup::"
 
           echo "::group::argocd app wait $APP_NAME"
-          if ! argocd app wait "$APP_NAME" --server "$ARGOCD_URL" --auth-token "$ARGOCD_TOKEN" --grpc-web; then
+          if ! argocd app wait "$APP_NAME" --server "$ARGOCD_URL" --auth-token "$ARGOCD_TOKEN" --grpc-web --timeout 180; then
             echo "::endgroup::"
             echo "::error::Timeout waiting for sync completion of $APP_NAME"
             exit 1

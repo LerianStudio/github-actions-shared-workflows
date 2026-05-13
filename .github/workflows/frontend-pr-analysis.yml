@@ -113,123 +113,18 @@ jobs:
     name: Detect Changes
     runs-on: ${{ inputs.runner_type }}
     outputs:
-      matrix: ${{ steps.set-matrix.outputs.matrix }}
-      has_changes: ${{ steps.set-matrix.outputs.has_changes }}
+      matrix: ${{ steps.changed-paths.outputs.matrix }}
+      has_changes: ${{ steps.changed-paths.outputs.has_changes }}
     steps:
-      - name: Checkout code
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - name: Get changed paths
+        id: changed-paths
+        uses: LerianStudio/github-actions-shared-workflows/src/config/changed-paths@v1
         with:
-          fetch-depth: 0
-
-      - name: Get changed files
-        id: changed
-        shell: bash
-        env:
-          EVENT_NAME: ${{ github.event_name }}
-          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-          BASE_REF: ${{ github.base_ref }}
-          EVENT_BEFORE: ${{ github.event.before }}
-          CURRENT_SHA: ${{ github.sha }}
-        run: |
-          if [[ "$EVENT_NAME" == "pull_request" ]]; then
-            git fetch origin "$PR_BASE_SHA" --depth=1 2>/dev/null || true
-            FILES=$(git diff --name-only "$PR_BASE_SHA" "$PR_HEAD_SHA" 2>/dev/null || git diff --name-only "origin/${BASE_REF}...HEAD")
-          elif [[ "$EVENT_BEFORE" == "0000000000000000000000000000000000000000" ]] || [[ -z "$EVENT_BEFORE" ]]; then
-            if PREV_COMMIT=$(git rev-parse HEAD^); then
-              FILES=$(git diff --name-only "$PREV_COMMIT" HEAD)
-            else
-              FILES=$(git ls-tree -r --name-only HEAD)
-            fi
-          else
-            FILES=$(git diff --name-only "$EVENT_BEFORE" "$CURRENT_SHA")
-          fi
-          printf "files<<EOF\n%s\nEOF\n" "$FILES" >> "$GITHUB_OUTPUT"
-
-      - name: Build matrix from changed paths
-        id: set-matrix
-        shell: bash
-        run: |
-          FILES="${{ steps.changed.outputs.files }}"
-          FILTER_PATHS='${{ inputs.filter_paths }}'
-          PATH_LEVEL="${{ inputs.path_level }}"
-          APP_NAME_PREFIX="${{ inputs.app_name_prefix }}"
-
-          if [[ -z "$FILES" ]]; then
-            echo "No files changed."
-            echo "matrix=[]" >> "$GITHUB_OUTPUT"
-            echo "has_changes=false" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          # Single-app mode: if filter_paths is empty, run against root directory
-          if [[ -z "$FILTER_PATHS" ]] || [[ "$FILTER_PATHS" == "[]" ]] || [[ "$FILTER_PATHS" == "" ]]; then
-            echo "Single-app mode: no filter_paths specified, running against root directory"
-            if [[ -n "$APP_NAME_PREFIX" ]]; then
-              APP_NAME="$APP_NAME_PREFIX"
-            else
-              APP_NAME="app"
-            fi
-            MATRIX="[{\"name\":\"$APP_NAME\",\"working_dir\":\".\"}]"
-            echo "Single app matrix: $MATRIX"
-            echo "matrix=$MATRIX" >> "$GITHUB_OUTPUT"
-            echo "has_changes=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          # Monorepo mode: filter and build matrix from changed paths
-          echo "Monorepo mode: filtering by paths $FILTER_PATHS"
-
-          DIRS=$(echo "$FILES" | xargs -n1 dirname)
-
-          if [[ -n "$PATH_LEVEL" ]] && [[ "$PATH_LEVEL" -gt 0 ]]; then
-            DIRS=$(echo "$DIRS" | cut -d'/' -f-"$PATH_LEVEL")
-          fi
-
-          FILTER_LIST=$(echo "$FILTER_PATHS" | jq -r '.[]' 2>/dev/null || echo "")
-          if [[ -n "$FILTER_LIST" ]]; then
-            FILTERED=""
-            while read -r DIR; do
-              while read -r FILTER; do
-                if [[ "$DIR" == "$FILTER"* ]]; then
-                  FILTERED+="$DIR"$'\n'
-                  break
-                fi
-              done <<< "$FILTER_LIST"
-            done <<< "$DIRS"
-            DIRS="$FILTERED"
-          fi
-
-          DIRS=$(echo "$DIRS" | grep -v '^$' | sort -u || true)
-
-          if [[ -z "$DIRS" ]]; then
-            echo "No matching directories found."
-            echo "matrix=[]" >> "$GITHUB_OUTPUT"
-            echo "has_changes=false" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          MATRIX="["
-          FIRST=true
-          while read -r DIR; do
-            if [[ -n "$APP_NAME_PREFIX" ]]; then
-              APP_NAME="${APP_NAME_PREFIX}-$(echo "$DIR" | rev | cut -d'/' -f1 | rev)"
-            else
-              APP_NAME="$(echo "$DIR" | rev | cut -d'/' -f1 | rev)"
-            fi
-            ENTRY="{\"name\":\"$APP_NAME\",\"working_dir\":\"$DIR\"}"
-            if $FIRST; then
-              MATRIX+="$ENTRY"
-              FIRST=false
-            else
-              MATRIX+=",$ENTRY"
-            fi
-          done <<< "$DIRS"
-          MATRIX+="]"
-
-          echo "Changed apps matrix: $MATRIX"
-          echo "matrix=$MATRIX" >> "$GITHUB_OUTPUT"
-          echo "has_changes=true" >> "$GITHUB_OUTPUT"
+          filter-paths: ${{ inputs.filter_paths }}
+          path-level: ${{ inputs.path_level }}
+          get-app-name: 'true'
+          app-name-prefix: ${{ inputs.app_name_prefix }}
+          fallback-app-name: ${{ inputs.app_name_prefix != '' && inputs.app_name_prefix || 'app' }}
 
   # ============================================
   # ESLINT

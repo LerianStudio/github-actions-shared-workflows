@@ -1,0 +1,108 @@
+name: PR Validation Reporter
+description: Posts a single mergeability summary comment aggregating all PR validation check results, updating it on subsequent runs.
+
+inputs:
+  github-token:
+    description: GitHub token with pull-requests:write and issues:write permissions
+    required: true
+  source-branch-result:
+    description: Result of source branch validation (success/failure/skipped)
+    required: false
+    default: "skipped"
+  title-result:
+    description: Result of PR title validation (success/failure/skipped)
+    required: false
+    default: "skipped"
+  description-result:
+    description: Result of PR description validation (success/failure/skipped)
+    required: false
+    default: "skipped"
+  size-result:
+    description: Result of PR size check (success/failure/skipped)
+    required: false
+    default: "skipped"
+  label-result:
+    description: Result of auto-label step (success/failure/skipped)
+    required: false
+    default: "skipped"
+  metadata-result:
+    description: Result of PR metadata check (success/failure/skipped)
+    required: false
+    default: "skipped"
+  dry-run:
+    description: When true, skip posting the summary comment
+    required: false
+    default: "false"
+
+runs:
+  using: composite
+  steps:
+    - name: Post PR validation summary
+      if: inputs.dry-run != 'true'
+      uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+      env:
+        SOURCE_BRANCH_RESULT: ${{ inputs.source-branch-result }}
+        TITLE_RESULT: ${{ inputs.title-result }}
+        DESCRIPTION_RESULT: ${{ inputs.description-result }}
+        SIZE_RESULT: ${{ inputs.size-result }}
+        LABEL_RESULT: ${{ inputs.label-result }}
+        METADATA_RESULT: ${{ inputs.metadata-result }}
+      with:
+        github-token: ${{ inputs.github-token }}
+        script: |
+          const checks = [
+            { label: 'Source Branch',  result: process.env.SOURCE_BRANCH_RESULT, blocking: true  },
+            { label: 'PR Title',       result: process.env.TITLE_RESULT,         blocking: true  },
+            { label: 'PR Description', result: process.env.DESCRIPTION_RESULT,   blocking: true  },
+            { label: 'PR Size',        result: process.env.SIZE_RESULT,          blocking: false },
+            { label: 'Auto Labels',    result: process.env.LABEL_RESULT,         blocking: false },
+            { label: 'PR Metadata',    result: process.env.METADATA_RESULT,      blocking: false },
+          ];
+
+          const icon = (r) => ({ success: '✅', failure: '❌', skipped: '⏭️' }[r] ?? '⚠️');
+
+          const blockingFailures = checks.filter(c => c.blocking && c.result === 'failure');
+          const verdictHeader = blockingFailures.length > 0
+            ? `## 🚫 PR Blocked — ${blockingFailures.length} blocking failure${blockingFailures.length === 1 ? '' : 's'}\n\n`
+            : `## ✅ PR Mergeable — no blocking failures\n\n`;
+
+          let table = '| Check | Status | Blocking |\n|-------|--------|----------|\n';
+          for (const c of checks) {
+            table += `| ${c.label} | ${icon(c.result)} ${c.result} | ${c.blocking ? 'yes' : 'no'} |\n`;
+          }
+          table += '\n';
+
+          const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+
+          const marker = '<!-- pr-validation-report -->';
+          let body = `${marker}\n`;
+          body += `## 🔍 PR Validation Summary\n\n`;
+          body += verdictHeader;
+          body += table;
+          if (blockingFailures.length > 0) {
+            body += `> Fix the blocking checks above before merge.\n\n`;
+          }
+          body += `---\n<sub>🔍 [View workflow run](${runUrl})</sub>\n`;
+
+          const viewerLogin = await github.rest.users.getAuthenticated()
+            .then(({ data }) => data.login)
+            .catch(() => null);
+
+          const comments = await github.paginate(github.rest.issues.listComments, {
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            issue_number: context.issue.number,
+            per_page: 100,
+          });
+
+          const marked = comments.filter(c => c.body?.includes(marker));
+          const existing = viewerLogin
+            ? marked.find(c => c.user?.login === viewerLogin)
+            : marked.find(c => c.user?.type === 'Bot');
+          const params = { owner: context.repo.owner, repo: context.repo.repo, body };
+
+          if (existing) {
+            await github.rest.issues.updateComment({ ...params, comment_id: existing.id });
+          } else {
+            await github.rest.issues.createComment({ ...params, issue_number: context.issue.number });
+          }

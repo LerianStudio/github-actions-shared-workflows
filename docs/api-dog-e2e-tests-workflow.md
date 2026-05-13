@@ -79,6 +79,7 @@ jobs:
 | `output_formats` | string | `html,cli` | Report formats (comma-separated: html, cli, json) |
 | `runner_type` | string | `firmino-lxc-runners` | GitHub runner type |
 | `auto_detect_environment` | boolean | `false` | Enable automatic environment detection from tag |
+| `apidog_cli_version` | string | `latest` | Apidog CLI version to install (npm dist-tag or version, e.g. `latest`, `0.5.2`). Pin to a specific version to avoid non-deterministic CI behavior. |
 
 ## Secrets
 
@@ -148,7 +149,7 @@ Test reports are automatically uploaded as artifacts with:
 
 1. **Checkout Repository**: Clone the repository
 2. **Setup Node.js**: Install specified Node.js version
-3. **Install Apidog CLI**: Install apidog-cli globally
+3. **Install Apidog CLI**: Install apidog-cli globally (version from `apidog_cli_version`) and log the installed version
 4. **Determine Environment**: Auto-detect or use manual environment ID
 5. **Run Tests**: Execute Apidog test scenario
 6. **Upload Reports**: Save test reports as artifacts
@@ -246,6 +247,20 @@ The workflow automatically cleans up the CLI after execution. If you encounter i
 1. Check Node.js version compatibility
 2. Verify network access to npm registry
 3. Review runner permissions
+
+### Non-deterministic Test Failures After CLI Update
+
+If e2e tests start failing consistently across runs without code changes, a new
+`apidog-cli` release may have changed behavior. Pin the CLI to a known-good
+version:
+
+```yaml
+with:
+  apidog_cli_version: "0.5.2"
+```
+
+The installed version is logged in the **Install Apidog CLI** step output for
+correlation with failures.
 
 ## Getting Apidog Credentials
 

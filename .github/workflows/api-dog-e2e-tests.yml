@@ -26,6 +26,10 @@ on:
         description: 'Enable automatic environment detection from tag (beta/rc)'
         type: boolean
         default: false
+      apidog_cli_version:
+        description: 'Apidog CLI version to install (npm dist-tag or version, e.g. latest, 0.5.2)'
+        type: string
+        default: 'latest'
     secrets:
       test_scenario_id:
         description: 'Apidog test scenario ID'
@@ -48,30 +52,47 @@ jobs:
     runs-on: ${{ inputs.runner_type }}
     steps:
       - name: Checkout Repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
       - name: Setup Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6
         with:
           node-version: ${{ inputs.node_version }}
 
       - name: Install Apidog CLI
-        run: npm install -g apidog-cli
+        env:
+          APIDOG_CLI_VERSION: ${{ inputs.apidog_cli_version }}
+        run: |
+          npm install -g "apidog-cli@${APIDOG_CLI_VERSION}"
+          echo "Installed apidog-cli version:"
+          apidog --version || echo "Version check not available"
 
       - name: Determine environment ID based on tag
         if: ${{ inputs.auto_detect_environment }}
         id: set-env
+        env:
+          TAG_NAME: ${{ github.ref_name }}
+          DEV_ENVIRONMENT_ID: ${{ secrets.dev_environment_id }}
+          STG_ENVIRONMENT_ID: ${{ secrets.stg_environment_id }}
         run: |
-          TAG_NAME="${{ github.ref_name }}"
           echo "Processing tag: $TAG_NAME"
 
+          DELIM="GHA_EOF_$(openssl rand -hex 8)"
           if [[ "$TAG_NAME" == *"-beta."* ]]; then
-            echo "ENVIRONMENT_ID=${{ secrets.dev_environment_id }}" >> $GITHUB_ENV
-            echo "TAG_TYPE=beta" >> $GITHUB_ENV
+            {
+              echo "ENVIRONMENT_ID<<${DELIM}"
+              echo "${DEV_ENVIRONMENT_ID}"
+              echo "${DELIM}"
+              echo "TAG_TYPE=beta"
+            } >> "$GITHUB_ENV"
             echo "Detected beta tag - using dev environment"
           elif [[ "$TAG_NAME" == *"-rc."* ]]; then
-            echo "ENVIRONMENT_ID=${{ secrets.stg_environment_id }}" >> $GITHUB_ENV
-            echo "TAG_TYPE=rc" >> $GITHUB_ENV
+            {
+              echo "ENVIRONMENT_ID<<${DELIM}"
+              echo "${STG_ENVIRONMENT_ID}"
+              echo "${DELIM}"
+              echo "TAG_TYPE=rc"
+            } >> "$GITHUB_ENV"
             echo "Detected rc tag - using stg environment"
           else
             echo "::error::Unrecognized tag format for e2e tests: $TAG_NAME. Expected a tag containing '-beta.' or '-rc.'"
@@ -80,27 +101,37 @@ jobs:
 
       - name: Set manual environment ID
         if: ${{ !inputs.auto_detect_environment }}
+        env:
+          MANUAL_ENVIRONMENT_ID: ${{ secrets.environment_id }}
         run: |
-          echo "ENVIRONMENT_ID=${{ secrets.environment_id }}" >> $GITHUB_ENV
-          echo "TAG_TYPE=manual" >> $GITHUB_ENV
+          DELIM="GHA_EOF_$(openssl rand -hex 8)"
+          {
+            echo "ENVIRONMENT_ID<<${DELIM}"
+            echo "${MANUAL_ENVIRONMENT_ID}"
+            echo "${DELIM}"
+            echo "TAG_TYPE=manual"
+          } >> "$GITHUB_ENV"
 
       - name: Run Apidog Test Scenario
         env:
           APIDOG_ACCESS_TOKEN: ${{ secrets.apidog_access_token }}
+          TEST_SCENARIO_ID: ${{ secrets.test_scenario_id }}
+          TEST_ITERATIONS: ${{ inputs.test_iterations }}
+          OUTPUT_FORMATS: ${{ inputs.output_formats }}
         run: |
           echo "Running e2e tests for $TAG_TYPE environment with ID: $ENVIRONMENT_ID"
           apidog run \
             --access-token "$APIDOG_ACCESS_TOKEN" \
-            --test-scenario ${{ secrets.test_scenario_id }} \
-            -e ${{ env.ENVIRONMENT_ID }} \
+            --test-scenario "$TEST_SCENARIO_ID" \
+            -e "$ENVIRONMENT_ID" \
             --color on \
-            -n ${{ inputs.test_iterations }} \
-            -r ${{ inputs.output_formats }} \
+            -n "$TEST_ITERATIONS" \
+            -r "$OUTPUT_FORMATS" \
             --out-dir ./apidog-reports
 
       - name: Upload Test Reports
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: apidog-e2e-test-reports-${{ env.TAG_TYPE }}
           path: ./apidog-reports
@@ -110,7 +141,7 @@ jobs:
         if: always()
         run: |
           npm uninstall -g apidog-cli || true
-          rm -rf $(npm root -g)/apidog-cli || true
+          rm -rf "$(npm root -g)/apidog-cli" || true
 
   # TODO: Add Slack notification when ready
   # notify:

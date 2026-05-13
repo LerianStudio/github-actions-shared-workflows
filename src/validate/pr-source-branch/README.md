@@ -7,6 +7,8 @@
 
 Validates that PRs to protected branches come from allowed source branches. Supports exact branch names and prefix patterns (e.g., `hotfix/*`).
 
+On failure, upserts a single PR comment (identified by the `<!-- pr-source-branch-validation -->` marker) instead of stacking a new `REQUEST_CHANGES` review on every commit. When the source branch becomes valid in a later run, the same comment is rewritten to a passing message. The job's failure status (and any branch-protection check requirement) still gates merges.
+
 ## Inputs
 
 | Input | Description | Required | Default |
@@ -14,7 +16,7 @@ Validates that PRs to protected branches come from allowed source branches. Supp
 | `github-token` | GitHub token with pull-requests write permission | Yes | |
 | `allowed-branches` | Allowed source branches (pipe-separated, supports `*` wildcard) | No | `develop\|release-candidate\|hotfix/*` |
 | `target-branches` | Target branches that require validation (pipe-separated) | No | `main` |
-| `dry-run` | When true, validate without posting REQUEST_CHANGES review | No | `false` |
+| `dry-run` | When true, validate without upserting the failure comment | No | `false` |
 
 ## Usage as composite step
 
@@ -51,4 +53,5 @@ jobs:
 ```yaml
 permissions:
   pull-requests: write
+  issues: write
 ```
