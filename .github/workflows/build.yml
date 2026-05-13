@@ -56,6 +56,11 @@ on:
         description: 'Name of the Dockerfile'
         type: string
         default: 'Dockerfile'
+      app_name:
+        description: 'Override app/image name (single-app mode only, i.e. when filter_paths is empty). Defaults to repository name.'
+        type: string
+        required: false
+        default: ''
       app_name_prefix:
         description: 'Prefix for app names in monorepo (e.g., "midaz" results in "midaz-agent")'
         type: string
@@ -179,7 +184,7 @@ jobs:
         run: |
           if [ -z "${{ inputs.filter_paths }}" ]; then
             # Single app mode - build from root
-            APP_NAME="${{ github.event.repository.name }}"
+            APP_NAME="${{ inputs.app_name != '' && inputs.app_name || github.event.repository.name }}"
             echo "matrix=[{\"name\": \"${APP_NAME}\", \"working_dir\": \".\"}]" >> "$GITHUB_OUTPUT"
             echo "has_builds=true" >> "$GITHUB_OUTPUT"
           else
