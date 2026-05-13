@@ -123,6 +123,7 @@ update_gitops:
 | `commit_message_prefix` | string | (repo name) | Prefix for commit message (auto-generated) |
 | `runner_type` | string | `blacksmith-4vcpu-ubuntu-2404` | GitHub runner type |
 | `enable_argocd_sync` | boolean | `true` | Enable ArgoCD sync |
+| `argocd_prune` | boolean | `false` | Pass `--prune` to `argocd app sync` so orphaned resources are cleaned up automatically. Opt-in; safer left disabled in production |
 | `use_dynamic_mapping` | boolean | `false` | Use dynamic mapping for multiple components |
 | `yq_version` | string | `v4.44.3` | Version of yq to install |
 | `enable_docker_login` | boolean | `true` | Enable Docker Hub login to avoid rate limits |
@@ -301,6 +302,12 @@ The workflow uses a matrix strategy for ArgoCD sync:
 2. A separate `argocd_sync` job runs in parallel for each combination
 3. Each job first checks if the ArgoCD app exists before attempting sync
 4. Each sync has `continue-on-error: true` for graceful failure handling
+
+### Sync Command Behavior
+
+The `argocd app sync` call uses `--async --timeout 180`, dispatching the sync without blocking on completion. A subsequent `argocd app wait --timeout 180` confirms the rollout. On failure, the step retries up to 5 times with a 30s interval between attempts.
+
+When `argocd_prune` is `true`, `--prune` is appended so orphaned resources left behind by previous renames/removals are cleaned up automatically. Keep this disabled by default in production and enable per-caller when you knowingly need cleanup.
 
 ### App Existence Check
 

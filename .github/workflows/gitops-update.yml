@@ -56,6 +56,10 @@ on:
         description: 'Enable ArgoCD sync after GitOps update'
         type: boolean
         default: true
+      argocd_prune:
+        description: 'Pass --prune to argocd app sync so orphaned resources are cleaned up automatically. Opt-in; safer left disabled in production.'
+        type: boolean
+        default: false
       use_dynamic_mapping:
         description: 'Use dynamic mapping for multiple components (like midaz)'
         type: boolean
@@ -767,8 +771,14 @@ jobs:
           ARGOCD_URL: ${{ secrets.ARGOCD_URL }}
           ARGOCD_TOKEN: ${{ secrets.ARGOCD_GHUSER_TOKEN }}
           APP_NAME: ${{ steps.resolve_argocd_app.outputs.name }}
+          ARGOCD_PRUNE: ${{ inputs.argocd_prune }}
         run: |
           set -uo pipefail
+
+          PRUNE_FLAG=""
+          if [[ "$ARGOCD_PRUNE" == "true" ]]; then
+            PRUNE_FLAG="--prune"
+          fi
 
           echo "::group::argocd app get $APP_NAME"
           if ! argocd app get "$APP_NAME" --server "$ARGOCD_URL" --auth-token "$ARGOCD_TOKEN" --grpc-web; then
@@ -781,7 +791,7 @@ jobs:
 
           echo "::group::argocd app sync $APP_NAME"
           for attempt in 1 2 3 4 5; do
-            if argocd app sync "$APP_NAME" --server "$ARGOCD_URL" --auth-token "$ARGOCD_TOKEN" --grpc-web; then
+            if argocd app sync "$APP_NAME" --server "$ARGOCD_URL" --auth-token "$ARGOCD_TOKEN" --grpc-web --async --timeout 180 $PRUNE_FLAG; then
               break
             fi
             if [[ "$attempt" == "5" ]]; then
@@ -789,13 +799,13 @@ jobs:
               echo "::error::Sync failed for $APP_NAME after 5 attempts"
               exit 1
             fi
-            echo "Sync attempt $attempt failed, retrying in 5s..."
-            sleep 5
+            echo "Sync attempt $attempt failed, retrying in 30s..."
+            sleep 30
           done
           echo "::endgroup::"
 
           echo "::group::argocd app wait $APP_NAME"
-          if ! argocd app wait "$APP_NAME" --server "$ARGOCD_URL" --auth-token "$ARGOCD_TOKEN" --grpc-web; then
+          if ! argocd app wait "$APP_NAME" --server "$ARGOCD_URL" --auth-token "$ARGOCD_TOKEN" --grpc-web --timeout 180; then
             echo "::endgroup::"
             echo "::error::Timeout waiting for sync completion of $APP_NAME"
             exit 1
