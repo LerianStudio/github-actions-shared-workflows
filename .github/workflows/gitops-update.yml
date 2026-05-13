@@ -124,8 +124,22 @@ jobs:
       # Trust model: this is a `workflow_call` reusable workflow, NOT triggered by
       # untrusted PRs. `inputs.gitops_repository` is supplied by trusted caller
       # workflows (default: LerianStudio/midaz-firmino-gitops) and the MANAGE_TOKEN
-      # is required for the subsequent commit/push step. CodeQL flags this as
-      # `actions/untrusted-checkout` defensively but the call surface is internal-only.
+      # is required for the subsequent commit/push step. The allowlist step below
+      # enforces that the repository is a LerianStudio-owned `*-gitops` repo so a
+      # compromised caller cannot redirect the privileged checkout to an arbitrary
+      # target (CodeQL: `actions/untrusted-checkout`).
+      - name: Validate gitops_repository against allowlist
+        shell: bash
+        env:
+          GITOPS_REPOSITORY: ${{ inputs.gitops_repository }}
+        run: |
+          set -euo pipefail
+          if [[ ! "$GITOPS_REPOSITORY" =~ ^LerianStudio/[A-Za-z0-9._-]+-gitops$ ]]; then
+            echo "::error::gitops_repository '$GITOPS_REPOSITORY' is not allowed. Must match ^LerianStudio/<name>-gitops$ (e.g. LerianStudio/midaz-firmino-gitops)."
+            exit 1
+          fi
+          echo "gitops_repository validated: $GITOPS_REPOSITORY"
+
       - name: Checkout GitOps Repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
