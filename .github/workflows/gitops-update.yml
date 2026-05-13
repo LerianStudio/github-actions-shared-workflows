@@ -36,7 +36,7 @@ on:
         type: string
         default: 'main'
       artifact_pattern:
-        description: 'Pattern to download artifacts (defaults to "gitops-tags-<repo-name>-*" if not provided)'
+        description: 'Pattern to download artifacts (defaults to "gitops-tags-<repo-name>*" if not provided, matching both single-app and monorepo artifact names)'
         type: string
         required: false
       yaml_key_mappings:
@@ -167,7 +167,7 @@ jobs:
 
           # Generate artifact pattern if not provided
           if [[ -z "${{ inputs.artifact_pattern }}" ]]; then
-            ARTIFACT_PATTERN="gitops-tags-${APP_NAME}-*"
+            ARTIFACT_PATTERN="gitops-tags-${APP_NAME}*"
           else
             ARTIFACT_PATTERN="${{ inputs.artifact_pattern }}"
           fi
