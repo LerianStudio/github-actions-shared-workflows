@@ -16,9 +16,11 @@ updates:
     commit-message:
       prefix: "chore"
       include: "scope"
-    open-pull-requests-limit: 10
-    reviewers:
-      - "LerianStudio/devops-team"
+    open-pull-requests-limit: 15
+    # Reviewers are resolved via CODEOWNERS (the `reviewers` field is deprecated).
+    cooldown:
+      default-days: 3
+      semver-major-days: 7
     ignore:
       # LerianStudio internal actions follow our own pinning strategy:
       # composites use floating @vN (auto-track minor/patch), reusable workflows
