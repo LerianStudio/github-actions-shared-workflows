@@ -5,7 +5,7 @@
   </tr>
 </table>
 
-Generates an `UPGRADE-X.Y.md` guide for Helm chart PRs using OpenRouter AI. Detects the version bump type (patch, minor, major) from `Chart.yaml`, builds a structured diff of `values.yaml` and templates, uses existing upgrade docs as few-shot examples, and commits the generated file directly to the PR branch with a GPG-signed commit. Skips generation when the doc already exists — safe to re-run on subsequent pushes to the same PR.
+Generates an `UPGRADE-X.Y.md` guide for any Helm chart release using OpenRouter or Anthropic AI and opens a PR. Detects the version bump type (patch, minor, major) from the release tag, builds a structured diff of `values.yaml` and templates, uses existing upgrade docs as few-shot examples, and opens a signed PR with the generated file. Skips generation when the doc already exists — safe to re-run on subsequent pushes.
 
 ## Inputs
 
@@ -16,12 +16,15 @@ Generates an `UPGRADE-X.Y.md` guide for Helm chart PRs using OpenRouter AI. Dete
 | `gpg-passphrase` | Passphrase for the GPG private key | yes | — |
 | `git-committer-name` | Git committer name for signed commits | yes | — |
 | `git-committer-email` | Git committer email for signed commits | yes | — |
-| `openrouter-api-key` | OpenRouter API key for AI doc generation | yes | — |
-| `base-ref` | Base branch ref to diff against (e.g. `main`, `develop`) | yes | — |
-| `chart-path` | Path to the Helm chart directory | no | `charts/midaz` |
-| `docs-path` | Path to the docs directory where UPGRADE docs are stored | no | `charts/midaz/docs` |
+| `openrouter-api-key` | OpenRouter API key (required if `anthropic-api-key` is not set) | no | — |
+| `anthropic-api-key` | Anthropic API key (used instead of OpenRouter when provided) | no | — |
+| `charts-root` | Root directory containing all charts | no | `charts` |
+| `docs-subdir` | Subdirectory inside each chart where UPGRADE docs are stored | no | `docs` |
 | `openai-model` | OpenRouter model to use for generation | no | `anthropic/claude-sonnet-4-5` |
-| `dry-run` | Generate the doc but skip committing it to the branch | no | `false` |
+| `dry-run` | Generate the doc but skip opening the PR | no | `false` |
+| `slack-bot-token` | Slack bot token for PR review notification | no | — |
+| `slack-channel` | Slack channel ID for the PR review notification | no | — |
+| `slack-group-ops` | Slack group ID to mention in the notification | no | — |
 
 ## Outputs
 
@@ -30,7 +33,8 @@ Generates an `UPGRADE-X.Y.md` guide for Helm chart PRs using OpenRouter AI. Dete
 | `doc-generated` | `'true'` if a new upgrade doc was generated and committed |
 | `doc-path` | Path to the generated doc (empty if not generated) |
 | `bump-type` | Version bump detected: `patch`, `minor`, `major`, or `none` |
-| `new-version` | New chart version from `Chart.yaml` |
+| `new-version` | New chart version from the release tag |
+| `chart-name` | Chart name extracted from the release tag |
 
 ## Usage as composite step
 
@@ -54,8 +58,8 @@ jobs:
           gpg-passphrase: ${{ secrets.LERIAN_CI_CD_USER_GPG_KEY_PASSWORD }}
           git-committer-name: ${{ secrets.LERIAN_CI_CD_USER_NAME }}
           git-committer-email: ${{ secrets.LERIAN_CI_CD_USER_EMAIL }}
+          anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
           openrouter-api-key: ${{ secrets.OPENROUTER_API_KEY }}
-          base-ref: ${{ github.base_ref || 'main' }}
 ```
 
 ## Usage via reusable workflow

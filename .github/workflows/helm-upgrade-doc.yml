@@ -21,7 +21,7 @@ on:
       runner_type:
         description: Runner to use for the workflow
         type: string
-        default: 'ubuntu-latest'
+        default: 'blacksmith-4vcpu-ubuntu-2404'
       charts_root:
         description: Root directory containing all charts
         type: string
@@ -64,13 +64,15 @@ on:
         required: false
 
 permissions:
-  contents: write
-  pull-requests: write
+  contents: read
 
 jobs:
   upgrade-doc:
     name: Generate Helm Upgrade Doc
     runs-on: ${{ inputs.runner_type }}
+    permissions:
+      contents: write
+      pull-requests: write
     steps:
       - name: Create GitHub App Token
         id: app-token
