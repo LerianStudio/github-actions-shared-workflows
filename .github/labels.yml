@@ -104,6 +104,10 @@
   color: "0052cc"
   description: Changes to changelog generation composite actions (src/changelog/)
 
+- name: docs
+  color: "006b75"
+  description: Changes to documentation generation composite actions (src/docs/)
+
 - name: deployment-matrix
   color: "5319e7"
   description: Changes to the canonical deployment matrix (config/deployment-matrix.yml)
@@ -111,6 +115,14 @@
 - name: routine
   color: "1f6feb"
   description: Changes to periodic maintenance routines (self-routine.yml and related reusables)
+
+- name: composite
+  color: "8b949e"
+  description: Changes to any composite action manifest (src/**/*.yml)
+
+- name: scripts
+  color: "4b5563"
+  description: Changes to shell scripts (src/**/*.sh)
 
 # ── Stale management ──────────────────────────────────────────────────────────
 

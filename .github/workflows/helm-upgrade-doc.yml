@@ -1,0 +1,100 @@
+name: "Helm Upgrade Doc"
+
+# Reusable workflow that generates an UPGRADE-X.Y.md guide after any Helm chart release.
+# Triggered by stable tag pushes (e.g. midaz-v6.5.0, fetcher-v1.2.0).
+# Extracts chart name and version from the tag, diffs the chart between the previous
+# stable tag and the current tag, generates the upgrade doc via AI, and opens a PR.
+#
+# Usage:
+#   on:
+#     push:
+#       tags:
+#         - '**-v[0-9]*'
+#   jobs:
+#     upgrade-doc:
+#       uses: LerianStudio/github-actions-shared-workflows/.github/workflows/helm-upgrade-doc.yml@v1
+#       secrets: inherit
+
+on:
+  workflow_call:
+    inputs:
+      runner_type:
+        description: Runner to use for the workflow
+        type: string
+        default: 'blacksmith-4vcpu-ubuntu-2404'
+      charts_root:
+        description: Root directory containing all charts
+        type: string
+        default: 'charts'
+      docs_subdir:
+        description: Subdirectory inside each chart where UPGRADE docs are stored
+        type: string
+        default: 'docs'
+      openai_model:
+        description: OpenRouter model to use for doc generation
+        type: string
+        default: 'anthropic/claude-sonnet-4-5'
+      dry_run:
+        description: Generate the doc but skip opening the PR
+        type: boolean
+        required: false
+        default: false
+    secrets:
+      LERIAN_STUDIO_MIDAZ_PUSH_BOT_APP_ID:
+        required: true
+      LERIAN_STUDIO_MIDAZ_PUSH_BOT_PRIVATE_KEY:
+        required: true
+      LERIAN_CI_CD_USER_GPG_KEY:
+        required: true
+      LERIAN_CI_CD_USER_GPG_KEY_PASSWORD:
+        required: true
+      LERIAN_CI_CD_USER_NAME:
+        required: true
+      LERIAN_CI_CD_USER_EMAIL:
+        required: true
+      OPENROUTER_API_KEY:
+        required: false
+      ANTHROPIC_API_KEY:
+        required: false
+      SLACK_BOT_TOKEN_HELM:
+        required: false
+      SLACK_CHANNEL_DEVOPS:
+        required: false
+      SLACK_GROUP_TECH_SUPPORT:
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  upgrade-doc:
+    name: Generate Helm Upgrade Doc
+    runs-on: ${{ inputs.runner_type }}
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Create GitHub App Token
+        id: app-token
+        uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3
+        with:
+          client-id: ${{ secrets.LERIAN_STUDIO_MIDAZ_PUSH_BOT_APP_ID }}
+          private-key: ${{ secrets.LERIAN_STUDIO_MIDAZ_PUSH_BOT_PRIVATE_KEY }}
+
+      - name: Generate Helm Upgrade Doc
+        uses: LerianStudio/github-actions-shared-workflows/src/docs/helm-upgrade-doc@v1
+        with:
+          github-token: ${{ steps.app-token.outputs.token }}
+          gpg-private-key: ${{ secrets.LERIAN_CI_CD_USER_GPG_KEY }}
+          gpg-passphrase: ${{ secrets.LERIAN_CI_CD_USER_GPG_KEY_PASSWORD }}
+          git-committer-name: ${{ secrets.LERIAN_CI_CD_USER_NAME }}
+          git-committer-email: ${{ secrets.LERIAN_CI_CD_USER_EMAIL }}
+          anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
+          openrouter-api-key: ${{ secrets.OPENROUTER_API_KEY }}
+          slack-bot-token: ${{ secrets.SLACK_BOT_TOKEN_HELM }}
+          slack-channel: ${{ secrets.SLACK_CHANNEL_DEVOPS }}
+          slack-group-ops: ${{ secrets.SLACK_GROUP_TECH_SUPPORT }}
+          charts-root: ${{ inputs.charts_root }}
+          docs-subdir: ${{ inputs.docs_subdir }}
+          openai-model: ${{ inputs.openai_model }}
+          dry-run: ${{ inputs.dry_run && 'true' || 'false' }}
