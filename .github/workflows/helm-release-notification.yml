@@ -38,10 +38,6 @@ on:
         description: 'Sidebar color for the Slack message'
         type: string
         default: '#36a64f'
-      oci_registry:
-        description: 'OCI registry for chart packages (e.g., ghcr.io/lerianstudio)'
-        type: string
-        default: ''
       dry_run:
         description: 'Preview notification without sending'
         required: false
@@ -75,10 +71,6 @@ on:
         description: 'Sidebar color for the Slack message'
         type: string
         default: '#36a64f'
-      oci_registry:
-        description: 'OCI registry for chart packages'
-        type: string
-        default: ''
       dry_run:
         description: 'Preview notification without sending'
         type: boolean
@@ -94,9 +86,6 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Get latest changes
-        run: git pull origin ${{ github.ref_name }}
-
       - name: Resolve release metadata
         id: release
         env:
@@ -110,6 +99,10 @@ jobs:
 
           # Get latest release tag for this chart
           LATEST_TAG=$(git tag -l "${CHART_NAME_RAW}-v*" --sort=-v:refname | head -1)
+          if [ -z "$LATEST_TAG" ]; then
+            echo "::error::No release tag found matching pattern '${CHART_NAME_RAW}-v*'"
+            exit 1
+          fi
           CHART_VERSION="${LATEST_TAG/${CHART_NAME_RAW}-v/}"
           RELEASE_URL="${{ github.server_url }}/${{ github.repository }}/releases/tag/${LATEST_TAG}"
           COMMIT_URL="${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }}"
@@ -245,7 +238,10 @@ jobs:
               }]
             }')
 
-          RESPONSE=$(curl -s -X POST \
+          RESPONSE=$(curl -s --fail-with-body \
+            --connect-timeout 10 --max-time 30 \
+            --retry 3 --retry-delay 2 --retry-all-errors \
+            -X POST \
             -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
             -H "Content-type: application/json; charset=utf-8" \
             --data "$SLACK_PAYLOAD" \
