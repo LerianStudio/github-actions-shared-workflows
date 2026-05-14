@@ -1,5 +1,23 @@
 # Github-actions-shared-workflows Changelog
 
+## [1.30.0](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.30.0)
+
+- **Features**
+  - Register `plugin-br-pix-switch` for firmino in the deployment matrix.
+
+- **Fixes**
+  - Update self-pr-validation to re-run on PR edited and ready_for_review events.
+
+- **Improvements**
+  - Bump `trufflesecurity/trufflehog` dependency.
+  - Register `lerian-notification` on firmino in the deployment matrix.
+
+Contributors: @bedatty, @ferr3ira-gabriel, @lerian-studio.
+
+[Compare changes](https://github.com/LerianStudio/github-actions-shared-workflows/compare/v1.29.0...v1.30.0)
+
+---
+
 ## [1.29.0](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.29.0)
 
 - **Features:**
