@@ -53,10 +53,11 @@ apps:
     - plugin-br-bank-transfer-jd  # JD-specific build (anacleto only)
     - plugin-bc-correios
 
-    # Clotilde-exclusive Lerian platform suite
+    # Lerian internal platform suite (Clotilde + Benedita)
     - backoffice-console
     - cs-platform
     - forge
+    - lerian-hq
     - lerian-map
     - tenant-manager
 
@@ -136,5 +137,6 @@ clusters:
       - backoffice-console
       - cs-platform
       - forge
+      - lerian-hq
       - lerian-map
       - tenant-manager
