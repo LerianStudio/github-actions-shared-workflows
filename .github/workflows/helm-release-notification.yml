@@ -90,7 +90,7 @@ jobs:
     runs-on: ${{ inputs.runner_type }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
         with:
           fetch-depth: 0
 
@@ -105,7 +105,8 @@ jobs:
           set -euo pipefail
 
           # Format chart name for display: remove -helm suffix and convert to Title Case
-          CHART_NAME=$(echo "$CHART_NAME_RAW" | sed 's/-helm$//' | sed 's/-/ /g' | awk '{for(i=1;i<=NF;i++) $i=toupper(substr($i,1,1)) tolower(substr($i,2))}1')
+          CHART_NAME_STRIPPED="${CHART_NAME_RAW%-helm}"
+          CHART_NAME=$(echo "${CHART_NAME_STRIPPED//-/ }" | awk '{for(i=1;i<=NF;i++) $i=toupper(substr($i,1,1)) tolower(substr($i,2))}1')
 
           # Get latest release tag for this chart
           LATEST_TAG=$(git tag -l "${CHART_NAME_RAW}-v*" --sort=-v:refname | head -1)
@@ -113,11 +114,11 @@ jobs:
           RELEASE_URL="${{ github.server_url }}/${{ github.repository }}/releases/tag/${LATEST_TAG}"
           COMMIT_URL="${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }}"
 
-          echo "chart_name=${CHART_NAME}" >> $GITHUB_OUTPUT
-          echo "chart_version=${CHART_VERSION}" >> $GITHUB_OUTPUT
-          echo "latest_tag=${LATEST_TAG}" >> $GITHUB_OUTPUT
-          echo "release_url=${RELEASE_URL}" >> $GITHUB_OUTPUT
-          echo "commit_url=${COMMIT_URL}" >> $GITHUB_OUTPUT
+          echo "chart_name=${CHART_NAME}" >> "$GITHUB_OUTPUT"
+          echo "chart_version=${CHART_VERSION}" >> "$GITHUB_OUTPUT"
+          echo "latest_tag=${LATEST_TAG}" >> "$GITHUB_OUTPUT"
+          echo "release_url=${RELEASE_URL}" >> "$GITHUB_OUTPUT"
+          echo "commit_url=${COMMIT_URL}" >> "$GITHUB_OUTPUT"
 
       - name: Parse README version table
         id: readme
