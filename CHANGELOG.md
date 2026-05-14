@@ -1,5 +1,23 @@
 # Github-actions-shared-workflows Changelog
 
+## [1.29.0](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.29.0)
+
+- **Features:**
+  - Add reusable Helm upgrade documentation workflow.
+
+- **Fixes:**
+  - Update Helm upgrade documentation for runner type and permissions.
+  - Resolve shellcheck violations in helm-release-notification workflow.
+  - Add Slack notification inputs for PR review in Helm upgrade documentation workflow.
+  - Increase `max_tokens` for API requests in documentation generation script.
+  - Enhance Helm upgrade command for specific chart names and improve documentation generation context.
+
+Contributors: @bedatty, @guimoreirar, @lerian-studio.
+
+[Compare changes](https://github.com/LerianStudio/github-actions-shared-workflows/compare/v1.28.13...v1.29.0)
+
+---
+
 ## [1.28.13](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.28.13)
 
 - Fixes:
