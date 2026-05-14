@@ -57,6 +57,7 @@ apps:
     - backoffice-console
     - cs-platform
     - forge
+    - lerian-hq
     - lerian-map
     - tenant-manager
 
@@ -136,5 +137,6 @@ clusters:
       - backoffice-console
       - cs-platform
       - forge
+      - lerian-hq
       - lerian-map
       - tenant-manager
