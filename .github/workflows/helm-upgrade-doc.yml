@@ -82,7 +82,7 @@ jobs:
           private-key: ${{ secrets.LERIAN_STUDIO_MIDAZ_PUSH_BOT_PRIVATE_KEY }}
 
       - name: Generate Helm Upgrade Doc
-        uses: LerianStudio/github-actions-shared-workflows/src/docs/helm-upgrade-doc@main
+        uses: LerianStudio/github-actions-shared-workflows/src/docs/helm-upgrade-doc@develop
         with:
           github-token: ${{ steps.app-token.outputs.token }}
           gpg-private-key: ${{ secrets.LERIAN_CI_CD_USER_GPG_KEY }}
