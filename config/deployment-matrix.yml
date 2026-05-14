@@ -41,6 +41,7 @@ apps:
     - reporter
     - tracer
     - product-console
+    - lerian-notification         # firmino-dev only today
 
     # Plugins
     - plugin-access-manager       # caller repo may push as plugin-identity / plugin-auth / casdoor
@@ -72,6 +73,7 @@ clusters:
       - reporter
       - tracer
       - product-console
+      - lerian-notification
       - plugin-access-manager
       - plugin-fees
       - plugin-br-pix-direct-jd
