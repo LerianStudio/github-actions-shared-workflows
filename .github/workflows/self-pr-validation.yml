@@ -7,8 +7,10 @@ on:
       - main
     types:
       - opened
+      - edited
       - synchronize
       - reopened
+      - ready_for_review
   workflow_dispatch:
 
 permissions:
