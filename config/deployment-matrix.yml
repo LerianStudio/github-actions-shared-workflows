@@ -47,6 +47,7 @@ apps:
     - plugin-fees
     - plugin-br-pix-direct-jd
     - plugin-br-pix-indirect-btg
+    - plugin-br-pix-switch        # multi-component PIX hub (firmino-only today)
     - plugin-br-bank-transfer     # generic build (firmino + clotilde)
     - plugin-br-bank-transfer-jd  # JD-specific build (anacleto only)
     - plugin-bc-correios
@@ -75,6 +76,7 @@ clusters:
       - plugin-fees
       - plugin-br-pix-direct-jd
       - plugin-br-pix-indirect-btg
+      - plugin-br-pix-switch
       - plugin-br-bank-transfer
       - plugin-bc-correios
 
