@@ -110,15 +110,17 @@ jobs:
 
           # Get latest release tag for this chart
           LATEST_TAG=$(git tag -l "${CHART_NAME_RAW}-v*" --sort=-v:refname | head -1)
-          CHART_VERSION=$(echo "$LATEST_TAG" | sed "s/${CHART_NAME_RAW}-v//")
+          CHART_VERSION="${LATEST_TAG/${CHART_NAME_RAW}-v/}"
           RELEASE_URL="${{ github.server_url }}/${{ github.repository }}/releases/tag/${LATEST_TAG}"
           COMMIT_URL="${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }}"
 
-          echo "chart_name=${CHART_NAME}" >> "$GITHUB_OUTPUT"
-          echo "chart_version=${CHART_VERSION}" >> "$GITHUB_OUTPUT"
-          echo "latest_tag=${LATEST_TAG}" >> "$GITHUB_OUTPUT"
-          echo "release_url=${RELEASE_URL}" >> "$GITHUB_OUTPUT"
-          echo "commit_url=${COMMIT_URL}" >> "$GITHUB_OUTPUT"
+          {
+            echo "chart_name=${CHART_NAME}"
+            echo "chart_version=${CHART_VERSION}"
+            echo "latest_tag=${LATEST_TAG}"
+            echo "release_url=${RELEASE_URL}"
+            echo "commit_url=${COMMIT_URL}"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Parse README version table
         id: readme
@@ -150,9 +152,11 @@ jobs:
           README_ANCHOR=$(echo "$CHART_SECTION" | head -1 | sed 's/^### //' | tr '[:upper:]' '[:lower:]' | sed 's/ /-/g')
           README_URL="${{ github.server_url }}/${{ github.repository }}?tab=readme-ov-file#${README_ANCHOR}"
 
-          echo "header_line=${HEADER_LINE}" >> $GITHUB_OUTPUT
-          echo "data_line=${DATA_LINE}" >> $GITHUB_OUTPUT
-          echo "readme_url=${README_URL}" >> $GITHUB_OUTPUT
+          {
+            echo "header_line=${HEADER_LINE}"
+            echo "data_line=${DATA_LINE}"
+            echo "readme_url=${README_URL}"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Dry run summary
         if: ${{ inputs.dry_run }}
