@@ -1,9 +1,11 @@
 version: 2
 updates:
   - package-ecosystem: "github-actions"
-    directories:
-      - "/"
-      - "/src/**"
+    # The github-actions ecosystem only honors `directory: "/"` — Dependabot
+    # scans `.github/workflows/` and the root-level action.yml, and ignores any
+    # other path or glob. Composites under `src/**/action.yml` are NOT monitored
+    # by this config; their action versions require a separate drift check.
+    directory: "/"
     schedule:
       interval: "weekly"
       day: "monday"
