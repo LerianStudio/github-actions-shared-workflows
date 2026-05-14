@@ -104,6 +104,10 @@
   color: "0052cc"
   description: Changes to changelog generation composite actions (src/changelog/)
 
+- name: docs
+  color: "006b75"
+  description: Changes to documentation generation composite actions (src/docs/)
+
 - name: deployment-matrix
   color: "5319e7"
   description: Changes to the canonical deployment matrix (config/deployment-matrix.yml)
