@@ -64,6 +64,9 @@ apps:
     # Anacleto-exclusive
     - ungoliant-controller
 
+    # Benedita-exclusive
+    - severino-bot                # internal Slack bot (benedita only)
+
 clusters:
   firmino:
     apps:
@@ -140,3 +143,4 @@ clusters:
       - lerian-hq
       - lerian-map
       - tenant-manager
+      - severino-bot
