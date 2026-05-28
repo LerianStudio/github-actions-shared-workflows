@@ -1,5 +1,20 @@
 # Github-actions-shared-workflows Changelog
 
+## [1.31.0](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.31.0)
+
+- **Features:**
+  - Register `severino-bot` for benedita in the deployment matrix.
+  - Register `lerian-hq` in the deployment matrix for benedita.
+
+- **Improvements:**
+  - Bump `actions/create-github-app-token` in the release group.
+
+Contributors: @bedatty, @ferr3ira-gabriel, @lerian-studio, @prymax10.
+
+[Compare changes](https://github.com/LerianStudio/github-actions-shared-workflows/compare/v1.30.0...v1.31.0)
+
+---
+
 ## [1.30.0](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.30.0)
 
 - **Features**
