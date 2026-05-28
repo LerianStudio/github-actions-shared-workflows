@@ -421,6 +421,7 @@ jobs:
           KUSTOMIZE_BASE_PATH: ${{ inputs.kustomize_base_path }}
           KUSTOMIZE_IMAGE_NAME: ${{ inputs.kustomize_image_name }}
           KUSTOMIZE_ENVIRONMENTS: ${{ inputs.kustomize_environments }}
+          MANIFEST_FILE: shared-workflows/${{ inputs.deployment_matrix_file }}
         run: |
           set -euo pipefail
 
@@ -572,10 +573,27 @@ jobs:
                 continue
               fi
 
-              VALUES_FILE="gitops/environments/${SERVER}/helmfile/applications/${ENV}/${APP_NAME}/values.yaml"
+              # Check for a per-app helmfile_env override in the deployment matrix.
+              # Some apps (e.g. rosiehr, cs-platform, forge, lerian-map on Benedita) have
+              # their values.yaml under cross/ instead of the tag-derived env (dev/stg/prd).
+              # The override is declared as clusters.<server>.app_helmfile_env.<app>: <env>.
+              HELMFILE_ENV="$ENV"
+              if [[ -f "$MANIFEST_FILE" ]]; then
+                HELMFILE_ENV_OVERRIDE=$(yq -o=json '.' "$MANIFEST_FILE" \
+                  | jq -r --arg server "$SERVER" --arg app "$APP_NAME" \
+                    '.clusters[$server].app_helmfile_env[$app] // empty' 2>/dev/null || echo "")
+                if [[ -n "$HELMFILE_ENV_OVERRIDE" ]]; then
+                  HELMFILE_ENV="$HELMFILE_ENV_OVERRIDE"
+                fi
+              fi
+
+              VALUES_FILE="gitops/environments/${SERVER}/helmfile/applications/${HELMFILE_ENV}/${APP_NAME}/values.yaml"
 
               echo ""
               echo "Processing: $SERVER/$ENV"
+              if [[ "$HELMFILE_ENV" != "$ENV" ]]; then
+                echo "  helmfile_env override: $HELMFILE_ENV (tag-derived: $ENV)"
+              fi
               echo "  Path: $VALUES_FILE"
 
               # Check if file exists
