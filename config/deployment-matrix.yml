@@ -66,6 +66,7 @@ apps:
 
     # Benedita-exclusive
     - severino-bot                # internal Slack bot (benedita only)
+    - rosiehr                     # internal HR app (benedita only); values at cross/ — see app_helmfile_env below
 
 clusters:
   firmino:
@@ -126,6 +127,19 @@ clusters:
       - lerian-notification
 
   benedita:
+    # app_helmfile_env: per-app override for the helmfile applications sub-directory.
+    # Default path: environments/benedita/helmfile/applications/{env}/{app}/values.yaml
+    # where {env} = dev | stg | prd | sandbox (derived from the git tag type).
+    # Apps whose values.yaml lives under cross/ instead of dev/ must be listed here;
+    # otherwise the gitops-update workflow warns "values file not found" and skips them.
+    #
+    # IMPORTANT: only list apps whose ArgoCD app name follows the standard
+    # {server}-{app}-{env} pattern (e.g. benedita-rosiehr-dev). Apps like
+    # cs-platform, forge, lerian-map use non-standard ArgoCD names (no -dev suffix)
+    # so their gitops-update sync target would resolve incorrectly. Add them here
+    # only after aligning their ArgoCD app naming with the standard convention.
+    app_helmfile_env:
+      rosiehr: cross
     apps:
       - midaz
       - fetcher
@@ -147,3 +161,4 @@ clusters:
       - tenant-manager
       - severino-bot
       - lerian-notification
+      - rosiehr
