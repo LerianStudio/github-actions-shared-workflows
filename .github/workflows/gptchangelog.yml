@@ -80,7 +80,7 @@ jobs:
             git fetch --tags
 
             # Get tags created in the last hour (recent release)
-            LATEST_TAGS=$(git tag --sort=-creatordate | head -20)
+            LATEST_TAGS=$(git tag --sort=-creatordate | head -20 || true)
             echo "📌 Recent tags: $LATEST_TAGS"
 
             # Find first stable tag (no beta/rc/alpha)
@@ -193,7 +193,7 @@ jobs:
                 # Escape regex metacharacters in app name for grep
                 # shellcheck disable=SC2001,SC2016
                 APP_NAME_ESCAPED=$(echo "$APP_NAME" | sed 's/[.[\*^$()+?{}|\\]/\\&/g')
-                LATEST_TAG=$(git tag --sort=-creatordate | grep "^${APP_NAME_ESCAPED}-v" | grep -v -e "-beta" -e "-rc" -e "-alpha" -e "-dev" -e "-snapshot" | head -1)
+                LATEST_TAG=$(git tag --sort=-creatordate | grep "^${APP_NAME_ESCAPED}-v" | grep -v -e "-beta" -e "-rc" -e "-alpha" -e "-dev" -e "-snapshot" | head -1 || true)
 
                 if [ -n "$LATEST_TAG" ]; then
                   echo "📦 Found stable tag for $APP_NAME: $LATEST_TAG"
@@ -329,7 +329,7 @@ jobs:
             echo "🔍 Looking for tags matching: $TAG_PATTERN"
 
             # Find the latest STABLE tag for this app (exclude beta/rc/alpha)
-            LAST_TAG=$(git tag --sort=-version:refname | grep "$TAG_GREP_PATTERN" | grep -v -e "-beta" -e "-rc" -e "-alpha" -e "-dev" -e "-snapshot" | head -1)
+            LAST_TAG=$(git tag --sort=-version:refname | grep "$TAG_GREP_PATTERN" | grep -v -e "-beta" -e "-rc" -e "-alpha" -e "-dev" -e "-snapshot" | head -1 || true)
 
             if [ -z "$LAST_TAG" ]; then
               echo "⚠️ No stable tag found for $APP_NAME - skipping"
