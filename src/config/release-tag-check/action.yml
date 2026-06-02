@@ -24,7 +24,7 @@ runs:
         PREVIOUS_TAG: ${{ inputs.previous-tag }}
       run: |
         git fetch --tags origin
-        NEW_TAG=$(git tag -l 'v*' --sort=-v:refname | head -1)
+        NEW_TAG=$(git tag -l 'v*' --sort=-v:refname | head -1 || true)
         if [ "$NEW_TAG" != "$PREVIOUS_TAG" ] && [ -n "$NEW_TAG" ]; then
           echo "release_published=true" >> "$GITHUB_OUTPUT"
           VERSION="${NEW_TAG#v}"
