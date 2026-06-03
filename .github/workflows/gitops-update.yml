@@ -100,6 +100,10 @@ on:
         description: 'Template for the ArgoCD application name. Supports placeholders {server}, {app}, {env}. Default {server}-{app}-{env} preserves current behavior. For kustomize layouts without env split, use e.g. {server}-{app}.'
         type: string
         default: '{server}-{app}-{env}'
+      allow_downgrade:
+        description: 'Allow writing a tag that is semver-lower than the value already in values.yaml. Default false guards against the failure mode where a production release (e.g. 1.1.1) overwrites a dev environment already on a higher pre-release (e.g. 1.2.0-beta.12). Set true for intentional rollbacks.'
+        type: boolean
+        default: false
 
 jobs:
   update_gitops:
@@ -422,8 +426,77 @@ jobs:
           KUSTOMIZE_IMAGE_NAME: ${{ inputs.kustomize_image_name }}
           KUSTOMIZE_ENVIRONMENTS: ${{ inputs.kustomize_environments }}
           MANIFEST_FILE: shared-workflows/${{ inputs.deployment_matrix_file }}
+          ALLOW_DOWNGRADE: ${{ inputs.allow_downgrade }}
         run: |
           set -euo pipefail
+
+          # Semver precedence comparison (pure bash, no external deps).
+          # Returns 0 when $1 > $2 strictly per https://semver.org/#spec-item-11.
+          # `sort -V` was rejected: GNU coreutils does not implement spec-correct
+          # prerelease precedence (it sorts "1.2.0" < "1.2.0-beta.12" instead of >).
+          semver_gt() {
+            local a="${1#v}" b="${2#v}"
+            [[ "$a" == "$b" ]] && return 1
+            local a_core="${a%%-*}" a_pre=""
+            [[ "$a" == *-* ]] && a_pre="${a#*-}"
+            local b_core="${b%%-*}" b_pre=""
+            [[ "$b" == *-* ]] && b_pre="${b#*-}"
+            local a_maj a_min a_pat b_maj b_min b_pat
+            IFS=. read -r a_maj a_min a_pat <<< "$a_core"
+            IFS=. read -r b_maj b_min b_pat <<< "$b_core"
+            local pair x y
+            for pair in "$a_maj:$b_maj" "$a_min:$b_min" "$a_pat:$b_pat"; do
+              x=${pair%:*} y=${pair#*:}
+              (( x > y )) && return 0
+              (( x < y )) && return 1
+            done
+            # major.minor.patch equal — apply prerelease rule:
+            # release version > prerelease version (1.2.0 > 1.2.0-beta.X)
+            [[ -z "$a_pre" && -n "$b_pre" ]] && return 0
+            [[ -n "$a_pre" && -z "$b_pre" ]] && return 1
+            [[ -z "$a_pre" && -z "$b_pre" ]] && return 1
+            local -a a_ids b_ids
+            IFS=. read -ra a_ids <<< "$a_pre"
+            IFS=. read -ra b_ids <<< "$b_pre"
+            local i max=${#a_ids[@]}
+            (( ${#b_ids[@]} > max )) && max=${#b_ids[@]}
+            for ((i=0; i<max; i++)); do
+              local ai="${a_ids[i]:-}" bi="${b_ids[i]:-}"
+              [[ -z "$ai" && -n "$bi" ]] && return 1
+              [[ -n "$ai" && -z "$bi" ]] && return 0
+              if [[ "$ai" =~ ^[0-9]+$ && "$bi" =~ ^[0-9]+$ ]]; then
+                (( ai > bi )) && return 0
+                (( ai < bi )) && return 1
+              elif [[ "$ai" =~ ^[0-9]+$ ]]; then
+                return 1   # numeric identifiers have lower precedence than alphanumeric
+              elif [[ "$bi" =~ ^[0-9]+$ ]]; then
+                return 0
+              else
+                [[ "$ai" > "$bi" ]] && return 0
+                [[ "$ai" < "$bi" ]] && return 1
+              fi
+            done
+            return 1
+          }
+
+          # is_upgrade NEW CURRENT -> 0 iff NEW should be written over CURRENT.
+          # Empty CURRENT is treated as a fresh write (always allowed).
+          # Non-semver values (e.g. "latest", branch SHAs) bypass the guard
+          # with a warning, since there is no precedence to compare against.
+          is_upgrade() {
+            local new="$1" current="$2"
+            [[ -z "$current" ]] && return 0
+            local re='^v?[0-9]+\.[0-9]+\.[0-9]+([-+][0-9A-Za-z.-]+)?$'
+            if [[ ! "$current" =~ $re ]]; then
+              echo "::warning::current value '$current' is not semver-shaped; skipping precedence check"
+              return 0
+            fi
+            if [[ ! "$new" =~ $re ]]; then
+              echo "::warning::new value '$new' is not semver-shaped; skipping precedence check"
+              return 0
+            fi
+            semver_gt "$new" "$current"
+          }
 
           # Determine environments to update based on tag type (IS_* from job env)
           if [[ "$IS_BETA" == "true" ]]; then
@@ -552,6 +625,12 @@ jobs:
                   [[ -f "$artifact_file" ]] || continue
                   TAG="$(cut -d= -f2 < "$artifact_file" | tr -d '[:space:]')"
                   [[ -n "$TAG" ]] || continue
+                  CURRENT_TAG=$(yq e ".images[] | select(.name == \"$KUSTOMIZE_IMAGE_NAME\") | .newTag" "$KUSTOMIZATION_FILE" 2>/dev/null || echo "")
+                  if [[ "$CURRENT_TAG" == "null" ]]; then CURRENT_TAG=""; fi
+                  if [[ "$ALLOW_DOWNGRADE" != "true" ]] && ! is_upgrade "$TAG" "$CURRENT_TAG"; then
+                    echo "::warning::Refusing to downgrade ${KUSTOMIZE_IMAGE_NAME} in $KUSTOMIZATION_FILE: $CURRENT_TAG -> $TAG. Pass allow_downgrade=true to override."
+                    continue
+                  fi
                   echo "    kustomize edit set image ${KUSTOMIZE_IMAGE_NAME}=${KUSTOMIZE_IMAGE_NAME}:${TAG}"
                   ( cd "gitops/${TARGET_DIR}" && kustomize edit set image "${KUSTOMIZE_IMAGE_NAME}=${KUSTOMIZE_IMAGE_NAME}:${TAG}" )
                 done
@@ -615,7 +694,12 @@ jobs:
                   if [[ -n "$TAG" ]]; then
                     # Get current value to check if update is needed
                     CURRENT_TAG=$(yq e "$yaml_key" "$VALUES_FILE" 2>/dev/null || echo "")
+                    if [[ "$CURRENT_TAG" == "null" ]]; then CURRENT_TAG=""; fi
                     if [[ "$CURRENT_TAG" != "$TAG" ]]; then
+                      if [[ "$ALLOW_DOWNGRADE" != "true" ]] && ! is_upgrade "$TAG" "$CURRENT_TAG"; then
+                        echo "::warning::Refusing to downgrade $yaml_key in $VALUES_FILE: $CURRENT_TAG -> $TAG. Pass allow_downgrade=true to override."
+                        continue
+                      fi
                       # Use yq with explicit output to preserve formatting
                       TAG="$TAG" yq e "$yaml_key = strenv(TAG)" "$VALUES_FILE" > "${VALUES_FILE}.tmp"
                       mv "${VALUES_FILE}.tmp" "$VALUES_FILE"
@@ -637,7 +721,12 @@ jobs:
                     TAG="$(cut -d= -f2 < "$ARTIFACT_FILE" | tr -d '[:space:]')"
                     if [[ -n "$TAG" ]]; then
                       CURRENT_TAG=$(yq e "$configmap_key" "$VALUES_FILE" 2>/dev/null || echo "")
+                      if [[ "$CURRENT_TAG" == "null" ]]; then CURRENT_TAG=""; fi
                       if [[ "$CURRENT_TAG" != "$TAG" ]]; then
+                        if [[ "$ALLOW_DOWNGRADE" != "true" ]] && ! is_upgrade "$TAG" "$CURRENT_TAG"; then
+                          echo "::warning::Refusing to downgrade $configmap_key in $VALUES_FILE: $CURRENT_TAG -> $TAG. Pass allow_downgrade=true to override."
+                          continue
+                        fi
                         TAG="$TAG" yq e "$configmap_key = strenv(TAG)" "$VALUES_FILE" > "${VALUES_FILE}.tmp"
                         mv "${VALUES_FILE}.tmp" "$VALUES_FILE"
                         echo "    Updated $configmap_key: $CURRENT_TAG -> $TAG"
