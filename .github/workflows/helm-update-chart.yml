@@ -501,28 +501,39 @@ jobs:
 
           # Supersede older open update PRs for the same chart and major version line.
           # Cross-major PRs are kept: 1.x and 2.x release lines can be open simultaneously.
+          # Fail closed: if a major cannot be derived on either side, nothing is closed.
           NEW_MAJOR=$(echo "${SOURCE_REF}" | sed -nE 's/^v?([0-9]+)\..*/\1/p')
+          if [ -z "${NEW_MAJOR}" ]; then
+            echo "::warning::Skipping superseded PR cleanup: could not derive major from SOURCE_REF='${SOURCE_REF}'"
+            exit 0
+          fi
 
-          gh pr list --base "${BASE_BRANCH}" --state open --limit 100 \
-            --json number,headRefName --jq '.[] | "\(.number) \(.headRefName)"' |
+          # Best-effort: a transient listing failure must not fail the job after the PR exists.
+          if ! OPEN_UPDATE_PRS=$(
+            gh pr list --base "${BASE_BRANCH}" --state open --limit 100 \
+              --json number,headRefName --jq '.[] | "\(.number) \(.headRefName)"'
+          ); then
+            echo "::warning::Failed to list open PRs for supersession cleanup"
+            exit 0
+          fi
+
           while read -r OLD_NUM OLD_HEAD; do
+            [ -z "${OLD_NUM}" ] && continue
             [ "${OLD_HEAD}" = "${BRANCH_NAME}" ] && continue
             case "${OLD_HEAD}" in
               "update/${CHART}/"*) ;;
               *) continue ;;
             esac
-            if [ -n "${NEW_MAJOR}" ]; then
-              OLD_MAJOR=$(echo "${OLD_HEAD#"update/${CHART}/"}" | sed -nE 's/^v?([0-9]+)\..*/\1/p')
-              if [ -n "${OLD_MAJOR}" ] && [ "${OLD_MAJOR}" != "${NEW_MAJOR}" ]; then
-                continue
-              fi
+            OLD_MAJOR=$(echo "${OLD_HEAD#"update/${CHART}/"}" | sed -nE 's/^v?([0-9]+)\..*/\1/p')
+            if [ -z "${OLD_MAJOR}" ] || [ "${OLD_MAJOR}" != "${NEW_MAJOR}" ]; then
+              continue
             fi
             echo "Closing superseded PR #${OLD_NUM} (${OLD_HEAD})"
             gh pr close "${OLD_NUM}" \
               --comment "Superseded by ${PR_URL}." \
               --delete-branch \
               || echo "::warning::Failed to close superseded PR #${OLD_NUM}"
-          done
+          done <<< "${OPEN_UPDATE_PRS}"
 
       - name: Summary
         env:
