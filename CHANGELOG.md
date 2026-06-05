@@ -1,5 +1,26 @@
 # Github-actions-shared-workflows Changelog
 
+## [1.33.0](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.33.0)
+
+- **Features**
+  - Register forge under `app_helmfile_env` (cross).
+  - Keep highest stable semver as GitHub Latest on release (closes `#389`).
+
+- **Fixes**
+  - Fail closed on unparsable major and make PR listing non-fatal.
+  - Quote inner expansion in parameter strip (`SC2295`).
+  - Close superseded update PRs for the same chart and major line.
+
+- **Improvements**
+  - Guard git tag pipelines against `SIGPIPE` in `gptchangelog` (closes `#388`).
+  - Bump `goreleaser/goreleaser-action` in the `go-tooling` group.
+
+Contributors: @bedatty, @dy-shimizu, @fredcamaral.
+
+[Compare changes](https://github.com/LerianStudio/github-actions-shared-workflows/compare/v1.32.0...v1.33.0)
+
+---
+
 ## [1.31.0](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.31.0)
 
 - **Features:**
