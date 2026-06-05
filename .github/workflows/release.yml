@@ -350,10 +350,32 @@ jobs:
       - name: Update floating major version tag
         uses: LerianStudio/github-actions-shared-workflows/src/config/update-major-tag@v1
 
+  # ----------------- Enforce GitHub Latest -----------------
+  enforce_latest:
+    name: Enforce Latest Release
+    needs: [publish_release, publish_release_status]
+    if: always() && needs.publish_release_status.outputs.release_published == 'true'
+    runs-on: ${{ inputs.runner_type }}
+    permissions:
+      contents: write
+    steps:
+      - name: Re-assert highest stable semver as Latest
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          highest=$(gh release list --repo "$GITHUB_REPOSITORY" --exclude-pre-releases --exclude-drafts \
+            --json tagName --jq '.[].tagName' | grep -E '^v?[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -1 || true)
+          if [ -n "$highest" ]; then
+            echo "::notice::Re-asserting GitHub Latest to highest stable semver: $highest"
+            gh release edit "$highest" --repo "$GITHUB_REPOSITORY" --latest
+          else
+            echo "ℹ️ No stable vX.Y.Z release found — leaving Latest untouched"
+          fi
+
   # Slack notification
   notify:
     name: Notify
-    needs: [prepare, publish_release, publish_release_status, generate_changelog, update_major_tag]
+    needs: [prepare, publish_release, publish_release_status, generate_changelog, update_major_tag, enforce_latest]
     if: always() && needs.prepare.outputs.has_changes == 'true'
     uses: ./.github/workflows/slack-notify.yml
     with:
@@ -362,10 +384,11 @@ jobs:
             && 'failure' || 'success' }}
       workflow_name: "Release"
       failed_jobs: >-
-        ${{ format('{0}{1}{2}',
+        ${{ format('{0}{1}{2}{3}',
           (needs.publish_release.result == 'failure' && 'Publish Release' || ''),
           (needs.generate_changelog.result == 'failure' && ' / Generate Changelog' || ''),
-          (needs.update_major_tag.result == 'failure' && ' / Update Major Tag' || '')
+          (needs.update_major_tag.result == 'failure' && ' / Update Major Tag' || ''),
+          (needs.enforce_latest.result == 'failure' && ' / Enforce Latest' || '')
         ) }}
     secrets:
       SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}

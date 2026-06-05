@@ -101,7 +101,7 @@ jobs:
           CHART_NAME=$(echo "${CHART_NAME_STRIPPED//-/ }" | awk '{for(i=1;i<=NF;i++) $i=toupper(substr($i,1,1)) tolower(substr($i,2))}1')
 
           # Get latest release tag for this chart
-          LATEST_TAG=$(git tag -l "${CHART_NAME_RAW}-v*" --sort=-v:refname | head -1)
+          LATEST_TAG=$(git tag -l "${CHART_NAME_RAW}-v*" --sort=-v:refname | head -1 || true)
           if [ -z "$LATEST_TAG" ]; then
             echo "::error::No release tag found matching pattern '${CHART_NAME_RAW}-v*'"
             exit 1
