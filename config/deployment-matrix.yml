@@ -67,6 +67,7 @@ apps:
     # Benedita-exclusive
     - severino-bot                # internal Slack bot (benedita only)
     - rosiehr                     # internal HR app (benedita only); values at cross/ — see app_helmfile_env below
+    - go-boilerplate-ddd          # Go service boilerplate (reference/template); benedita only
 
 clusters:
   firmino:
@@ -162,3 +163,4 @@ clusters:
       - severino-bot
       - lerian-notification
       - rosiehr
+      - go-boilerplate-ddd
