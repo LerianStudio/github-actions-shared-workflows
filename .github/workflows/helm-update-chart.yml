@@ -512,7 +512,7 @@ jobs:
               *) continue ;;
             esac
             if [ -n "${NEW_MAJOR}" ]; then
-              OLD_MAJOR=$(echo "${OLD_HEAD#update/${CHART}/}" | sed -nE 's/^v?([0-9]+)\..*/\1/p')
+              OLD_MAJOR=$(echo "${OLD_HEAD#"update/${CHART}/"}" | sed -nE 's/^v?([0-9]+)\..*/\1/p')
               if [ -n "${OLD_MAJOR}" ] && [ "${OLD_MAJOR}" != "${NEW_MAJOR}" ]; then
                 continue
               fi
