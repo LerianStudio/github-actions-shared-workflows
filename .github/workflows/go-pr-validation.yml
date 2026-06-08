@@ -173,7 +173,7 @@ jobs:
     steps:
       - name: Non-doc change gate
         id: gate
-        uses: LerianStudio/github-actions-shared-workflows/src/config/non-doc-changes@v1
+        uses: LerianStudio/github-actions-shared-workflows/src/config/non-doc-changes@feat/go-validation-release-umbrellas
         with:
           github-token: ${{ github.token }}
           ignore-globs: ${{ inputs.ignore_globs }}
@@ -203,7 +203,7 @@ jobs:
     runs-on: ${{ inputs.runner_type }}
     steps:
       - name: Aggregate Go Analysis result
-        uses: LerianStudio/github-actions-shared-workflows/src/validate/result-gate@v1
+        uses: LerianStudio/github-actions-shared-workflows/src/validate/result-gate@feat/go-validation-release-umbrellas
         with:
           result: ${{ needs.go-analysis.result }}
           label: Go Analysis
@@ -229,7 +229,7 @@ jobs:
     runs-on: ${{ inputs.runner_type }}
     steps:
       - name: Aggregate security result
-        uses: LerianStudio/github-actions-shared-workflows/src/validate/result-gate@v1
+        uses: LerianStudio/github-actions-shared-workflows/src/validate/result-gate@feat/go-validation-release-umbrellas
         with:
           result: ${{ needs.security.result }}
           label: Security

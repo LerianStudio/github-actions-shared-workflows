@@ -119,7 +119,7 @@ jobs:
     steps:
       - name: Non-doc change gate
         id: gate
-        uses: LerianStudio/github-actions-shared-workflows/src/config/non-doc-changes@v1
+        uses: LerianStudio/github-actions-shared-workflows/src/config/non-doc-changes@feat/go-validation-release-umbrellas
         with:
           github-token: ${{ github.token }}
           ignore-globs: ${{ inputs.ignore_globs }}
