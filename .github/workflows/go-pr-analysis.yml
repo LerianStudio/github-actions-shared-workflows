@@ -16,6 +16,11 @@ on:
         type: string
         required: false
         default: ''
+      shared_paths:
+        description: 'Newline-separated (or JSON array) path patterns that, when changed, trigger analysis for ALL components in filter_paths.'
+        type: string
+        required: false
+        default: ''
       path_level:
         description: 'Directory depth level to extract app name'
         type: number
@@ -111,6 +116,7 @@ jobs:
         uses: LerianStudio/github-actions-shared-workflows/src/config/changed-paths@v1
         with:
           filter-paths: ${{ inputs.filter_paths }}
+          shared-paths: ${{ inputs.shared_paths }}
           path-level: ${{ inputs.path_level }}
           get-app-name: 'true'
           app-name-prefix: ${{ inputs.app_name_prefix }}
