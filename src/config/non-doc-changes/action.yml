@@ -1,0 +1,73 @@
+name: Non-Doc Changes Gate
+description: Detects whether a pull request or push contains changes beyond documentation/meta files, for gating expensive CI pipelines.
+
+inputs:
+  github-token:
+    description: GitHub token used for gh CLI access (needs read access to the repository contents and pull requests).
+    required: true
+  ignore-globs:
+    description: 'Space-separated glob patterns treated as documentation/meta. When every changed file matches one of these, the gate returns code=false.'
+    required: false
+    default: '*.md docs/* .github/* LICENSE* .gitignore'
+
+outputs:
+  code:
+    description: 'true when at least one changed file is NOT matched by ignore-globs (a real code change); false otherwise.'
+    value: ${{ steps.detect.outputs.code }}
+
+runs:
+  using: composite
+  steps:
+    - name: Detect non-doc changes
+      id: detect
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+        IGNORE_GLOBS: ${{ inputs.ignore-globs }}
+        EVENT_NAME: ${{ github.event_name }}
+        REPO: ${{ github.repository }}
+        PR_NUMBER: ${{ github.event.pull_request.number }}
+        BEFORE: ${{ github.event.before }}
+        AFTER: ${{ github.sha }}
+      run: |
+        set -euo pipefail
+
+        # ----------------- Collect changed files -----------------
+        if [ "$EVENT_NAME" = "pull_request" ] || [ "$EVENT_NAME" = "pull_request_target" ]; then
+          if ! files=$(gh api "repos/${REPO}/pulls/${PR_NUMBER}/files" --paginate \
+              --jq '.[] | select(.status != "removed") | .filename'); then
+            echo "::error::Failed to list changed files for PR #${PR_NUMBER}"
+            exit 1
+          fi
+        else
+          if [ -z "$BEFORE" ] || [ "$BEFORE" = "0000000000000000000000000000000000000000" ]; then
+            echo "First push or missing base ref — assuming a code change."
+            echo "code=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if ! files=$(gh api "repos/${REPO}/compare/${BEFORE}...${AFTER}" --jq '.files[].filename'); then
+            echo "::error::Failed to fetch push diff ${BEFORE}...${AFTER}"
+            exit 1
+          fi
+        fi
+
+        # ----------------- Match against ignore globs -----------------
+        read -ra ignore_patterns <<< "$IGNORE_GLOBS"
+        code=false
+        while IFS= read -r file; do
+          [ -z "$file" ] && continue
+          ignored=false
+          for glob in "${ignore_patterns[@]}"; do
+            # shellcheck disable=SC2254
+            case "$file" in
+              $glob) ignored=true; break ;;
+            esac
+          done
+          if [ "$ignored" = false ]; then
+            code=true
+            break
+          fi
+        done <<< "$files"
+
+        echo "Non-doc changes detected: $code"
+        echo "code=$code" >> "$GITHUB_OUTPUT"

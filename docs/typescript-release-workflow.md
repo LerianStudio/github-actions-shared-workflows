@@ -329,7 +329,7 @@ No version bump, but included in changelog.
 ## Related Workflows
 
 - [Release Workflow](release-workflow.md) - Generic release workflow (Go/other languages)
-- [Go Release](go-release-workflow.md) - Go-specific release with GoReleaser
+- [Go Release](go-release-workflow.md) - Go service release umbrella (semantic-release + Docker + GitOps)
 - [TypeScript CI](typescript-ci-workflow.md) - TypeScript continuous integration
 
 ---

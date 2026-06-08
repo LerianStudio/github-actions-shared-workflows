@@ -160,7 +160,7 @@ jobs:
 ## Related Workflows
 
 - [Go Security](./go-security-workflow.md) - Comprehensive security scanning
-- [Go Release](./go-release-workflow.md) - Automated release creation
+- [Go Release](./go-release-workflow.md) - Service release umbrella (semantic-release + Docker + GitOps)
 
 ---
 

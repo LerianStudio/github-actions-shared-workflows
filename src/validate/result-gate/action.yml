@@ -1,0 +1,27 @@
+name: Result Gate
+description: Fails the job unless an upstream job result is success or skipped. Provides a single stable status-check name for branch protection over a multi-job reusable pipeline.
+
+inputs:
+  result:
+    description: The needs.<job>.result value to evaluate (success, failure, cancelled, skipped).
+    required: true
+  label:
+    description: Human-readable name of the gated pipeline, used in log output.
+    required: false
+    default: pipeline
+
+runs:
+  using: composite
+  steps:
+    - name: Evaluate result
+      shell: bash
+      env:
+        RESULT: ${{ inputs.result }}
+        LABEL: ${{ inputs.label }}
+      run: |
+        if [ "$RESULT" = "success" ] || [ "$RESULT" = "skipped" ]; then
+          echo "${LABEL}: ${RESULT}"
+          exit 0
+        fi
+        echo "::error::${LABEL} pipeline result: ${RESULT}"
+        exit 1
