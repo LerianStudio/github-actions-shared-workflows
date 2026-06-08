@@ -96,6 +96,7 @@ on:
         default: ''
 
 permissions:
+  actions: read
   contents: read
   pull-requests: write
   security-events: write
@@ -267,7 +268,10 @@ jobs:
         working-directory: ${{ matrix.app.working_dir }}
         run: |
           if [[ -f "Makefile" ]] || [[ -f "makefile" ]] || [[ -f "GNUmakefile" ]]; then
-            if make -n sec >/dev/null 2>&1; then
+            if ! command -v gosec >/dev/null 2>&1; then
+              echo "Makefile present but gosec is not on PATH; skipping 'make sec' (the gosec action below is authoritative)"
+              echo "use_make=false" >> "$GITHUB_OUTPUT"
+            elif make -n sec >/dev/null 2>&1; then
               echo "Makefile with 'sec' target detected"
               echo "use_make=true" >> "$GITHUB_OUTPUT"
             else
