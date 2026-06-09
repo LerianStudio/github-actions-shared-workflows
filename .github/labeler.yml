@@ -90,6 +90,7 @@ validate:
     - any-glob-to-any-file:
       - "src/validate/**"
       - ".github/workflows/pr-validation.yml"
+      - ".github/workflows/go-pr-validation.yml"
       - ".github/workflows/self-pr-validation.yml"
 
 changelog:

@@ -151,6 +151,7 @@ Use a scope to identify the affected workflow or area:
 | `go-security` | Go Security workflow |
 | `go-release` | Go Release workflow |
 | `go-pr-analysis` | Go PR Analysis workflow |
+| `go-pr-validation` | Go PR Validation umbrella workflow |
 | `gitops` | GitOps Update workflow |
 | `e2e` | API Dog E2E Tests workflow |
 | `pr-validation` | PR Validation workflow |
