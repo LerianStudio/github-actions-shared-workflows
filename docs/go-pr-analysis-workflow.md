@@ -325,6 +325,7 @@ swagger.go
 ## Permissions Required
 
 The workflow requires these permissions:
+- `actions: read` - To let the gosec action read the workflow run for status/telemetry
 - `contents: read` - To checkout code
 - `pull-requests: write` - To post coverage comments
 - `security-events: write` - To upload SARIF results
