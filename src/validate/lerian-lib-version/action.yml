@@ -193,6 +193,13 @@ runs:
             return 0
           fi
 
+          if [[ "${http_code}" != "200" ]]; then
+            log "::warning title=Cannot read LerianStudio/${repo}::Releases API returned HTTP ${http_code}. Check that LERIAN_LIB_READ_TOKEN has Contents:read and is approved by the org."
+            LATEST_CACHE[${cache_key}]=""
+            echo ""
+            return 0
+          fi
+
           local tags
           tags=$(echo "${releases_json}" | jq -r '.[]? | select(.draft==false) | select(.prerelease==false) | .tag_name' 2>/dev/null || true)
 
