@@ -45,6 +45,12 @@ on:
           `lib-license-go`. When unset, the default GITHUB_TOKEN is used and private libs will be
           reported as "unknown".
         required: false
+      MANAGE_TOKEN:
+        description: |
+          Org-scoped PAT with pull-requests:write on the caller repository. Used to post or update
+          the sticky PR comment. Required when this workflow is called as a nested reusable, because
+          github.token in that context is scoped to the shared-workflows repo, not the caller.
+        required: false
 
     outputs:
       has_outdated:
@@ -80,6 +86,7 @@ jobs:
         uses: LerianStudio/github-actions-shared-workflows/src/validate/lerian-lib-version@develop
         with:
           github-token: ${{ secrets.LERIAN_LIB_READ_TOKEN || github.token }}
+          comment-token: ${{ secrets.MANAGE_TOKEN || github.token }}
           go-mod-path: ${{ inputs.go_mod_path }}
           ignore-file: ${{ inputs.ignore_file }}
           check-indirect: ${{ inputs.check_indirect && 'true' || 'false' }}
