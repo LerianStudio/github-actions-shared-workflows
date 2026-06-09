@@ -23,7 +23,7 @@ A sticky PR comment summarises the result. An optional `.lerianstudiolibignore` 
 | `ignore-file`     | Path to optional `.lerianstudiolibignore` file. Missing file is a warning, not a failure.       | No       | `.lerianstudiolibignore`   |
 | `check-indirect`  | Also check transitive (`// indirect`) deps.                                                     | No       | `false`                    |
 | `comment-on-pr`   | Post or update a sticky comment on the PR with the result table.                                | No       | `true`                     |
-| `comment-token`   | Token used to post/update the sticky PR comment. Falls back to `github-token` when empty. Pass `MANAGE_TOKEN` when calling from a nested reusable workflow, because `github.token` in that context is scoped to the shared-workflows repo, not the caller. | No | `""` |
+| `comment-token`   | Token used to post/update the sticky PR comment. Falls back to `github-token` when empty. Must be an org-scoped PAT (e.g., `MANAGE_TOKEN`) with pull-requests:write when calling from a nested reusable workflow, because `github.token` in that context is scoped to the shared-workflows repo, not the caller. | No | `""` |
 | `dry-run`         | Verbose log of all resolved versions; never fails the build.                                    | No       | `false`                    |
 
 ## Outputs
