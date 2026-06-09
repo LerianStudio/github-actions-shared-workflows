@@ -27,6 +27,10 @@ on:
         description: 'Run the security scan pipeline (Trivy, CodeQL, prerelease checks)'
         type: boolean
         default: true
+      run_lib_version_check:
+        description: 'Run the Lerian library version check (fails when a direct Lerian lib is behind latest stable)'
+        type: boolean
+        default: true
 
       # ----------------- Change gate -----------------
       ignore_globs:
@@ -123,6 +127,20 @@ on:
         type: string
         default: ''
 
+      # ----------------- Lerian lib version (lerian-lib-version-check.yml) -----------------
+      lib_version_go_mod_path:
+        description: 'Path to go.mod relative to the repo root'
+        type: string
+        default: 'go.mod'
+      lib_version_check_indirect:
+        description: 'Also check transitive (// indirect) Lerian deps'
+        type: boolean
+        default: false
+      lib_version_comment_on_pr:
+        description: 'Post/update a sticky PR comment with the Lerian lib version table'
+        type: boolean
+        default: true
+
       # ----------------- Shared -----------------
       shared_paths:
         description: 'Newline-separated path patterns that trigger analysis/security for all components.'
@@ -132,6 +150,8 @@ on:
       MANAGE_TOKEN:
         required: false
       SLACK_WEBHOOK_URL:
+        required: false
+      LERIAN_LIB_READ_TOKEN:
         required: false
 
 permissions:
@@ -233,3 +253,29 @@ jobs:
         with:
           result: ${{ needs.security.result }}
           label: Security
+
+  # ----------------- Lerian Library Version Check -----------------
+  lib-version:
+    name: Lib Version (check)
+    needs: changes
+    if: inputs.run_lib_version_check && needs.changes.outputs.code == 'true'
+    uses: ./.github/workflows/lerian-lib-version-check.yml
+    with:
+      runner_type: ${{ inputs.runner_type }}
+      go_mod_path: ${{ inputs.lib_version_go_mod_path }}
+      check_indirect: ${{ inputs.lib_version_check_indirect }}
+      comment_on_pr: ${{ inputs.lib_version_comment_on_pr }}
+      dry_run: ${{ inputs.dry_run }}
+    secrets: inherit
+
+  lib-version-gate:
+    name: Lib Version
+    needs: [changes, lib-version]
+    if: always()
+    runs-on: ${{ inputs.runner_type }}
+    steps:
+      - name: Aggregate Lib Version result
+        uses: LerianStudio/github-actions-shared-workflows/src/validate/result-gate@feat/go-validation-release-umbrellas
+        with:
+          result: ${{ needs.lib-version.result }}
+          label: Lib Version

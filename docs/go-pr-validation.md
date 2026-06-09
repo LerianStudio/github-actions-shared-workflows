@@ -11,8 +11,9 @@ Umbrella reusable workflow for Go service repositories. A caller references this
 2. **Change gate** — detects whether the PR touches anything beyond docs/meta (`src/config/non-doc-changes`); documentation-only PRs skip the heavy pipelines.
 3. **Go analysis** — lint, tests, coverage and build (delegates to `go-pr-analysis.yml`), opt-in via `run_go_analysis`.
 4. **Security scan** — Trivy, CodeQL, prerelease checks (delegates to `pr-security-scan.yml`), opt-in via `run_security`.
+5. **Lerian lib version check** — fails when a direct Lerian library is behind its latest stable release (delegates to `lerian-lib-version-check.yml`), opt-in via `run_lib_version_check`.
 
-The `go-analysis` and `security` pipelines each have a `*-gate` aggregator job that exposes a single stable status-check name (`Go Analysis`, `Security`) for branch protection, regardless of the internal matrix job names.
+The `go-analysis`, `security` and `lib-version` pipelines each have a `*-gate` aggregator job that exposes a single stable status-check name (`Go Analysis`, `Security`, `Lib Version`) for branch protection, regardless of the internal job names. All three are gated by the change detector, so documentation-only PRs skip them (and the aggregators still report success).
 
 ## Inputs
 
@@ -22,7 +23,11 @@ The `go-analysis` and `security` pipelines each have a `*-gate` aggregator job t
 | `dry_run` | Preview metadata validations without posting comments/labels | boolean | `false` |
 | `run_go_analysis` | Run the Go analysis pipeline | boolean | `true` |
 | `run_security` | Run the security scan pipeline | boolean | `true` |
+| `run_lib_version_check` | Run the Lerian library version check | boolean | `true` |
 | `ignore_globs` | Space-separated globs treated as docs/meta for the change gate | string | `*.md docs/* .github/* LICENSE* .gitignore` |
+| `lib_version_go_mod_path` | Path to go.mod for the Lerian lib check | string | `go.mod` |
+| `lib_version_check_indirect` | Also check transitive (indirect) Lerian deps | boolean | `false` |
+| `lib_version_comment_on_pr` | Post/update a sticky PR comment with the lib version table | boolean | `true` |
 | `pr_title_types` | Allowed commit types (pipe-separated) | string | conventional set |
 | `pr_title_scopes` | Allowed scopes (pipe-separated, empty = any) | string | `''` |
 | `require_scope` | Require scope in PR title | boolean | `false` |
@@ -49,6 +54,7 @@ The `go-analysis` and `security` pipelines each have a `*-gate` aggregator job t
 |--------|-------------|----------|
 | `MANAGE_TOKEN` | Token for private Go module access and PR operations | No |
 | `SLACK_WEBHOOK_URL` | Slack webhook for pipeline notifications | No |
+| `LERIAN_LIB_READ_TOKEN` | Read token for private Lerian libs in the lib version check (falls back to `GITHUB_TOKEN`) | No |
 
 ## Usage
 
@@ -91,7 +97,7 @@ jobs:
 
 ## Branch protection
 
-Require the aggregator checks `Go Analysis` and `Security` (plus the PR metadata checks from `pr-validation.yml`). These names are stable even when the underlying analysis matrix changes.
+Require the aggregator checks `Go Analysis`, `Security` and `Lib Version` (plus the PR metadata checks from `pr-validation.yml`). These names are stable even when the underlying analysis matrix changes.
 
 ## Related
 
