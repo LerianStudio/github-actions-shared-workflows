@@ -26,6 +26,10 @@ inputs:
     description: Post or update a sticky comment on the PR with the result table.
     required: false
     default: "true"
+  comment-token:
+    description: Token used to post the sticky PR comment. Must have pull-requests:write on the caller repo. Defaults to github-token when unset.
+    required: false
+    default: ""
   dry-run:
     description: Verbose log of all resolved versions; never fails the build.
     required: false
@@ -341,7 +345,7 @@ runs:
         REPORT_PATH: ${{ steps.check.outputs.report_path }}
         DRY_RUN: ${{ inputs.dry-run }}
       with:
-        github-token: ${{ inputs.github-token }}
+        github-token: ${{ inputs.comment-token || inputs.github-token }}
         script: |
           const fs = require('fs');
           const path = process.env.REPORT_PATH;
