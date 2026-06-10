@@ -1,5 +1,20 @@
 # Github-actions-shared-workflows Changelog
 
+## [1.33.1](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.33.1)
+
+- Fixes:
+  - Include `ready_for_review` in change gate condition for Go PR validation.
+  - Add Go PR validation and service release umbrella workflows.
+  - Post PR comment even when `lerian-lib-version` check fails.
+  - Log non-200 HTTP code from releases API in `lerian-lib-version`.
+  - Use `MANAGE_TOKEN` for PR comment in nested reusable context in `lerian-lib-version`.
+
+Contributors: @bedatty, @ferr3ira-gabriel, @lerian-studio.
+
+[Compare changes](https://github.com/LerianStudio/github-actions-shared-workflows/compare/v1.33.0...v1.33.1)
+
+---
+
 ## [1.33.0](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.33.0)
 
 - **Features**
