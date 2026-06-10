@@ -16,6 +16,11 @@ on:
         type: string
         required: false
         default: ''
+      shared_paths:
+        description: 'Newline-separated (or JSON array) path patterns that, when changed, trigger analysis for ALL components in filter_paths.'
+        type: string
+        required: false
+        default: ''
       path_level:
         description: 'Directory depth level to extract app name'
         type: number
@@ -91,6 +96,7 @@ on:
         default: ''
 
 permissions:
+  actions: read
   contents: read
   pull-requests: write
   security-events: write
@@ -111,6 +117,7 @@ jobs:
         uses: LerianStudio/github-actions-shared-workflows/src/config/changed-paths@v1
         with:
           filter-paths: ${{ inputs.filter_paths }}
+          shared-paths: ${{ inputs.shared_paths }}
           path-level: ${{ inputs.path_level }}
           get-app-name: 'true'
           app-name-prefix: ${{ inputs.app_name_prefix }}
@@ -261,7 +268,10 @@ jobs:
         working-directory: ${{ matrix.app.working_dir }}
         run: |
           if [[ -f "Makefile" ]] || [[ -f "makefile" ]] || [[ -f "GNUmakefile" ]]; then
-            if make -n sec >/dev/null 2>&1; then
+            if ! command -v gosec >/dev/null 2>&1; then
+              echo "Makefile present but gosec is not on PATH; skipping 'make sec' (the gosec action below is authoritative)"
+              echo "use_make=false" >> "$GITHUB_OUTPUT"
+            elif make -n sec >/dev/null 2>&1; then
               echo "Makefile with 'sec' target detected"
               echo "use_make=true" >> "$GITHUB_OUTPUT"
             else

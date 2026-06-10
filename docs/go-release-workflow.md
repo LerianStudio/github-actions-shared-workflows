@@ -1,239 +1,97 @@
-# Go Release Workflow
+<table border="0" cellspacing="0" cellpadding="0">
+  <tr>
+    <td><img src="https://github.com/LerianStudio.png" width="72" alt="Lerian" /></td>
+    <td><h1>go-release</h1></td>
+  </tr>
+</table>
 
-Automated release creation workflow using GoReleaser. Builds multi-platform binaries, creates GitHub releases with changelogs, and optionally publishes Docker images and updates Homebrew formulas.
+Umbrella reusable workflow for Go **service** repositories (deployable apps that ship as container images). A caller references this single workflow and it drives the full release pipeline, branching on the pushed ref:
 
-## Features
+- **Branch push** → change gate (`src/config/non-doc-changes`) → semantic release (`release.yml`). Documentation-only pushes skip the release.
+- **Tag push** → container build & push (`build.yml`) → GitOps update (`gitops-update.yml`), gated on the build actually producing images.
 
-- GoReleaser integration (supports both OSS and Pro)
-- Multi-platform binary builds (Linux, macOS, Windows, ARM)
-- GitHub release creation with changelogs
-- Optional Docker multi-arch image builds
-- Optional Homebrew formula updates
-- Configurable test execution before release
-- Release notifications
-- Support for custom GoReleaser configurations
-
-## Usage
-
-### Basic Usage
-
-```yaml
-name: Release
-on:
-  push:
-    tags:
-      - 'v*.*.*'
-
-jobs:
-  release:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/go-release.yml@v1.0.0
-```
-
-### With Docker Publishing
-
-```yaml
-name: Release
-on:
-  push:
-    tags:
-      - 'v*.*.*'
-
-jobs:
-  release:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/go-release.yml@v1.0.0
-    with:
-      enable_docker: true
-      docker_registry: 'ghcr.io'
-      docker_platforms: 'linux/amd64,linux/arm64'
-    secrets: inherit
-```
-
-> **Note**: Requires `DOCKER_USERNAME` and `DOCKER_PASSWORD` secrets in repository.
-
-### With Homebrew Formula
-
-```yaml
-name: Release
-on:
-  push:
-    tags:
-      - 'v*.*.*'
-
-jobs:
-  release:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/go-release.yml@v1.0.0
-    with:
-      enable_homebrew: true
-      homebrew_tap_repo: 'myorg/homebrew-tap'
-    secrets: inherit
-```
-
-> **Note**: Requires `TAP_GITHUB_TOKEN` secret with write access to tap repository.
-
-### Full Configuration
-
-```yaml
-name: Release
-on:
-  push:
-    tags:
-      - 'v*.*.*'
-
-jobs:
-  release:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/go-release.yml@v1.0.0
-    with:
-      go_version: '1.23'
-      goreleaser_distribution: 'goreleaser'
-      goreleaser_version: 'latest'
-      run_tests_before_release: true
-      enable_docker: true
-      docker_registry: 'ghcr.io'
-      docker_platforms: 'linux/amd64,linux/arm64,linux/arm/v7'
-      enable_homebrew: true
-      homebrew_tap_repo: 'myorg/homebrew-tap'
-      enable_notifications: true
-    secrets: inherit
-```
+> **Note** — As of v1.x this workflow hosts the service release pipeline (semantic-release + Docker build + GitOps). The previous GoReleaser-based binary release pipeline remains available in the Git history of this file.
 
 ## Inputs
 
-| Input | Description | Required | Default |
-|-------|-------------|----------|---------|
-| `runner_type` | GitHub runner type to use | No | `ubuntu-latest` |
-| `go_version` | Go version for release builds | No | `1.23` |
-| `goreleaser_distribution` | GoReleaser distribution (goreleaser or goreleaser-pro) | No | `goreleaser` |
-| `goreleaser_version` | GoReleaser version | No | `latest` |
-| `goreleaser_args` | Additional GoReleaser arguments | No | `release --clean` |
-| `run_tests_before_release` | Run tests before release | No | `true` |
-| `test_cmd` | Test command to execute | No | `go test -v ./...` |
-| `enable_homebrew` | Enable Homebrew formula update | No | `false` |
-| `homebrew_tap_repo` | Homebrew tap repository (owner/repo) | No | `''` |
-| `enable_docker` | Enable Docker image build and push | No | `false` |
-| `docker_registry` | Docker registry URL | No | `ghcr.io` |
-| `docker_platforms` | Docker platforms (comma-separated) | No | `linux/amd64,linux/arm64` |
-| `docker_tags` | Docker image tags configuration | No | Semver + latest |
-| `enable_notifications` | Enable release notifications | No | `false` |
-| `enable_cosign_sign` | Sign Docker images with cosign keyless (OIDC) signing. Requires `id-token: write` in caller | No | `true` |
+| Input | Description | Type | Default |
+|-------|-------------|------|---------|
+| `runner_type` | GitHub runner type | string | `blacksmith-4vcpu-ubuntu-2404` |
+| `dry_run` | Reserved (downstream workflows have no dry-run mode yet) | boolean | `false` |
+| `ignore_globs` | Space-separated globs treated as docs/meta for the branch-push gate | string | `*.md docs/* .github/* LICENSE* .gitignore` |
+| `semantic_version` | semantic-release version | string | `23.0.8` |
+| `enable_changelog` | Generate CHANGELOG.md via GPT after a successful release | boolean | `false` |
+| `enable_major_tag` | Force-update the floating major tag (e.g. `v1`) | boolean | `false` |
+| `stable_releases_only` | Only generate changelogs for stable releases | boolean | `true` |
+| `enable_dockerhub` | Push image to DockerHub | boolean | `true` |
+| `enable_ghcr` | Push image to GitHub Container Registry | boolean | `false` |
+| `enable_gitops_artifacts` | Upload GitOps artifacts for the downstream update | boolean | `false` |
+| `app_name` | Override app/image name (single-app mode) | string | `''` (repo name) |
+| `docker_build_args` | Newline-separated Docker build args | string | `''` |
+| `enable_cosign_sign` | Sign images with cosign keyless (OIDC) | boolean | `true` |
+| `enable_gitops_update` | Run the gitops-update job on tag push | boolean | `true` |
+| `gitops_repository` | GitOps repository to update (org/repo) | string | `LerianStudio/midaz-firmino-gitops` |
+| `gitops_artifact_pattern` | Pattern to download GitOps artifacts | string | `''` |
+| `gitops_yaml_key_mappings` | JSON mapping of artifact names to YAML keys | string | `''` |
+| `shared_paths` | Path patterns that trigger a release/build for all components | string | `''` |
+| `filter_paths` | Path prefixes to filter (empty = single-app repo) | string | `''` |
 
 ## Secrets
 
 | Secret | Description | Required |
 |--------|-------------|----------|
-| `github_token` | GitHub token for releases | No (defaults to `GITHUB_TOKEN`) |
-| `tap_github_token` | Token for Homebrew tap updates | No (required if `enable_homebrew` is true) |
-| `docker_username` | Docker registry username | No (defaults to `github.actor` if using GHCR) |
-| `docker_password` | Docker registry password/token | No (defaults to `GITHUB_TOKEN` if using GHCR) |
-| `goreleaser_key` | GoReleaser Pro license key | No (only for goreleaser-pro) |
+| `MANAGE_TOKEN` | Token for release commits, tags and private module access | No |
+| `SLACK_WEBHOOK_URL` | Slack webhook for pipeline notifications | No |
+| `HELM_REPO_TOKEN` | Token for dispatching Helm chart updates (when enabled in build) | No |
 
-## Jobs
-
-### release
-Main release job that runs GoReleaser.
-
-### homebrew (optional)
-Updates Homebrew formula in tap repository.
-
-### docker (optional)
-Builds and pushes multi-architecture Docker images.
-
-### notify (optional)
-Sends release notifications.
-
-## Example Configurations
-
-### Minimal (GoReleaser OSS)
+## Usage
 
 ```yaml
-jobs:
-  release:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/go-release.yml@v1.0.0
-```
+name: Release Pipeline
+on:
+  push:
+    branches: [main, release-candidate, develop]
+    tags: ['**']
 
-### With GoReleaser Pro
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
 
-```yaml
-jobs:
-  release:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/go-release.yml@v1.0.0
-    with:
-      goreleaser_distribution: 'goreleaser-pro'
-    secrets: inherit
-```
-
-> **Note**: Requires `GORELEASER_KEY` secret with your GoReleaser Pro license.
-
-### Skip Tests (Fast Release)
-
-```yaml
-jobs:
-  release:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/go-release.yml@v1.0.0
-    with:
-      run_tests_before_release: false
-```
-
-## Image Signing (cosign)
-
-When Docker is enabled, container images are signed by default using [Sigstore cosign](https://github.com/sigstore/cosign) with keyless (OIDC) signing.
-
-### Caller permissions
-
-Callers **must** grant `id-token: write` for signing to work:
-
-```yaml
 permissions:
+  id-token: write
   contents: write
+  issues: write
+  pull-requests: write
   packages: write
-  id-token: write   # required for cosign keyless signing
-```
 
-### Disabling signing
-
-```yaml
 jobs:
-  release:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/go-release.yml@v1.0.0
+  pipeline:
+    # Testing: @develop or @feat/<branch> · Production: pinned @vX.Y.Z
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/go-release.yml@v1
     with:
-      enable_docker: true
-      enable_cosign_sign: false
+      enable_changelog: ${{ github.ref == 'refs/heads/main' }}
+      enable_ghcr: true
+      enable_gitops_artifacts: true
+      gitops_artifact_pattern: "gitops-tags-my-service"
+      gitops_yaml_key_mappings: '{"my-service.tag": ".api.image.tag"}'
+      shared_paths: |
+        go.mod
+        go.sum
+        internal/
+        pkg/
+        migrations/
+        Dockerfile
+        Makefile
     secrets: inherit
 ```
 
-### Verifying signatures
+## Permissions
 
-```bash
-cosign verify \
-  --certificate-identity-regexp="^https://github\.com/LerianStudio/.+/.github/workflows/.+@refs/(heads|tags)/.+$" \
-  --certificate-oidc-issuer="https://token.actions.githubusercontent.com" \
-  ghcr.io/myorg/my-app@sha256:abc123...
-```
+The single caller job must grant the union of what the internal jobs need: `id-token: write`, `contents: write`, `packages: write`, `pull-requests: write`, `issues: write`.
 
-## Release Process
+## Related
 
-1. Create tag: `git tag v1.0.0 && git push --tags`
-2. Workflow triggers: On tag push matching `v*.*.*`
-3. Tests run: (if enabled) Verify everything works
-4. GoReleaser builds: Creates binaries for all platforms
-5. GitHub release: Created with changelog and downloads
-6. Docker images: (if enabled) Published to registry
-7. Homebrew formula: (if enabled) Updated in tap repo
-8. Notification: (if enabled) Summary of release status
-
-## Tips
-
-1. Test GoReleaser locally: `goreleaser release --snapshot --clean`
-2. Pin workflow version: Use `@v1.0.0` instead of `@v1.0.0`
-3. CHANGELOG: GoReleaser generates from commits and PRs
-4. Draft releases: Use GoReleaser's `draft: true` for manual approval
-5. Custom builds: Configure `.goreleaser.yml` for your needs
-
-## Related Workflows
-
-- [Go CI](./go-ci-workflow.md) - Continuous integration testing
-- [Go Security](./go-security-workflow.md) - Security scanning
-
----
-
-**Last Updated:** 2025-11-22
-**Version:** 1.0.0
+- [release](./release-workflow.md) — semantic-release pipeline this umbrella calls
+- [build](./build-workflow.md) — container build & push this umbrella calls
+- [gitops-update](./gitops-update-workflow.md) — GitOps update this umbrella calls
+- [go-pr-validation](./go-pr-validation.md) — the matching PR validation umbrella

@@ -191,7 +191,7 @@ jobs:
 ## Related Workflows
 
 - [Go CI](./go-ci-workflow.md) - Continuous integration testing
-- [Go Release](./go-release-workflow.md) - Automated release creation
+- [Go Release](./go-release-workflow.md) - Service release umbrella (semantic-release + Docker + GitOps)
 
 ---
 

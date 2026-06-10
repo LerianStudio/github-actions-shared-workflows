@@ -1,0 +1,391 @@
+name: Validate LerianStudio Library Versions
+description: |
+  Parses go.mod for github.com/LerianStudio/* direct dependencies, compares each
+  against the latest stable release on GitHub, and fails when any are outdated or
+  when no Lerian libs are detected (company-standards violation). Honors an
+  optional .lerianstudiolibignore file (gitignore-style) for temporary pins or
+  full skips. Posts a sticky PR comment with a status table.
+
+inputs:
+  github-token:
+    description: GitHub token used to query LerianStudio repo releases and post the PR comment.
+    required: true
+  go-mod-path:
+    description: Path to go.mod (relative to repo root).
+    required: false
+    default: "go.mod"
+  ignore-file:
+    description: Path to optional .lerianstudiolibignore file (relative to repo root). Missing file is a warning, not a failure.
+    required: false
+    default: ".lerianstudiolibignore"
+  check-indirect:
+    description: Also check transitive (// indirect) dependencies. Off by default.
+    required: false
+    default: "false"
+  comment-on-pr:
+    description: Post or update a sticky comment on the PR with the result table.
+    required: false
+    default: "true"
+  comment-token:
+    description: Token used to post the sticky PR comment. Must have pull-requests:write on the caller repo. Defaults to github-token when unset.
+    required: false
+    default: ""
+  dry-run:
+    description: Verbose log of all resolved versions; never fails the build.
+    required: false
+    default: "false"
+
+outputs:
+  has_outdated:
+    description: "true if at least one direct Lerian lib is behind the latest stable release."
+    value: ${{ steps.check.outputs.has_outdated }}
+  outdated_count:
+    description: Number of outdated direct Lerian libs.
+    value: ${{ steps.check.outputs.outdated_count }}
+  has_lerian_libs:
+    description: "true if at least one Lerian lib was detected in go.mod."
+    value: ${{ steps.check.outputs.has_lerian_libs }}
+  report_path:
+    description: Filesystem path to the generated markdown report (for downstream use).
+    value: ${{ steps.check.outputs.report_path }}
+
+runs:
+  using: composite
+  steps:
+    - name: Verify go.mod exists
+      shell: bash
+      env:
+        GO_MOD_PATH: ${{ inputs.go-mod-path }}
+      run: |
+        if [[ ! -f "${GO_MOD_PATH}" ]]; then
+          echo "::error title=go.mod not found::Expected go.mod at '${GO_MOD_PATH}'. This composite only supports Go projects."
+          exit 1
+        fi
+
+    - name: Parse Lerian dependencies, resolve latest releases, compare
+      id: check
+      shell: bash
+      env:
+        GO_MOD_PATH: ${{ inputs.go-mod-path }}
+        IGNORE_FILE: ${{ inputs.ignore-file }}
+        CHECK_INDIRECT: ${{ inputs.check-indirect }}
+        DRY_RUN: ${{ inputs.dry-run }}
+        GH_TOKEN: ${{ inputs.github-token }}
+      run: |
+        set -euo pipefail
+
+        REPORT_PATH="${RUNNER_TEMP:-/tmp}/lerian-lib-report.md"
+        : > "${REPORT_PATH}"
+
+        log() { echo "$@"; }
+        debug() { if [[ "${DRY_RUN}" == "true" ]]; then echo "::debug::$*"; fi; }
+
+        # ---------- 1. Parse go.mod ----------
+        # Collect lines like:
+        #   github.com/LerianStudio/lib-commons/v5 v5.1.0
+        #   github.com/LerianStudio/lib-commons/v2 v2.9.1 // indirect
+        # awk strips the leading 'require (' block markers and trailing comments.
+        log "Parsing ${GO_MOD_PATH} for LerianStudio dependencies..."
+        DEPS_RAW=$(awk '
+          /^require[[:space:]]*\(/ { in_block=1; next }
+          in_block && /^\)/        { in_block=0; next }
+          {
+            line=$0
+            # strip leading whitespace
+            sub(/^[[:space:]]+/, "", line)
+            # only consider lines that start with the module path
+            if (line ~ /^github\.com\/LerianStudio\//) print line
+          }
+        ' "${GO_MOD_PATH}")
+
+        if [[ -z "${DEPS_RAW}" ]]; then
+          # No Lerian libs at all — company standards violation
+          echo "has_lerian_libs=false" >> "${GITHUB_OUTPUT}"
+          echo "has_outdated=false" >> "${GITHUB_OUTPUT}"
+          echo "outdated_count=0" >> "${GITHUB_OUTPUT}"
+          echo "report_path=${REPORT_PATH}" >> "${GITHUB_OUTPUT}"
+
+          {
+            echo "## Lerian Library Version Check"
+            echo
+            echo "**No \`github.com/LerianStudio/*\` dependencies found in \`${GO_MOD_PATH}\`.**"
+            echo
+            echo "Every Lerian Go service is expected to depend on at least one Lerian library (typically \`lib-commons\`). This is a company-standards requirement."
+            echo
+            echo "If this repository is genuinely exempt, please raise it with the platform team."
+          } >> "${REPORT_PATH}"
+
+          echo "::error title=No Lerian libraries found::No github.com/LerianStudio/* dependencies in ${GO_MOD_PATH}. Every Lerian Go service must use at least one Lerian library."
+          if [[ "${DRY_RUN}" == "true" ]]; then
+            log "DRY RUN: would fail. Continuing."
+          else
+            exit 1
+          fi
+        fi
+
+        echo "has_lerian_libs=true" >> "${GITHUB_OUTPUT}"
+
+        # ---------- 2. Load ignore file (optional) ----------
+        # Format:
+        #   # comment
+        #   lib-name/vN                  -> skip entirely
+        #   lib-name/vN@vX.Y.Z           -> pin: only fail if current < pinned target
+        declare -A IGNORE_SKIP=()       # key: module path  -> "1"
+        declare -A IGNORE_PIN=()        # key: module path  -> pinned version (vX.Y.Z)
+
+        if [[ -f "${IGNORE_FILE}" ]]; then
+          log "Loading ignore rules from ${IGNORE_FILE}"
+          while IFS= read -r raw || [[ -n "${raw}" ]]; do
+            line="${raw%%#*}"
+            line="${line#"${line%%[![:space:]]*}"}"
+            line="${line%"${line##*[![:space:]]}"}"
+            [[ -z "${line}" ]] && continue
+            if [[ "${line}" == *"@"* ]]; then
+              mod="${line%@*}"
+              pin="${line##*@}"
+              IGNORE_PIN["${mod}"]="${pin}"
+              debug "ignore-pin: ${mod} -> ${pin}"
+            else
+              IGNORE_SKIP["${line}"]="1"
+              debug "ignore-skip: ${line}"
+            fi
+          done < "${IGNORE_FILE}"
+        else
+          echo "::warning title=Ignore file not found::Optional ignore file '${IGNORE_FILE}' not found. Proceeding without ignore rules."
+        fi
+
+        # ---------- 3. Resolve latest stable release per repo (cache by repo name) ----------
+        declare -A LATEST_CACHE=()
+
+        resolve_latest() {
+          local repo="$1"
+          local major_filter="$2"   # e.g. "v5" or "" for v0/v1 modules
+          local cache_key="${repo}::${major_filter}"
+          if [[ -n "${LATEST_CACHE[${cache_key}]:-}" ]]; then
+            echo "${LATEST_CACHE[${cache_key}]}"
+            return 0
+          fi
+
+          # We page through up to 100 releases and pick the highest stable tag that
+          # matches the requested major (when set). Pre-releases are excluded by the
+          # `prerelease == false` filter applied via jq.
+          local http_code
+          local releases_json
+          http_code=$(curl -sS -o "${RUNNER_TEMP:-/tmp}/releases.json" -w '%{http_code}' \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/LerianStudio/${repo}/releases?per_page=100" 2>/dev/null || echo "000")
+
+          if [[ "${http_code}" == "404" ]]; then
+            http_code=$(curl -sS -o "${RUNNER_TEMP:-/tmp}/releases.json" -w '%{http_code}' \
+              -H "Accept: application/vnd.github+json" \
+              -H "X-GitHub-Api-Version: 2022-11-28" \
+              "https://api.github.com/repos/LerianStudio/${repo}/releases?per_page=100" 2>/dev/null || echo "000")
+          fi
+
+          releases_json=$(cat "${RUNNER_TEMP:-/tmp}/releases.json" 2>/dev/null || echo "[]")
+
+          if [[ "${http_code}" == "404" ]]; then
+            log "::warning title=Cannot read LerianStudio/${repo}::Repository is private and not accessible. Provide the LERIAN_LIB_READ_TOKEN secret."
+            LATEST_CACHE[${cache_key}]=""
+            echo ""
+            return 0
+          fi
+
+          if [[ "${http_code}" != "200" ]]; then
+            log "::warning title=Cannot read LerianStudio/${repo}::Releases API returned HTTP ${http_code}. Check that LERIAN_LIB_READ_TOKEN has Contents:read and is approved by the org."
+            LATEST_CACHE[${cache_key}]=""
+            echo ""
+            return 0
+          fi
+
+          local tags
+          tags=$(echo "${releases_json}" | jq -r '.[]? | select(.draft==false) | select(.prerelease==false) | .tag_name' 2>/dev/null || true)
+
+          if [[ -z "${tags}" ]]; then
+            LATEST_CACHE[${cache_key}]=""
+            echo ""
+            return 0
+          fi
+
+          local filtered="${tags}"
+          if [[ -n "${major_filter}" ]]; then
+            filtered=$(echo "${tags}" | awk -v m="${major_filter}." '$0 ~ "^"m {print}')
+            if [[ -z "${filtered}" ]]; then
+              # fall back: some libs publish only un-prefixed (no /vN module)
+              filtered="${tags}"
+            fi
+          fi
+
+          local latest
+          latest=$(echo "${filtered}" | sed 's/^v//' | sort -V | tail -n1)
+          if [[ -n "${latest}" ]]; then
+            latest="v${latest}"
+          fi
+          LATEST_CACHE[${cache_key}]="${latest}"
+          echo "${latest}"
+        }
+
+        # semver compare: returns 0 if $1 >= $2, 1 otherwise
+        ver_ge() {
+          local a="${1#v}" b="${2#v}"
+          [[ "${a}" == "${b}" ]] && return 0
+          local first
+          first=$(printf '%s\n%s\n' "${a}" "${b}" | sort -V | head -n1)
+          [[ "${first}" == "${b}" ]]
+        }
+
+        # ---------- 4. Iterate, compare, build report ----------
+        OUTDATED=0
+        CURRENT=0
+        SKIPPED=0
+        UNKNOWN=0
+
+        # Use a temp file for the table rows so we control ordering and avoid heredoc quoting traps.
+        ROWS_FILE="${RUNNER_TEMP:-/tmp}/lerian-rows.txt"
+        : > "${ROWS_FILE}"
+
+        while IFS= read -r dep_line; do
+          [[ -z "${dep_line}" ]] && continue
+          # split: <module> <version> [// indirect]
+          module=$(echo "${dep_line}" | awk '{print $1}')
+          current=$(echo "${dep_line}" | awk '{print $2}')
+          is_indirect="false"
+          if echo "${dep_line}" | grep -q "// indirect"; then
+            is_indirect="true"
+          fi
+
+          if [[ "${is_indirect}" == "true" && "${CHECK_INDIRECT}" != "true" ]]; then
+            debug "skip indirect: ${module} ${current}"
+            continue
+          fi
+
+          # short_path = lib-commons/v5    (strip github.com/LerianStudio/)
+          short_path="${module#github.com/LerianStudio/}"
+
+          # repo + major filter
+          if [[ "${short_path}" =~ ^([^/]+)/(v[0-9]+)$ ]]; then
+            repo="${BASH_REMATCH[1]}"
+            major_filter="${BASH_REMATCH[2]}"
+          else
+            repo="${short_path%%/*}"
+            major_filter=""
+          fi
+
+          # Ignore rules
+          if [[ -n "${IGNORE_SKIP[${short_path}]:-}" ]]; then
+            SKIPPED=$((SKIPPED+1))
+            printf '| `%s` | `%s` | _skipped_ | Skipped (ignore file) |\n' "${short_path}" "${current}" >> "${ROWS_FILE}"
+            continue
+          fi
+
+          latest=$(resolve_latest "${repo}" "${major_filter}")
+
+          if [[ -z "${latest}" ]]; then
+            UNKNOWN=$((UNKNOWN+1))
+            printf '| `%s` | `%s` | _unknown_ | Could not resolve latest release |\n' "${short_path}" "${current}" >> "${ROWS_FILE}"
+            log "::warning title=Could not resolve latest release::Failed to fetch latest stable release for LerianStudio/${repo}"
+            continue
+          fi
+
+          # Pinned ignore: latest target becomes the pinned version
+          target="${latest}"
+          marker_suffix=""
+          if [[ -n "${IGNORE_PIN[${short_path}]:-}" ]]; then
+            target="${IGNORE_PIN[${short_path}]}"
+            marker_suffix=" (pinned)"
+          fi
+
+          if ver_ge "${current}" "${target}"; then
+            CURRENT=$((CURRENT+1))
+            printf '| `%s` | `%s` | `%s` | Current%s |\n' "${short_path}" "${current}" "${latest}" "${marker_suffix}" >> "${ROWS_FILE}"
+          else
+            OUTDATED=$((OUTDATED+1))
+            printf '| `%s` | `%s` | `%s` | Outdated%s |\n' "${short_path}" "${current}" "${latest}" "${marker_suffix}" >> "${ROWS_FILE}"
+          fi
+        done <<< "${DEPS_RAW}"
+
+        # ---------- 5. Build markdown report ----------
+        {
+          echo "## Lerian Library Version Check"
+          echo
+          echo "| Library | Current | Latest | Status |"
+          echo "|---------|---------|--------|--------|"
+          cat "${ROWS_FILE}"
+          echo
+          echo "**${OUTDATED} outdated** | **${CURRENT} current** | **${SKIPPED} skipped** | **${UNKNOWN} unknown**"
+          echo
+          if [[ "${OUTDATED}" -gt 0 ]]; then
+            echo "> Bump the outdated libraries, or add temporary entries to \`${IGNORE_FILE}\`."
+          fi
+        } >> "${REPORT_PATH}"
+
+        # Step summary
+        cat "${REPORT_PATH}" >> "${GITHUB_STEP_SUMMARY}"
+
+        # Outputs
+        {
+          echo "outdated_count=${OUTDATED}"
+          if [[ "${OUTDATED}" -gt 0 ]]; then
+            echo "has_outdated=true"
+          else
+            echo "has_outdated=false"
+          fi
+          echo "report_path=${REPORT_PATH}"
+        } >> "${GITHUB_OUTPUT}"
+
+        # Final verdict
+        if [[ "${OUTDATED}" -gt 0 ]]; then
+          if [[ "${DRY_RUN}" == "true" ]]; then
+            log "::warning title=Outdated Lerian libraries detected::${OUTDATED} direct dependency(ies) are behind latest stable. (dry-run, not failing)"
+          else
+            echo "::error title=Outdated Lerian libraries::${OUTDATED} direct dependency(ies) are behind latest stable. Bump them, or add to ${IGNORE_FILE}."
+            exit 1
+          fi
+        fi
+
+    - name: Post sticky PR comment
+      if: ${{ always() && inputs.comment-on-pr == 'true' && github.event_name == 'pull_request' }}
+      uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+      env:
+        REPORT_PATH: ${{ steps.check.outputs.report_path }}
+        DRY_RUN: ${{ inputs.dry-run }}
+      with:
+        github-token: ${{ inputs.comment-token || inputs.github-token }}
+        script: |
+          const fs = require('fs');
+          const path = process.env.REPORT_PATH;
+          if (!path || !fs.existsSync(path)) {
+            core.info(`No report file at ${path}; skipping PR comment.`);
+            return;
+          }
+          const marker = '<!-- lerian-lib-version-check -->';
+          const dryRunBanner = process.env.DRY_RUN === 'true'
+            ? '> _Dry run — no failures enforced._\n\n'
+            : '';
+          const body = `${marker}\n${dryRunBanner}${fs.readFileSync(path, 'utf8')}`;
+
+          const { owner, repo } = context.repo;
+          const issue_number = context.payload.pull_request?.number;
+          if (!issue_number) {
+            core.info('Not a pull_request event; skipping comment.');
+            return;
+          }
+
+          const { data: comments } = await github.rest.issues.listComments({
+            owner, repo, issue_number, per_page: 100,
+          });
+          const existing = comments.find(c => c.body && c.body.includes(marker));
+
+          if (existing) {
+            await github.rest.issues.updateComment({
+              owner, repo, comment_id: existing.id, body,
+            });
+            core.info(`Updated sticky comment #${existing.id}.`);
+          } else {
+            await github.rest.issues.createComment({
+              owner, repo, issue_number, body,
+            });
+            core.info('Created sticky comment.');
+          }

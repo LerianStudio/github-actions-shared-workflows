@@ -1,0 +1,281 @@
+name: "Go PR Validation"
+
+# Umbrella reusable workflow for Go service repositories.
+# Orchestrates PR metadata validation, a non-doc change gate, the Go analysis
+# pipeline and the security scan pipeline behind opt-in flags, so a caller only
+# needs to reference this single workflow.
+
+on:
+  workflow_call:
+    inputs:
+      runner_type:
+        description: 'GitHub runner type to use'
+        type: string
+        default: 'blacksmith-4vcpu-ubuntu-2404'
+      dry_run:
+        description: 'Preview metadata validations without posting comments or labels'
+        required: false
+        type: boolean
+        default: false
+
+      # ----------------- Pipeline toggles -----------------
+      run_go_analysis:
+        description: 'Run the Go analysis pipeline (lint, tests, coverage, build)'
+        type: boolean
+        default: true
+      run_security:
+        description: 'Run the security scan pipeline (Trivy, CodeQL, prerelease checks)'
+        type: boolean
+        default: true
+      run_lib_version_check:
+        description: 'Run the Lerian library version check (fails when a direct Lerian lib is behind latest stable)'
+        type: boolean
+        default: true
+
+      # ----------------- Change gate -----------------
+      ignore_globs:
+        description: 'Space-separated glob patterns treated as docs/meta; when only these change, the analysis and security pipelines are skipped.'
+        type: string
+        default: '*.md docs/* .github/* LICENSE* .gitignore'
+
+      # ----------------- PR metadata (pr-validation.yml) -----------------
+      pr_title_types:
+        description: 'Allowed commit types (pipe-separated)'
+        type: string
+        default: |
+          feat
+          fix
+          docs
+          style
+          refactor
+          perf
+          test
+          chore
+          ci
+          build
+          revert
+      pr_title_scopes:
+        description: 'Allowed scopes (pipe-separated, empty = any scope allowed)'
+        type: string
+        default: ''
+      require_scope:
+        description: 'Require scope in PR title'
+        type: boolean
+        default: false
+      enable_auto_labeler:
+        description: 'Enable automatic labeling based on changed files'
+        type: boolean
+        default: true
+      labeler_config_path:
+        description: 'Path to labeler configuration file'
+        type: string
+        default: '.github/labeler.yml'
+      enforce_source_branches:
+        description: 'Enforce that PRs to protected branches come from specific source branches.'
+        type: boolean
+        default: true
+      allowed_source_branches:
+        description: 'Allowed source branches (pipe-separated, supports * prefix matching)'
+        type: string
+        default: 'develop|release-candidate|hotfix/*'
+      target_branches_for_source_check:
+        description: 'Target branches that require source branch validation (pipe-separated)'
+        type: string
+        default: 'main'
+
+      # ----------------- Go analysis (go-pr-analysis.yml) -----------------
+      go_version:
+        description: 'Go version to use'
+        type: string
+        default: '1.23'
+      golangci_lint_version:
+        description: 'GolangCI-Lint version'
+        type: string
+        default: 'v1.62.2'
+      coverage_threshold:
+        description: 'Minimum coverage percentage required (0-100)'
+        type: number
+        default: 80
+      fail_on_coverage_threshold:
+        description: 'Fail the workflow if coverage is below threshold'
+        type: boolean
+        default: false
+      go_private_modules:
+        description: 'GOPRIVATE pattern for private Go modules (e.g., github.com/LerianStudio/*)'
+        type: string
+        default: ''
+      enable_integration_tests:
+        description: 'Enable integration tests (requires make test-integration target)'
+        type: boolean
+        default: false
+      system_packages:
+        description: 'Space-separated apt packages to install before Go commands (CGO repos)'
+        type: string
+        default: ''
+
+      # ----------------- Security (pr-security-scan.yml) -----------------
+      ignore_file:
+        description: 'Path to Trivy ignore file (e.g., .trivyignore.yaml)'
+        type: string
+        default: ''
+      enable_codeql:
+        description: 'Enable CodeQL static analysis. Requires codeql_languages to be set.'
+        type: boolean
+        default: false
+      codeql_languages:
+        description: 'Languages to analyze with CodeQL (comma-separated, e.g., "go")'
+        type: string
+        default: ''
+
+      # ----------------- Lerian lib version (lerian-lib-version-check.yml) -----------------
+      lib_version_go_mod_path:
+        description: 'Path to go.mod relative to the repo root'
+        type: string
+        default: 'go.mod'
+      lib_version_check_indirect:
+        description: 'Also check transitive (// indirect) Lerian deps'
+        type: boolean
+        default: false
+      lib_version_comment_on_pr:
+        description: 'Post/update a sticky PR comment with the Lerian lib version table'
+        type: boolean
+        default: true
+
+      # ----------------- Shared -----------------
+      shared_paths:
+        description: 'Newline-separated path patterns that trigger analysis/security for all components.'
+        type: string
+        default: ''
+    secrets:
+      MANAGE_TOKEN:
+        required: false
+      SLACK_WEBHOOK_URL:
+        required: false
+      LERIAN_LIB_READ_TOKEN:
+        required: false
+
+permissions:
+  actions: read
+  contents: read
+  id-token: write
+  issues: write
+  pull-requests: write
+  security-events: write
+
+jobs:
+  # ----------------- PR Metadata Validation -----------------
+  metadata:
+    name: PR Metadata
+    uses: ./.github/workflows/pr-validation.yml
+    with:
+      runner_type: ${{ inputs.runner_type }}
+      dry_run: ${{ inputs.dry_run }}
+      pr_title_types: ${{ inputs.pr_title_types }}
+      pr_title_scopes: ${{ inputs.pr_title_scopes }}
+      require_scope: ${{ inputs.require_scope }}
+      enable_auto_labeler: ${{ inputs.enable_auto_labeler }}
+      labeler_config_path: ${{ inputs.labeler_config_path }}
+      enforce_source_branches: ${{ inputs.enforce_source_branches }}
+      allowed_source_branches: ${{ inputs.allowed_source_branches }}
+      target_branches_for_source_check: ${{ inputs.target_branches_for_source_check }}
+    secrets: inherit
+
+  # ----------------- Change Detection (gate) -----------------
+  changes:
+    name: Detect non-doc changes
+    if: contains(fromJSON('["opened","synchronize","reopened","ready_for_review"]'), github.event.action)
+    runs-on: ${{ inputs.runner_type }}
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      code: ${{ steps.gate.outputs.code }}
+    steps:
+      - name: Non-doc change gate
+        id: gate
+        uses: LerianStudio/github-actions-shared-workflows/src/config/non-doc-changes@v1
+        with:
+          github-token: ${{ github.token }}
+          ignore-globs: ${{ inputs.ignore_globs }}
+
+  # ----------------- Go Analysis -----------------
+  go-analysis:
+    name: Go Analysis (pipeline)
+    needs: changes
+    if: inputs.run_go_analysis && needs.changes.outputs.code == 'true'
+    uses: ./.github/workflows/go-pr-analysis.yml
+    with:
+      runner_type: ${{ inputs.runner_type }}
+      go_version: ${{ inputs.go_version }}
+      golangci_lint_version: ${{ inputs.golangci_lint_version }}
+      coverage_threshold: ${{ inputs.coverage_threshold }}
+      fail_on_coverage_threshold: ${{ inputs.fail_on_coverage_threshold }}
+      go_private_modules: ${{ inputs.go_private_modules }}
+      enable_integration_tests: ${{ inputs.enable_integration_tests }}
+      system_packages: ${{ inputs.system_packages }}
+      shared_paths: ${{ inputs.shared_paths }}
+    secrets: inherit
+
+  go-analysis-gate:
+    name: Go Analysis
+    needs: [changes, go-analysis]
+    if: always()
+    runs-on: ${{ inputs.runner_type }}
+    steps:
+      - name: Aggregate Go Analysis result
+        uses: LerianStudio/github-actions-shared-workflows/src/validate/result-gate@v1
+        with:
+          result: ${{ needs.go-analysis.result }}
+          label: Go Analysis
+
+  # ----------------- Security Scan -----------------
+  security:
+    name: Security (pipeline)
+    needs: changes
+    if: inputs.run_security && needs.changes.outputs.code == 'true'
+    uses: ./.github/workflows/pr-security-scan.yml
+    with:
+      runner_type: ${{ inputs.runner_type }}
+      ignore_file: ${{ inputs.ignore_file }}
+      enable_codeql: ${{ inputs.enable_codeql }}
+      codeql_languages: ${{ inputs.codeql_languages }}
+      shared_paths: ${{ inputs.shared_paths }}
+    secrets: inherit
+
+  security-gate:
+    name: Security
+    needs: [changes, security]
+    if: always()
+    runs-on: ${{ inputs.runner_type }}
+    steps:
+      - name: Aggregate security result
+        uses: LerianStudio/github-actions-shared-workflows/src/validate/result-gate@v1
+        with:
+          result: ${{ needs.security.result }}
+          label: Security
+
+  # ----------------- Lerian Library Version Check -----------------
+  lib-version:
+    name: Lib Version (check)
+    needs: changes
+    if: inputs.run_lib_version_check && needs.changes.outputs.code == 'true'
+    uses: ./.github/workflows/lerian-lib-version-check.yml
+    with:
+      runner_type: ${{ inputs.runner_type }}
+      go_mod_path: ${{ inputs.lib_version_go_mod_path }}
+      check_indirect: ${{ inputs.lib_version_check_indirect }}
+      comment_on_pr: ${{ inputs.lib_version_comment_on_pr }}
+      dry_run: ${{ inputs.dry_run }}
+    secrets: inherit
+
+  lib-version-gate:
+    name: Lib Version
+    needs: [changes, lib-version]
+    if: always()
+    runs-on: ${{ inputs.runner_type }}
+    steps:
+      - name: Aggregate Lib Version result
+        uses: LerianStudio/github-actions-shared-workflows/src/validate/result-gate@v1
+        with:
+          result: ${{ needs.lib-version.result }}
+          label: Lib Version
