@@ -344,6 +344,29 @@ jobs:
           echo "clusters=$FILTERED" >> "$GITHUB_OUTPUT"
           echo "has_clusters=true" >> "$GITHUB_OUTPUT"
 
+          # Emit a JSON map of per-cluster env_suffixes / suffix_excludes_envs for
+          # downstream steps. Defaults preserve the pre-multi-variant behavior:
+          # - env_suffixes defaults to [""] (one expansion, empty suffix)
+          # - suffix_excludes_envs defaults to []
+          # Clusters that did not declare these fields therefore produce the exact
+          # same env list as before (e.g. dev/stg/prd/sandbox for a prod tag).
+          # Build a JSON array of resolved cluster names for jq. Splitting on the
+          # known single-space delimiter (FILTERED is built with " " separators
+          # above), then feeding each element to jq -R explicitly avoids the need
+          # to rely on word-splitting via `$FILTERED` (shellcheck SC2086).
+          CLUSTERS_JSON=$(printf '%s' "$FILTERED" | tr ' ' '\n' | jq -R . | jq -s .)
+          ENV_CONFIG=$(yq -o=json '.' "$MANIFEST" \
+            | jq -c --argjson clusters "$CLUSTERS_JSON" '
+                .clusters
+                | with_entries(select(.key as $k | $clusters | index($k)))
+                | with_entries(.value = {
+                    env_suffixes: (.value.env_suffixes // [""]),
+                    suffix_excludes_envs: (.value.suffix_excludes_envs // [])
+                  })
+              ')
+          echo "env_config=$ENV_CONFIG" >> "$GITHUB_OUTPUT"
+          echo "Per-cluster env config: $ENV_CONFIG"
+
       - name: Git pull before update
         shell: bash
         run: |
@@ -415,6 +438,7 @@ jobs:
           APP_NAME: ${{ steps.setup.outputs.app_name }}
           HAS_CLUSTERS: ${{ steps.resolve_clusters.outputs.has_clusters }}
           RESOLVED_SERVERS: ${{ steps.resolve_clusters.outputs.clusters }}
+          ENV_CONFIG: ${{ steps.resolve_clusters.outputs.env_config }}
           MAPPINGS: ${{ inputs.yaml_key_mappings }}
           CONFIGMAP_MAPPINGS: ${{ inputs.configmap_updates }}
           GITOPS_LAYOUT: ${{ inputs.gitops_layout }}
@@ -519,9 +543,48 @@ jobs:
             return 1
           }
 
+          # Compute the effective env list for a given server by expanding
+          # tag-derived envs against the cluster's env_suffixes, except for envs
+          # listed in suffix_excludes_envs which stay bare. Falls back to a single
+          # empty-suffix expansion when env_config is empty (e.g. kustomize layout
+          # with sentinel env "-", or clusters without the new fields declared).
+          expand_envs_for_server() {
+            local server="$1"
+            local base_envs="$2"
+            # Kustomize sentinel env "-" or empty config → return base_envs unchanged.
+            if [[ -z "$ENV_CONFIG" || "$base_envs" == "-" ]]; then
+              echo "$base_envs"
+              return
+            fi
+            local suffixes excludes
+            suffixes=$(echo "$ENV_CONFIG" | jq -r --arg s "$server" '.[$s].env_suffixes // [""] | .[]' 2>/dev/null || echo "")
+            excludes=$(echo "$ENV_CONFIG" | jq -r --arg s "$server" '.[$s].suffix_excludes_envs // [] | .[]' 2>/dev/null || echo "")
+            if [[ -z "$suffixes" ]]; then
+              echo "$base_envs"
+              return
+            fi
+            local out=""
+            for base_env in $base_envs; do
+              # If env is in the exclude list, keep it bare (no suffix expansion).
+              if echo "$excludes" | grep -qx "$base_env" 2>/dev/null; then
+                out="${out:+$out }$base_env"
+                continue
+              fi
+              while IFS= read -r suffix; do
+                out="${out:+$out }${base_env}${suffix}"
+              done <<< "$suffixes"
+            done
+            echo "$out"
+          }
+
           # Process each server and environment
           for SERVER in $SERVERS; do
-            for ENV in $ENVIRONMENTS; do
+            SERVER_ENVS=$(expand_envs_for_server "$SERVER" "$ENVIRONMENTS")
+            if [[ "$SERVER_ENVS" != "$ENVIRONMENTS" ]]; then
+              echo ""
+              echo "Server $SERVER env expansion: '$ENVIRONMENTS' -> '$SERVER_ENVS'"
+            fi
+            for ENV in $SERVER_ENVS; do
 
               if [[ "$GITOPS_LAYOUT" == "kustomize" ]]; then
                 # Resolve kustomize target dir (substitute ${SERVER} / ${ENV} placeholders).
@@ -650,10 +713,14 @@ jobs:
                 done < <(echo "$CONFIGMAP_MAPPINGS" | jq -r 'to_entries[] | "\(.key)|\(.value)"')
               fi
 
-              # Only track as updated if changes were actually made
+              # Only track as updated if changes were actually made.
+              # When app_helmfile_env overrides the env (e.g. forge: cross), the
+              # sync target's env must use the override (HELMFILE_ENV), not the
+              # tag-derived env, so the ArgoCD app name resolves correctly
+              # (e.g. benedita-forge-cross, not benedita-forge-dev-st).
               if [[ "$FILE_CHANGED" == "true" ]]; then
                 UPDATED_FILES="${UPDATED_FILES}${VALUES_FILE}\n"
-                UPDATED_SERVERS_ENVS="${UPDATED_SERVERS_ENVS}${SERVER}:${ENV}\n"
+                UPDATED_SERVERS_ENVS="${UPDATED_SERVERS_ENVS}${SERVER}:${HELMFILE_ENV}\n"
               else
                 echo "  No changes needed for this file"
               fi
@@ -678,14 +745,17 @@ jobs:
             echo -e "$MISSING_FILES"
           fi
 
-          # Save updated servers/envs for ArgoCD sync - only include files that actually changed
+          # Save updated servers/envs for ArgoCD sync - only include files that actually changed.
+          # Deduplicate (server:env) pairs: cross apps are visited once per outer env
+          # iteration (e.g. 7 times on benedita for a prod tag) but always write to
+          # the same override path, so a single sync target is correct.
           if [[ -n "$UPDATED_SERVERS_ENVS" ]]; then
-            echo -e "$UPDATED_SERVERS_ENVS" | grep -v '^$' > /tmp/updated_servers_envs.txt
+            echo -e "$UPDATED_SERVERS_ENVS" | grep -v '^$' | sort -u > /tmp/updated_servers_envs.txt
 
             # Output sync targets as JSON array for matrix job
-            SYNC_MATRIX=$(echo -e "$UPDATED_SERVERS_ENVS" | grep -v '^$' | while IFS=: read -r s e; do
+            SYNC_MATRIX=$(while IFS=: read -r s e; do
               [[ -n "$s" && -n "$e" ]] && echo "{\"server\":\"$s\",\"env\":\"$e\"}"
-            done | jq -s -c '.')
+            done < /tmp/updated_servers_envs.txt | jq -s -c '.')
             echo "sync_matrix=$SYNC_MATRIX" >> "$GITHUB_OUTPUT"
             echo "has_sync_targets=true" >> "$GITHUB_OUTPUT"
             echo "Sync matrix: $SYNC_MATRIX"

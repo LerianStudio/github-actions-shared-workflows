@@ -131,6 +131,68 @@ runs:
                     err(f'clusters.{cluster_name}.apps lists "{app}" which is missing from apps.registry.')
                 referenced_apps.add(app)
 
+            # ── env_suffixes (optional) ──
+            # List of strings; defaults to [""] (empty suffix) in the workflow.
+            # Allows clusters that host multiple parallel variants per environment
+            # (e.g. -st single-tenant + -mt multi-tenant on benedita).
+            env_suffixes = cluster_spec.get('env_suffixes')
+            if env_suffixes is not None:
+                if not isinstance(env_suffixes, list):
+                    err(f'clusters.{cluster_name}.env_suffixes must be a list of strings.')
+                else:
+                    if not env_suffixes:
+                        err(f'clusters.{cluster_name}.env_suffixes is empty; omit the field or set ["", ...].')
+                    seen_suffix = set()
+                    for i, s in enumerate(env_suffixes):
+                        if not isinstance(s, str):
+                            err(f'clusters.{cluster_name}.env_suffixes[{i}] must be a string.')
+                            continue
+                        if s in seen_suffix:
+                            err(f'Duplicate suffix "{s}" in clusters.{cluster_name}.env_suffixes.')
+                        seen_suffix.add(s)
+
+            # ── suffix_excludes_envs (optional) ──
+            # List of tag-derived env names that should NOT receive any suffix
+            # (e.g. ["sandbox"] keeps sandbox bare on a multi-variant cluster).
+            # Only meaningful when env_suffixes is set with non-empty suffixes.
+            suffix_excludes_envs = cluster_spec.get('suffix_excludes_envs')
+            valid_envs = {'dev', 'stg', 'prd', 'sandbox'}
+            if suffix_excludes_envs is not None:
+                if not isinstance(suffix_excludes_envs, list):
+                    err(f'clusters.{cluster_name}.suffix_excludes_envs must be a list of env names.')
+                else:
+                    seen_env = set()
+                    for i, e in enumerate(suffix_excludes_envs):
+                        if not isinstance(e, str) or not e.strip():
+                            err(f'clusters.{cluster_name}.suffix_excludes_envs[{i}] must be a non-empty string.')
+                            continue
+                        if e in seen_env:
+                            err(f'Duplicate env "{e}" in clusters.{cluster_name}.suffix_excludes_envs.')
+                        seen_env.add(e)
+                        if e not in valid_envs:
+                            warn(f'clusters.{cluster_name}.suffix_excludes_envs lists "{e}" which is not one of the tag-derived envs ({sorted(valid_envs)}); it will have no effect.')
+                    if seen_env and not env_suffixes:
+                        warn(f'clusters.{cluster_name}.suffix_excludes_envs is set but env_suffixes is not — suffix_excludes_envs will have no effect.')
+
+            # ── app_helmfile_env (optional) ──
+            # Per-app override for the helmfile applications sub-directory.
+            # Existing field; validate keys reference apps in the cluster's app list.
+            app_helmfile_env = cluster_spec.get('app_helmfile_env')
+            if app_helmfile_env is not None:
+                if not isinstance(app_helmfile_env, dict):
+                    err(f'clusters.{cluster_name}.app_helmfile_env must be a mapping of app -> env-name.')
+                else:
+                    cluster_app_set = set(seen)
+                    for k, v in app_helmfile_env.items():
+                        if not isinstance(k, str) or not k.strip():
+                            err(f'clusters.{cluster_name}.app_helmfile_env has a non-string key {k!r}.')
+                            continue
+                        if not isinstance(v, str) or not v.strip():
+                            err(f'clusters.{cluster_name}.app_helmfile_env["{k}"] must be a non-empty string.')
+                            continue
+                        if k not in cluster_app_set:
+                            err(f'clusters.{cluster_name}.app_helmfile_env references app "{k}" which is not listed in clusters.{cluster_name}.apps.')
+
         # ── orphans (warning only) ──
         orphans = registry_set - referenced_apps
         for app in sorted(orphans):
