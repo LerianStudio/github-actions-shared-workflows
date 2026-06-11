@@ -197,6 +197,53 @@ clusters:
 - Each `clusters.<name>.apps` is an explicit list of which apps this cluster hosts.
 - A cluster is added by appending one block. A cluster is removed by deleting it. Affects only this repo — caller workflows are untouched.
 
+### Per-cluster env suffix variants (`-st`, `-mt`, ...)
+
+Some clusters host **multiple parallel variants per environment** as sibling namespaces, helmfile directories, and ArgoCD apps. For example, Benedita runs both single-tenant (`-st`) and multi-tenant (`-mt`) variants:
+
+```
+environments/benedita/helmfile/applications/
+├── dev-st/midaz/values.yaml
+├── dev-mt/midaz/values.yaml
+├── stg-st/midaz/values.yaml
+├── stg-mt/midaz/values.yaml
+├── prd-st/midaz/values.yaml
+├── prd-mt/midaz/values.yaml
+└── sandbox/midaz/values.yaml      # shared, no suffix
+```
+
+Declare the suffixes on the cluster block:
+
+```yaml
+clusters:
+  benedita:
+    env_suffixes: ["-st", "-mt"]         # produces dev-st, dev-mt, stg-st, ...
+    suffix_excludes_envs: ["sandbox"]    # sandbox stays bare (no suffix)
+    apps: [midaz, fetcher, ...]
+```
+
+| Field | Default | Effect |
+|---|---|---|
+| `env_suffixes` | `[""]` | List of suffixes appended to each tag-derived env. `[""]` (the default) preserves the pre-existing single-variant behavior. |
+| `suffix_excludes_envs` | `[]` | Tag-derived env names that stay bare (no suffix expansion). Useful for shared envs like `sandbox`. |
+
+**Resolution on a production tag**, with the manifest above:
+
+1. Tag-type → env list (existing logic): `dev stg prd sandbox`
+2. Cluster expansion (new logic): for benedita, expand each env not in `suffix_excludes_envs` against `env_suffixes`:
+   - `dev` → `dev-st`, `dev-mt`
+   - `stg` → `stg-st`, `stg-mt`
+   - `prd` → `prd-st`, `prd-mt`
+   - `sandbox` (excluded) → `sandbox`
+3. Final env list for benedita: `dev-st dev-mt stg-st stg-mt prd-st prd-mt sandbox` (7 entries)
+4. ArgoCD app name template (default `{server}-{app}-{env}`) resolves to `benedita-midaz-dev-st`, `benedita-midaz-dev-mt`, ..., `benedita-midaz-sandbox`
+
+Firmino, Clotilde, Anacleto behavior is byte-identical to before: with both fields absent, `env_suffixes` defaults to `[""]` (single empty-suffix expansion), so the final env list equals the tag-derived list verbatim.
+
+#### Interaction with `app_helmfile_env`
+
+When an app has an `app_helmfile_env` override (e.g. `forge: cross`), the override path takes precedence and **the suffix expansion is skipped for that app** — it updates once at the override path. The sync target's env is the override value (`cross`), so the ArgoCD app name resolves to `benedita-forge-cross`.
+
 ### Adding a new app to a cluster
 
 1. Open a PR in this repo editing `config/deployment-matrix.yml`:

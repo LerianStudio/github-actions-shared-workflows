@@ -9,10 +9,22 @@
 # script described in docs/gitops-update-workflow.md (or grep across blocks).
 #
 # Schema:
-#   version            integer, required, currently 1
-#   apps.registry      list of every app name allowed to appear in any cluster
-#   clusters.<name>    cluster block with explicit `apps:` list (no `all_apps`
-#                      shortcut today — every cluster has its own subset)
+#   version                       integer, required, currently 1
+#   apps.registry                 list of every app name allowed to appear in any cluster
+#   clusters.<name>               cluster block with explicit `apps:` list (no `all_apps`
+#                                 shortcut today — every cluster has its own subset)
+#   clusters.<name>.env_suffixes  optional list of suffixes to append to each tag-derived
+#                                 env (e.g. ["-st", "-mt"] produces dev-st, dev-mt, stg-st,
+#                                 stg-mt, ...). Defaults to [""] (no suffix) for backward
+#                                 compatibility. Use this when one cluster hosts multiple
+#                                 parallel variants per environment (e.g. single-tenant and
+#                                 multi-tenant) as sibling namespaces / helmfile dirs /
+#                                 ArgoCD apps.
+#   clusters.<name>.suffix_excludes_envs
+#                                 optional list of tag-derived env names that should NOT
+#                                 receive any suffix from `env_suffixes` and stay bare
+#                                 (e.g. ["sandbox"] keeps sandbox as "sandbox", not
+#                                 "sandbox-st" / "sandbox-mt"). Defaults to [].
 #
 # Resolution at runtime:
 #   1. Workflow reads this file at the pinned ref of the shared-workflows repo.
@@ -21,6 +33,10 @@
 #   3. The `deploy_in_<cluster>` workflow inputs act as **force-off** overrides:
 #      setting any of them to `false` removes that cluster from the resolved
 #      set even if the manifest includes the app.
+#   4. For each resolved cluster, the tag-derived env list (e.g. dev/stg/prd/sandbox
+#      for a production tag) is expanded against `env_suffixes`, except for envs
+#      listed in `suffix_excludes_envs` which remain bare. The final env list is
+#      what the workflow uses to build helmfile paths and ArgoCD app names.
 #
 # Out of scope (managed manually or by other tooling — do NOT add here):
 #   - underwriter, jd-mock-api, mock-btg-server, control-plane,
@@ -128,17 +144,27 @@ clusters:
       - lerian-notification
 
   benedita:
+    # Benedita hosts two parallel variants per environment as sibling namespaces:
+    #   single-tenant (-st): dev-st, stg-st, prd-st
+    #   multi-tenant  (-mt): dev-mt, stg-mt, prd-mt
+    # Sandbox is shared across variants and stays bare (no suffix).
+    env_suffixes: ["-st", "-mt"]
+    suffix_excludes_envs: ["sandbox"]
+
     # app_helmfile_env: per-app override for the helmfile applications sub-directory.
     # Default path: environments/benedita/helmfile/applications/{env}/{app}/values.yaml
-    # where {env} = dev | stg | prd | sandbox (derived from the git tag type).
-    # Apps whose values.yaml lives under cross/ instead of dev/ must be listed here;
-    # otherwise the gitops-update workflow warns "values file not found" and skips them.
+    # where {env} = dev | stg | prd | sandbox (derived from the git tag type), with
+    # cluster-level env_suffixes applied (so the default for benedita is dev-st,
+    # dev-mt, stg-st, ... before this override).
+    # Apps whose values.yaml lives under cross/ instead of {env}/ must be listed
+    # here; otherwise the gitops-update workflow warns "values file not found" and
+    # skips them. When an override is set, env_suffixes are NOT applied for that app
+    # (it deploys exactly once at the override path).
     #
     # IMPORTANT: only list apps whose ArgoCD app name follows the standard
-    # {server}-{app}-{env} pattern (e.g. benedita-rosiehr-dev). Apps like
-    # cs-platform, forge, lerian-map use non-standard ArgoCD names (no -dev suffix)
-    # so their gitops-update sync target would resolve incorrectly. Add them here
-    # only after aligning their ArgoCD app naming with the standard convention.
+    # {server}-{app}-{env} pattern (e.g. benedita-rosiehr-cross, benedita-forge-cross).
+    # Apps with non-standard ArgoCD names (e.g. benedita-cs-platform without -cross)
+    # would have their sync target resolve incorrectly. Align ArgoCD naming first.
     app_helmfile_env:
       rosiehr: cross
       forge: cross
