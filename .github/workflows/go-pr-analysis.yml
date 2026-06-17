@@ -48,7 +48,7 @@ on:
       fail_on_coverage_threshold:
         description: 'Fail the workflow if coverage is below threshold'
         type: boolean
-        default: false
+        default: true
       enable_lint:
         description: 'Enable GolangCI-Lint'
         type: boolean
@@ -213,7 +213,11 @@ jobs:
       - name: Run GolangCI-Lint (direct)
         if: steps.detect-make.outputs.use_make != 'true'
         working-directory: ${{ matrix.app.working_dir }}
-        run: golangci-lint run ${{ inputs.golangci_lint_args }}
+        env:
+          GOLANGCI_LINT_ARGS: ${{ inputs.golangci_lint_args }}
+        run: |
+          read -ra golangci_args <<< "$GOLANGCI_LINT_ARGS"
+          golangci-lint run "${golangci_args[@]}"
 
   # ============================================
   # SECURITY SCANNING
@@ -291,7 +295,7 @@ jobs:
 
       - name: Run Gosec for SARIF
         id: gosec-sarif
-        uses: securego/gosec@4a3bd8af174872c778439083ded7adbf3747e770 # v2.26.1
+        uses: securego/gosec@9e6a9843d7a4a6e3e9a8539b02612c8a4aa3f889 # v2.27.1
         with:
           args: -no-fail -fmt sarif -out gosec-${{ matrix.app.name }}.sarif ./${{ matrix.app.working_dir }}/...
 
