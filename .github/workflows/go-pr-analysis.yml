@@ -215,7 +215,9 @@ jobs:
         working-directory: ${{ matrix.app.working_dir }}
         env:
           GOLANGCI_LINT_ARGS: ${{ inputs.golangci_lint_args }}
-        run: golangci-lint run $GOLANGCI_LINT_ARGS
+        run: |
+          read -ra golangci_args <<< "$GOLANGCI_LINT_ARGS"
+          golangci-lint run "${golangci_args[@]}"
 
   # ============================================
   # SECURITY SCANNING
