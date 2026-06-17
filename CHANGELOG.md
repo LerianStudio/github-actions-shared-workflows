@@ -1,5 +1,25 @@
 # Github-actions-shared-workflows Changelog
 
+## [1.34.0](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.34.0)
+
+- **Features:**
+  - Default `enable_ghcr` to true in `go-release` and `build`.
+  - Add `dry_run` input and preflight-validate backmerge config in release workflows.
+  - Orchestrate backmerge via `backmerge-sync` instead of semantic-release plugin.
+  - Enforce coverage threshold by default in `go-pr-analysis`.
+  - Expose `golangci_lint_args` and `app_name_prefix` in `go-pr-validation`.
+
+- **Fixes:**
+  - Drop trailing blank line in `.releaserc.yml` to satisfy `yamllint`.
+  - Split `golangci_lint_args` via `read -ra` to satisfy `shellcheck`.
+  - Map `golangci_lint_args` via env to prevent shell injection.
+
+Contributors: @bedatty, @lerian-studio,
+
+[Compare changes](https://github.com/LerianStudio/github-actions-shared-workflows/compare/v1.33.1...v1.34.0)
+
+---
+
 ## [1.33.1](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.33.1)
 
 - Fixes:

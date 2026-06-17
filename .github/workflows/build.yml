@@ -43,7 +43,7 @@ on:
       enable_ghcr:
         description: 'Enable pushing to GitHub Container Registry'
         type: boolean
-        default: false
+        default: true
       dockerhub_org:
         description: 'DockerHub organization name'
         type: string
@@ -249,7 +249,7 @@ jobs:
 
       - name: Set up QEMU
         if: contains(needs.prepare.outputs.platforms, 'arm64')
-        uses: docker/setup-qemu-action@ce360397dd3f832beb865e1373c09c0e9f86d70a # v4
+        uses: docker/setup-qemu-action@06116385d9baf250c9f4dcb4858b16962ea869c3 # v4
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4

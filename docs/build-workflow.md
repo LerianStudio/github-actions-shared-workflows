@@ -99,7 +99,7 @@ jobs:
 | `filter_paths` | string | `''` | Newline-separated list of path prefixes. If empty, builds from root (single-app mode) |
 | `path_level` | string | `2` | Directory depth for app name extraction |
 | `enable_dockerhub` | boolean | `true` | Enable pushing to DockerHub |
-| `enable_ghcr` | boolean | `false` | Enable pushing to GitHub Container Registry |
+| `enable_ghcr` | boolean | `true` | Enable pushing to GitHub Container Registry (requires `MANAGE_TOKEN`) |
 | `dockerhub_org` | string | `lerianstudio` | DockerHub organization name |
 | `ghcr_org` | string | `''` | GHCR organization (defaults to repository owner) |
 | `dockerfile_name` | string | `Dockerfile` | Name of the Dockerfile |
