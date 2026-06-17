@@ -107,7 +107,7 @@ on:
       fail_on_coverage_threshold:
         description: 'Fail the workflow if coverage is below threshold'
         type: boolean
-        default: false
+        default: true
       go_private_modules:
         description: 'GOPRIVATE pattern for private Go modules (e.g., github.com/LerianStudio/*)'
         type: string
