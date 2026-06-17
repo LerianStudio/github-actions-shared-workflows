@@ -43,7 +43,7 @@ on:
       enable_ghcr:
         description: 'Enable pushing to GitHub Container Registry'
         type: boolean
-        default: false
+        default: true
       dockerhub_org:
         description: 'DockerHub organization name'
         type: string
