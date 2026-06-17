@@ -92,6 +92,14 @@ on:
         description: 'GolangCI-Lint version'
         type: string
         default: 'v1.62.2'
+      golangci_lint_args:
+        description: 'Extra arguments passed to golangci-lint (e.g. --timeout=5m)'
+        type: string
+        default: '--timeout=5m'
+      app_name_prefix:
+        description: 'Prefix used to namespace coverage/build artifacts'
+        type: string
+        default: ''
       coverage_threshold:
         description: 'Minimum coverage percentage required (0-100)'
         type: number
@@ -99,7 +107,7 @@ on:
       fail_on_coverage_threshold:
         description: 'Fail the workflow if coverage is below threshold'
         type: boolean
-        default: false
+        default: true
       go_private_modules:
         description: 'GOPRIVATE pattern for private Go modules (e.g., github.com/LerianStudio/*)'
         type: string
@@ -208,6 +216,8 @@ jobs:
       runner_type: ${{ inputs.runner_type }}
       go_version: ${{ inputs.go_version }}
       golangci_lint_version: ${{ inputs.golangci_lint_version }}
+      golangci_lint_args: ${{ inputs.golangci_lint_args }}
+      app_name_prefix: ${{ inputs.app_name_prefix }}
       coverage_threshold: ${{ inputs.coverage_threshold }}
       fail_on_coverage_threshold: ${{ inputs.fail_on_coverage_threshold }}
       go_private_modules: ${{ inputs.go_private_modules }}

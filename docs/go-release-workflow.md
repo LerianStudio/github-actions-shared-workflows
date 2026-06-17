@@ -24,7 +24,7 @@ Umbrella reusable workflow for Go **service** repositories (deployable apps that
 | `enable_major_tag` | Force-update the floating major tag (e.g. `v1`) | boolean | `false` |
 | `stable_releases_only` | Only generate changelogs for stable releases | boolean | `true` |
 | `enable_dockerhub` | Push image to DockerHub | boolean | `true` |
-| `enable_ghcr` | Push image to GitHub Container Registry | boolean | `false` |
+| `enable_ghcr` | Push image to GitHub Container Registry (requires `MANAGE_TOKEN`) | boolean | `true` |
 | `enable_gitops_artifacts` | Upload GitOps artifacts for the downstream update | boolean | `false` |
 | `app_name` | Override app/image name (single-app mode) | string | `''` (repo name) |
 | `docker_build_args` | Newline-separated Docker build args | string | `''` |

@@ -48,7 +48,7 @@ on:
       fail_on_coverage_threshold:
         description: 'Fail the workflow if coverage is below threshold'
         type: boolean
-        default: false
+        default: true
       enable_lint:
         description: 'Enable GolangCI-Lint'
         type: boolean
@@ -213,7 +213,11 @@ jobs:
       - name: Run GolangCI-Lint (direct)
         if: steps.detect-make.outputs.use_make != 'true'
         working-directory: ${{ matrix.app.working_dir }}
-        run: golangci-lint run ${{ inputs.golangci_lint_args }}
+        env:
+          GOLANGCI_LINT_ARGS: ${{ inputs.golangci_lint_args }}
+        run: |
+          read -ra golangci_args <<< "$GOLANGCI_LINT_ARGS"
+          golangci-lint run "${golangci_args[@]}"
 
   # ============================================
   # SECURITY SCANNING

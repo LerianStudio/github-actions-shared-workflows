@@ -38,8 +38,10 @@ The `go-analysis`, `security` and `lib-version` pipelines each have a `*-gate` a
 | `target_branches_for_source_check` | Target branches requiring source validation | string | `main` |
 | `go_version` | Go version | string | `1.23` |
 | `golangci_lint_version` | GolangCI-Lint version | string | `v1.62.2` |
+| `golangci_lint_args` | Extra arguments passed to golangci-lint (e.g. `--timeout=5m`) | string | `--timeout=5m` |
+| `app_name_prefix` | Prefix used to namespace coverage/build artifacts | string | `''` |
 | `coverage_threshold` | Minimum coverage percentage (0-100) | number | `80` |
-| `fail_on_coverage_threshold` | Fail when coverage is below threshold | boolean | `false` |
+| `fail_on_coverage_threshold` | Fail when coverage is below threshold | boolean | `true` |
 | `go_private_modules` | GOPRIVATE pattern for private modules | string | `''` |
 | `enable_integration_tests` | Enable integration tests | boolean | `false` |
 | `system_packages` | apt packages to install for CGO repos | string | `''` |
