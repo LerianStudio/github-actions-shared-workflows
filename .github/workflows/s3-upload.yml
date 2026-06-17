@@ -126,7 +126,7 @@ jobs:
   upload:
     runs-on: ${{ inputs.runner_type }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v6.0.3
 
       - name: Determine environment
         id: env
