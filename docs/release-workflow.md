@@ -87,6 +87,7 @@ jobs:
 | `backmerge_source` | string | `main` | Release branch eligible for backmerge; backmerge runs only when the release ref matches this |
 | `backmerge_target` | string | `develop` | Branch that receives the backmerge |
 | `backmerge_mode` | string | `direct-with-pr-fallback` | Backmerge strategy: `direct`, `pr`, or `direct-with-pr-fallback` |
+| `dry_run` | boolean | `false` | Run semantic-release in dry-run mode (no tags/releases) and preview the backmerge instead of applying it |
 
 ## Secrets
 
@@ -460,7 +461,7 @@ jobs:
 - **@semantic-release/exec**: Executes custom scripts (installed automatically)
 - **conventional-changelog-conventionalcommits**: Conventional commits support
 
-Backmerging is no longer handled by a semantic-release plugin. After a successful release, the workflow runs the `backmerge-sync` composite action (controlled by the `backmerge_*` inputs) to sync `backmerge_source` into `backmerge_target`, using a direct merge with a PR fallback on conflict.
+Backmerging is no longer handled by a semantic-release plugin. After a successful release, the workflow runs the `backmerge-sync` composite action (controlled by the `backmerge_*` inputs) to sync `backmerge_source` into `backmerge_target`. Behavior depends on `backmerge_mode`: `direct` (fail on conflict), `pr` (always open a PR), or `direct-with-pr-fallback` (attempt a direct merge, open a PR on conflict or rejected push).
 
 ### Custom Plugins
 
