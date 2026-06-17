@@ -50,7 +50,7 @@ on:
       enable_ghcr:
         description: 'Enable pushing to GitHub Container Registry'
         type: boolean
-        default: false
+        default: true
       enable_gitops_artifacts:
         description: 'Enable GitOps artifacts upload for the downstream gitops-update job'
         type: boolean
