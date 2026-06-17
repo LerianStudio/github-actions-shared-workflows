@@ -74,6 +74,11 @@ on:
         required: false
         type: string
         default: 'direct-with-pr-fallback'
+      dry_run:
+        description: 'Run semantic-release in dry-run mode (no tags/releases created) and preview the backmerge instead of applying it'
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -192,11 +197,40 @@ jobs:
           npm install --save-dev \
             @semantic-release/exec
 
+      # ----------------- Backmerge config preflight -----------------
+      - name: Validate backmerge inputs
+        if: inputs.backmerge_enabled
+        env:
+          BACKMERGE_MODE: ${{ inputs.backmerge_mode }}
+          BACKMERGE_SOURCE: ${{ inputs.backmerge_source }}
+          BACKMERGE_TARGET: ${{ inputs.backmerge_target }}
+        run: |
+          case "$BACKMERGE_MODE" in
+            direct|pr|direct-with-pr-fallback) ;;
+            *)
+              echo "::error::Invalid backmerge_mode '$BACKMERGE_MODE' (must be: direct, pr, direct-with-pr-fallback)"
+              exit 1
+              ;;
+          esac
+          if [ "$BACKMERGE_SOURCE" = "$BACKMERGE_TARGET" ]; then
+            echo "::error::backmerge_source and backmerge_target must differ (got '$BACKMERGE_SOURCE')"
+            exit 1
+          fi
+          if ! git check-ref-format --branch "$BACKMERGE_SOURCE" >/dev/null 2>&1; then
+            echo "::error::Invalid backmerge_source ref: '$BACKMERGE_SOURCE'"
+            exit 1
+          fi
+          if ! git check-ref-format --branch "$BACKMERGE_TARGET" >/dev/null 2>&1; then
+            echo "::error::Invalid backmerge_target ref: '$BACKMERGE_TARGET'"
+            exit 1
+          fi
+
       - name: Semantic Release
         uses: cycjimmy/semantic-release-action@b12c8f6015dc215fe37bc154d4ad456dd3833c90 # v6
         id: semantic
         with:
           ci: false
+          dry_run: ${{ inputs.dry_run }}
           semantic_version: ${{ inputs.semantic_version }}
           working_directory: ${{ matrix.app.working_dir }}
           extra_plugins: |
@@ -220,6 +254,7 @@ jobs:
           source-branch: ${{ inputs.backmerge_source }}
           target-branch: ${{ inputs.backmerge_target }}
           mode: ${{ inputs.backmerge_mode }}
+          dry-run: ${{ inputs.dry_run }}
           commit-message: "chore(release): backmerge ${source} into ${target} [skip ci]"
           pr-title: "chore(release): backmerge ${source} → ${target} (v${{ steps.semantic.outputs.new_release_version }})"
           git-user-name: ${{ secrets.LERIAN_CI_CD_USER_NAME }}
