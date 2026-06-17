@@ -102,7 +102,7 @@ jobs:
 | `golangci_lint_version` | GolangCI-Lint version | No | `v1.62.2` |
 | `golangci_lint_args` | Additional golangci-lint arguments | No | `--timeout=5m` |
 | `coverage_threshold` | Minimum coverage percentage (0-100) | No | `80` |
-| `fail_on_coverage_threshold` | Fail if coverage below threshold | No | `false` |
+| `fail_on_coverage_threshold` | Fail if coverage below threshold | No | `true` |
 | `enable_lint` | Enable GolangCI-Lint | No | `true` |
 | `enable_security` | Enable security scanning (gosec, govulncheck) | No | `true` |
 | `enable_tests` | Enable unit tests | No | `true` |
@@ -316,7 +316,7 @@ swagger.go
 
 1. **Pin to version tag**: Use `@v1.0.0` instead of `@v1.0.0` for production stability
 2. **Custom linting**: Place `.golangci.yml` in each app directory for app-specific rules
-3. **Coverage threshold**: Start with `fail_on_coverage_threshold: false` and enable once baseline is established
+3. **Coverage threshold**: Enforced by default (`fail_on_coverage_threshold: true`); set it to `false` to temporarily report coverage without blocking while establishing a baseline
 4. **Security findings**: GoSec results appear in GitHub Security tab when SARIF upload succeeds
 5. **Performance**: Jobs run in parallel per app - more apps = more parallelism
 6. **Makefile consistency**: Use Makefiles to ensure local dev matches CI behavior

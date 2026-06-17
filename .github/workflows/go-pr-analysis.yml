@@ -48,7 +48,7 @@ on:
       fail_on_coverage_threshold:
         description: 'Fail the workflow if coverage is below threshold'
         type: boolean
-        default: false
+        default: true
       enable_lint:
         description: 'Enable GolangCI-Lint'
         type: boolean
