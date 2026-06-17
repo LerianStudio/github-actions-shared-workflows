@@ -83,6 +83,10 @@ jobs:
 |-------|------|---------|-------------|
 | `semantic_version` | string | `23.0.8` | Semantic release version to use |
 | `runner_type` | string | `firmino-lxc-runners` | GitHub runner type |
+| `backmerge_enabled` | boolean | `true` | Backmerge the release branch into the target branch after a successful release |
+| `backmerge_source` | string | `main` | Release branch eligible for backmerge; backmerge runs only when the release ref matches this |
+| `backmerge_target` | string | `develop` | Branch that receives the backmerge |
+| `backmerge_mode` | string | `direct-with-pr-fallback` | Backmerge strategy: `direct`, `pr`, or `direct-with-pr-fallback` |
 
 ## Secrets
 
@@ -205,10 +209,9 @@ plugins:
   - "@semantic-release/release-notes-generator"
   - "@semantic-release/changelog"
   - "@semantic-release/github"
-  - - "@saithodev/semantic-release-backmerge"
-    - backmergeBranches: [develop]
-      backmergeStrategy: merge
 ```
+
+> **Migration:** backmerge is now orchestrated by the workflow, not by semantic-release. Remove any `@saithodev/semantic-release-backmerge` plugin entry from your `.releaserc` and configure backmerge through the `backmerge_*` workflow inputs instead.
 
 ## Workflow Steps
 
@@ -456,7 +459,8 @@ jobs:
 - **@semantic-release/github**: Creates GitHub releases
 - **@semantic-release/exec**: Executes custom scripts (installed automatically)
 - **conventional-changelog-conventionalcommits**: Conventional commits support
-- **@saithodev/semantic-release-backmerge**: Automatic backmerging
+
+Backmerging is no longer handled by a semantic-release plugin. After a successful release, the workflow runs the `backmerge-sync` composite action (controlled by the `backmerge_*` inputs) to sync `backmerge_source` into `backmerge_target`, using a direct merge with a PR fallback on conflict.
 
 ### Custom Plugins
 

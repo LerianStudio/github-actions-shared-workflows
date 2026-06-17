@@ -53,6 +53,28 @@ on:
         type: string
         default: 'openai/gpt-4o'
 
+      # ----------------- Backmerge -----------------
+      backmerge_enabled:
+        description: 'Backmerge the release branch into the target branch after a successful release'
+        required: false
+        type: boolean
+        default: true
+      backmerge_source:
+        description: 'Release branch eligible for backmerge; backmerge runs only when the release ref matches this'
+        required: false
+        type: string
+        default: 'main'
+      backmerge_target:
+        description: 'Branch that receives the backmerge'
+        required: false
+        type: string
+        default: 'develop'
+      backmerge_mode:
+        description: 'Backmerge strategy: direct | pr | direct-with-pr-fallback'
+        required: false
+        type: string
+        default: 'direct-with-pr-fallback'
+
 permissions:
   contents: read
 
@@ -170,22 +192,15 @@ jobs:
           npm install --save-dev \
             @semantic-release/exec
 
-      # ----------------- Snapshot tags before release -----------------
-      - name: Snapshot tags before release
-        id: pre-tags
-        uses: LerianStudio/github-actions-shared-workflows/src/config/release-tag-snapshot@v1
-
       - name: Semantic Release
         uses: cycjimmy/semantic-release-action@b12c8f6015dc215fe37bc154d4ad456dd3833c90 # v6
         id: semantic
-        continue-on-error: true
         with:
           ci: false
           semantic_version: ${{ inputs.semantic_version }}
           working_directory: ${{ matrix.app.working_dir }}
           extra_plugins: |
             conventional-changelog-conventionalcommits@v7.0.2
-            @saithodev/semantic-release-backmerge
         env:
           GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
           GIT_AUTHOR_NAME: ${{ secrets.LERIAN_CI_CD_USER_NAME }}
@@ -193,35 +208,22 @@ jobs:
           GIT_COMMITTER_NAME: ${{ secrets.LERIAN_CI_CD_USER_NAME }}
           GIT_COMMITTER_EMAIL: ${{ secrets.LERIAN_CI_CD_USER_EMAIL }}
 
-      # ----------------- Detect release via git tag -----------------
-      - name: Detect if release was published
-        if: always() && steps.semantic.outcome == 'failure'
-        id: detect-release
-        uses: LerianStudio/github-actions-shared-workflows/src/config/release-tag-check@v1
-        with:
-          previous-tag: ${{ steps.pre-tags.outputs.latest-tag }}
-
-      # ----------------- Backmerge Fallback -----------------
-      - name: Backmerge PR fallback
+      # ----------------- Backmerge -----------------
+      - name: Backmerge ${{ inputs.backmerge_source }} → ${{ inputs.backmerge_target }}
         if: |
-          always() && steps.semantic.outcome == 'failure' && (
-            steps.semantic.outputs.new_release_published == 'true' ||
-            steps.detect-release.outputs.release-published == 'true'
-          )
-        uses: LerianStudio/github-actions-shared-workflows/src/config/backmerge-pr@v1
+          inputs.backmerge_enabled &&
+          steps.semantic.outputs.new_release_published == 'true' &&
+          github.ref_name == inputs.backmerge_source
+        uses: LerianStudio/github-actions-shared-workflows/src/config/backmerge-sync@v1
         with:
           github-token: ${{ steps.app-token.outputs.token }}
-          source-branch: ${{ github.ref_name }}
-          version: ${{ steps.semantic.outputs.new_release_version || steps.detect-release.outputs.release-version }}
-
-      - name: Fail if release itself failed
-        if: |
-          always() && steps.semantic.outcome == 'failure' &&
-          steps.semantic.outputs.new_release_published != 'true' &&
-          steps.detect-release.outputs.release-published != 'true'
-        run: |
-          echo "::error::Semantic release failed before publishing a new version"
-          exit 1
+          source-branch: ${{ inputs.backmerge_source }}
+          target-branch: ${{ inputs.backmerge_target }}
+          mode: ${{ inputs.backmerge_mode }}
+          commit-message: "chore(release): backmerge ${source} into ${target} [skip ci]"
+          pr-title: "chore(release): backmerge ${source} → ${target} (v${{ steps.semantic.outputs.new_release_version }})"
+          git-user-name: ${{ secrets.LERIAN_CI_CD_USER_NAME }}
+          git-user-email: ${{ secrets.LERIAN_CI_CD_USER_EMAIL }}
 
       # ----------------- Per-leg release publish marker -----------------
       # Matrix job outputs are last-writer-wins, so we persist each leg's
@@ -230,12 +232,11 @@ jobs:
         if: always()
         env:
           SEMANTIC_PUBLISHED: ${{ steps.semantic.outputs.new_release_published }}
-          DETECT_PUBLISHED: ${{ steps.detect-release.outputs.release-published }}
           APP_NAME: ${{ matrix.app.name }}
           STATUS_DIR: ${{ runner.temp }}/publish-status
         run: |
           mkdir -p "$STATUS_DIR"
-          if [[ "$SEMANTIC_PUBLISHED" == "true" || "$DETECT_PUBLISHED" == "true" ]]; then
+          if [[ "$SEMANTIC_PUBLISHED" == "true" ]]; then
             echo "true" > "$STATUS_DIR/${APP_NAME}.txt"
             echo "✅ ${APP_NAME}: release published"
           else
