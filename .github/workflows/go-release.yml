@@ -134,11 +134,11 @@ on:
         type: string
         default: ''
       deploy_in_firmino:
-        description: 'Deploy to the firmino cluster'
+        description: 'Force-off override for Firmino. Set to false to suppress deployment even if the manifest includes this app on Firmino.'
         type: boolean
         default: true
       deploy_in_clotilde:
-        description: 'Deploy to the clotilde cluster'
+        description: 'Force-off override for Clotilde. Set to false to suppress deployment even if the manifest includes this app on Clotilde.'
         type: boolean
         default: true
       use_dynamic_mapping:

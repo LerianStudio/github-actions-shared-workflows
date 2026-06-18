@@ -45,8 +45,8 @@ Umbrella reusable workflow for Go **service** repositories (deployable apps that
 | `gitops_runner_type` | Runner for the gitops-update (deploy) job (needs cluster access) | string | `firmino-lxc-runners` |
 | `enable_argocd_sync` | Trigger ArgoCD sync after updating the GitOps repo | boolean | `true` |
 | `commit_message_prefix` | Prefix for the GitOps commit message (defaults to repo name when empty) | string | `''` |
-| `deploy_in_firmino` | Deploy to the firmino cluster | boolean | `true` |
-| `deploy_in_clotilde` | Deploy to the clotilde cluster | boolean | `true` |
+| `deploy_in_firmino` | Force-off override for Firmino; set `false` to suppress deployment even when the manifest includes the app | boolean | `true` |
+| `deploy_in_clotilde` | Force-off override for Clotilde; set `false` to suppress deployment even when the manifest includes the app | boolean | `true` |
 | `use_dynamic_mapping` | Use dynamic artifact-to-YAML key mapping | boolean | `false` |
 | `configmap_updates` | JSON mapping of artifact names to configmap keys (helmfile only) | string | `''` |
 | `enable_docker_login` | Log in to DockerHub in the gitops-update job | boolean | `false` |
