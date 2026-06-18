@@ -29,10 +29,27 @@ Umbrella reusable workflow for Go **service** repositories (deployable apps that
 | `app_name` | Override app/image name (single-app mode) | string | `''` (repo name) |
 | `docker_build_args` | Newline-separated Docker build args | string | `''` |
 | `enable_cosign_sign` | Sign images with cosign keyless (OIDC) | boolean | `true` |
+| `app_name_prefix` | Prefix for app names in monorepo (e.g. `midaz` -> `midaz-agent`) | string | `''` |
+| `app_name_overrides` | Explicit `path:name` app name mappings | string | `''` |
+| `dockerhub_org` | DockerHub organization name | string | `lerianstudio` |
+| `path_level` | Directory depth level to extract app name | string | `2` |
+| `build_context_from_working_dir` | Use the component working_dir as Docker build context | boolean | `false` |
+| `enable_helm_dispatch` | Dispatch to the Helm repository for chart updates after build | boolean | `false` |
+| `helm_chart` | Helm chart name to update (required when `enable_helm_dispatch`) | string | `''` |
+| `helm_detect_env_changes` | Detect new environment variables for Helm during dispatch | boolean | `true` |
+| `helm_values_key_mappings` | JSON mapping of component names to values.yaml keys | string | `''` |
 | `enable_gitops_update` | Run the gitops-update job on tag push | boolean | `true` |
 | `gitops_repository` | GitOps repository to update (org/repo) | string | `LerianStudio/midaz-firmino-gitops` |
 | `gitops_artifact_pattern` | Pattern to download GitOps artifacts | string | `''` |
 | `gitops_yaml_key_mappings` | JSON mapping of artifact names to YAML keys | string | `''` |
+| `gitops_runner_type` | Runner for the gitops-update (deploy) job (needs cluster access) | string | `firmino-lxc-runners` |
+| `enable_argocd_sync` | Trigger ArgoCD sync after updating the GitOps repo | boolean | `true` |
+| `commit_message_prefix` | Prefix for the GitOps commit message (defaults to repo name when empty) | string | `''` |
+| `deploy_in_firmino` | Force-off override for Firmino; set `false` to suppress deployment even when the manifest includes the app | boolean | `true` |
+| `deploy_in_clotilde` | Force-off override for Clotilde; set `false` to suppress deployment even when the manifest includes the app | boolean | `true` |
+| `use_dynamic_mapping` | Use dynamic artifact-to-YAML key mapping | boolean | `false` |
+| `configmap_updates` | JSON mapping of artifact names to configmap keys (helmfile only) | string | `''` |
+| `enable_docker_login` | Log in to DockerHub in the gitops-update job | boolean | `false` |
 | `shared_paths` | Path patterns that trigger a release/build for all components | string | `''` |
 | `filter_paths` | Path prefixes to filter (empty = single-app repo) | string | `''` |
 
