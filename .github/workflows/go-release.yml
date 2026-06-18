@@ -67,6 +67,42 @@ on:
         description: 'Sign container images with cosign keyless (OIDC) signing after push'
         type: boolean
         default: true
+      app_name_prefix:
+        description: 'Prefix for app names in monorepo (e.g., "midaz" -> "midaz-agent")'
+        type: string
+        default: ''
+      app_name_overrides:
+        description: 'Explicit app name mappings in "path:name" format. Overrides default extraction for matched paths.'
+        type: string
+        default: ''
+      dockerhub_org:
+        description: 'DockerHub organization name'
+        type: string
+        default: 'lerianstudio'
+      path_level:
+        description: 'Directory depth level to extract app name (e.g., 2 -> "apps/agent")'
+        type: string
+        default: '2'
+      build_context_from_working_dir:
+        description: 'Use the component working_dir as Docker build context instead of the repo root.'
+        type: boolean
+        default: false
+      enable_helm_dispatch:
+        description: 'Dispatch to the Helm repository for chart updates after build'
+        type: boolean
+        default: false
+      helm_chart:
+        description: 'Helm chart name to update (required when enable_helm_dispatch is true)'
+        type: string
+        default: ''
+      helm_detect_env_changes:
+        description: 'Detect new environment variables for Helm during dispatch'
+        type: boolean
+        default: true
+      helm_values_key_mappings:
+        description: 'JSON mapping of component names to values.yaml keys (e.g., {"my-app": "api"})'
+        type: string
+        default: ''
 
       # ----------------- GitOps Update (gitops-update.yml) -----------------
       enable_gitops_update:
@@ -85,6 +121,38 @@ on:
         description: 'JSON object mapping artifact names to YAML keys (e.g., {"app.tag": ".api.image.tag"})'
         type: string
         default: ''
+      gitops_runner_type:
+        description: 'Runner for the gitops-update (deploy) job. Deploy needs cluster access, so this defaults to firmino-lxc-runners rather than the build runner.'
+        type: string
+        default: 'firmino-lxc-runners'
+      enable_argocd_sync:
+        description: 'Trigger ArgoCD sync after updating the GitOps repository'
+        type: boolean
+        default: true
+      commit_message_prefix:
+        description: 'Prefix for the GitOps commit message (defaults to repository name when empty)'
+        type: string
+        default: ''
+      deploy_in_firmino:
+        description: 'Deploy to the firmino cluster'
+        type: boolean
+        default: true
+      deploy_in_clotilde:
+        description: 'Deploy to the clotilde cluster'
+        type: boolean
+        default: true
+      use_dynamic_mapping:
+        description: 'Use dynamic artifact-to-YAML key mapping in gitops-update'
+        type: boolean
+        default: false
+      configmap_updates:
+        description: 'JSON object mapping artifact names to configmap keys (helmfile layout only)'
+        type: string
+        default: ''
+      enable_docker_login:
+        description: 'Log in to DockerHub in the gitops-update job (for private image digest reads)'
+        type: boolean
+        default: false
 
       # ----------------- Shared -----------------
       shared_paths:
@@ -160,8 +228,17 @@ jobs:
       enable_ghcr: ${{ inputs.enable_ghcr }}
       enable_gitops_artifacts: ${{ inputs.enable_gitops_artifacts }}
       app_name: ${{ inputs.app_name }}
+      app_name_prefix: ${{ inputs.app_name_prefix }}
+      app_name_overrides: ${{ inputs.app_name_overrides }}
+      dockerhub_org: ${{ inputs.dockerhub_org }}
+      path_level: ${{ inputs.path_level }}
+      build_context_from_working_dir: ${{ inputs.build_context_from_working_dir }}
       docker_build_args: ${{ inputs.docker_build_args }}
       enable_cosign_sign: ${{ inputs.enable_cosign_sign }}
+      enable_helm_dispatch: ${{ inputs.enable_helm_dispatch }}
+      helm_chart: ${{ inputs.helm_chart }}
+      helm_detect_env_changes: ${{ inputs.helm_detect_env_changes }}
+      helm_values_key_mappings: ${{ inputs.helm_values_key_mappings }}
       shared_paths: ${{ inputs.shared_paths }}
       filter_paths: ${{ inputs.filter_paths }}
     secrets: inherit
@@ -177,8 +254,15 @@ jobs:
       packages: write
     uses: ./.github/workflows/gitops-update.yml
     with:
-      runner_type: ${{ inputs.runner_type }}
+      runner_type: ${{ inputs.gitops_runner_type }}
       gitops_repository: ${{ inputs.gitops_repository }}
       artifact_pattern: ${{ inputs.gitops_artifact_pattern }}
       yaml_key_mappings: ${{ inputs.gitops_yaml_key_mappings }}
+      enable_argocd_sync: ${{ inputs.enable_argocd_sync }}
+      commit_message_prefix: ${{ inputs.commit_message_prefix }}
+      deploy_in_firmino: ${{ inputs.deploy_in_firmino }}
+      deploy_in_clotilde: ${{ inputs.deploy_in_clotilde }}
+      use_dynamic_mapping: ${{ inputs.use_dynamic_mapping }}
+      configmap_updates: ${{ inputs.configmap_updates }}
+      enable_docker_login: ${{ inputs.enable_docker_login }}
     secrets: inherit
