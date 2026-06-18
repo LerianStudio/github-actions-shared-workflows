@@ -167,8 +167,9 @@ runs:
           fi
 
           # We page through up to 100 releases and pick the highest stable tag that
-          # matches the requested major (when set). Pre-releases are excluded by the
-          # `prerelease == false` filter applied via jq.
+          # matches the requested major (when set). Pre-releases are excluded both by
+          # the `prerelease == false` API flag and by a tag-name filter below, since
+          # the flag is not reliable (a -beta/-rc release may be published with it unset).
           local http_code
           local releases_json
           http_code=$(curl -sS -o "${RUNNER_TEMP:-/tmp}/releases.json" -w '%{http_code}' \
@@ -202,6 +203,11 @@ runs:
 
           local tags
           tags=$(echo "${releases_json}" | jq -r '.[]? | select(.draft==false) | select(.prerelease==false) | .tag_name' 2>/dev/null || true)
+
+          # Belt-and-suspenders: drop any pre-release tag name (e.g. v2.7.0-beta.8)
+          # even when the GitHub release's `prerelease` flag was not set. Per semver,
+          # a hyphen after the patch denotes a pre-release; keep stable vMAJOR.MINOR.PATCH only.
+          tags=$(printf '%s\n' "${tags}" | grep -E '^v?[0-9]+\.[0-9]+\.[0-9]+$' || true)
 
           if [[ -z "${tags}" ]]; then
             LATEST_CACHE[${cache_key}]=""
