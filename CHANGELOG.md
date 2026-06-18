@@ -1,5 +1,22 @@
 # Github-actions-shared-workflows Changelog
 
+## [1.35.0](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.35.0)
+
+- **Features**
+  - Expose `helm-dispatch` and `gitops-update` inputs for multi-cluster deploy in `go-release`.
+
+- **Fixes**
+  - Exclude pre-release tags when resolving the latest version in `lerian-lib-version`.
+
+- **Improvements**
+  - Clarify `deploy_in_*` as force-off overrides, not additive selectors in documentation for `go-release`.
+
+Contributors: @bedatty, @lerian-studio.
+
+[Compare changes](https://github.com/LerianStudio/github-actions-shared-workflows/compare/v1.34.0...v1.35.0)
+
+---
+
 ## [1.34.0](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.34.0)
 
 - **Features:**
