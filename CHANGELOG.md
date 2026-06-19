@@ -1,5 +1,17 @@
 # Github-actions-shared-workflows Changelog
 
+## [1.36.3](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.36.3)
+
+- Fixes:
+  - Fix release process by merging `develop` into `main` (#464).
+  - Add `dockerfile_path` to scan component Dockerfiles in PR security scan (#463).
+
+Contributors: @bedatty, @lerian-studio.
+
+[Compare changes](https://github.com/LerianStudio/github-actions-shared-workflows/compare/v1.36.2...v1.36.3)
+
+---
+
 ## [1.36.2](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.36.2)
 
 - Fixes:
