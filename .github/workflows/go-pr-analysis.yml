@@ -521,8 +521,31 @@ jobs:
             IGNORE_FILE="$GITHUB_WORKSPACE/.ignorecoverunit"
             echo "Using .ignorecoverunit from repository root"
           else
-            echo "No .ignorecoverunit file found, using full coverage"
-            exit 0
+            # No repo-provided file — fall back to the shared module default so
+            # common non-unit-testable paths (mocks, cmd/bootstrap, generated
+            # API docs, e2e suites, testutil) are excluded out of the box.
+            # A repo opts out by committing an empty .ignorecoverunit.
+            IGNORE_FILE="$RUNNER_TEMP/.ignorecoverunit.default"
+            cat > "$IGNORE_FILE" <<'DEFAULT_IGNORECOVERUNIT'
+          # Auto-generated mocks
+          *_mock.go
+
+          # Bootstrap / entrypoints
+          /bootstrap/
+          /cmd/
+          bootstrap.go
+
+          # Generated API docs
+          /api/
+
+          # E2E and integration test directories
+          /test/e2e/
+          /tests/e2e/
+
+          # Testutil helpers
+          /internal/testutil/
+          DEFAULT_IGNORECOVERUNIT
+            echo "No .ignorecoverunit file found — applying shared module default exclusions"
           fi
 
           echo "Filtering coverage with .ignorecoverunit patterns..."

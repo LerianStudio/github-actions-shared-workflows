@@ -10,6 +10,14 @@ inputs:
     description: 'Application name for reporting context'
     required: false
     default: ''
+  target-branch:
+    description: 'PR target branch (e.g. github.base_ref). Selects the annotation level: pre-release pins annotate as error on blocking branches, warning elsewhere. Empty = warning.'
+    required: false
+    default: ''
+  block-branches:
+    description: 'Comma-separated branches where pre-release pins are blocking (annotated as error). Must match the downstream gate. Default: release-candidate,main.'
+    required: false
+    default: 'release-candidate,main'
 
 outputs:
   has-findings:
@@ -31,6 +39,8 @@ runs:
       env:
         SCAN_DIR: ${{ inputs.scan-ref }}
         APP_NAME: ${{ inputs.app-name }}
+        TARGET_BRANCH: ${{ inputs.target-branch }}
+        BLOCK_BRANCHES: ${{ inputs.block-branches }}
       run: |
         # Matches x.y.z-<letter...> — any semver with a pre-release suffix starting
         # with a letter (alpha, beta, rc, dev, preview, canary, snapshot, etc.).
@@ -110,7 +120,25 @@ runs:
           LABEL=""
           [ -n "$APP_NAME" ] && LABEL=" ($APP_NAME)"
 
-          echo "::error::Found $COUNT unstable version pin(s)${LABEL}. Only stable versions (x.y.z) and SHA-based pins are allowed."
+          # Annotation level mirrors the downstream branch-aware gate: error on
+          # blocking branches (where the pin hard-fails the job), warning
+          # elsewhere (advisory). An empty/unknown target branch is non-blocking.
+          IS_BLOCKING=false
+          IFS=',' read -ra BLOCK_LIST <<< "$BLOCK_BRANCHES"
+          for branch in "${BLOCK_LIST[@]}"; do
+            branch=$(echo "$branch" | xargs)
+            if [ -n "$TARGET_BRANCH" ] && [ "$TARGET_BRANCH" = "$branch" ]; then
+              IS_BLOCKING=true
+              break
+            fi
+          done
+
+          MSG="Found $COUNT unstable version pin(s)${LABEL}. Only stable versions (x.y.z) and SHA-based pins are allowed."
+          if [ "$IS_BLOCKING" = "true" ]; then
+            echo "::error::$MSG"
+          else
+            echo "::warning::$MSG"
+          fi
 
           # Build JSON array of findings for the reporter step.
           {

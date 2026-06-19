@@ -13,6 +13,8 @@ Composite action that scans dependency files for unstable version pins. Only sta
 |---|---|:---:|---|
 | `scan-ref` | Directory to scan for pre-release versions | No | `.` |
 | `app-name` | Application name for reporting context | No | `''` |
+| `target-branch` | PR target branch (e.g. `github.base_ref`). Selects the annotation level (see below). Empty = warning | No | `''` |
+| `block-branches` | Comma-separated branches where pre-release pins annotate as error. Must match the downstream gate | No | `release-candidate,main` |
 
 ## Outputs
 
@@ -21,6 +23,10 @@ Composite action that scans dependency files for unstable version pins. Only sta
 | `has-findings` | `true` if unstable versions were detected |
 | `findings-count` | Number of unstable version findings |
 | `artifact-file` | Path to the JSON findings file for consumption by `pr-security-reporter` |
+
+## Annotation level
+
+This action never fails the job itself — it only reports. The summary annotation level mirrors the branch policy so it does not contradict a downstream branch-aware gate: when `target-branch` is one of `block-branches`, findings annotate as `::error::`; otherwise (including an empty/unknown `target-branch`) they annotate as `::warning::`. Per-finding line annotations are always warnings. Enforcement (`exit 1`) belongs to the consuming workflow's gate, not to this action.
 
 ## What it scans
 
