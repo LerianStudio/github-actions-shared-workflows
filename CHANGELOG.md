@@ -1,5 +1,17 @@
 # Github-actions-shared-workflows Changelog
 
+## [1.35.1](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.35.1)
+
+- Fixes:
+  - Add `release_single_app` for single-release multi-build monorepos in `go-release`.
+  - Hand changed-file list off via temp file to avoid `ARG_MAX` overflow in `changed-paths`.
+
+Contributors: @bedatty, @fredcamaral, @lerian-studio
+
+[Compare changes](https://github.com/LerianStudio/github-actions-shared-workflows/compare/v1.35.0...v1.35.1)
+
+---
+
 ## [1.35.0](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.35.0)
 
 - **Features**
