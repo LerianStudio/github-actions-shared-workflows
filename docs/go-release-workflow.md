@@ -60,6 +60,9 @@ A third layout needs `release_single_app: true`: **one semantic-release tag for 
 | `use_dynamic_mapping` | Use dynamic artifact-to-YAML key mapping | boolean | `false` |
 | `configmap_updates` | JSON mapping of artifact names to configmap keys (helmfile only) | string | `''` |
 | `enable_docker_login` | Log in to DockerHub in the gitops-update job | boolean | `false` |
+| `enable_apidog_e2e` | Run the ApiDog E2E test job on tag push after a successful gitops-update | boolean | `false` |
+| `apidog_runner_type` | Runner for the ApiDog E2E test job (needs reach to the deployed environment) | string | `firmino-lxc-runners` |
+| `apidog_auto_detect_environment` | Auto-detect the ApiDog environment from the tag (beta → dev, rc → stg); when `false`, uses `APIDOG_ENVIRONMENT_ID` | boolean | `true` |
 | `shared_paths` | Path patterns that trigger a release/build for all components | string | `''` |
 | `filter_paths` | Path prefixes to filter (empty = single-app repo) | string | `''` |
 | `release_single_app` | Force single-app mode for the release job even when `filter_paths` is set (one version tag, many images) | boolean | `false` |
@@ -73,6 +76,11 @@ A third layout needs `release_single_app: true`: **one semantic-release tag for 
 | `MANAGE_TOKEN` | Token for release commits, tags and private module access | No |
 | `SLACK_WEBHOOK_URL` | Slack webhook for pipeline notifications | No |
 | `HELM_REPO_TOKEN` | Token for dispatching Helm chart updates (when enabled in build) | No |
+| `APIDOG_TEST_SCENARIO_ID` | ApiDog test scenario ID (required when `enable_apidog_e2e`) | No |
+| `APIDOG_ACCESS_TOKEN` | ApiDog access token (required when `enable_apidog_e2e`) | No |
+| `APIDOG_DEV_ENVIRONMENT_ID` | ApiDog dev environment ID (used for beta tags in auto-detect mode) | No |
+| `APIDOG_STG_ENVIRONMENT_ID` | ApiDog staging environment ID (used for rc tags in auto-detect mode) | No |
+| `APIDOG_ENVIRONMENT_ID` | ApiDog environment ID for manual mode (`apidog_auto_detect_environment: false`) | No |
 
 ## Usage
 
@@ -115,6 +123,11 @@ jobs:
     secrets: inherit
 ```
 
+## ApiDog E2E tests
+
+Set `enable_apidog_e2e: true` to run [api-dog-e2e-tests](./api-dog-e2e-tests-workflow.md) on tag push after a successful `update_gitops`. The job is skipped on branch pushes and when the gitops update did not succeed.
+
+Because the underlying workflow expects fixed secret names (`test_scenario_id`, `apidog_access_token`, …), the ApiDog secrets **cannot** be passed via `secrets: inherit` — map them explicitly to the `APIDOG_*` secrets this workflow declares. With `apidog_auto_detect_environment: true` (default), the tag type selects the environment (`-beta.` → `APIDOG_DEV_ENVIRONMENT_ID`, `-rc.` → `APIDOG_STG_ENVIRONMENT_ID`); the underlying workflow errors on tags that are neither beta nor rc, so enable it only for repos that tag pre-release. For manual mode set `apidog_auto_detect_environment: false` and provide `APIDOG_ENVIRONMENT_ID`.
 ## Multiple build groups
 
 By default `go-release` runs **one** `build.yml` call (driven by the top-level `filter_paths`/`app_name_*`/`build_context_from_working_dir` inputs) before the single `update_gitops`. Some repos ship images that need **different build configs in the same release** — e.g. an app + workers built from the repo root, plus a tool/mock image built with `build_context_from_working_dir: true`. These cannot be merged into one `build.yml` call.
@@ -128,6 +141,15 @@ jobs:
   pipeline:
     uses: LerianStudio/github-actions-shared-workflows/.github/workflows/go-release.yml@v1
     with:
+      enable_gitops_artifacts: true
+      enable_apidog_e2e: true
+    secrets:
+      MANAGE_TOKEN: ${{ secrets.MANAGE_TOKEN }}
+      SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+      APIDOG_TEST_SCENARIO_ID: ${{ secrets.MIDAZ_APIDOG_TEST_SCENARIO_ID }}
+      APIDOG_ACCESS_TOKEN: ${{ secrets.APIDOG_ACCESS_TOKEN }}
+      APIDOG_DEV_ENVIRONMENT_ID: ${{ secrets.MIDAZ_APIDOG_DEV_ENVIRONMENT_ID }}
+      APIDOG_STG_ENVIRONMENT_ID: ${{ secrets.MIDAZ_APIDOG_STG_ENVIRONMENT_ID }}
       # Primary build — app + 3 workers from the repo root
       filter_paths: |
         components/application
@@ -167,4 +189,5 @@ The single caller job must grant the union of what the internal jobs need: `id-t
 - [release](./release-workflow.md) — semantic-release pipeline this umbrella calls
 - [build](./build-workflow.md) — container build & push this umbrella calls
 - [gitops-update](./gitops-update-workflow.md) — GitOps update this umbrella calls
+- [api-dog-e2e-tests](./api-dog-e2e-tests-workflow.md) — optional post-gitops E2E tests this umbrella calls
 - [go-pr-validation](./go-pr-validation.md) — the matching PR validation umbrella
