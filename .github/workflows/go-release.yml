@@ -160,7 +160,7 @@ on:
 
       # ----------------- S3 Upload (s3-upload.yml) -----------------
       s3_uploads:
-        description: 'JSON array of S3 upload entries run after build on tag push, each forwarded to s3-upload.yml. Each object: {"s3_bucket": "...", "file_pattern": "...", "s3_prefix": "..."} (s3_prefix optional). Empty = no upload (default).'
+        description: 'JSON array of S3 upload entries run after build on tag push, each forwarded to s3-upload.yml. Each object: {"s3_bucket": "...", "file_pattern": "...", "s3_prefix": "...", "strip_prefix": "...", "flatten": true|false} (only s3_bucket and file_pattern are required; flatten defaults to true). Empty = no upload (default).'
         type: string
         default: ''
       # ----------------- API Dog E2E (api-dog-e2e-tests.yml) -----------------
@@ -298,6 +298,8 @@ jobs:
       s3_bucket: ${{ matrix.upload.s3_bucket }}
       file_pattern: ${{ matrix.upload.file_pattern }}
       s3_prefix: ${{ matrix.upload.s3_prefix }}
+      strip_prefix: ${{ matrix.upload.strip_prefix }}
+      flatten: ${{ toJSON(matrix.upload.flatten) == 'false' && 'false' || 'true' }}
     secrets:
       AWS_ROLE_ARN: ${{ secrets.AWS_MIGRATIONS_ROLE_ARN }}
   # ----------------- Extra Builds (tag push, opt-in) -----------------
