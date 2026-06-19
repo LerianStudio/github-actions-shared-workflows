@@ -154,6 +154,20 @@ on:
         type: boolean
         default: false
 
+      # ----------------- API Dog E2E (api-dog-e2e-tests.yml) -----------------
+      enable_apidog_e2e:
+        description: 'Run the ApiDog E2E test job on tag push after a successful gitops-update'
+        type: boolean
+        default: false
+      apidog_runner_type:
+        description: 'Runner for the ApiDog E2E test job. Needs reach to the deployed environment, so it defaults to firmino-lxc-runners rather than the build runner.'
+        type: string
+        default: 'firmino-lxc-runners'
+      apidog_auto_detect_environment:
+        description: 'Auto-detect the ApiDog environment from the tag (beta -> dev, rc -> stg). When false, the manual APIDOG_ENVIRONMENT_ID secret is used.'
+        type: boolean
+        default: true
+
       # ----------------- Shared -----------------
       shared_paths:
         description: 'Newline-separated path patterns that trigger a release/build for all components.'
@@ -169,6 +183,16 @@ on:
       SLACK_WEBHOOK_URL:
         required: false
       HELM_REPO_TOKEN:
+        required: false
+      APIDOG_TEST_SCENARIO_ID:
+        required: false
+      APIDOG_ACCESS_TOKEN:
+        required: false
+      APIDOG_DEV_ENVIRONMENT_ID:
+        required: false
+      APIDOG_STG_ENVIRONMENT_ID:
+        required: false
+      APIDOG_ENVIRONMENT_ID:
         required: false
 
 permissions:
@@ -266,3 +290,18 @@ jobs:
       configmap_updates: ${{ inputs.configmap_updates }}
       enable_docker_login: ${{ inputs.enable_docker_login }}
     secrets: inherit
+
+  # ----------------- API Dog E2E Tests (tag push, post-gitops, opt-in) -----------------
+  api_dog_e2e_tests:
+    needs: [update_gitops]
+    if: github.ref_type == 'tag' && inputs.enable_apidog_e2e && needs.update_gitops.result == 'success'
+    uses: ./.github/workflows/api-dog-e2e-tests.yml
+    with:
+      runner_type: ${{ inputs.apidog_runner_type }}
+      auto_detect_environment: ${{ inputs.apidog_auto_detect_environment }}
+    secrets:
+      test_scenario_id: ${{ secrets.APIDOG_TEST_SCENARIO_ID }}
+      apidog_access_token: ${{ secrets.APIDOG_ACCESS_TOKEN }}
+      dev_environment_id: ${{ secrets.APIDOG_DEV_ENVIRONMENT_ID }}
+      stg_environment_id: ${{ secrets.APIDOG_STG_ENVIRONMENT_ID }}
+      environment_id: ${{ secrets.APIDOG_ENVIRONMENT_ID }}
