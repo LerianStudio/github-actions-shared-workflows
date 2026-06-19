@@ -127,7 +127,7 @@ jobs:
 
 ## S3 migrations upload
 
-Set `s3_uploads` to a JSON array to upload files (e.g. SQL migrations) to S3 on tag push, after `build` succeeds. Each entry runs as a parallel [s3-upload](./s3-upload.md) matrix leg and is independent of the gitops update (it reads repo files, not build artifacts). Per-entry keys: `s3_bucket` (required), `file_pattern` (required), `s3_prefix` (optional); the remaining `s3-upload.yml` knobs (`flatten`, `strip_prefix`, `aws_region`) keep their defaults, and the target environment folder is auto-detected from the tag (`-beta.` → development, `-rc.` → staging, `vX.Y.Z` → production).
+Set `s3_uploads` to a JSON array to upload files (e.g. SQL migrations) to S3 on tag push, after `build` succeeds. Each entry runs as a parallel [s3-upload](./s3-upload.md) matrix leg and is independent of the gitops update (it reads repo files, not build artifacts). Per-entry keys: `s3_bucket` (required), `file_pattern` (required), `s3_prefix` (optional), `strip_prefix` (optional — removes that prefix from the source path so keys land under `s3_prefix` directly), and `flatten` (optional, defaults to `true`; set `false` to preserve the directory structure). The target environment folder is auto-detected from the tag (`-beta.` → development, `-rc.` → staging, `vX.Y.Z` → production).
 
 All entries share the `AWS_MIGRATIONS_ROLE_ARN` secret (forwarded to `s3-upload.yml`'s `AWS_ROLE_ARN`); map it explicitly in the caller.
 ## ApiDog E2E tests
@@ -159,7 +159,9 @@ jobs:
           {
             "s3_bucket": "lerian-migration-files",
             "file_pattern": "components/ledger/migrations/transaction/*.sql",
-            "s3_prefix": "ledger/transaction/postgresql"
+            "s3_prefix": "ledger/transaction/postgresql",
+            "strip_prefix": "components/ledger/migrations/transaction",
+            "flatten": false
           }
         ]
     secrets:
