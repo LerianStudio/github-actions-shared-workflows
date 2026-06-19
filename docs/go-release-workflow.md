@@ -12,6 +12,15 @@ Umbrella reusable workflow for Go **service** repositories (deployable apps that
 
 > **Note** — As of v1.x this workflow hosts the service release pipeline (semantic-release + Docker build + GitOps). The previous GoReleaser-based binary release pipeline remains available in the Git history of this file.
 
+### Repository layouts
+
+`filter_paths` drives both the release matrix and the build matrix, which covers two layouts:
+
+- **Single app** — `filter_paths` empty: one semantic-release tag, one image.
+- **Per-component monorepo** — `filter_paths` set: each changed component gets its own release tag and its own image.
+
+A third layout needs `release_single_app: true`: **one semantic-release tag for the whole repo, but one image per component**. Set `filter_paths` to the component prefixes (so the tag-push build still produces N images) and `release_single_app: true` so the branch-push release ignores `filter_paths` and runs once from the repo root. Without it, each component spawns a parallel `Semantic Release` job and they race to tag the same branch.
+
 ## Inputs
 
 | Input | Description | Type | Default |
@@ -52,6 +61,7 @@ Umbrella reusable workflow for Go **service** repositories (deployable apps that
 | `enable_docker_login` | Log in to DockerHub in the gitops-update job | boolean | `false` |
 | `shared_paths` | Path patterns that trigger a release/build for all components | string | `''` |
 | `filter_paths` | Path prefixes to filter (empty = single-app repo) | string | `''` |
+| `release_single_app` | Force single-app mode for the release job even when `filter_paths` is set (one version tag, many images) | boolean | `false` |
 
 ## Secrets
 
