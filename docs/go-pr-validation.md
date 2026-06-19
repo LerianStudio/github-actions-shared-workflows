@@ -46,6 +46,7 @@ The `go-analysis`, `security` and `lib-version` pipelines each have a `*-gate` a
 | `enable_integration_tests` | Enable integration tests | boolean | `false` |
 | `system_packages` | apt packages to install for CGO repos | string | `''` |
 | `ignore_file` | Path to Trivy ignore file | string | `''` |
+| `enable_docker_scan` | Build and scan a Docker image with Trivy; set `false` for repos without a root Dockerfile (monorepos with Dockerfiles under `components/`/`cmd/`) | boolean | `true` |
 | `enable_codeql` | Enable CodeQL static analysis | boolean | `false` |
 | `codeql_languages` | CodeQL languages (comma-separated) | string | `''` |
 | `shared_paths` | Path patterns that trigger analysis/security for all components | string | `''` |
