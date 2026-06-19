@@ -47,6 +47,7 @@ A third layout needs `release_single_app: true`: **one semantic-release tag for 
 | `helm_chart` | Helm chart name to update (required when `enable_helm_dispatch`) | string | `''` |
 | `helm_detect_env_changes` | Detect new environment variables for Helm during dispatch | boolean | `true` |
 | `helm_values_key_mappings` | JSON mapping of component names to values.yaml keys | string | `''` |
+| `extra_builds` | JSON array of additional build groups, each forwarded to `build.yml` with its own config; all feed the single gitops-update (see [Multiple build groups](#multiple-build-groups)) | string | `''` |
 | `enable_gitops_update` | Run the gitops-update job on tag push | boolean | `true` |
 | `gitops_repository` | GitOps repository to update (org/repo) | string | `LerianStudio/midaz-firmino-gitops` |
 | `gitops_artifact_pattern` | Pattern to download GitOps artifacts | string | `''` |
@@ -109,6 +110,49 @@ jobs:
         migrations/
         Dockerfile
         Makefile
+    secrets: inherit
+```
+
+## Multiple build groups
+
+By default `go-release` runs **one** `build.yml` call (driven by the top-level `filter_paths`/`app_name_*`/`build_context_from_working_dir` inputs) before the single `update_gitops`. Some repos ship images that need **different build configs in the same release** — e.g. an app + workers built from the repo root, plus a tool/mock image built with `build_context_from_working_dir: true`. These cannot be merged into one `build.yml` call.
+
+Set `extra_builds` to a JSON array of build groups. Each group runs a parallel `build.yml` matrix leg alongside the primary build, and every group uploads its GitOps tag artifacts into the same run, so the single `update_gitops` aggregates all of them. Per-group keys (all optional except `filter_paths`): `filter_paths`, `shared_paths`, `path_level`, `app_name`, `app_name_prefix`, `app_name_overrides`, `build_context_from_working_dir`, `docker_build_args`, `enable_gitops_artifacts` (defaults to `true`), `enable_helm_dispatch`, `helm_chart`, `helm_detect_env_changes`, `helm_values_key_mappings`. Registry/cosign/runner settings are inherited from the top-level inputs.
+
+> **Important** — `update_gitops` downloads artifacts by `gitops_artifact_pattern` (default `gitops-tags-<repo-name>*`). When an extra build produces an image whose name does **not** start with the repo name (e.g. `mock-btg-server`), set `gitops_artifact_pattern` to a wildcard that captures every image (e.g. `gitops-tags-*`), otherwise that image's tag artifact is skipped.
+
+```yaml
+jobs:
+  pipeline:
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/go-release.yml@v1
+    with:
+      # Primary build — app + 3 workers from the repo root
+      filter_paths: |
+        components/application
+        components/worker/webhook/inbound
+        components/worker/webhook/outbound
+        components/worker/reconciliation
+      path_level: '4'
+      app_name_prefix: "plugin-br-pix-indirect-btg"
+      app_name_overrides: |
+        components/application:
+        components/worker/webhook/inbound:worker-inbound
+        components/worker/webhook/outbound:worker-outbound
+        components/worker/reconciliation:worker-reconciliation
+      enable_gitops_artifacts: true
+      # Extra build — mock server with its own build context
+      extra_builds: |
+        [
+          {
+            "filter_paths": "tools/mock-btg-server",
+            "path_level": "2",
+            "app_name_overrides": "tools/mock-btg-server:mock-btg-server",
+            "build_context_from_working_dir": true
+          }
+        ]
+      # Wildcard so the mock image's artifact is also picked up
+      gitops_artifact_pattern: "gitops-tags-*"
+      gitops_yaml_key_mappings: '{"plugin-br-pix-indirect-btg.tag": ".pix.image.tag", "worker-inbound.tag": ".inbound.image.tag", "worker-outbound.tag": ".outbound.image.tag", "worker-reconciliation.tag": ".reconciliation.image.tag", "mock-btg-server.tag": ".mock.image.tag"}'
     secrets: inherit
 ```
 

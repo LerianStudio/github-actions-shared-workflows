@@ -103,6 +103,10 @@ on:
         description: 'JSON mapping of component names to values.yaml keys (e.g., {"my-app": "api"})'
         type: string
         default: ''
+      extra_builds:
+        description: 'JSON array of additional build groups, each forwarded to build.yml with its own config (filter_paths, path_level, app_name_overrides, build_context_from_working_dir, helm_*). Runs alongside the primary build on tag push; all groups feed the single gitops-update. Empty = one build only (default).'
+        type: string
+        default: ''
 
       # ----------------- GitOps Update (gitops-update.yml) -----------------
       enable_gitops_update:
@@ -247,10 +251,48 @@ jobs:
       filter_paths: ${{ inputs.filter_paths }}
     secrets: inherit
 
+  # ----------------- Extra Builds (tag push, opt-in) -----------------
+  extra_build:
+    if: github.ref_type == 'tag' && inputs.extra_builds != ''
+    permissions:
+      id-token: write
+      contents: read
+      pull-requests: write
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        group: ${{ fromJson(inputs.extra_builds) }}
+    uses: ./.github/workflows/build.yml
+    with:
+      runner_type: ${{ inputs.runner_type }}
+      enable_dockerhub: ${{ inputs.enable_dockerhub }}
+      enable_ghcr: ${{ inputs.enable_ghcr }}
+      dockerhub_org: ${{ inputs.dockerhub_org }}
+      enable_cosign_sign: ${{ inputs.enable_cosign_sign }}
+      enable_gitops_artifacts: ${{ matrix.group.enable_gitops_artifacts || true }}
+      filter_paths: ${{ matrix.group.filter_paths }}
+      shared_paths: ${{ matrix.group.shared_paths || inputs.shared_paths }}
+      path_level: ${{ matrix.group.path_level || inputs.path_level }}
+      app_name: ${{ matrix.group.app_name }}
+      app_name_prefix: ${{ matrix.group.app_name_prefix }}
+      app_name_overrides: ${{ matrix.group.app_name_overrides }}
+      build_context_from_working_dir: ${{ matrix.group.build_context_from_working_dir || false }}
+      docker_build_args: ${{ matrix.group.docker_build_args }}
+      enable_helm_dispatch: ${{ matrix.group.enable_helm_dispatch || false }}
+      helm_chart: ${{ matrix.group.helm_chart }}
+      helm_detect_env_changes: ${{ matrix.group.helm_detect_env_changes || true }}
+      helm_values_key_mappings: ${{ matrix.group.helm_values_key_mappings }}
+    secrets: inherit
+
   # ----------------- GitOps Update (tag push) -----------------
   update_gitops:
-    needs: [build]
-    if: github.ref_type == 'tag' && inputs.enable_gitops_update && needs.build.result == 'success' && needs.build.outputs.has_builds == 'true'
+    needs: [build, extra_build]
+    if: >-
+      github.ref_type == 'tag' && inputs.enable_gitops_update && !cancelled() &&
+      needs.build.result != 'failure' && needs.extra_build.result != 'failure' &&
+      ((needs.build.result == 'success' && needs.build.outputs.has_builds == 'true') ||
+       needs.extra_build.result == 'success')
     permissions:
       id-token: write
       contents: read
