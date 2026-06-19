@@ -305,10 +305,27 @@ swagger.go
 - Lines starting with `#` are comments
 - Empty lines are ignored
 
+### Default exclusions
+
+When a repo does **not** provide its own `.ignorecoverunit`, the shared workflow applies a built-in default so the most common non-unit-testable paths are excluded out of the box:
+
+```
+*_mock.go
+/bootstrap/
+/cmd/
+bootstrap.go
+/api/
+/test/e2e/
+/tests/e2e/
+/internal/testutil/
+```
+
+Precedence (first match wins): working-directory `.ignorecoverunit` → repository-root `.ignorecoverunit` → built-in default. A repo-provided file fully replaces the default (the two are not merged). To opt out of all exclusions and report full coverage, commit an **empty** `.ignorecoverunit`.
+
 ### How It Works
 
-1. After tests run and generate `coverage.txt`, the workflow checks for `.ignorecoverunit`
-2. If found, patterns are converted to regex and used to filter coverage data
+1. After tests run and generate `coverage.txt`, the workflow looks for `.ignorecoverunit` (working dir, then repo root); if neither exists it uses the built-in default above
+2. Patterns are converted to regex and used to filter coverage data
 3. Filtered coverage is used for threshold checks and PR comments
 4. Works regardless of whether Makefile or direct Go commands were used
 
