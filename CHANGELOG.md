@@ -1,5 +1,17 @@
 # Github-actions-shared-workflows Changelog
 
+## [1.36.1](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.36.1)
+
+- Fixes:
+  - Forward `strip_prefix` and `flatten` in `s3_uploads` entries for `go-release`.
+  - Correct release process from `develop` to `main`.
+
+Contributors: @bedatty, @lerian-studio
+
+[Compare changes](https://github.com/LerianStudio/github-actions-shared-workflows/compare/v1.36.0...v1.36.1)
+
+---
+
 ## [1.36.0](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.36.0)
 
 - **Features:**
