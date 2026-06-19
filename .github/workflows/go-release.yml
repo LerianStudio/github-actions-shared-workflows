@@ -158,6 +158,11 @@ on:
         type: boolean
         default: false
 
+      # ----------------- S3 Upload (s3-upload.yml) -----------------
+      s3_uploads:
+        description: 'JSON array of S3 upload entries run after build on tag push, each forwarded to s3-upload.yml. Each object: {"s3_bucket": "...", "file_pattern": "...", "s3_prefix": "..."} (s3_prefix optional). Empty = no upload (default).'
+        type: string
+        default: ''
       # ----------------- API Dog E2E (api-dog-e2e-tests.yml) -----------------
       enable_apidog_e2e:
         description: 'Run the ApiDog E2E test job on tag push after a successful gitops-update'
@@ -192,6 +197,7 @@ on:
         required: false
       HELM_REPO_TOKEN:
         required: false
+      AWS_MIGRATIONS_ROLE_ARN:
       APIDOG_TEST_SCENARIO_ID:
         required: false
       APIDOG_ACCESS_TOKEN:
@@ -275,6 +281,25 @@ jobs:
       filter_paths: ${{ inputs.filter_paths }}
     secrets: inherit
 
+  # ----------------- S3 Upload (tag push, post-build, opt-in) -----------------
+  s3_upload:
+    needs: [build]
+    if: github.ref_type == 'tag' && inputs.s3_uploads != '' && needs.build.result == 'success'
+    permissions:
+      id-token: write
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        upload: ${{ fromJson(inputs.s3_uploads) }}
+    uses: ./.github/workflows/s3-upload.yml
+    with:
+      runner_type: ${{ inputs.runner_type }}
+      s3_bucket: ${{ matrix.upload.s3_bucket }}
+      file_pattern: ${{ matrix.upload.file_pattern }}
+      s3_prefix: ${{ matrix.upload.s3_prefix }}
+    secrets:
+      AWS_ROLE_ARN: ${{ secrets.AWS_MIGRATIONS_ROLE_ARN }}
   # ----------------- Extra Builds (tag push, opt-in) -----------------
   extra_build:
     if: github.ref_type == 'tag' && inputs.extra_builds != ''

@@ -60,6 +60,7 @@ A third layout needs `release_single_app: true`: **one semantic-release tag for 
 | `use_dynamic_mapping` | Use dynamic artifact-to-YAML key mapping | boolean | `false` |
 | `configmap_updates` | JSON mapping of artifact names to configmap keys (helmfile only) | string | `''` |
 | `enable_docker_login` | Log in to DockerHub in the gitops-update job | boolean | `false` |
+| `s3_uploads` | JSON array of S3 upload entries run after build on tag push (see [S3 migrations upload](#s3-migrations-upload)) | string | `''` |
 | `enable_apidog_e2e` | Run the ApiDog E2E test job on tag push after a successful gitops-update | boolean | `false` |
 | `apidog_runner_type` | Runner for the ApiDog E2E test job (needs reach to the deployed environment) | string | `firmino-lxc-runners` |
 | `apidog_auto_detect_environment` | Auto-detect the ApiDog environment from the tag (beta → dev, rc → stg); when `false`, uses `APIDOG_ENVIRONMENT_ID` | boolean | `true` |
@@ -76,6 +77,7 @@ A third layout needs `release_single_app: true`: **one semantic-release tag for 
 | `MANAGE_TOKEN` | Token for release commits, tags and private module access | No |
 | `SLACK_WEBHOOK_URL` | Slack webhook for pipeline notifications | No |
 | `HELM_REPO_TOKEN` | Token for dispatching Helm chart updates (when enabled in build) | No |
+| `AWS_MIGRATIONS_ROLE_ARN` | IAM role ARN assumed by the S3 upload job (required when `s3_uploads` is set) | No |
 | `APIDOG_TEST_SCENARIO_ID` | ApiDog test scenario ID (required when `enable_apidog_e2e`) | No |
 | `APIDOG_ACCESS_TOKEN` | ApiDog access token (required when `enable_apidog_e2e`) | No |
 | `APIDOG_DEV_ENVIRONMENT_ID` | ApiDog dev environment ID (used for beta tags in auto-detect mode) | No |
@@ -123,6 +125,11 @@ jobs:
     secrets: inherit
 ```
 
+## S3 migrations upload
+
+Set `s3_uploads` to a JSON array to upload files (e.g. SQL migrations) to S3 on tag push, after `build` succeeds. Each entry runs as a parallel [s3-upload](./s3-upload.md) matrix leg and is independent of the gitops update (it reads repo files, not build artifacts). Per-entry keys: `s3_bucket` (required), `file_pattern` (required), `s3_prefix` (optional); the remaining `s3-upload.yml` knobs (`flatten`, `strip_prefix`, `aws_region`) keep their defaults, and the target environment folder is auto-detected from the tag (`-beta.` → development, `-rc.` → staging, `vX.Y.Z` → production).
+
+All entries share the `AWS_MIGRATIONS_ROLE_ARN` secret (forwarded to `s3-upload.yml`'s `AWS_ROLE_ARN`); map it explicitly in the caller.
 ## ApiDog E2E tests
 
 Set `enable_apidog_e2e: true` to run [api-dog-e2e-tests](./api-dog-e2e-tests-workflow.md) on tag push after a successful `update_gitops`. The job is skipped on branch pushes and when the gitops update did not succeed.
@@ -142,6 +149,22 @@ jobs:
     uses: LerianStudio/github-actions-shared-workflows/.github/workflows/go-release.yml@v1
     with:
       enable_gitops_artifacts: true
+      s3_uploads: |
+        [
+          {
+            "s3_bucket": "lerian-migration-files",
+            "file_pattern": "components/ledger/migrations/onboarding/*.sql",
+            "s3_prefix": "ledger/onboarding/postgresql"
+          },
+          {
+            "s3_bucket": "lerian-migration-files",
+            "file_pattern": "components/ledger/migrations/transaction/*.sql",
+            "s3_prefix": "ledger/transaction/postgresql"
+          }
+        ]
+    secrets:
+      MANAGE_TOKEN: ${{ secrets.MANAGE_TOKEN }}
+      AWS_MIGRATIONS_ROLE_ARN: ${{ secrets.AWS_MIGRATIONS_ROLE_ARN }}
       enable_apidog_e2e: true
     secrets:
       MANAGE_TOKEN: ${{ secrets.MANAGE_TOKEN }}
@@ -189,5 +212,6 @@ The single caller job must grant the union of what the internal jobs need: `id-t
 - [release](./release-workflow.md) — semantic-release pipeline this umbrella calls
 - [build](./build-workflow.md) — container build & push this umbrella calls
 - [gitops-update](./gitops-update-workflow.md) — GitOps update this umbrella calls
+- [s3-upload](./s3-upload.md) — optional post-build S3 upload this umbrella calls
 - [api-dog-e2e-tests](./api-dog-e2e-tests-workflow.md) — optional post-gitops E2E tests this umbrella calls
 - [go-pr-validation](./go-pr-validation.md) — the matching PR validation umbrella
