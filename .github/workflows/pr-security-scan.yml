@@ -59,6 +59,10 @@ on:
         description: 'Name of the Dockerfile'
         type: string
         default: 'Dockerfile'
+      dockerfile_path:
+        description: 'Explicit path to a single Dockerfile to build and scan (e.g. components/ledger/Dockerfile). Overrides the working_dir/dockerfile_name resolution; intended for single-Dockerfile repos without filter_paths.'
+        type: string
+        default: ''
       enable_docker_scan:
         description: 'Enable Docker image build and vulnerability scanning. Set to false for projects without Dockerfile (e.g., CLI tools)'
         type: boolean
@@ -161,7 +165,7 @@ jobs:
     env:
       DOCKERHUB_ORG: ${{ inputs.dockerhub_org }}
       APP_NAME: ${{ matrix.name }}
-      DOCKERFILE_PATH: ${{ matrix.working_dir == '.' && format('./{0}', inputs.dockerfile_name) || format('{0}/{1}', matrix.working_dir, inputs.dockerfile_name) }}
+      DOCKERFILE_PATH: ${{ inputs.dockerfile_path != '' && inputs.dockerfile_path || (matrix.working_dir == '.' && format('./{0}', inputs.dockerfile_name) || format('{0}/{1}', matrix.working_dir, inputs.dockerfile_name)) }}
 
     steps:
       # ----------------- Setup -----------------
