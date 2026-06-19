@@ -159,6 +159,10 @@ on:
         description: 'Newline-separated path patterns that trigger a release/build for all components.'
         type: string
         default: ''
+      release_single_app:
+        description: 'Force single-app mode for the release job even when filter_paths is set. Use for repos with one version tag but multiple Docker images.'
+        type: boolean
+        default: false
       filter_paths:
         description: 'Newline-separated list of path prefixes to filter. Empty = single-app repo.'
         type: string
@@ -210,7 +214,7 @@ jobs:
       enable_major_tag: ${{ inputs.enable_major_tag }}
       stable_releases_only: ${{ inputs.stable_releases_only }}
       shared_paths: ${{ inputs.shared_paths }}
-      filter_paths: ${{ inputs.filter_paths }}
+      filter_paths: ${{ !inputs.release_single_app && inputs.filter_paths || '' }}
     secrets: inherit
 
   # ----------------- Build (tag push) -----------------
