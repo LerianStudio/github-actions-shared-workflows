@@ -191,6 +191,7 @@ When enabled, the workflow scans `go.mod`, `package.json`, and `Dockerfile` for 
 | `dockerhub_org` | string | `lerianstudio` | DockerHub organization name |
 | `docker_registry` | string | `docker.io` | Docker registry URL |
 | `dockerfile_name` | string | `Dockerfile` | Name of the Dockerfile |
+| `dockerfile_path` | string | `''` | Explicit path to a single Dockerfile to build and scan (e.g. `components/ledger/Dockerfile`). Overrides `working_dir`/`dockerfile_name`; for single-Dockerfile repos without `filter_paths` |
 | `enable_docker_scan` | boolean | `true` | Enable Docker image build and vulnerability scanning. Set to `false` for projects without Dockerfile (e.g., CLI tools) |
 | `enable_health_score` | boolean | `true` | Enable Docker Hub Health Score compliance checks (non-root user, CVEs, licenses) |
 | `enable_codeql` | boolean | `false` | Enable CodeQL static analysis. Requires `codeql_languages` to be set |
