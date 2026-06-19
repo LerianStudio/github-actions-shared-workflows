@@ -56,7 +56,7 @@ on:
         type: boolean
         default: false
       app_name:
-        description: 'Override app/image name (single-app mode). Defaults to repository name.'
+        description: 'Override app/image name. Used by the build (single-app mode) and as the gitops-update deploy name; when empty the gitops deploy name falls back to app_name_prefix, then the repository name.'
         type: string
         default: ''
       docker_build_args:
@@ -130,7 +130,7 @@ on:
         type: boolean
         default: true
       commit_message_prefix:
-        description: 'Prefix for the GitOps commit message (defaults to repository name when empty)'
+        description: 'Prefix for the GitOps commit message. When empty, falls back to app_name_prefix, then the repository name.'
         type: string
         default: ''
       deploy_in_firmino:
@@ -256,10 +256,11 @@ jobs:
     with:
       runner_type: ${{ inputs.gitops_runner_type }}
       gitops_repository: ${{ inputs.gitops_repository }}
-      artifact_pattern: ${{ inputs.gitops_artifact_pattern }}
+      app_name: ${{ inputs.app_name || inputs.app_name_prefix }}
+      artifact_pattern: ${{ inputs.gitops_artifact_pattern || format('gitops-tags-{0}*', github.event.repository.name) }}
       yaml_key_mappings: ${{ inputs.gitops_yaml_key_mappings }}
       enable_argocd_sync: ${{ inputs.enable_argocd_sync }}
-      commit_message_prefix: ${{ inputs.commit_message_prefix }}
+      commit_message_prefix: ${{ inputs.commit_message_prefix || inputs.app_name_prefix }}
       deploy_in_firmino: ${{ inputs.deploy_in_firmino }}
       deploy_in_clotilde: ${{ inputs.deploy_in_clotilde }}
       use_dynamic_mapping: ${{ inputs.use_dynamic_mapping }}
