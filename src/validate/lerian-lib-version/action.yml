@@ -286,21 +286,26 @@ runs:
             continue
           fi
 
-          latest=$(resolve_latest "${repo}" "${major_filter}")
-
-          if [[ -z "${latest}" ]]; then
-            UNKNOWN=$((UNKNOWN+1))
-            printf '| `%s` | `%s` | _unknown_ | Could not resolve latest release |\n' "${short_path}" "${current}" >> "${ROWS_FILE}"
-            log "::warning title=Could not resolve latest release::Failed to fetch latest stable release for LerianStudio/${repo}"
-            continue
-          fi
-
-          # Pinned ignore: latest target becomes the pinned version
-          target="${latest}"
+          # A pin takes precedence over the releases API: when a lib is pinned
+          # via .lerianstudiolibignore, compare against the pin and skip the API
+          # call entirely, so the pin is still honoured even if the API is
+          # degraded (non-200). Only unpinned libs depend on resolve_latest.
           marker_suffix=""
           if [[ -n "${IGNORE_PIN[${short_path}]:-}" ]]; then
             target="${IGNORE_PIN[${short_path}]}"
+            latest="${target}"
             marker_suffix=" (pinned)"
+          else
+            latest=$(resolve_latest "${repo}" "${major_filter}")
+
+            if [[ -z "${latest}" ]]; then
+              UNKNOWN=$((UNKNOWN+1))
+              printf '| `%s` | `%s` | _unknown_ | Could not resolve latest release |\n' "${short_path}" "${current}" >> "${ROWS_FILE}"
+              log "::warning title=Could not resolve latest release::Failed to fetch latest stable release for LerianStudio/${repo}"
+              continue
+            fi
+
+            target="${latest}"
           fi
 
           if ver_ge "${current}" "${target}"; then
