@@ -1,5 +1,17 @@
 # Github-actions-shared-workflows Changelog
 
+## [1.36.2](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.36.2)
+
+- Fixes:
+  - Fix: Expose and forward `enable_docker_scan` in `go-pr-validation`.
+  - Fix: Develop to main release process.
+
+Contributors: @bedatty, @lerian-studio.
+
+[Compare changes](https://github.com/LerianStudio/github-actions-shared-workflows/compare/v1.36.1...v1.36.2)
+
+---
+
 ## [1.36.1](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.36.1)
 
 - Fixes:
