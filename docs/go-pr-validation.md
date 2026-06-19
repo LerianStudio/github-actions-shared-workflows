@@ -47,6 +47,7 @@ The `go-analysis`, `security` and `lib-version` pipelines each have a `*-gate` a
 | `system_packages` | apt packages to install for CGO repos | string | `''` |
 | `ignore_file` | Path to Trivy ignore file | string | `''` |
 | `enable_docker_scan` | Build and scan a Docker image with Trivy; set `false` for repos without a root Dockerfile (monorepos with Dockerfiles under `components/`/`cmd/`) | boolean | `true` |
+| `dockerfile_path` | Explicit path to a single Dockerfile to build and scan (e.g. `components/ledger/Dockerfile`); lets monorepos without a root Dockerfile keep `enable_docker_scan: true` | string | `''` |
 | `enable_codeql` | Enable CodeQL static analysis | boolean | `false` |
 | `codeql_languages` | CodeQL languages (comma-separated) | string | `''` |
 | `shared_paths` | Path patterns that trigger analysis/security for all components | string | `''` |

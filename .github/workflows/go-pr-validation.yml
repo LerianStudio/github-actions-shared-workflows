@@ -130,6 +130,10 @@ on:
         description: 'Build and scan a Docker image with Trivy. Set to false for repos without a root Dockerfile (e.g. monorepos with Dockerfiles under components/ or cmd/).'
         type: boolean
         default: true
+      dockerfile_path:
+        description: 'Explicit path to a single Dockerfile to build and scan (e.g. components/ledger/Dockerfile). Lets monorepos without a root Dockerfile keep enable_docker_scan: true.'
+        type: string
+        default: ''
       enable_codeql:
         description: 'Enable CodeQL static analysis. Requires codeql_languages to be set.'
         type: boolean
@@ -252,6 +256,7 @@ jobs:
       runner_type: ${{ inputs.runner_type }}
       ignore_file: ${{ inputs.ignore_file }}
       enable_docker_scan: ${{ inputs.enable_docker_scan }}
+      dockerfile_path: ${{ inputs.dockerfile_path }}
       enable_codeql: ${{ inputs.enable_codeql }}
       codeql_languages: ${{ inputs.codeql_languages }}
       shared_paths: ${{ inputs.shared_paths }}
