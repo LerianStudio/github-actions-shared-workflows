@@ -56,7 +56,7 @@ on:
         type: boolean
         default: false
       app_name:
-        description: 'Override app/image name (single-app mode). Defaults to repository name.'
+        description: 'Override app/image name. Used by the build (single-app mode) and as the gitops-update deploy name; when empty the gitops deploy name falls back to app_name_prefix, then the repository name.'
         type: string
         default: ''
       docker_build_args:
@@ -103,6 +103,10 @@ on:
         description: 'JSON mapping of component names to values.yaml keys (e.g., {"my-app": "api"})'
         type: string
         default: ''
+      extra_builds:
+        description: 'JSON array of additional build groups, each forwarded to build.yml with its own config (filter_paths, path_level, app_name_overrides, build_context_from_working_dir, helm_*). Runs alongside the primary build on tag push; all groups feed the single gitops-update. Empty = one build only (default).'
+        type: string
+        default: ''
 
       # ----------------- GitOps Update (gitops-update.yml) -----------------
       enable_gitops_update:
@@ -130,7 +134,7 @@ on:
         type: boolean
         default: true
       commit_message_prefix:
-        description: 'Prefix for the GitOps commit message (defaults to repository name when empty)'
+        description: 'Prefix for the GitOps commit message. When empty, falls back to app_name_prefix, then the repository name.'
         type: string
         default: ''
       deploy_in_firmino:
@@ -173,6 +177,10 @@ on:
         description: 'Newline-separated path patterns that trigger a release/build for all components.'
         type: string
         default: ''
+      release_single_app:
+        description: 'Force single-app mode for the release job even when filter_paths is set. Use for repos with one version tag but multiple Docker images.'
+        type: boolean
+        default: false
       filter_paths:
         description: 'Newline-separated list of path prefixes to filter. Empty = single-app repo.'
         type: string
@@ -234,7 +242,7 @@ jobs:
       enable_major_tag: ${{ inputs.enable_major_tag }}
       stable_releases_only: ${{ inputs.stable_releases_only }}
       shared_paths: ${{ inputs.shared_paths }}
-      filter_paths: ${{ inputs.filter_paths }}
+      filter_paths: ${{ !inputs.release_single_app && inputs.filter_paths || '' }}
     secrets: inherit
 
   # ----------------- Build (tag push) -----------------
@@ -267,10 +275,48 @@ jobs:
       filter_paths: ${{ inputs.filter_paths }}
     secrets: inherit
 
+  # ----------------- Extra Builds (tag push, opt-in) -----------------
+  extra_build:
+    if: github.ref_type == 'tag' && inputs.extra_builds != ''
+    permissions:
+      id-token: write
+      contents: read
+      pull-requests: write
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        group: ${{ fromJson(inputs.extra_builds) }}
+    uses: ./.github/workflows/build.yml
+    with:
+      runner_type: ${{ inputs.runner_type }}
+      enable_dockerhub: ${{ inputs.enable_dockerhub }}
+      enable_ghcr: ${{ inputs.enable_ghcr }}
+      dockerhub_org: ${{ inputs.dockerhub_org }}
+      enable_cosign_sign: ${{ inputs.enable_cosign_sign }}
+      enable_gitops_artifacts: ${{ matrix.group.enable_gitops_artifacts || true }}
+      filter_paths: ${{ matrix.group.filter_paths }}
+      shared_paths: ${{ matrix.group.shared_paths || inputs.shared_paths }}
+      path_level: ${{ matrix.group.path_level || inputs.path_level }}
+      app_name: ${{ matrix.group.app_name }}
+      app_name_prefix: ${{ matrix.group.app_name_prefix }}
+      app_name_overrides: ${{ matrix.group.app_name_overrides }}
+      build_context_from_working_dir: ${{ matrix.group.build_context_from_working_dir || false }}
+      docker_build_args: ${{ matrix.group.docker_build_args }}
+      enable_helm_dispatch: ${{ matrix.group.enable_helm_dispatch || false }}
+      helm_chart: ${{ matrix.group.helm_chart }}
+      helm_detect_env_changes: ${{ matrix.group.helm_detect_env_changes || true }}
+      helm_values_key_mappings: ${{ matrix.group.helm_values_key_mappings }}
+    secrets: inherit
+
   # ----------------- GitOps Update (tag push) -----------------
   update_gitops:
-    needs: [build]
-    if: github.ref_type == 'tag' && inputs.enable_gitops_update && needs.build.result == 'success' && needs.build.outputs.has_builds == 'true'
+    needs: [build, extra_build]
+    if: >-
+      github.ref_type == 'tag' && inputs.enable_gitops_update && !cancelled() &&
+      needs.build.result != 'failure' && needs.extra_build.result != 'failure' &&
+      ((needs.build.result == 'success' && needs.build.outputs.has_builds == 'true') ||
+       needs.extra_build.result == 'success')
     permissions:
       id-token: write
       contents: read
@@ -280,10 +326,11 @@ jobs:
     with:
       runner_type: ${{ inputs.gitops_runner_type }}
       gitops_repository: ${{ inputs.gitops_repository }}
-      artifact_pattern: ${{ inputs.gitops_artifact_pattern }}
+      app_name: ${{ inputs.app_name || inputs.app_name_prefix }}
+      artifact_pattern: ${{ inputs.gitops_artifact_pattern || format('gitops-tags-{0}*', github.event.repository.name) }}
       yaml_key_mappings: ${{ inputs.gitops_yaml_key_mappings }}
       enable_argocd_sync: ${{ inputs.enable_argocd_sync }}
-      commit_message_prefix: ${{ inputs.commit_message_prefix }}
+      commit_message_prefix: ${{ inputs.commit_message_prefix || inputs.app_name_prefix }}
       deploy_in_firmino: ${{ inputs.deploy_in_firmino }}
       deploy_in_clotilde: ${{ inputs.deploy_in_clotilde }}
       use_dynamic_mapping: ${{ inputs.use_dynamic_mapping }}
