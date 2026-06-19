@@ -1,5 +1,26 @@
 # Github-actions-shared-workflows Changelog
 
+## [1.36.0](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.36.0)
+
+- **Features:**
+  - Added opt-in S3 upload job after build for migration files in `go-release`.
+  - Added opt-in ApiDog E2E test job after gitops-update in `go-release`.
+  - Derived gitops `app_name`, commit prefix, and artifact pattern from `app_name_prefix` in `go-release`.
+  - Supported multiple build groups via `extra_builds` in `go-release`.
+
+- **Fixes:**
+  - Ensured `lerian-lib-version` honors `ignore-pin` before the releases API call.
+  - Made `go-pr-validation` fail gates when the changes job errors.
+  - Implemented pre-flight tag existence check and restored `continue-on-signing-failure` in build.
+  - Shipped default `.ignorecoverunit` coverage exclusions in `go-pr-analysis`.
+  - Made prerelease-check annotation branch-aware in security.
+
+Contributors: @bedatty, @lerian-studio.
+
+[Compare changes](https://github.com/LerianStudio/github-actions-shared-workflows/compare/v1.35.1...v1.36.0)
+
+---
+
 ## [1.35.1](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.35.1)
 
 - Fixes:
