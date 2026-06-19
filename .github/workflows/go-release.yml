@@ -154,6 +154,12 @@ on:
         type: boolean
         default: false
 
+      # ----------------- S3 Upload (s3-upload.yml) -----------------
+      s3_uploads:
+        description: 'JSON array of S3 upload entries run after build on tag push, each forwarded to s3-upload.yml. Each object: {"s3_bucket": "...", "file_pattern": "...", "s3_prefix": "..."} (s3_prefix optional). Empty = no upload (default).'
+        type: string
+        default: ''
+
       # ----------------- Shared -----------------
       shared_paths:
         description: 'Newline-separated path patterns that trigger a release/build for all components.'
@@ -169,6 +175,8 @@ on:
       SLACK_WEBHOOK_URL:
         required: false
       HELM_REPO_TOKEN:
+        required: false
+      AWS_MIGRATIONS_ROLE_ARN:
         required: false
 
 permissions:
@@ -242,6 +250,26 @@ jobs:
       shared_paths: ${{ inputs.shared_paths }}
       filter_paths: ${{ inputs.filter_paths }}
     secrets: inherit
+
+  # ----------------- S3 Upload (tag push, post-build, opt-in) -----------------
+  s3_upload:
+    needs: [build]
+    if: github.ref_type == 'tag' && inputs.s3_uploads != '' && needs.build.result == 'success'
+    permissions:
+      id-token: write
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        upload: ${{ fromJson(inputs.s3_uploads) }}
+    uses: ./.github/workflows/s3-upload.yml
+    with:
+      runner_type: ${{ inputs.runner_type }}
+      s3_bucket: ${{ matrix.upload.s3_bucket }}
+      file_pattern: ${{ matrix.upload.file_pattern }}
+      s3_prefix: ${{ matrix.upload.s3_prefix }}
+    secrets:
+      AWS_ROLE_ARN: ${{ secrets.AWS_MIGRATIONS_ROLE_ARN }}
 
   # ----------------- GitOps Update (tag push) -----------------
   update_gitops:

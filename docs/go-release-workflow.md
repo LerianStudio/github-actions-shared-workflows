@@ -50,6 +50,7 @@ Umbrella reusable workflow for Go **service** repositories (deployable apps that
 | `use_dynamic_mapping` | Use dynamic artifact-to-YAML key mapping | boolean | `false` |
 | `configmap_updates` | JSON mapping of artifact names to configmap keys (helmfile only) | string | `''` |
 | `enable_docker_login` | Log in to DockerHub in the gitops-update job | boolean | `false` |
+| `s3_uploads` | JSON array of S3 upload entries run after build on tag push (see [S3 migrations upload](#s3-migrations-upload)) | string | `''` |
 | `shared_paths` | Path patterns that trigger a release/build for all components | string | `''` |
 | `filter_paths` | Path prefixes to filter (empty = single-app repo) | string | `''` |
 
@@ -60,6 +61,7 @@ Umbrella reusable workflow for Go **service** repositories (deployable apps that
 | `MANAGE_TOKEN` | Token for release commits, tags and private module access | No |
 | `SLACK_WEBHOOK_URL` | Slack webhook for pipeline notifications | No |
 | `HELM_REPO_TOKEN` | Token for dispatching Helm chart updates (when enabled in build) | No |
+| `AWS_MIGRATIONS_ROLE_ARN` | IAM role ARN assumed by the S3 upload job (required when `s3_uploads` is set) | No |
 
 ## Usage
 
@@ -102,6 +104,36 @@ jobs:
     secrets: inherit
 ```
 
+## S3 migrations upload
+
+Set `s3_uploads` to a JSON array to upload files (e.g. SQL migrations) to S3 on tag push, after `build` succeeds. Each entry runs as a parallel [s3-upload](./s3-upload.md) matrix leg and is independent of the gitops update (it reads repo files, not build artifacts). Per-entry keys: `s3_bucket` (required), `file_pattern` (required), `s3_prefix` (optional); the remaining `s3-upload.yml` knobs (`flatten`, `strip_prefix`, `aws_region`) keep their defaults, and the target environment folder is auto-detected from the tag (`-beta.` → development, `-rc.` → staging, `vX.Y.Z` → production).
+
+All entries share the `AWS_MIGRATIONS_ROLE_ARN` secret (forwarded to `s3-upload.yml`'s `AWS_ROLE_ARN`); map it explicitly in the caller.
+
+```yaml
+jobs:
+  pipeline:
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/go-release.yml@v1
+    with:
+      enable_gitops_artifacts: true
+      s3_uploads: |
+        [
+          {
+            "s3_bucket": "lerian-migration-files",
+            "file_pattern": "components/ledger/migrations/onboarding/*.sql",
+            "s3_prefix": "ledger/onboarding/postgresql"
+          },
+          {
+            "s3_bucket": "lerian-migration-files",
+            "file_pattern": "components/ledger/migrations/transaction/*.sql",
+            "s3_prefix": "ledger/transaction/postgresql"
+          }
+        ]
+    secrets:
+      MANAGE_TOKEN: ${{ secrets.MANAGE_TOKEN }}
+      AWS_MIGRATIONS_ROLE_ARN: ${{ secrets.AWS_MIGRATIONS_ROLE_ARN }}
+```
+
 ## Permissions
 
 The single caller job must grant the union of what the internal jobs need: `id-token: write`, `contents: write`, `packages: write`, `pull-requests: write`, `issues: write`.
@@ -111,4 +143,5 @@ The single caller job must grant the union of what the internal jobs need: `id-t
 - [release](./release-workflow.md) — semantic-release pipeline this umbrella calls
 - [build](./build-workflow.md) — container build & push this umbrella calls
 - [gitops-update](./gitops-update-workflow.md) — GitOps update this umbrella calls
+- [s3-upload](./s3-upload.md) — optional post-build S3 upload this umbrella calls
 - [go-pr-validation](./go-pr-validation.md) — the matching PR validation umbrella
