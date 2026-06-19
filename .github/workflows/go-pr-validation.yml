@@ -235,7 +235,7 @@ jobs:
       - name: Aggregate Go Analysis result
         uses: LerianStudio/github-actions-shared-workflows/src/validate/result-gate@v1
         with:
-          result: ${{ needs.go-analysis.result }}
+          result: ${{ needs.changes.result != 'success' && needs.changes.result || needs.go-analysis.result }}
           label: Go Analysis
 
   # ----------------- Security Scan -----------------
@@ -261,7 +261,7 @@ jobs:
       - name: Aggregate security result
         uses: LerianStudio/github-actions-shared-workflows/src/validate/result-gate@v1
         with:
-          result: ${{ needs.security.result }}
+          result: ${{ needs.changes.result != 'success' && needs.changes.result || needs.security.result }}
           label: Security
 
   # ----------------- Lerian Library Version Check -----------------
@@ -287,5 +287,5 @@ jobs:
       - name: Aggregate Lib Version result
         uses: LerianStudio/github-actions-shared-workflows/src/validate/result-gate@v1
         with:
-          result: ${{ needs.lib-version.result }}
+          result: ${{ needs.changes.result != 'success' && needs.changes.result || needs.lib-version.result }}
           label: Lib Version
