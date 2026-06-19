@@ -35,7 +35,7 @@ A third layout needs `release_single_app: true`: **one semantic-release tag for 
 | `enable_dockerhub` | Push image to DockerHub | boolean | `true` |
 | `enable_ghcr` | Push image to GitHub Container Registry (requires `MANAGE_TOKEN`) | boolean | `true` |
 | `enable_gitops_artifacts` | Upload GitOps artifacts for the downstream update | boolean | `false` |
-| `app_name` | Override app/image name (single-app mode) | string | `''` (repo name) |
+| `app_name` | Override app/image name (build single-app mode + gitops deploy name). Empty → gitops name derives from `app_name_prefix`, then repo name | string | `''` |
 | `docker_build_args` | Newline-separated Docker build args | string | `''` |
 | `enable_cosign_sign` | Sign images with cosign keyless (OIDC) | boolean | `true` |
 | `app_name_prefix` | Prefix for app names in monorepo (e.g. `midaz` -> `midaz-agent`) | string | `''` |
@@ -50,11 +50,11 @@ A third layout needs `release_single_app: true`: **one semantic-release tag for 
 | `extra_builds` | JSON array of additional build groups, each forwarded to `build.yml` with its own config; all feed the single gitops-update (see [Multiple build groups](#multiple-build-groups)) | string | `''` |
 | `enable_gitops_update` | Run the gitops-update job on tag push | boolean | `true` |
 | `gitops_repository` | GitOps repository to update (org/repo) | string | `LerianStudio/midaz-firmino-gitops` |
-| `gitops_artifact_pattern` | Pattern to download GitOps artifacts | string | `''` |
+| `gitops_artifact_pattern` | Pattern to download GitOps artifacts. Empty → `gitops-tags-<repo-name>*` | string | `''` |
 | `gitops_yaml_key_mappings` | JSON mapping of artifact names to YAML keys | string | `''` |
 | `gitops_runner_type` | Runner for the gitops-update (deploy) job (needs cluster access) | string | `firmino-lxc-runners` |
 | `enable_argocd_sync` | Trigger ArgoCD sync after updating the GitOps repo | boolean | `true` |
-| `commit_message_prefix` | Prefix for the GitOps commit message (defaults to repo name when empty) | string | `''` |
+| `commit_message_prefix` | Prefix for the GitOps commit message. Empty → `app_name_prefix`, then repo name | string | `''` |
 | `deploy_in_firmino` | Force-off override for Firmino; set `false` to suppress deployment even when the manifest includes the app | boolean | `true` |
 | `deploy_in_clotilde` | Force-off override for Clotilde; set `false` to suppress deployment even when the manifest includes the app | boolean | `true` |
 | `use_dynamic_mapping` | Use dynamic artifact-to-YAML key mapping | boolean | `false` |
@@ -63,6 +63,8 @@ A third layout needs `release_single_app: true`: **one semantic-release tag for 
 | `shared_paths` | Path patterns that trigger a release/build for all components | string | `''` |
 | `filter_paths` | Path prefixes to filter (empty = single-app repo) | string | `''` |
 | `release_single_app` | Force single-app mode for the release job even when `filter_paths` is set (one version tag, many images) | boolean | `false` |
+
+> **Derived gitops defaults** — to slim down gitops/helm plugin callers, three gitops-update inputs derive from `app_name_prefix` / the repo name when left unset: `commit_message_prefix` → `app_name_prefix`; the gitops deploy `app_name` → `app_name_prefix`; `gitops_artifact_pattern` → `gitops-tags-<repo-name>*`. Set any of them explicitly to override (e.g. a repo whose deploy app name differs from its `app_name_prefix`, or a monorepo needing a different artifact suffix). All derivations fall back to the repository name when `app_name_prefix` is also empty, preserving the previous behavior.
 
 ## Secrets
 
