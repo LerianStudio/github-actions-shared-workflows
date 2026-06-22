@@ -293,6 +293,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          persist-credentials: false
 
       - name: Determine environment folder from tag
         id: env
@@ -303,7 +305,7 @@ jobs:
             FOLDER="development"
           elif [[ "$TAG" == *-rc* ]]; then
             FOLDER="staging"
-          elif [[ "$TAG" =~ ^v?[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+          elif [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
             FOLDER="production"
           else
             FOLDER=""
