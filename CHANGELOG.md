@@ -1,5 +1,17 @@
 # Github-actions-shared-workflows Changelog
 
+## [1.36.5](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.36.5)
+
+- Fixes:
+  - Forward `filter_paths` and `path_level` to security scan in `go-pr-validation`.
+  - Correct release process from `develop` to `main`.
+
+Contributors: @bedatty, @lerian-studio
+
+[Compare changes](https://github.com/LerianStudio/github-actions-shared-workflows/compare/v1.36.4...v1.36.5)
+
+---
+
 ## [1.36.4](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.36.4)
 
 - Fixes:
