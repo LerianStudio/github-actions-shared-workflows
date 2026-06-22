@@ -106,8 +106,8 @@ on:
         default: ''
       path_level:
         description: 'Directory depth level to extract the component name from filter_paths'
-        type: string
-        default: '2'
+        type: number
+        default: 2
       coverage_threshold:
         description: 'Minimum coverage percentage required (0-100)'
         type: number
