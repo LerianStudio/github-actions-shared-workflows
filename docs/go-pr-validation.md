@@ -40,7 +40,7 @@ The `go-analysis`, `security` and `lib-version` pipelines each have a `*-gate` a
 | `golangci_lint_version` | GolangCI-Lint version | string | `v1.62.2` |
 | `golangci_lint_args` | Extra arguments passed to golangci-lint (e.g. `--timeout=5m`) | string | `--timeout=5m` |
 | `app_name_prefix` | Prefix used to namespace coverage/build artifacts | string | `''` |
-| `filter_paths` | Newline-separated component path prefixes for monorepo per-component analysis (lint/tests/coverage); empty = single-app root analysis | string | `''` |
+| `filter_paths` | Newline-separated component path prefixes for monorepo per-component analysis (lint/tests/coverage) **and** security scanning; empty = single-app root run. When using it for security, leave `dockerfile_path` empty so each component Dockerfile is discovered | string | `''` |
 | `path_level` | Directory depth level to extract the component name from `filter_paths` | number | `2` |
 | `coverage_threshold` | Minimum coverage percentage (0-100) | number | `80` |
 | `fail_on_coverage_threshold` | Fail when coverage is below threshold | boolean | `true` |

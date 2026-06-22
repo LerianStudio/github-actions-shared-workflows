@@ -101,7 +101,7 @@ on:
         type: string
         default: ''
       filter_paths:
-        description: 'Newline-separated component path prefixes for monorepo per-component analysis. Empty = single-app root analysis.'
+        description: 'Newline-separated component path prefixes for monorepo per-component analysis and security scanning. Empty = single-app root run. When set for the security scan, leave dockerfile_path empty so each component Dockerfile is discovered.'
         type: string
         default: ''
       path_level:
@@ -269,6 +269,8 @@ jobs:
       dockerfile_path: ${{ inputs.dockerfile_path }}
       enable_codeql: ${{ inputs.enable_codeql }}
       codeql_languages: ${{ inputs.codeql_languages }}
+      filter_paths: ${{ inputs.filter_paths }}
+      path_level: ${{ format('{0}', inputs.path_level) }}
       shared_paths: ${{ inputs.shared_paths }}
     secrets: inherit
 
