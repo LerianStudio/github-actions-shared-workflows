@@ -127,9 +127,9 @@ jobs:
 
 ## S3 migrations upload
 
-Set `s3_uploads` to a JSON array to upload files (e.g. SQL migrations) to S3 on tag push, after `build` succeeds. Each entry runs as a parallel [s3-upload](./s3-upload.md) matrix leg and is independent of the gitops update (it reads repo files, not build artifacts). Per-entry keys: `s3_bucket` (required), `file_pattern` (required), `s3_prefix` (optional), `strip_prefix` (optional — removes that prefix from the source path so keys land under `s3_prefix` directly), and `flatten` (optional, defaults to `true`; set `false` to preserve the directory structure). The target environment folder is auto-detected from the tag (`-beta.` → development, `-rc.` → staging, `vX.Y.Z` → production).
+Set `s3_uploads` to a JSON array to upload files (e.g. SQL migrations) to S3 on tag push, after `build` succeeds. All entries are processed sequentially inside a single `s3_upload` job (this avoids a GitHub Actions limitation where a `matrix` over a reusable-workflow `uses:` call is not instantiated in a nested reusable-workflow context), independent of the gitops update (it reads repo files, not build artifacts). Per-entry keys: `s3_bucket` (required), `file_pattern` (required), `s3_prefix` (optional), `strip_prefix` (optional — removes that prefix from the source path so keys land under `s3_prefix` directly), and `flatten` (optional, defaults to `true`; set `false` to preserve the directory structure). The target environment folder is auto-detected from the tag (`-beta` → development, `-rc` → staging, `vX.Y.Z` → production).
 
-All entries share the `AWS_MIGRATIONS_ROLE_ARN` secret (forwarded to `s3-upload.yml`'s `AWS_ROLE_ARN`); map it explicitly in the caller.
+The job assumes the `AWS_MIGRATIONS_ROLE_ARN` secret via OIDC (region `us-east-2`); map it explicitly in the caller.
 ## ApiDog E2E tests
 
 Set `enable_apidog_e2e: true` to run [api-dog-e2e-tests](./api-dog-e2e-tests-workflow.md) on tag push after a successful `update_gitops`. The job is skipped on branch pushes and when the gitops update did not succeed.
@@ -214,6 +214,6 @@ The single caller job must grant the union of what the internal jobs need: `id-t
 - [release](./release-workflow.md) — semantic-release pipeline this umbrella calls
 - [build](./build-workflow.md) — container build & push this umbrella calls
 - [gitops-update](./gitops-update-workflow.md) — GitOps update this umbrella calls
-- [s3-upload](./s3-upload.md) — optional post-build S3 upload this umbrella calls
+- [s3-upload](./s3-upload.md) — standalone S3 upload reusable workflow (the umbrella performs the equivalent upload inline via `s3_uploads`)
 - [api-dog-e2e-tests](./api-dog-e2e-tests-workflow.md) — optional post-gitops E2E tests this umbrella calls
 - [go-pr-validation](./go-pr-validation.md) — the matching PR validation umbrella

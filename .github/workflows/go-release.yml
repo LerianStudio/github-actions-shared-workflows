@@ -283,25 +283,98 @@ jobs:
 
   # ----------------- S3 Upload (tag push, post-build, opt-in) -----------------
   s3_upload:
+    name: S3 Upload
     needs: [build]
     if: github.ref_type == 'tag' && inputs.s3_uploads != '' && needs.build.result == 'success'
+    runs-on: ${{ inputs.runner_type }}
     permissions:
       id-token: write
       contents: read
-    strategy:
-      fail-fast: false
-      matrix:
-        upload: ${{ fromJson(inputs.s3_uploads) }}
-    uses: ./.github/workflows/s3-upload.yml
-    with:
-      runner_type: ${{ inputs.runner_type }}
-      s3_bucket: ${{ matrix.upload.s3_bucket }}
-      file_pattern: ${{ matrix.upload.file_pattern }}
-      s3_prefix: ${{ matrix.upload.s3_prefix }}
-      strip_prefix: ${{ matrix.upload.strip_prefix }}
-      flatten: ${{ toJSON(matrix.upload.flatten) == 'false' && 'false' || 'true' }}
-    secrets:
-      AWS_ROLE_ARN: ${{ secrets.AWS_MIGRATIONS_ROLE_ARN }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          persist-credentials: false
+
+      - name: Determine environment folder from tag
+        id: env
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF#refs/tags/}"
+          if [[ "$TAG" == *-beta* ]]; then
+            FOLDER="development"
+          elif [[ "$TAG" == *-rc* ]]; then
+            FOLDER="staging"
+          elif [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            FOLDER="production"
+          else
+            FOLDER=""
+          fi
+          echo "folder=${FOLDER}" >> "$GITHUB_OUTPUT"
+          [[ -n "$FOLDER" ]] && echo "📁 Environment: ${FOLDER}" || echo "::warning::Tag '${TAG}' matched no environment — S3 upload skipped."
+
+      - name: Configure AWS credentials
+        if: steps.env.outputs.folder != ''
+        uses: aws-actions/configure-aws-credentials@e7f100cf4c008499ea8adda475de1042d6975c7b # v6.2.0
+        with:
+          role-to-assume: ${{ secrets.AWS_MIGRATIONS_ROLE_ARN }}
+          aws-region: us-east-2
+
+      - name: Upload files to S3
+        if: steps.env.outputs.folder != ''
+        env:
+          S3_UPLOADS: ${{ inputs.s3_uploads }}
+          FOLDER: ${{ steps.env.outputs.folder }}
+        run: |
+          set -euo pipefail
+
+          mapfile -t ENTRIES < <(printf '%s' "$S3_UPLOADS" | jq -c '.[]')
+          if [[ ${#ENTRIES[@]} -eq 0 ]]; then
+            echo "::warning::s3_uploads is empty — nothing to upload."
+            exit 0
+          fi
+
+          for entry in "${ENTRIES[@]}"; do
+            BUCKET=$(printf '%s' "$entry" | jq -r '.s3_bucket')
+            PATTERN=$(printf '%s' "$entry" | jq -r '.file_pattern')
+            PREFIX=$(printf '%s' "$entry" | jq -r '.s3_prefix // ""')
+            STRIP_PREFIX=$(printf '%s' "$entry" | jq -r '.strip_prefix // ""')
+            FLATTEN=$(printf '%s' "$entry" | jq -r 'if .flatten == false then "false" else "true" end')
+
+            if [[ -z "$BUCKET" || "$BUCKET" == "null" || -z "$PATTERN" || "$PATTERN" == "null" ]]; then
+              echo "::error::Each s3_uploads entry requires s3_bucket and file_pattern. Got: ${entry}"
+              exit 1
+            fi
+
+            if [[ -n "$PREFIX" ]]; then
+              S3_PATH="s3://${BUCKET}/${FOLDER}/${PREFIX}/"
+            else
+              S3_PATH="s3://${BUCKET}/${FOLDER}/"
+            fi
+
+            echo "Uploading '${PATTERN}' -> ${S3_PATH} (flatten=${FLATTEN}, strip_prefix=${STRIP_PREFIX:-<none>})"
+            shopt -s nullglob
+            FILE_COUNT=0
+            for file in $PATTERN; do
+              if [[ "$FLATTEN" == "true" ]]; then
+                aws s3 cp "$file" "${S3_PATH}"
+              elif [[ -n "$STRIP_PREFIX" ]]; then
+                DEST_PATH="${file#"$STRIP_PREFIX"/}"
+                aws s3 cp "$file" "${S3_PATH}${DEST_PATH}"
+              else
+                aws s3 cp "$file" "${S3_PATH}${file}"
+              fi
+              FILE_COUNT=$((FILE_COUNT + 1))
+            done
+            shopt -u nullglob
+
+            if [[ $FILE_COUNT -eq 0 ]]; then
+              echo "::error::No files matched pattern: ${PATTERN}"
+              exit 1
+            fi
+            echo "::notice::Uploaded ${FILE_COUNT} file(s) to ${S3_PATH}"
+          done
+
   # ----------------- Extra Builds (tag push, opt-in) -----------------
   extra_build:
     if: github.ref_type == 'tag' && inputs.extra_builds != ''
