@@ -100,6 +100,14 @@ on:
         description: 'Prefix used to namespace coverage/build artifacts'
         type: string
         default: ''
+      filter_paths:
+        description: 'Newline-separated component path prefixes for monorepo per-component analysis. Empty = single-app root analysis.'
+        type: string
+        default: ''
+      path_level:
+        description: 'Directory depth level to extract the component name from filter_paths'
+        type: number
+        default: 2
       coverage_threshold:
         description: 'Minimum coverage percentage required (0-100)'
         type: number
@@ -226,6 +234,8 @@ jobs:
       golangci_lint_version: ${{ inputs.golangci_lint_version }}
       golangci_lint_args: ${{ inputs.golangci_lint_args }}
       app_name_prefix: ${{ inputs.app_name_prefix }}
+      filter_paths: ${{ inputs.filter_paths }}
+      path_level: ${{ inputs.path_level }}
       coverage_threshold: ${{ inputs.coverage_threshold }}
       fail_on_coverage_threshold: ${{ inputs.fail_on_coverage_threshold }}
       go_private_modules: ${{ inputs.go_private_modules }}
