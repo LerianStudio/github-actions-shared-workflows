@@ -1,5 +1,21 @@
 # Github-actions-shared-workflows Changelog
 
+## [1.36.6](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.36.6)
+
+- Fixes:
+  - Fixed the release process by merging `develop` into `main` (#477).
+  - Modified `go-release` to run `s3_upload` inline instead of using a matrix over a reusable workflow (#476).
+  - Hardened `s3_upload` checkout and tightened the production tag regex in `go-release`.
+
+- Improvements:
+  - Updated CHANGELOGs for `github-actions-shared-workflows`:`v1.36.5` [skip ci].
+
+Contributors: @bedatty, @lerian-studio.
+
+[Compare changes](https://github.com/LerianStudio/github-actions-shared-workflows/compare/v1.36.5...v1.36.6)
+
+---
+
 ## [1.36.5](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.36.5)
 
 - Fixes:
