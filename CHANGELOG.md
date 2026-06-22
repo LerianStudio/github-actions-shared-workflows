@@ -1,5 +1,18 @@
 # Github-actions-shared-workflows Changelog
 
+## [1.36.4](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.36.4)
+
+- Fixes:
+  - Fix release process by merging `develop` into `main` (#468).
+  - Expose and forward `filter_paths` and `path_level` in `go-pr-validation` (#467).
+  - Type `path_level` as a number to match `go-pr-analysis`.
+
+Contributors: @bedatty, @lerian-studio
+
+[Compare changes](https://github.com/LerianStudio/github-actions-shared-workflows/compare/v1.36.3...v1.36.4)
+
+---
+
 ## [1.36.3](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.36.3)
 
 - Fixes:
