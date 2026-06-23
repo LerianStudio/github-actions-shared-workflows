@@ -219,8 +219,16 @@ jobs:
           SCRIPTS_PATH: ${{ inputs.scripts_path }}
         run: |
           cd "${SCRIPTS_PATH}" || exit 1
-          go build -o update-readme-matrix update-readme-matrix.go
-          go build -o update-chart-version-readme update-chart-version-readme.go
+          # Support both the legacy flat layout (update-readme-matrix.go) and the
+          # package-directory layout (update-readme-matrix/main.go). The "-bin"
+          # suffix avoids a name collision with the package directory.
+          for s in update-readme-matrix update-chart-version-readme; do
+            if [ -d "$s" ]; then
+              go build -o "${s}-bin" "./${s}"
+            else
+              go build -o "${s}-bin" "${s}.go"
+            fi
+          done
 
       - name: Setup yq
         uses: mikefarah/yq@1b9b4ac5187171d2e5e3129be0cfa827c7f9d53d # v4
@@ -397,7 +405,7 @@ jobs:
 
             echo "Updating README matrix for ${COMP_NAME}@${COMP_VERSION}"
 
-            "./${SCRIPTS_PATH}/update-readme-matrix" \
+            "./${SCRIPTS_PATH}/update-readme-matrix-bin" \
               --chart "${CHART}" \
               --component "${COMP_NAME}" \
               --version "${COMP_VERSION}" \
