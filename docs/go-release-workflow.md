@@ -127,9 +127,24 @@ jobs:
 
 ## S3 migrations upload
 
-Set `s3_uploads` to a JSON array to upload files (e.g. SQL migrations) to S3 on tag push, after `build` succeeds. All entries are processed sequentially inside a single `s3_upload` job (this avoids a GitHub Actions limitation where a `matrix` over a reusable-workflow `uses:` call is not instantiated in a nested reusable-workflow context), independent of the gitops update (it reads repo files, not build artifacts). Per-entry keys: `s3_bucket` (required), `file_pattern` (required), `s3_prefix` (optional), `strip_prefix` (optional — removes that prefix from the source path so keys land under `s3_prefix` directly), and `flatten` (optional, defaults to `true`; set `false` to preserve the directory structure). The target environment folder is auto-detected from the tag (`-beta` → development, `-rc` → staging, `vX.Y.Z` → production).
+Set `s3_uploads` to a JSON array to upload files (e.g. SQL migrations) to S3 on tag push, after `build` succeeds. All entries are processed sequentially inside a single `s3_upload` job (this avoids a GitHub Actions limitation where a `matrix` over a reusable-workflow `uses:` call is not instantiated in a nested reusable-workflow context), independent of the gitops update (it reads repo files, not build artifacts). Per-entry keys: `s3_bucket` (required), `file_pattern` (required), `s3_prefix` (optional), `strip_prefix` (optional — removes that prefix from the source path so keys land under `s3_prefix` directly), `flatten` (optional, defaults to `true`; set `false` to preserve the directory structure), and `aws_role_arn` (optional — see per-entry role below). The target environment folder is auto-detected from the tag (`-beta` → development, `-rc` → staging, `vX.Y.Z` → production).
 
-The job assumes the `AWS_MIGRATIONS_ROLE_ARN` secret via OIDC (region `us-east-2`); map it explicitly in the caller.
+By default the job assumes the `AWS_MIGRATIONS_ROLE_ARN` secret via OIDC (region `us-east-2`); map it explicitly in the caller.
+
+### Per-entry IAM role
+
+To upload to buckets that require different IAM roles, set `aws_role_arn` on an entry to the **role ARN value** — resolve the secret in the caller and inline it into the JSON (GitHub Actions cannot look up a secret by a dynamic name). Entries with `aws_role_arn` assume that role via OIDC for their upload; entries without it use the default `AWS_MIGRATIONS_ROLE_ARN`. Each role referenced this way must have an OIDC trust policy that allows the **caller** repository (same prerequisite as the default role).
+
+```yaml
+secrets:
+  AWS_MIGRATIONS_ROLE_ARN: ${{ secrets.AWS_MIGRATIONS_ROLE_ARN }}
+with:
+  s3_uploads: |
+    [
+      { "s3_bucket": "lerian-migration-files", "file_pattern": "migrations/*.sql", "s3_prefix": "myapp/postgresql" },
+      { "s3_bucket": "lerian-casdoor-init-data", "file_pattern": "init/casdoor/*.json", "aws_role_arn": "${{ secrets.AWS_INIT_DATA_ROLE_ARN }}" }
+    ]
+```
 ## ApiDog E2E tests
 
 Set `enable_apidog_e2e: true` to run [api-dog-e2e-tests](./api-dog-e2e-tests-workflow.md) on tag push after a successful `update_gitops`. The job is skipped on branch pushes and when the gitops update did not succeed.
