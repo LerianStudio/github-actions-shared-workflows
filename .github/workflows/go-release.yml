@@ -141,14 +141,6 @@ on:
         description: 'Prefix for the GitOps commit message. When empty, falls back to app_name_prefix, then the repository name.'
         type: string
         default: ''
-      deploy_in_firmino:
-        description: 'Force-off override for Firmino. Set to false to suppress deployment even if the manifest includes this app on Firmino.'
-        type: boolean
-        default: true
-      deploy_in_clotilde:
-        description: 'Force-off override for Clotilde. Set to false to suppress deployment even if the manifest includes this app on Clotilde.'
-        type: boolean
-        default: true
       use_dynamic_mapping:
         description: 'Use dynamic artifact-to-YAML key mapping in gitops-update'
         type: boolean
@@ -476,8 +468,6 @@ jobs:
       deployment_matrix_ref: ${{ inputs.deployment_matrix_ref }}
       enable_argocd_sync: ${{ inputs.enable_argocd_sync }}
       commit_message_prefix: ${{ inputs.commit_message_prefix || inputs.app_name_prefix }}
-      deploy_in_firmino: ${{ inputs.deploy_in_firmino }}
-      deploy_in_clotilde: ${{ inputs.deploy_in_clotilde }}
       use_dynamic_mapping: ${{ inputs.use_dynamic_mapping }}
       configmap_updates: ${{ inputs.configmap_updates }}
       enable_docker_login: ${{ inputs.enable_docker_login }}
