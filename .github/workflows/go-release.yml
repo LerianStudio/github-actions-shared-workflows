@@ -126,9 +126,9 @@ on:
         type: string
         default: ''
       gitops_runner_type:
-        description: 'Runner for the gitops-update (deploy) job. Deploy needs cluster access, so this defaults to firmino-lxc-runners rather than the build runner.'
+        description: 'Runner for the gitops-update (deploy) job. Deploy needs cluster access, so this defaults to eveo-lxc-runners rather than the build runner.'
         type: string
-        default: 'firmino-lxc-runners'
+        default: 'eveo-lxc-runners'
       enable_argocd_sync:
         description: 'Trigger ArgoCD sync after updating the GitOps repository'
         type: boolean
@@ -169,9 +169,9 @@ on:
         type: boolean
         default: false
       apidog_runner_type:
-        description: 'Runner for the ApiDog E2E test job. Needs reach to the deployed environment, so it defaults to firmino-lxc-runners rather than the build runner.'
+        description: 'Runner for the ApiDog E2E test job. Needs reach to the deployed environment, so it defaults to eveo-lxc-runners rather than the build runner.'
         type: string
-        default: 'firmino-lxc-runners'
+        default: 'eveo-lxc-runners'
       apidog_auto_detect_environment:
         description: 'Auto-detect the ApiDog environment from the tag (beta -> dev, rc -> stg). When false, the manual APIDOG_ENVIRONMENT_ID secret is used.'
         type: boolean
