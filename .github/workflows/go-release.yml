@@ -104,7 +104,7 @@ on:
         type: string
         default: ''
       extra_builds:
-        description: 'JSON array of additional build groups, each forwarded to build.yml with its own config (filter_paths, path_level, app_name_overrides, build_context_from_working_dir, helm_*). Runs alongside the primary build on tag push; all groups feed the single gitops-update. Empty = one build only (default).'
+        description: 'JSON array of additional build groups, each forwarded to build.yml with its own config (filter_paths, path_level, normalize_to_filter, app_name_overrides, build_context_from_working_dir, helm_*). Runs alongside the primary build on tag push; all groups feed the single gitops-update. Empty = one build only (default).'
         type: string
         default: ''
 
@@ -437,6 +437,7 @@ jobs:
       filter_paths: ${{ matrix.group.filter_paths }}
       shared_paths: ${{ matrix.group.shared_paths || inputs.shared_paths }}
       path_level: ${{ matrix.group.path_level || inputs.path_level }}
+      normalize_to_filter: ${{ toJSON(matrix.group.normalize_to_filter) == 'false' && 'false' || 'true' }}
       app_name: ${{ matrix.group.app_name }}
       app_name_prefix: ${{ matrix.group.app_name_prefix }}
       app_name_overrides: ${{ matrix.group.app_name_overrides }}
