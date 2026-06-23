@@ -104,7 +104,7 @@ on:
         type: string
         default: ''
       extra_builds:
-        description: 'JSON array of additional build groups, each forwarded to build.yml with its own config (filter_paths, path_level, app_name_overrides, build_context_from_working_dir, helm_*). Runs alongside the primary build on tag push; all groups feed the single gitops-update. Empty = one build only (default).'
+        description: 'JSON array of additional build groups, each forwarded to build.yml with its own config (filter_paths, path_level, normalize_to_filter, app_name_overrides, build_context_from_working_dir, helm_*). Runs alongside the primary build on tag push; all groups feed the single gitops-update. Empty = one build only (default).'
         type: string
         default: ''
 
@@ -126,9 +126,9 @@ on:
         type: string
         default: ''
       gitops_runner_type:
-        description: 'Runner for the gitops-update (deploy) job. Deploy needs cluster access, so this defaults to firmino-lxc-runners rather than the build runner.'
+        description: 'Runner for the gitops-update (deploy) job. Deploy needs cluster access, so this defaults to eveo-lxc-runners rather than the build runner.'
         type: string
-        default: 'firmino-lxc-runners'
+        default: 'eveo-lxc-runners'
       enable_argocd_sync:
         description: 'Trigger ArgoCD sync after updating the GitOps repository'
         type: boolean
@@ -169,9 +169,9 @@ on:
         type: boolean
         default: false
       apidog_runner_type:
-        description: 'Runner for the ApiDog E2E test job. Needs reach to the deployed environment, so it defaults to firmino-lxc-runners rather than the build runner.'
+        description: 'Runner for the ApiDog E2E test job. Needs reach to the deployed environment, so it defaults to eveo-lxc-runners rather than the build runner.'
         type: string
-        default: 'firmino-lxc-runners'
+        default: 'eveo-lxc-runners'
       apidog_auto_detect_environment:
         description: 'Auto-detect the ApiDog environment from the tag (beta -> dev, rc -> stg). When false, the manual APIDOG_ENVIRONMENT_ID secret is used.'
         type: boolean
@@ -325,36 +325,20 @@ jobs:
         env:
           S3_UPLOADS: ${{ inputs.s3_uploads }}
           FOLDER: ${{ steps.env.outputs.folder }}
+          AWS_REGION: us-east-2
         run: |
           set -euo pipefail
 
-          mapfile -t ENTRIES < <(printf '%s' "$S3_UPLOADS" | jq -c '.[]')
-          if [[ ${#ENTRIES[@]} -eq 0 ]]; then
-            echo "::warning::s3_uploads is empty — nothing to upload."
-            exit 0
-          fi
-
-          for entry in "${ENTRIES[@]}"; do
-            BUCKET=$(printf '%s' "$entry" | jq -r '.s3_bucket')
-            PATTERN=$(printf '%s' "$entry" | jq -r '.file_pattern')
-            PREFIX=$(printf '%s' "$entry" | jq -r '.s3_prefix // ""')
-            STRIP_PREFIX=$(printf '%s' "$entry" | jq -r '.strip_prefix // ""')
-            FLATTEN=$(printf '%s' "$entry" | jq -r 'if .flatten == false then "false" else "true" end')
-
-            if [[ -z "$BUCKET" || "$BUCKET" == "null" || -z "$PATTERN" || "$PATTERN" == "null" ]]; then
-              echo "::error::Each s3_uploads entry requires s3_bucket and file_pattern. Got: ${entry}"
-              exit 1
-            fi
-
+          upload_entry() {
+            local BUCKET="$1" PATTERN="$2" PREFIX="$3" STRIP_PREFIX="$4" FLATTEN="$5"
+            local S3_PATH file DEST_PATH FILE_COUNT=0
             if [[ -n "$PREFIX" ]]; then
               S3_PATH="s3://${BUCKET}/${FOLDER}/${PREFIX}/"
             else
               S3_PATH="s3://${BUCKET}/${FOLDER}/"
             fi
-
             echo "Uploading '${PATTERN}' -> ${S3_PATH} (flatten=${FLATTEN}, strip_prefix=${STRIP_PREFIX:-<none>})"
             shopt -s nullglob
-            FILE_COUNT=0
             for file in $PATTERN; do
               if [[ "$FLATTEN" == "true" ]]; then
                 aws s3 cp "$file" "${S3_PATH}"
@@ -367,12 +351,67 @@ jobs:
               FILE_COUNT=$((FILE_COUNT + 1))
             done
             shopt -u nullglob
-
             if [[ $FILE_COUNT -eq 0 ]]; then
               echo "::error::No files matched pattern: ${PATTERN}"
-              exit 1
+              return 1
             fi
             echo "::notice::Uploaded ${FILE_COUNT} file(s) to ${S3_PATH}"
+          }
+
+          assume_role() {
+            local role_arn="$1" token
+            token=$(curl -sS -H "Authorization: bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
+              "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=sts.amazonaws.com" | jq -r '.value')
+            aws sts assume-role-with-web-identity \
+              --role-arn "$role_arn" \
+              --role-session-name go-release-s3-upload \
+              --web-identity-token "$token" \
+              --duration-seconds 3600 \
+              --query 'Credentials.[AccessKeyId,SecretAccessKey,SessionToken]' \
+              --output text
+          }
+
+          if ! PARSED_ENTRIES=$(printf '%s' "$S3_UPLOADS" | jq -c 'if type == "array" then .[] else error("s3_uploads must be a JSON array") end'); then
+            echo "::error::s3_uploads must be a valid JSON array."
+            exit 1
+          fi
+          mapfile -t ENTRIES < <(printf '%s' "$PARSED_ENTRIES")
+          if [[ ${#ENTRIES[@]} -eq 0 ]]; then
+            echo "::warning::s3_uploads is empty — nothing to upload."
+            exit 0
+          fi
+
+          for entry in "${ENTRIES[@]}"; do
+            BUCKET=$(printf '%s' "$entry" | jq -r '.s3_bucket')
+            PATTERN=$(printf '%s' "$entry" | jq -r '.file_pattern')
+            PREFIX=$(printf '%s' "$entry" | jq -r '.s3_prefix // ""')
+            STRIP_PREFIX=$(printf '%s' "$entry" | jq -r '.strip_prefix // ""')
+            FLATTEN=$(printf '%s' "$entry" | jq -r 'if .flatten == false then "false" else "true" end')
+            ROLE_ARN=$(printf '%s' "$entry" | jq -r '.aws_role_arn // ""')
+
+            if [[ -z "$BUCKET" || "$BUCKET" == "null" || -z "$PATTERN" || "$PATTERN" == "null" ]]; then
+              echo "::error::Each s3_uploads entry requires s3_bucket and file_pattern. Got: ${entry}"
+              exit 1
+            fi
+
+            if [[ -n "$ROLE_ARN" && "$ROLE_ARN" != "null" ]]; then
+              (
+                set -euo pipefail
+                CREDS=$(assume_role "$ROLE_ARN")
+                AK=$(printf '%s' "$CREDS" | cut -f1)
+                SK=$(printf '%s' "$CREDS" | cut -f2)
+                ST=$(printf '%s' "$CREDS" | cut -f3)
+                if [[ -z "$AK" || -z "$SK" || -z "$ST" ]]; then
+                  echo "::error::Failed to assume role for s3 upload: ${ROLE_ARN}"
+                  exit 1
+                fi
+                echo "::add-mask::$AK"; echo "::add-mask::$SK"; echo "::add-mask::$ST"
+                export AWS_ACCESS_KEY_ID="$AK" AWS_SECRET_ACCESS_KEY="$SK" AWS_SESSION_TOKEN="$ST"
+                upload_entry "$BUCKET" "$PATTERN" "$PREFIX" "$STRIP_PREFIX" "$FLATTEN"
+              )
+            else
+              upload_entry "$BUCKET" "$PATTERN" "$PREFIX" "$STRIP_PREFIX" "$FLATTEN"
+            fi
           done
 
   # ----------------- Extra Builds (tag push, opt-in) -----------------
@@ -398,6 +437,7 @@ jobs:
       filter_paths: ${{ matrix.group.filter_paths }}
       shared_paths: ${{ matrix.group.shared_paths || inputs.shared_paths }}
       path_level: ${{ matrix.group.path_level || inputs.path_level }}
+      normalize_to_filter: ${{ toJSON(matrix.group.normalize_to_filter) == 'false' && 'false' || 'true' }}
       app_name: ${{ matrix.group.app_name }}
       app_name_prefix: ${{ matrix.group.app_name_prefix }}
       app_name_overrides: ${{ matrix.group.app_name_overrides }}

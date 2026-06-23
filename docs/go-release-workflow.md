@@ -52,7 +52,7 @@ A third layout needs `release_single_app: true`: **one semantic-release tag for 
 | `gitops_repository` | GitOps repository to update (org/repo) | string | `LerianStudio/midaz-firmino-gitops` |
 | `gitops_artifact_pattern` | Pattern to download GitOps artifacts. Empty → `gitops-tags-<repo-name>*` | string | `''` |
 | `gitops_yaml_key_mappings` | JSON mapping of artifact names to YAML keys | string | `''` |
-| `gitops_runner_type` | Runner for the gitops-update (deploy) job (needs cluster access) | string | `firmino-lxc-runners` |
+| `gitops_runner_type` | Runner for the gitops-update (deploy) job (needs cluster access) | string | `eveo-lxc-runners` |
 | `enable_argocd_sync` | Trigger ArgoCD sync after updating the GitOps repo | boolean | `true` |
 | `commit_message_prefix` | Prefix for the GitOps commit message. Empty → `app_name_prefix`, then repo name | string | `''` |
 | `deploy_in_firmino` | Force-off override for Firmino; set `false` to suppress deployment even when the manifest includes the app | boolean | `true` |
@@ -62,7 +62,7 @@ A third layout needs `release_single_app: true`: **one semantic-release tag for 
 | `enable_docker_login` | Log in to DockerHub in the gitops-update job | boolean | `false` |
 | `s3_uploads` | JSON array of S3 upload entries run after build on tag push (see [S3 migrations upload](#s3-migrations-upload)) | string | `''` |
 | `enable_apidog_e2e` | Run the ApiDog E2E test job on tag push after a successful gitops-update | boolean | `false` |
-| `apidog_runner_type` | Runner for the ApiDog E2E test job (needs reach to the deployed environment) | string | `firmino-lxc-runners` |
+| `apidog_runner_type` | Runner for the ApiDog E2E test job (needs reach to the deployed environment) | string | `eveo-lxc-runners` |
 | `apidog_auto_detect_environment` | Auto-detect the ApiDog environment from the tag (beta → dev, rc → stg); when `false`, uses `APIDOG_ENVIRONMENT_ID` | boolean | `true` |
 | `shared_paths` | Path patterns that trigger a release/build for all components | string | `''` |
 | `filter_paths` | Path prefixes to filter (empty = single-app repo) | string | `''` |
@@ -127,9 +127,24 @@ jobs:
 
 ## S3 migrations upload
 
-Set `s3_uploads` to a JSON array to upload files (e.g. SQL migrations) to S3 on tag push, after `build` succeeds. All entries are processed sequentially inside a single `s3_upload` job (this avoids a GitHub Actions limitation where a `matrix` over a reusable-workflow `uses:` call is not instantiated in a nested reusable-workflow context), independent of the gitops update (it reads repo files, not build artifacts). Per-entry keys: `s3_bucket` (required), `file_pattern` (required), `s3_prefix` (optional), `strip_prefix` (optional — removes that prefix from the source path so keys land under `s3_prefix` directly), and `flatten` (optional, defaults to `true`; set `false` to preserve the directory structure). The target environment folder is auto-detected from the tag (`-beta` → development, `-rc` → staging, `vX.Y.Z` → production).
+Set `s3_uploads` to a JSON array to upload files (e.g. SQL migrations) to S3 on tag push, after `build` succeeds. All entries are processed sequentially inside a single `s3_upload` job (this avoids a GitHub Actions limitation where a `matrix` over a reusable-workflow `uses:` call is not instantiated in a nested reusable-workflow context), independent of the gitops update (it reads repo files, not build artifacts). Per-entry keys: `s3_bucket` (required), `file_pattern` (required), `s3_prefix` (optional), `strip_prefix` (optional — removes that prefix from the source path so keys land under `s3_prefix` directly), `flatten` (optional, defaults to `true`; set `false` to preserve the directory structure), and `aws_role_arn` (optional — see per-entry role below). The target environment folder is auto-detected from the tag (`-beta` → development, `-rc` → staging, `vX.Y.Z` → production).
 
-The job assumes the `AWS_MIGRATIONS_ROLE_ARN` secret via OIDC (region `us-east-2`); map it explicitly in the caller.
+By default the job assumes the `AWS_MIGRATIONS_ROLE_ARN` secret via OIDC (region `us-east-2`); map it explicitly in the caller.
+
+### Per-entry IAM role
+
+To upload to buckets that require different IAM roles, set `aws_role_arn` on an entry to the **role ARN value** — resolve the secret in the caller and inline it into the JSON (GitHub Actions cannot look up a secret by a dynamic name). Entries with `aws_role_arn` assume that role via OIDC for their upload; entries without it use the default `AWS_MIGRATIONS_ROLE_ARN`. Each role referenced this way must have an OIDC trust policy that allows the **caller** repository (same prerequisite as the default role).
+
+```yaml
+secrets:
+  AWS_MIGRATIONS_ROLE_ARN: ${{ secrets.AWS_MIGRATIONS_ROLE_ARN }}
+with:
+  s3_uploads: |
+    [
+      { "s3_bucket": "lerian-migration-files", "file_pattern": "migrations/*.sql", "s3_prefix": "myapp/postgresql" },
+      { "s3_bucket": "lerian-casdoor-init-data", "file_pattern": "init/casdoor/*.json", "aws_role_arn": "${{ secrets.AWS_INIT_DATA_ROLE_ARN }}" }
+    ]
+```
 ## ApiDog E2E tests
 
 Set `enable_apidog_e2e: true` to run [api-dog-e2e-tests](./api-dog-e2e-tests-workflow.md) on tag push after a successful `update_gitops`. The job is skipped on branch pushes and when the gitops update did not succeed.
@@ -139,7 +154,7 @@ Because the underlying workflow expects fixed secret names (`test_scenario_id`, 
 
 By default `go-release` runs **one** `build.yml` call (driven by the top-level `filter_paths`/`app_name_*`/`build_context_from_working_dir` inputs) before the single `update_gitops`. Some repos ship images that need **different build configs in the same release** — e.g. an app + workers built from the repo root, plus a tool/mock image built with `build_context_from_working_dir: true`. These cannot be merged into one `build.yml` call.
 
-Set `extra_builds` to a JSON array of build groups. Each group runs a parallel `build.yml` matrix leg alongside the primary build, and every group uploads its GitOps tag artifacts into the same run, so the single `update_gitops` aggregates all of them. Per-group keys (all optional except `filter_paths`): `filter_paths`, `shared_paths`, `path_level`, `app_name`, `app_name_prefix`, `app_name_overrides`, `build_context_from_working_dir`, `docker_build_args`, `enable_gitops_artifacts` (defaults to `true`), `enable_helm_dispatch`, `helm_chart`, `helm_detect_env_changes`, `helm_values_key_mappings`. Registry/cosign/runner settings are inherited from the top-level inputs.
+Set `extra_builds` to a JSON array of build groups. Each group runs a parallel `build.yml` matrix leg alongside the primary build, and every group uploads its GitOps tag artifacts into the same run, so the single `update_gitops` aggregates all of them. Per-group keys (all optional except `filter_paths`): `filter_paths`, `shared_paths`, `path_level`, `normalize_to_filter` (defaults to `true`; set `false` to disable normalizing changed paths to their filter path), `app_name`, `app_name_prefix`, `app_name_overrides`, `build_context_from_working_dir`, `docker_build_args`, `enable_gitops_artifacts` (defaults to `true`), `enable_helm_dispatch`, `helm_chart`, `helm_detect_env_changes`, `helm_values_key_mappings`. Registry/cosign/runner settings are inherited from the top-level inputs.
 
 > **Important** — `update_gitops` downloads artifacts by `gitops_artifact_pattern` (default `gitops-tags-<repo-name>*`). When an extra build produces an image whose name does **not** start with the repo name (e.g. `mock-btg-server`), set `gitops_artifact_pattern` to a wildcard that captures every image (e.g. `gitops-tags-*`), otherwise that image's tag artifact is skipped.
 
