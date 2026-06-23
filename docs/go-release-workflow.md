@@ -52,7 +52,7 @@ A third layout needs `release_single_app: true`: **one semantic-release tag for 
 | `gitops_repository` | GitOps repository to update (org/repo) | string | `LerianStudio/midaz-firmino-gitops` |
 | `gitops_artifact_pattern` | Pattern to download GitOps artifacts. Empty → `gitops-tags-<repo-name>*` | string | `''` |
 | `gitops_yaml_key_mappings` | JSON mapping of artifact names to YAML keys | string | `''` |
-| `gitops_runner_type` | Runner for the gitops-update (deploy) job (needs cluster access) | string | `firmino-lxc-runners` |
+| `gitops_runner_type` | Runner for the gitops-update (deploy) job (needs cluster access) | string | `eveo-lxc-runners` |
 | `enable_argocd_sync` | Trigger ArgoCD sync after updating the GitOps repo | boolean | `true` |
 | `commit_message_prefix` | Prefix for the GitOps commit message. Empty → `app_name_prefix`, then repo name | string | `''` |
 | `deploy_in_firmino` | Force-off override for Firmino; set `false` to suppress deployment even when the manifest includes the app | boolean | `true` |
@@ -62,7 +62,7 @@ A third layout needs `release_single_app: true`: **one semantic-release tag for 
 | `enable_docker_login` | Log in to DockerHub in the gitops-update job | boolean | `false` |
 | `s3_uploads` | JSON array of S3 upload entries run after build on tag push (see [S3 migrations upload](#s3-migrations-upload)) | string | `''` |
 | `enable_apidog_e2e` | Run the ApiDog E2E test job on tag push after a successful gitops-update | boolean | `false` |
-| `apidog_runner_type` | Runner for the ApiDog E2E test job (needs reach to the deployed environment) | string | `firmino-lxc-runners` |
+| `apidog_runner_type` | Runner for the ApiDog E2E test job (needs reach to the deployed environment) | string | `eveo-lxc-runners` |
 | `apidog_auto_detect_environment` | Auto-detect the ApiDog environment from the tag (beta → dev, rc → stg); when `false`, uses `APIDOG_ENVIRONMENT_ID` | boolean | `true` |
 | `shared_paths` | Path patterns that trigger a release/build for all components | string | `''` |
 | `filter_paths` | Path prefixes to filter (empty = single-app repo) | string | `''` |
