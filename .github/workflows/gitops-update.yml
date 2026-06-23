@@ -8,13 +8,17 @@ on:
   workflow_call:
     inputs:
       gitops_repository:
-        description: 'GitOps repository to update (org/repo format)'
+        description: 'GitOps repository to update (org/repo format). Defaults to the GITOPS_REPOSITORY org-level variable when empty.'
         type: string
-        default: 'LerianStudio/midaz-firmino-gitops'
+        default: ''
       app_name:
         description: 'Application name (defaults to repository name if not provided)'
         type: string
         required: false
+      update_sandbox:
+        description: 'Include sandbox environment on production tags. Set to false to skip sandbox even on a production release.'
+        type: boolean
+        default: true
       deploy_in_anacleto:
         description: 'Force-off override for Anacleto. Set to false to suppress deployment even if the manifest includes this app on Anacleto.'
         type: boolean
@@ -101,6 +105,7 @@ jobs:
       sync_matrix: ${{ steps.apply_tags.outputs.sync_matrix }}
       has_sync_targets: ${{ steps.apply_tags.outputs.has_sync_targets }}
     env:
+      GITOPS_REPO: ${{ inputs.gitops_repository || vars.GITOPS_REPOSITORY }}
       IS_RC: ${{ contains(github.ref, '-rc.') }}
       IS_BETA: ${{ contains(github.ref, '-beta.') }}
       IS_SANDBOX: ${{ contains(github.ref, '-sandbox.') }}
@@ -114,20 +119,24 @@ jobs:
           password: ${{ secrets.DOCKERHUB_IMAGE_PULL_TOKEN }}
 
       # Trust model: this is a `workflow_call` reusable workflow, NOT triggered by
-      # untrusted PRs. `inputs.gitops_repository` is supplied by trusted caller
-      # workflows (default: LerianStudio/midaz-firmino-gitops) and the MANAGE_TOKEN
-      # is required for the subsequent commit/push step. The allowlist step below
-      # enforces that the repository is a LerianStudio-owned `*-gitops` repo so a
-      # compromised caller cannot redirect the privileged checkout to an arbitrary
-      # target (CodeQL: `actions/untrusted-checkout`).
+      # untrusted PRs. The gitops repository is resolved from inputs.gitops_repository
+      # (caller-supplied) or the GITOPS_REPOSITORY org-level variable, and the
+      # MANAGE_TOKEN is required for the subsequent commit/push step. The allowlist
+      # step below enforces that the repository is a LerianStudio-owned `*-gitops`
+      # repo so a compromised caller cannot redirect the privileged checkout to an
+      # arbitrary target (CodeQL: `actions/untrusted-checkout`).
       - name: Validate gitops_repository against allowlist
         shell: bash
         env:
-          GITOPS_REPOSITORY: ${{ inputs.gitops_repository }}
+          GITOPS_REPOSITORY: ${{ env.GITOPS_REPO }}
         run: |
           set -euo pipefail
+          if [[ -z "$GITOPS_REPOSITORY" ]]; then
+            echo "::error::gitops_repository is empty. Set the input or the GITOPS_REPOSITORY org-level variable."
+            exit 1
+          fi
           if [[ ! "$GITOPS_REPOSITORY" =~ ^LerianStudio/[A-Za-z0-9._-]+-gitops$ ]]; then
-            echo "::error::gitops_repository '$GITOPS_REPOSITORY' is not allowed. Must match ^LerianStudio/<name>-gitops$ (e.g. LerianStudio/midaz-firmino-gitops)."
+            echo "::error::gitops_repository '$GITOPS_REPOSITORY' is not allowed. Must match ^LerianStudio/<name>-gitops$ (e.g. LerianStudio/lerian-internal-gitops)."
             exit 1
           fi
           echo "gitops_repository validated: $GITOPS_REPOSITORY"
@@ -135,7 +144,7 @@ jobs:
       - name: Checkout GitOps Repository
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
-          repository: ${{ inputs.gitops_repository }}
+          repository: ${{ env.GITOPS_REPO }}
           token: ${{ secrets.MANAGE_TOKEN }}
           path: gitops
           fetch-depth: 0
@@ -425,6 +434,7 @@ jobs:
           KUSTOMIZE_IMAGE_NAME: ${{ inputs.kustomize_image_name }}
           KUSTOMIZE_ENVIRONMENTS: ${{ inputs.kustomize_environments }}
           MANIFEST_FILE: shared-workflows/${{ inputs.deployment_matrix_file }}
+          UPDATE_SANDBOX: ${{ inputs.update_sandbox }}
         run: |
           set -euo pipefail
 
@@ -436,7 +446,11 @@ jobs:
             ENVIRONMENTS="stg"
             ENV_LABEL="rc/stg"
           elif [[ "$IS_PRODUCTION" == "true" ]]; then
-            ENVIRONMENTS="dev stg prd sandbox"
+            if [[ "$UPDATE_SANDBOX" == "true" ]]; then
+              ENVIRONMENTS="dev stg prd sandbox"
+            else
+              ENVIRONMENTS="dev stg prd"
+            fi
             ENV_LABEL="production"
           elif [[ "$IS_SANDBOX" == "true" ]]; then
             ENVIRONMENTS="sandbox"
