@@ -1,5 +1,19 @@
 # Github-actions-shared-workflows Changelog
 
+## [1.36.8](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.36.8)
+
+- Fixes:
+  - Support both legacy and package-directory layouts for README updates in `helm-update` (#489, #488, 247b058)
+
+- Improvements:
+  - Update CHANGELOGs for `github-actions-shared-workflows`:`v1.36.7` [skip ci]
+
+Contributors: @guimoreirar, @lerian-studio.
+
+[Compare changes](https://github.com/LerianStudio/github-actions-shared-workflows/compare/v1.36.7...v1.36.8)
+
+---
+
 ## [1.36.7](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.36.7)
 
 - Fixes:
