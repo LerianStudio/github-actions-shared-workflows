@@ -193,12 +193,15 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          YQ_VERSION="${{ inputs.yq_version }}"
-          YQ_BIN="yq_linux_amd64"
-          YQ_URL="https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}/${YQ_BIN}"
-
-          sudo curl -L "$YQ_URL" -o /usr/local/bin/yq
-          sudo chmod +x /usr/local/bin/yq
+          if command -v yq &>/dev/null; then
+            echo "yq already installed: $(yq --version)"
+          else
+            YQ_VERSION="${{ inputs.yq_version }}"
+            YQ_BIN="yq_linux_amd64"
+            YQ_URL="https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}/${YQ_BIN}"
+            sudo curl -L "$YQ_URL" -o /usr/local/bin/yq
+            sudo chmod +x /usr/local/bin/yq
+          fi
           yq --version
 
       - name: Install kustomize
