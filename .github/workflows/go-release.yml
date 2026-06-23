@@ -133,10 +133,6 @@ on:
         description: 'Git ref of LerianStudio/github-actions-shared-workflows to read the deployment matrix from. Defaults to main. Override only when testing a branch.'
         type: string
         default: 'main'
-      gitops_runner_type:
-        description: 'Runner for the gitops-update (deploy) job. Defaults to the GITOPS_RUNNERS org-level variable when empty.'
-        type: string
-        default: ''
       enable_argocd_sync:
         description: 'Trigger ArgoCD sync after updating the GitOps repository'
         type: boolean
@@ -464,7 +460,6 @@ jobs:
       packages: write
     uses: ./.github/workflows/gitops-update.yml
     with:
-      runner_type: ${{ inputs.gitops_runner_type }}
       gitops_repository: ${{ inputs.gitops_repository }}
       update_sandbox: ${{ inputs.update_sandbox }}
       app_name: ${{ inputs.app_name || inputs.app_name_prefix }}
