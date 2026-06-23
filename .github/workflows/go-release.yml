@@ -371,8 +371,8 @@ jobs:
               --output text
           }
 
-          if ! PARSED_ENTRIES=$(printf '%s' "$S3_UPLOADS" | jq -c '.[]'); then
-            echo "::error::s3_uploads is not valid JSON."
+          if ! PARSED_ENTRIES=$(printf '%s' "$S3_UPLOADS" | jq -c 'if type == "array" then .[] else error("s3_uploads must be a JSON array") end'); then
+            echo "::error::s3_uploads must be a valid JSON array."
             exit 1
           fi
           mapfile -t ENTRIES < <(printf '%s' "$PARSED_ENTRIES")
