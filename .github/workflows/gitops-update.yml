@@ -1,7 +1,7 @@
 name: "GitOps Update"
 
 # Reusable workflow for updating GitOps repository with new image tags
-# Supports multiple servers (Firmino, Clotilde) and environments: dev (beta), stg (rc), prd (production), sandbox
+# Supports multiple clusters and environments: dev (beta), stg (rc), prd (production), sandbox
 # Handles single or multiple components with flexible YAML key mapping
 
 on:
@@ -15,14 +15,6 @@ on:
         description: 'Application name (defaults to repository name if not provided)'
         type: string
         required: false
-      deploy_in_firmino:
-        description: 'Force-off override for Firmino. Set to false to suppress deployment even if the manifest includes this app on Firmino.'
-        type: boolean
-        default: true
-      deploy_in_clotilde:
-        description: 'Force-off override for Clotilde. Set to false to suppress deployment even if the manifest includes this app on Clotilde.'
-        type: boolean
-        default: true
       deploy_in_anacleto:
         description: 'Force-off override for Anacleto. Set to false to suppress deployment even if the manifest includes this app on Anacleto.'
         type: boolean
@@ -258,8 +250,6 @@ jobs:
         env:
           APP_NAME: ${{ steps.setup.outputs.app_name }}
           MANIFEST: shared-workflows/${{ inputs.deployment_matrix_file }}
-          DEPLOY_FIRMINO: ${{ inputs.deploy_in_firmino }}
-          DEPLOY_CLOTILDE: ${{ inputs.deploy_in_clotilde }}
           DEPLOY_ANACLETO: ${{ inputs.deploy_in_anacleto }}
         run: |
           set -euo pipefail
@@ -310,18 +300,6 @@ jobs:
           while IFS= read -r cluster; do
             [[ -z "$cluster" ]] && continue
             case "$cluster" in
-              firmino)
-                if [[ "$DEPLOY_FIRMINO" == "false" ]]; then
-                  echo "  ✗ firmino — suppressed by deploy_in_firmino=false"
-                  continue
-                fi
-                ;;
-              clotilde)
-                if [[ "$DEPLOY_CLOTILDE" == "false" ]]; then
-                  echo "  ✗ clotilde — suppressed by deploy_in_clotilde=false"
-                  continue
-                fi
-                ;;
               anacleto)
                 if [[ "$DEPLOY_ANACLETO" == "false" ]]; then
                   echo "  ✗ anacleto — suppressed by deploy_in_anacleto=false"

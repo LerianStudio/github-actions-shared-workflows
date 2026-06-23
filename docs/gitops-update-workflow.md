@@ -114,8 +114,6 @@ update_gitops:
 |-------|------|---------|-------------|
 | `gitops_repository` | string | `LerianStudio/midaz-firmino-gitops` | GitOps repository to update |
 | `app_name` | string | (repo name) | Application name (auto-detected from repository) |
-| `deploy_in_firmino` | boolean | `true` | Force-off override for Firmino (`false` = subtract from manifest-resolved set) |
-| `deploy_in_clotilde` | boolean | `true` | Force-off override for Clotilde (`false` = subtract from manifest-resolved set) |
 | `deploy_in_anacleto` | boolean | `true` | Force-off override for Anacleto (`false` = subtract from manifest-resolved set) |
 | `deployment_matrix_file` | string | `config/deployment-matrix.yml` | Path to the deployment matrix manifest within the shared-workflows checkout |
 | `deployment_matrix_ref` | string | `main` | Git ref of `LerianStudio/github-actions-shared-workflows` to read the deployment matrix from. Default `main` ensures all callers see manifest updates immediately, regardless of the workflow ref they pin. Override only when testing a branch. |
@@ -239,7 +237,7 @@ clusters:
 5. Values paths: `environments/anacleto/helmfile/applications/{context/env}/{app}/values.yaml`
 6. ArgoCD app name: `/` normalized to `-`, so `{server}-{app}-chaos/dev-st` → `anacleto-midaz-chaos-dev-st`
 
-Clusters without `env_contexts` (firmino, clotilde, benedita) are unaffected — the field defaults to `[]`.
+Clusters without `env_contexts` (benedita) are unaffected — the field defaults to `[]`.
 
 ### Per-cluster env suffix variants (`-st`, `-mt`, ...)
 
@@ -328,7 +326,7 @@ gitops/environments/<server>/helmfile/applications/<env>/<app_name>/values.yaml
 ```
 
 Where:
-- `<server>`: any cluster resolved from the deployment matrix (current set: `firmino`, `clotilde`, `anacleto`), minus those force-off via `deploy_in_<cluster>: false`
+- `<server>`: any cluster resolved from the deployment matrix (current set: `anacleto`, `benedita`), minus those force-off via `deploy_in_<cluster>: false`
 - `<env>`: `dev`, `stg`, `prd`, or `sandbox` (determined by tag type)
 - `<app_name>`: from `inputs.app_name` or auto-detected from repository name
 
@@ -369,9 +367,8 @@ When `enable_argocd_sync` is `true`, the workflow syncs ArgoCD applications for 
 ArgoCD apps are named using the pattern: `<server>-<app_name>-<env>`
 
 Examples:
-- `firmino-midaz-dev`, `firmino-midaz-stg`, `firmino-midaz-prd`
-- `clotilde-midaz-dev`, `clotilde-midaz-stg`, `clotilde-midaz-sandbox`
-- `anacleto-midaz-dev`
+- `anacleto-midaz-chaos-dev-st`, `anacleto-midaz-fuzzing-dev-mt`
+- `benedita-midaz-dev-st`, `benedita-midaz-stg-mt`, `benedita-midaz-sandbox`
 
 ### Sync Behavior
 
@@ -453,7 +450,7 @@ update_gitops:
    - `environment_detection`, `manual_environment` - Simplified to automatic detection only
 
 2. **Inputs that became force-off overrides:**
-   - `deploy_in_firmino`, `deploy_in_clotilde`, `deploy_in_anacleto` (all default `true`) — only **subtract** clusters from the manifest-resolved set; cannot add a cluster the manifest does not list
+   - `deploy_in_anacleto` (default `true`) — only **subtracts** clusters from the manifest-resolved set; cannot add a cluster the manifest does not list
 
 3. **New inputs:**
    - `deployment_matrix_file` (default: `config/deployment-matrix.yml`) — alternative manifest path for forks/testing
@@ -471,11 +468,9 @@ update_gitops:
 
 > ⚠️ **Semantic change to `deploy_in_*` inputs** — callers that previously relied on `deploy_in_firmino: true` (etc.) to **include** a cluster will now silently deploy nowhere if their app is not listed in the manifest. The inputs only **subtract** from the manifest-resolved set; they never add. The prerequisite for any deployment is a manifest entry. Workflow logs a warning when `app_name` is missing from every cluster, so these cases surface quickly — but add your app to the manifest before merging this bump if you haven't already.
 
-If your caller currently passes `deploy_in_firmino: true, deploy_in_clotilde: true` explicitly:
-
 1. Add your `app_name` to `apps.registry` and to the appropriate `clusters.<name>.apps` lists in [`config/deployment-matrix.yml`](../config/deployment-matrix.yml) (single PR in this repo).
-2. Once merged and the caller bumps to the new shared-workflows ref (Renovate/Dependabot), the explicit `deploy_in_*: true` inputs become redundant and can be removed from the caller.
-3. Keep `deploy_in_<cluster>: false` only where you want to force-off a cluster the manifest declares.
+2. Once merged and the caller bumps to the new shared-workflows ref (Renovate/Dependabot), any explicit `deploy_in_*: true` inputs become redundant and can be removed from the caller.
+3. Keep `deploy_in_anacleto: false` only where you want to force-off that cluster.
 
 ## Troubleshooting
 
@@ -485,11 +480,11 @@ This is normal if the tag already exists in the GitOps repository. The workflow 
 
 ### Values file not found warnings
 
-If you see warnings like "Values file not found for firmino/dev", this means the values.yaml file doesn't exist for that server/environment combination. The workflow will skip this combination and continue with others.
+If you see warnings like "Values file not found for anacleto/chaos/dev-st", this means the values.yaml file doesn't exist for that server/environment combination. The workflow will skip this combination and continue with others.
 
 ### ArgoCD app does not exist
 
-If you see warnings like "ArgoCD app firmino-myapp-dev does not exist, sync skipped", this means the ArgoCD application hasn't been created yet. The workflow will log a warning and continue.
+If you see warnings like "ArgoCD app anacleto-myapp-chaos-dev-st does not exist, sync skipped", this means the ArgoCD application hasn't been created yet. The workflow will log a warning and continue.
 
 ### Artifact not found
 

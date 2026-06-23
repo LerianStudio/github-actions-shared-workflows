@@ -43,16 +43,18 @@
 #      setting any of them to `false` removes that cluster from the resolved
 #      set even if the manifest includes the app.
 #   4. For each resolved cluster, the tag-derived env list (e.g. dev/stg/prd/sandbox
-#      for a production tag) is expanded against `env_suffixes`, except for envs
-#      listed in `suffix_excludes_envs` which remain bare. The final env list is
-#      what the workflow uses to build helmfile paths and ArgoCD app names.
+#      for a production tag) is expanded against `env_suffixes` and `env_contexts`,
+#      except for envs listed in `suffix_excludes_envs` which remain bare. The final
+#      env list is what the workflow uses to build helmfile paths and ArgoCD app names.
 #
 # Out of scope (managed manually or by other tooling — do NOT add here):
-#   - underwriter, jd-mock-api, mock-btg-server, control-plane,
+#   - underwriter, jd-mock-api, mock-btg-server, fakebtg, control-plane,
 #     platform-console (no CI commit history in gitops repo)
 #   - ledger, dockerhub-secret (no values.yaml — kustomize / k8s Secret)
 #   - hortencia-apps (legacy umbrella, not workflow-managed)
 #   - environments/production/* (platform infra: addons, observability)
+#   - ungoliant-controller (anacleto, kustomize layout — declared here for registry
+#     purposes but deployed via gitops_layout=kustomize, not helmfile)
 
 version: 1
 
@@ -71,18 +73,16 @@ apps:
     # Plugins
     - plugin-access-manager       # caller repo may push as plugin-identity / plugin-auth / casdoor
     - plugin-fees
-    - plugin-br-pix-direct-jd
     - plugin-br-pix-indirect-btg
-    - plugin-br-pix-switch        # multi-component PIX hub (firmino-only today)
-    - plugin-br-bank-transfer     # generic build (firmino + clotilde)
-    - plugin-br-bank-transfer-jd  # JD-specific build (anacleto only)
+    - plugin-br-pix-switch
+    - plugin-br-bank-transfer
+    - plugin-br-payments
     - plugin-bc-correios
 
-    # Lerian internal platform suite (Clotilde + Benedita)
+    # Lerian internal platform suite (Benedita cross/)
     - backoffice-console
     - cs-platform
     - forge
-    - lerian-hq
     - lerian-map
     - tenant-manager
 
@@ -90,51 +90,11 @@ apps:
     - ungoliant-controller
 
     # Benedita-exclusive
-    - severino-bot                # internal Slack bot (benedita only)
-    - rosiehr                     # internal HR app (benedita only); values at cross/ — see app_helmfile_env below
-    - go-boilerplate-ddd          # Go service boilerplate (reference/template); benedita only
+    - severino-bot                # internal Slack bot (benedita only); kustomize-managed
+    - rosiehr                     # internal HR app (benedita only); values at cross/
+    - go-boilerplate-ddd          # Go service boilerplate (reference/template)
 
 clusters:
-  firmino:
-    apps:
-      - midaz
-      - fetcher
-      - flowker
-      - matcher
-      - reporter
-      - tracer
-      - product-console
-      - lerian-notification
-      - plugin-access-manager
-      - plugin-fees
-      - plugin-br-pix-direct-jd
-      - plugin-br-pix-indirect-btg
-      - plugin-br-pix-switch
-      - plugin-br-bank-transfer
-      - plugin-bc-correios
-
-  clotilde:
-    apps:
-      - midaz
-      - fetcher
-      - flowker
-      - matcher
-      - reporter
-      - tracer
-      - product-console
-      - plugin-access-manager
-      - plugin-fees
-      - plugin-br-pix-direct-jd
-      - plugin-br-pix-indirect-btg
-      - plugin-br-bank-transfer
-      - plugin-bc-correios
-      - backoffice-console
-      - cs-platform
-      - forge
-      - lerian-map
-      - tenant-manager
-      - lerian-notification
-
   anacleto:
     # Anacleto hosts two parallel test types (chaos, fuzzing), each with two
     # tenant variants per environment. The two-level path structure is:
@@ -152,37 +112,34 @@ clusters:
       - product-console
       - plugin-access-manager
       - plugin-fees
-      - plugin-br-pix-direct-jd
       - plugin-br-pix-indirect-btg
-      - plugin-br-bank-transfer-jd
+      - plugin-br-pix-switch
       - ungoliant-controller
-      - lerian-notification
 
   benedita:
     # Benedita hosts two parallel variants per environment as sibling namespaces:
     #   single-tenant (-st): dev-st, stg-st, prd-st
-    #   multi-tenant  (-mt): dev-mt, stg-mt, prd-mt
+    #   multi-tenant  (-mt): stg-mt (dev-mt and prd-mt do not exist)
     # Sandbox is shared across variants and stays bare (no suffix).
     env_suffixes: ["-st", "-mt"]
     suffix_excludes_envs: ["sandbox"]
 
     # app_helmfile_env: per-app override for the helmfile applications sub-directory.
     # Default path: environments/benedita/helmfile/applications/{env}/{app}/values.yaml
-    # where {env} = dev | stg | prd | sandbox (derived from the git tag type), with
-    # cluster-level env_suffixes applied (so the default for benedita is dev-st,
-    # dev-mt, stg-st, ... before this override).
-    # Apps whose values.yaml lives under cross/ instead of {env}/ must be listed
-    # here; otherwise the gitops-update workflow warns "values file not found" and
-    # skips them. When an override is set, env_suffixes are NOT applied for that app
-    # (it deploys exactly once at the override path).
+    # where {env} is the tag-derived env with env_suffixes applied (dev-st, stg-mt, ...).
+    # Apps whose values.yaml lives under cross/ must be listed here; otherwise the
+    # workflow warns "values file not found" and skips them. When an override is set,
+    # env_suffixes are NOT applied — the app deploys exactly once at the override path.
     #
     # IMPORTANT: only list apps whose ArgoCD app name follows the standard
     # {server}-{app}-{env} pattern (e.g. benedita-rosiehr-cross, benedita-forge-cross).
-    # Apps with non-standard ArgoCD names (e.g. benedita-cs-platform without -cross)
-    # would have their sync target resolve incorrectly. Align ArgoCD naming first.
     app_helmfile_env:
-      rosiehr: cross
+      backoffice-console: cross
+      cs-platform: cross
       forge: cross
+      lerian-map: cross
+      rosiehr: cross
+      tenant-manager: cross
     apps:
       - midaz
       - fetcher
@@ -193,16 +150,16 @@ clusters:
       - product-console
       - plugin-access-manager
       - plugin-fees
-      - plugin-br-pix-direct-jd
       - plugin-br-pix-indirect-btg
       - plugin-br-bank-transfer
+      - plugin-br-payments
+      - plugin-bc-correios
       - backoffice-console
       - cs-platform
       - forge
-      - lerian-hq
       - lerian-map
       - tenant-manager
-      - severino-bot
       - lerian-notification
       - rosiehr
       - go-boilerplate-ddd
+      - severino-bot
