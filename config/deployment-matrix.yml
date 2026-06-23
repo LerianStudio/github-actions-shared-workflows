@@ -134,14 +134,16 @@ clusters:
     # Apps whose values.yaml lives under cross/ instead of dev/ must be listed here;
     # otherwise the gitops-update workflow warns "values file not found" and skips them.
     #
-    # IMPORTANT: only list apps whose ArgoCD app name follows the standard
-    # {server}-{app}-{env} pattern (e.g. benedita-rosiehr-dev). Apps like
-    # cs-platform, forge, lerian-map use non-standard ArgoCD names (no -dev suffix)
-    # so their gitops-update sync target would resolve incorrectly. Add them here
-    # only after aligning their ArgoCD app naming with the standard convention.
+    # IMPORTANT: only list apps whose ArgoCD app name resolves to a valid sync
+    # target. cross apps follow the {server}-{app}-cross pattern (e.g.
+    # benedita-rosiehr-cross, benedita-forge-cross, benedita-lerian-map-cross),
+    # which the gitops-update workflow targets correctly when env=cross.
+    # cs-platform still uses a non-standard ArgoCD name, so do NOT add it here
+    # until its naming is aligned with the standard convention.
     app_helmfile_env:
       rosiehr: cross
       forge: cross
+      lerian-map: cross
     apps:
       - midaz
       - fetcher
