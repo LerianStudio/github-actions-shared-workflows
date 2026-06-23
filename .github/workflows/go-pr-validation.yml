@@ -92,6 +92,22 @@ on:
         description: 'GolangCI-Lint version'
         type: string
         default: 'v1.62.2'
+      golangci_lint_args:
+        description: 'Extra arguments passed to golangci-lint (e.g. --timeout=5m)'
+        type: string
+        default: '--timeout=5m'
+      app_name_prefix:
+        description: 'Prefix used to namespace coverage/build artifacts'
+        type: string
+        default: ''
+      filter_paths:
+        description: 'Newline-separated component path prefixes for monorepo per-component analysis and security scanning. Empty = single-app root run. When set for the security scan, leave dockerfile_path empty so each component Dockerfile is discovered.'
+        type: string
+        default: ''
+      path_level:
+        description: 'Directory depth level to extract the component name from filter_paths'
+        type: number
+        default: 2
       coverage_threshold:
         description: 'Minimum coverage percentage required (0-100)'
         type: number
@@ -99,7 +115,7 @@ on:
       fail_on_coverage_threshold:
         description: 'Fail the workflow if coverage is below threshold'
         type: boolean
-        default: false
+        default: true
       go_private_modules:
         description: 'GOPRIVATE pattern for private Go modules (e.g., github.com/LerianStudio/*)'
         type: string
@@ -116,6 +132,14 @@ on:
       # ----------------- Security (pr-security-scan.yml) -----------------
       ignore_file:
         description: 'Path to Trivy ignore file (e.g., .trivyignore.yaml)'
+        type: string
+        default: ''
+      enable_docker_scan:
+        description: 'Build and scan a Docker image with Trivy. Set to false for repos without a root Dockerfile (e.g. monorepos with Dockerfiles under components/ or cmd/).'
+        type: boolean
+        default: true
+      dockerfile_path:
+        description: 'Explicit path to a single Dockerfile to build and scan (e.g. components/ledger/Dockerfile). Lets monorepos without a root Dockerfile keep enable_docker_scan: true.'
         type: string
         default: ''
       enable_codeql:
@@ -208,6 +232,10 @@ jobs:
       runner_type: ${{ inputs.runner_type }}
       go_version: ${{ inputs.go_version }}
       golangci_lint_version: ${{ inputs.golangci_lint_version }}
+      golangci_lint_args: ${{ inputs.golangci_lint_args }}
+      app_name_prefix: ${{ inputs.app_name_prefix }}
+      filter_paths: ${{ inputs.filter_paths }}
+      path_level: ${{ inputs.path_level }}
       coverage_threshold: ${{ inputs.coverage_threshold }}
       fail_on_coverage_threshold: ${{ inputs.fail_on_coverage_threshold }}
       go_private_modules: ${{ inputs.go_private_modules }}
@@ -225,7 +253,7 @@ jobs:
       - name: Aggregate Go Analysis result
         uses: LerianStudio/github-actions-shared-workflows/src/validate/result-gate@v1
         with:
-          result: ${{ needs.go-analysis.result }}
+          result: ${{ needs.changes.result != 'success' && needs.changes.result || needs.go-analysis.result }}
           label: Go Analysis
 
   # ----------------- Security Scan -----------------
@@ -237,8 +265,12 @@ jobs:
     with:
       runner_type: ${{ inputs.runner_type }}
       ignore_file: ${{ inputs.ignore_file }}
+      enable_docker_scan: ${{ inputs.enable_docker_scan }}
+      dockerfile_path: ${{ inputs.dockerfile_path }}
       enable_codeql: ${{ inputs.enable_codeql }}
       codeql_languages: ${{ inputs.codeql_languages }}
+      filter_paths: ${{ inputs.filter_paths }}
+      path_level: ${{ format('{0}', inputs.path_level) }}
       shared_paths: ${{ inputs.shared_paths }}
     secrets: inherit
 
@@ -251,7 +283,7 @@ jobs:
       - name: Aggregate security result
         uses: LerianStudio/github-actions-shared-workflows/src/validate/result-gate@v1
         with:
-          result: ${{ needs.security.result }}
+          result: ${{ needs.changes.result != 'success' && needs.changes.result || needs.security.result }}
           label: Security
 
   # ----------------- Lerian Library Version Check -----------------
@@ -277,5 +309,5 @@ jobs:
       - name: Aggregate Lib Version result
         uses: LerianStudio/github-actions-shared-workflows/src/validate/result-gate@v1
         with:
-          result: ${{ needs.lib-version.result }}
+          result: ${{ needs.changes.result != 'success' && needs.changes.result || needs.lib-version.result }}
           label: Lib Version

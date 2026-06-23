@@ -117,13 +117,18 @@ runs:
           # Normal case - diff between commits
           FILES=$(git diff --name-only "$EVENT_BEFORE" "$EVENT_SHA")
         fi
-        printf "files<<EOF\n%s\nEOF\n" "$FILES" >> "$GITHUB_OUTPUT"
+        # Hand the file list off via a temp file and export only its path. Passing the
+        # full list through the consuming step's env (FILES) overflows ARG_MAX on large
+        # diffs — execve fails with E2BIG ("Argument list too long") and bash never starts.
+        FILES_PATH="$RUNNER_TEMP/changed-paths-files.txt"
+        printf '%s\n' "$FILES" > "$FILES_PATH"
+        printf "files_path=%s\n" "$FILES_PATH" >> "$GITHUB_OUTPUT"
 
     - name: Extract changed directories
       id: dirs
       shell: bash
       env:
-        FILES: ${{ steps.changed.outputs.files }}
+        FILES_PATH: ${{ steps.changed.outputs.files_path }}
         FILTER_PATHS: ${{ inputs.filter-paths }}
         SHARED_PATHS: ${{ inputs.shared-paths }}
         PATH_LEVEL: ${{ inputs.path-level }}
@@ -136,6 +141,11 @@ runs:
         CONSOLIDATE_TO_ROOT: ${{ inputs.consolidate-to-root }}
         CONSOLIDATE_KEEP_DIRS: ${{ inputs.consolidate-keep-dirs }}
       run: |
+        # Read the file list from the temp file (see "Get changed files"). Command
+        # substitution strips the trailing newline, so an empty diff yields empty FILES
+        # and the -z guard below still fires.
+        FILES=$(cat "$FILES_PATH")
+
         # Single app fallback: when filter_paths is empty and fallback_app_name is set,
         # return a single-item matrix without detecting changes
         if [[ ( -z "$FILTER_PATHS" || "$FILTER_PATHS" == "[]" ) && -n "$FALLBACK_APP_NAME" ]]; then

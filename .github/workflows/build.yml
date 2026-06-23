@@ -43,7 +43,7 @@ on:
       enable_ghcr:
         description: 'Enable pushing to GitHub Container Registry'
         type: boolean
-        default: false
+        default: true
       dockerhub_org:
         description: 'DockerHub organization name'
         type: string
@@ -52,6 +52,10 @@ on:
         description: 'GHCR organization name (defaults to repository owner)'
         type: string
         default: ''
+      on_existing_tag:
+        description: 'Behaviour when the target image tag already exists in an enabled registry (checked before build): "fail" (abort early, default), "skip" (skip build/push, still emit GitOps artifacts for an idempotent re-run), or "warn" (warn and build anyway).'
+        type: string
+        default: 'fail'
       dockerfile_name:
         description: 'Name of the Dockerfile'
         type: string
@@ -245,11 +249,11 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
 
       - name: Set up QEMU
         if: contains(needs.prepare.outputs.platforms, 'arm64')
-        uses: docker/setup-qemu-action@ce360397dd3f832beb865e1373c09c0e9f86d70a # v4
+        uses: docker/setup-qemu-action@06116385d9baf250c9f4dcb4858b16962ea869c3 # v4
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4
@@ -311,7 +315,67 @@ jobs:
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "Extracted version: $VERSION from tag: $TAG"
 
+      - name: Pre-flight tag existence check
+        id: preflight
+        env:
+          ON_EXISTING_TAG: ${{ inputs.on_existing_tag }}
+          ENABLE_DOCKERHUB: ${{ inputs.enable_dockerhub }}
+          ENABLE_GHCR: ${{ inputs.enable_ghcr }}
+          DOCKERHUB_ORG: ${{ inputs.dockerhub_org }}
+          GHCR_ORG: ${{ inputs.ghcr_org || steps.normalize.outputs.owner_lower }}
+          APP_NAME: ${{ matrix.app.name }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -uo pipefail
+
+          MODE="${ON_EXISTING_TAG:-fail}"
+          case "$MODE" in
+            fail|skip|warn) ;;
+            *) echo "::error::Invalid on_existing_tag '$MODE' (must be: fail, skip, warn)"; exit 1 ;;
+          esac
+
+          # Image tag matches what docker/metadata-action publishes (semver without leading 'v').
+          TAG="${VERSION#v}"
+          EXISTING=""
+
+          # `docker manifest inspect` reuses the registry logins from earlier steps and
+          # returns non-zero when the tag is absent. A non-existence/error result is
+          # treated as "not present" so a flaky check never blocks a legitimate build.
+          if [ "$ENABLE_DOCKERHUB" = "true" ]; then
+            REF="${DOCKERHUB_ORG}/${APP_NAME}:${TAG}"
+            if docker manifest inspect "$REF" >/dev/null 2>&1; then
+              EXISTING="${EXISTING}${EXISTING:+, }docker.io/${REF}"
+            fi
+          fi
+          if [ "$ENABLE_GHCR" = "true" ]; then
+            REF="ghcr.io/${GHCR_ORG}/${APP_NAME}:${TAG}"
+            if docker manifest inspect "$REF" >/dev/null 2>&1; then
+              EXISTING="${EXISTING}${EXISTING:+, }${REF}"
+            fi
+          fi
+
+          SHOULD_BUILD=true
+          if [ -n "$EXISTING" ]; then
+            case "$MODE" in
+              fail)
+                echo "::error::Tag ${TAG} already exists (${EXISTING}). Registry tags are immutable; aborting before rebuild. Use on_existing_tag: skip for idempotent re-runs."
+                exit 1
+                ;;
+              skip)
+                echo "::warning::Tag ${TAG} already exists (${EXISTING}) — skipping build/push (idempotent re-run)."
+                SHOULD_BUILD=false
+                ;;
+              warn)
+                echo "::warning::Tag ${TAG} already exists (${EXISTING}) — building anyway (push may fail on immutable registries)."
+                ;;
+            esac
+          else
+            echo "Tag ${TAG} not present in enabled registries — proceeding with build."
+          fi
+          echo "should_build=$SHOULD_BUILD" >> "$GITHUB_OUTPUT"
+
       - name: Docker metadata
+        if: steps.preflight.outputs.should_build != 'false'
         id: meta
         uses: docker/metadata-action@80c7e94dd9b9319bd5eb7a0e0fe9291e23a2a2e9 # v6
         with:
@@ -320,6 +384,7 @@ jobs:
             type=semver,pattern={{version}},value=${{ steps.version.outputs.version }}
 
       - name: Build and push Docker image
+        if: steps.preflight.outputs.should_build != 'false'
         id: build-push
         uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7
         with:
@@ -339,7 +404,7 @@ jobs:
 
       # ----------------- Cosign Image Signing -----------------
       - name: Build cosign image references
-        if: inputs.enable_cosign_sign
+        if: inputs.enable_cosign_sign && steps.preflight.outputs.should_build != 'false'
         id: cosign-refs
         env:
           DIGEST: ${{ steps.build-push.outputs.digest }}
@@ -367,9 +432,9 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
       - name: Sign container images with cosign
-        if: inputs.enable_cosign_sign
+        if: inputs.enable_cosign_sign && steps.preflight.outputs.should_build != 'false'
         id: cosign-sign
-        continue-on-error: ${{ inputs.continue_gitops_on_signing_failure }}
+        continue-on-error: ${{ inputs.continue_gitops_on_signing_failure || false }}
         uses: LerianStudio/github-actions-shared-workflows/src/security/cosign-sign@v1
         with:
           image-refs: ${{ steps.cosign-refs.outputs.refs }}
@@ -377,7 +442,7 @@ jobs:
           initial-delay: ${{ inputs.cosign_initial_delay }}
 
       - name: Report cosign signing status
-        if: inputs.enable_cosign_sign && steps.cosign-sign.outcome == 'failure'
+        if: inputs.enable_cosign_sign && steps.preflight.outputs.should_build != 'false' && steps.cosign-sign.outcome == 'failure'
         env:
           REFS: ${{ steps.cosign-refs.outputs.refs }}
           DIGEST: ${{ steps.build-push.outputs.digest }}

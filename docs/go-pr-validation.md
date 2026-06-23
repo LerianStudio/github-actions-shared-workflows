@@ -13,7 +13,7 @@ Umbrella reusable workflow for Go service repositories. A caller references this
 4. **Security scan** — Trivy, CodeQL, prerelease checks (delegates to `pr-security-scan.yml`), opt-in via `run_security`.
 5. **Lerian lib version check** — fails when a direct Lerian library is behind its latest stable release (delegates to `lerian-lib-version-check.yml`), opt-in via `run_lib_version_check`.
 
-The `go-analysis`, `security` and `lib-version` pipelines each have a `*-gate` aggregator job that exposes a single stable status-check name (`Go Analysis`, `Security`, `Lib Version`) for branch protection, regardless of the internal job names. All three are gated by the change detector, so documentation-only PRs skip them (and the aggregators still report success).
+The `go-analysis`, `security` and `lib-version` pipelines each have a `*-gate` aggregator job that exposes a single stable status-check name (`Go Analysis`, `Security`, `Lib Version`) for branch protection, regardless of the internal job names. All three are gated by the change detector, so documentation-only PRs skip them (and the aggregators still report success). If the change detector (`changes`) job itself fails, the aggregators propagate that failure instead of passing — so broken change detection cannot let the required checks go green.
 
 ## Inputs
 
@@ -38,12 +38,18 @@ The `go-analysis`, `security` and `lib-version` pipelines each have a `*-gate` a
 | `target_branches_for_source_check` | Target branches requiring source validation | string | `main` |
 | `go_version` | Go version | string | `1.23` |
 | `golangci_lint_version` | GolangCI-Lint version | string | `v1.62.2` |
+| `golangci_lint_args` | Extra arguments passed to golangci-lint (e.g. `--timeout=5m`) | string | `--timeout=5m` |
+| `app_name_prefix` | Prefix used to namespace coverage/build artifacts | string | `''` |
+| `filter_paths` | Newline-separated component path prefixes for monorepo per-component analysis (lint/tests/coverage) **and** security scanning; empty = single-app root run. When using it for security, leave `dockerfile_path` empty so each component Dockerfile is discovered | string | `''` |
+| `path_level` | Directory depth level to extract the component name from `filter_paths` | number | `2` |
 | `coverage_threshold` | Minimum coverage percentage (0-100) | number | `80` |
-| `fail_on_coverage_threshold` | Fail when coverage is below threshold | boolean | `false` |
+| `fail_on_coverage_threshold` | Fail when coverage is below threshold | boolean | `true` |
 | `go_private_modules` | GOPRIVATE pattern for private modules | string | `''` |
 | `enable_integration_tests` | Enable integration tests | boolean | `false` |
 | `system_packages` | apt packages to install for CGO repos | string | `''` |
 | `ignore_file` | Path to Trivy ignore file | string | `''` |
+| `enable_docker_scan` | Build and scan a Docker image with Trivy; set `false` for repos without a root Dockerfile (monorepos with Dockerfiles under `components/`/`cmd/`) | boolean | `true` |
+| `dockerfile_path` | Explicit path to a single Dockerfile to build and scan (e.g. `components/ledger/Dockerfile`); lets monorepos without a root Dockerfile keep `enable_docker_scan: true` | string | `''` |
 | `enable_codeql` | Enable CodeQL static analysis | boolean | `false` |
 | `codeql_languages` | CodeQL languages (comma-separated) | string | `''` |
 | `shared_paths` | Path patterns that trigger analysis/security for all components | string | `''` |

@@ -50,13 +50,13 @@ on:
       enable_ghcr:
         description: 'Enable pushing to GitHub Container Registry'
         type: boolean
-        default: false
+        default: true
       enable_gitops_artifacts:
         description: 'Enable GitOps artifacts upload for the downstream gitops-update job'
         type: boolean
         default: false
       app_name:
-        description: 'Override app/image name (single-app mode). Defaults to repository name.'
+        description: 'Override app/image name. Used by the build (single-app mode) and as the gitops-update deploy name; when empty the gitops deploy name falls back to app_name_prefix, then the repository name.'
         type: string
         default: ''
       docker_build_args:
@@ -67,6 +67,46 @@ on:
         description: 'Sign container images with cosign keyless (OIDC) signing after push'
         type: boolean
         default: true
+      app_name_prefix:
+        description: 'Prefix for app names in monorepo (e.g., "midaz" -> "midaz-agent")'
+        type: string
+        default: ''
+      app_name_overrides:
+        description: 'Explicit app name mappings in "path:name" format. Overrides default extraction for matched paths.'
+        type: string
+        default: ''
+      dockerhub_org:
+        description: 'DockerHub organization name'
+        type: string
+        default: 'lerianstudio'
+      path_level:
+        description: 'Directory depth level to extract app name (e.g., 2 -> "apps/agent")'
+        type: string
+        default: '2'
+      build_context_from_working_dir:
+        description: 'Use the component working_dir as Docker build context instead of the repo root.'
+        type: boolean
+        default: false
+      enable_helm_dispatch:
+        description: 'Dispatch to the Helm repository for chart updates after build'
+        type: boolean
+        default: false
+      helm_chart:
+        description: 'Helm chart name to update (required when enable_helm_dispatch is true)'
+        type: string
+        default: ''
+      helm_detect_env_changes:
+        description: 'Detect new environment variables for Helm during dispatch'
+        type: boolean
+        default: true
+      helm_values_key_mappings:
+        description: 'JSON mapping of component names to values.yaml keys (e.g., {"my-app": "api"})'
+        type: string
+        default: ''
+      extra_builds:
+        description: 'JSON array of additional build groups, each forwarded to build.yml with its own config (filter_paths, path_level, normalize_to_filter, app_name_overrides, build_context_from_working_dir, helm_*). Runs alongside the primary build on tag push; all groups feed the single gitops-update. Empty = one build only (default).'
+        type: string
+        default: ''
 
       # ----------------- GitOps Update (gitops-update.yml) -----------------
       enable_gitops_update:
@@ -89,12 +129,67 @@ on:
         description: 'Git ref of LerianStudio/github-actions-shared-workflows to read the deployment matrix from. Defaults to main. Override only when testing a branch.'
         type: string
         default: 'main'
+      gitops_runner_type:
+        description: 'Runner for the gitops-update (deploy) job. Deploy needs cluster access, so this defaults to eveo-lxc-runners rather than the build runner.'
+        type: string
+        default: 'eveo-lxc-runners'
+      enable_argocd_sync:
+        description: 'Trigger ArgoCD sync after updating the GitOps repository'
+        type: boolean
+        default: true
+      commit_message_prefix:
+        description: 'Prefix for the GitOps commit message. When empty, falls back to app_name_prefix, then the repository name.'
+        type: string
+        default: ''
+      deploy_in_firmino:
+        description: 'Force-off override for Firmino. Set to false to suppress deployment even if the manifest includes this app on Firmino.'
+        type: boolean
+        default: true
+      deploy_in_clotilde:
+        description: 'Force-off override for Clotilde. Set to false to suppress deployment even if the manifest includes this app on Clotilde.'
+        type: boolean
+        default: true
+      use_dynamic_mapping:
+        description: 'Use dynamic artifact-to-YAML key mapping in gitops-update'
+        type: boolean
+        default: false
+      configmap_updates:
+        description: 'JSON object mapping artifact names to configmap keys (helmfile layout only)'
+        type: string
+        default: ''
+      enable_docker_login:
+        description: 'Log in to DockerHub in the gitops-update job (for private image digest reads)'
+        type: boolean
+        default: false
+
+      # ----------------- S3 Upload (s3-upload.yml) -----------------
+      s3_uploads:
+        description: 'JSON array of S3 upload entries run after build on tag push, each forwarded to s3-upload.yml. Each object: {"s3_bucket": "...", "file_pattern": "...", "s3_prefix": "...", "strip_prefix": "...", "flatten": true|false} (only s3_bucket and file_pattern are required; flatten defaults to true). Empty = no upload (default).'
+        type: string
+        default: ''
+      # ----------------- API Dog E2E (api-dog-e2e-tests.yml) -----------------
+      enable_apidog_e2e:
+        description: 'Run the ApiDog E2E test job on tag push after a successful gitops-update'
+        type: boolean
+        default: false
+      apidog_runner_type:
+        description: 'Runner for the ApiDog E2E test job. Needs reach to the deployed environment, so it defaults to eveo-lxc-runners rather than the build runner.'
+        type: string
+        default: 'eveo-lxc-runners'
+      apidog_auto_detect_environment:
+        description: 'Auto-detect the ApiDog environment from the tag (beta -> dev, rc -> stg). When false, the manual APIDOG_ENVIRONMENT_ID secret is used.'
+        type: boolean
+        default: true
 
       # ----------------- Shared -----------------
       shared_paths:
         description: 'Newline-separated path patterns that trigger a release/build for all components.'
         type: string
         default: ''
+      release_single_app:
+        description: 'Force single-app mode for the release job even when filter_paths is set. Use for repos with one version tag but multiple Docker images.'
+        type: boolean
+        default: false
       filter_paths:
         description: 'Newline-separated list of path prefixes to filter. Empty = single-app repo.'
         type: string
@@ -105,6 +200,17 @@ on:
       SLACK_WEBHOOK_URL:
         required: false
       HELM_REPO_TOKEN:
+        required: false
+      AWS_MIGRATIONS_ROLE_ARN:
+      APIDOG_TEST_SCENARIO_ID:
+        required: false
+      APIDOG_ACCESS_TOKEN:
+        required: false
+      APIDOG_DEV_ENVIRONMENT_ID:
+        required: false
+      APIDOG_STG_ENVIRONMENT_ID:
+        required: false
+      APIDOG_ENVIRONMENT_ID:
         required: false
 
 permissions:
@@ -146,7 +252,7 @@ jobs:
       enable_major_tag: ${{ inputs.enable_major_tag }}
       stable_releases_only: ${{ inputs.stable_releases_only }}
       shared_paths: ${{ inputs.shared_paths }}
-      filter_paths: ${{ inputs.filter_paths }}
+      filter_paths: ${{ !inputs.release_single_app && inputs.filter_paths || '' }}
     secrets: inherit
 
   # ----------------- Build (tag push) -----------------
@@ -164,16 +270,197 @@ jobs:
       enable_ghcr: ${{ inputs.enable_ghcr }}
       enable_gitops_artifacts: ${{ inputs.enable_gitops_artifacts }}
       app_name: ${{ inputs.app_name }}
+      app_name_prefix: ${{ inputs.app_name_prefix }}
+      app_name_overrides: ${{ inputs.app_name_overrides }}
+      dockerhub_org: ${{ inputs.dockerhub_org }}
+      path_level: ${{ inputs.path_level }}
+      build_context_from_working_dir: ${{ inputs.build_context_from_working_dir }}
       docker_build_args: ${{ inputs.docker_build_args }}
       enable_cosign_sign: ${{ inputs.enable_cosign_sign }}
+      enable_helm_dispatch: ${{ inputs.enable_helm_dispatch }}
+      helm_chart: ${{ inputs.helm_chart }}
+      helm_detect_env_changes: ${{ inputs.helm_detect_env_changes }}
+      helm_values_key_mappings: ${{ inputs.helm_values_key_mappings }}
       shared_paths: ${{ inputs.shared_paths }}
       filter_paths: ${{ inputs.filter_paths }}
     secrets: inherit
 
+  # ----------------- S3 Upload (tag push, post-build, opt-in) -----------------
+  s3_upload:
+    name: S3 Upload
+    needs: [build]
+    if: github.ref_type == 'tag' && inputs.s3_uploads != '' && needs.build.result == 'success'
+    runs-on: ${{ inputs.runner_type }}
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          persist-credentials: false
+
+      - name: Determine environment folder from tag
+        id: env
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF#refs/tags/}"
+          if [[ "$TAG" == *-beta* ]]; then
+            FOLDER="development"
+          elif [[ "$TAG" == *-rc* ]]; then
+            FOLDER="staging"
+          elif [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            FOLDER="production"
+          else
+            FOLDER=""
+          fi
+          echo "folder=${FOLDER}" >> "$GITHUB_OUTPUT"
+          [[ -n "$FOLDER" ]] && echo "📁 Environment: ${FOLDER}" || echo "::warning::Tag '${TAG}' matched no environment — S3 upload skipped."
+
+      - name: Configure AWS credentials
+        if: steps.env.outputs.folder != ''
+        uses: aws-actions/configure-aws-credentials@e7f100cf4c008499ea8adda475de1042d6975c7b # v6.2.0
+        with:
+          role-to-assume: ${{ secrets.AWS_MIGRATIONS_ROLE_ARN }}
+          aws-region: us-east-2
+
+      - name: Upload files to S3
+        if: steps.env.outputs.folder != ''
+        env:
+          S3_UPLOADS: ${{ inputs.s3_uploads }}
+          FOLDER: ${{ steps.env.outputs.folder }}
+          AWS_REGION: us-east-2
+        run: |
+          set -euo pipefail
+
+          upload_entry() {
+            local BUCKET="$1" PATTERN="$2" PREFIX="$3" STRIP_PREFIX="$4" FLATTEN="$5"
+            local S3_PATH file DEST_PATH FILE_COUNT=0
+            if [[ -n "$PREFIX" ]]; then
+              S3_PATH="s3://${BUCKET}/${FOLDER}/${PREFIX}/"
+            else
+              S3_PATH="s3://${BUCKET}/${FOLDER}/"
+            fi
+            echo "Uploading '${PATTERN}' -> ${S3_PATH} (flatten=${FLATTEN}, strip_prefix=${STRIP_PREFIX:-<none>})"
+            shopt -s nullglob
+            for file in $PATTERN; do
+              if [[ "$FLATTEN" == "true" ]]; then
+                aws s3 cp "$file" "${S3_PATH}"
+              elif [[ -n "$STRIP_PREFIX" ]]; then
+                DEST_PATH="${file#"$STRIP_PREFIX"/}"
+                aws s3 cp "$file" "${S3_PATH}${DEST_PATH}"
+              else
+                aws s3 cp "$file" "${S3_PATH}${file}"
+              fi
+              FILE_COUNT=$((FILE_COUNT + 1))
+            done
+            shopt -u nullglob
+            if [[ $FILE_COUNT -eq 0 ]]; then
+              echo "::error::No files matched pattern: ${PATTERN}"
+              return 1
+            fi
+            echo "::notice::Uploaded ${FILE_COUNT} file(s) to ${S3_PATH}"
+          }
+
+          assume_role() {
+            local role_arn="$1" token
+            token=$(curl -sS -H "Authorization: bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
+              "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=sts.amazonaws.com" | jq -r '.value')
+            aws sts assume-role-with-web-identity \
+              --role-arn "$role_arn" \
+              --role-session-name go-release-s3-upload \
+              --web-identity-token "$token" \
+              --duration-seconds 3600 \
+              --query 'Credentials.[AccessKeyId,SecretAccessKey,SessionToken]' \
+              --output text
+          }
+
+          if ! PARSED_ENTRIES=$(printf '%s' "$S3_UPLOADS" | jq -c 'if type == "array" then .[] else error("s3_uploads must be a JSON array") end'); then
+            echo "::error::s3_uploads must be a valid JSON array."
+            exit 1
+          fi
+          mapfile -t ENTRIES < <(printf '%s' "$PARSED_ENTRIES")
+          if [[ ${#ENTRIES[@]} -eq 0 ]]; then
+            echo "::warning::s3_uploads is empty — nothing to upload."
+            exit 0
+          fi
+
+          for entry in "${ENTRIES[@]}"; do
+            BUCKET=$(printf '%s' "$entry" | jq -r '.s3_bucket')
+            PATTERN=$(printf '%s' "$entry" | jq -r '.file_pattern')
+            PREFIX=$(printf '%s' "$entry" | jq -r '.s3_prefix // ""')
+            STRIP_PREFIX=$(printf '%s' "$entry" | jq -r '.strip_prefix // ""')
+            FLATTEN=$(printf '%s' "$entry" | jq -r 'if .flatten == false then "false" else "true" end')
+            ROLE_ARN=$(printf '%s' "$entry" | jq -r '.aws_role_arn // ""')
+
+            if [[ -z "$BUCKET" || "$BUCKET" == "null" || -z "$PATTERN" || "$PATTERN" == "null" ]]; then
+              echo "::error::Each s3_uploads entry requires s3_bucket and file_pattern. Got: ${entry}"
+              exit 1
+            fi
+
+            if [[ -n "$ROLE_ARN" && "$ROLE_ARN" != "null" ]]; then
+              (
+                set -euo pipefail
+                CREDS=$(assume_role "$ROLE_ARN")
+                AK=$(printf '%s' "$CREDS" | cut -f1)
+                SK=$(printf '%s' "$CREDS" | cut -f2)
+                ST=$(printf '%s' "$CREDS" | cut -f3)
+                if [[ -z "$AK" || -z "$SK" || -z "$ST" ]]; then
+                  echo "::error::Failed to assume role for s3 upload: ${ROLE_ARN}"
+                  exit 1
+                fi
+                echo "::add-mask::$AK"; echo "::add-mask::$SK"; echo "::add-mask::$ST"
+                export AWS_ACCESS_KEY_ID="$AK" AWS_SECRET_ACCESS_KEY="$SK" AWS_SESSION_TOKEN="$ST"
+                upload_entry "$BUCKET" "$PATTERN" "$PREFIX" "$STRIP_PREFIX" "$FLATTEN"
+              )
+            else
+              upload_entry "$BUCKET" "$PATTERN" "$PREFIX" "$STRIP_PREFIX" "$FLATTEN"
+            fi
+          done
+
+  # ----------------- Extra Builds (tag push, opt-in) -----------------
+  extra_build:
+    if: github.ref_type == 'tag' && inputs.extra_builds != ''
+    permissions:
+      id-token: write
+      contents: read
+      pull-requests: write
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        group: ${{ fromJson(inputs.extra_builds) }}
+    uses: ./.github/workflows/build.yml
+    with:
+      runner_type: ${{ inputs.runner_type }}
+      enable_dockerhub: ${{ inputs.enable_dockerhub }}
+      enable_ghcr: ${{ inputs.enable_ghcr }}
+      dockerhub_org: ${{ inputs.dockerhub_org }}
+      enable_cosign_sign: ${{ inputs.enable_cosign_sign }}
+      enable_gitops_artifacts: ${{ matrix.group.enable_gitops_artifacts || true }}
+      filter_paths: ${{ matrix.group.filter_paths }}
+      shared_paths: ${{ matrix.group.shared_paths || inputs.shared_paths }}
+      path_level: ${{ matrix.group.path_level || inputs.path_level }}
+      normalize_to_filter: ${{ toJSON(matrix.group.normalize_to_filter) == 'false' && 'false' || 'true' }}
+      app_name: ${{ matrix.group.app_name }}
+      app_name_prefix: ${{ matrix.group.app_name_prefix }}
+      app_name_overrides: ${{ matrix.group.app_name_overrides }}
+      build_context_from_working_dir: ${{ matrix.group.build_context_from_working_dir || false }}
+      docker_build_args: ${{ matrix.group.docker_build_args }}
+      enable_helm_dispatch: ${{ matrix.group.enable_helm_dispatch || false }}
+      helm_chart: ${{ matrix.group.helm_chart }}
+      helm_detect_env_changes: ${{ matrix.group.helm_detect_env_changes || true }}
+      helm_values_key_mappings: ${{ matrix.group.helm_values_key_mappings }}
+    secrets: inherit
+
   # ----------------- GitOps Update (tag push) -----------------
   update_gitops:
-    needs: [build]
-    if: github.ref_type == 'tag' && inputs.enable_gitops_update && needs.build.result == 'success' && needs.build.outputs.has_builds == 'true'
+    needs: [build, extra_build]
+    if: >-
+      github.ref_type == 'tag' && inputs.enable_gitops_update && !cancelled() &&
+      needs.build.result != 'failure' && needs.extra_build.result != 'failure' &&
+      ((needs.build.result == 'success' && needs.build.outputs.has_builds == 'true') ||
+       needs.extra_build.result == 'success')
     permissions:
       id-token: write
       contents: read
@@ -181,9 +468,32 @@ jobs:
       packages: write
     uses: ./.github/workflows/gitops-update.yml
     with:
-      runner_type: ${{ inputs.runner_type }}
+      runner_type: ${{ inputs.gitops_runner_type }}
       gitops_repository: ${{ inputs.gitops_repository }}
-      artifact_pattern: ${{ inputs.gitops_artifact_pattern }}
+      app_name: ${{ inputs.app_name || inputs.app_name_prefix }}
+      artifact_pattern: ${{ inputs.gitops_artifact_pattern || format('gitops-tags-{0}*', github.event.repository.name) }}
       yaml_key_mappings: ${{ inputs.gitops_yaml_key_mappings }}
       deployment_matrix_ref: ${{ inputs.deployment_matrix_ref }}
+      enable_argocd_sync: ${{ inputs.enable_argocd_sync }}
+      commit_message_prefix: ${{ inputs.commit_message_prefix || inputs.app_name_prefix }}
+      deploy_in_firmino: ${{ inputs.deploy_in_firmino }}
+      deploy_in_clotilde: ${{ inputs.deploy_in_clotilde }}
+      use_dynamic_mapping: ${{ inputs.use_dynamic_mapping }}
+      configmap_updates: ${{ inputs.configmap_updates }}
+      enable_docker_login: ${{ inputs.enable_docker_login }}
     secrets: inherit
+
+  # ----------------- API Dog E2E Tests (tag push, post-gitops, opt-in) -----------------
+  api_dog_e2e_tests:
+    needs: [update_gitops]
+    if: github.ref_type == 'tag' && inputs.enable_apidog_e2e && needs.update_gitops.result == 'success'
+    uses: ./.github/workflows/api-dog-e2e-tests.yml
+    with:
+      runner_type: ${{ inputs.apidog_runner_type }}
+      auto_detect_environment: ${{ inputs.apidog_auto_detect_environment }}
+    secrets:
+      test_scenario_id: ${{ secrets.APIDOG_TEST_SCENARIO_ID }}
+      apidog_access_token: ${{ secrets.APIDOG_ACCESS_TOKEN }}
+      dev_environment_id: ${{ secrets.APIDOG_DEV_ENVIRONMENT_ID }}
+      stg_environment_id: ${{ secrets.APIDOG_STG_ENVIRONMENT_ID }}
+      environment_id: ${{ secrets.APIDOG_ENVIRONMENT_ID }}

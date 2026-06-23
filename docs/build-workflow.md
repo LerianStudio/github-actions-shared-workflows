@@ -99,9 +99,10 @@ jobs:
 | `filter_paths` | string | `''` | Newline-separated list of path prefixes. If empty, builds from root (single-app mode) |
 | `path_level` | string | `2` | Directory depth for app name extraction |
 | `enable_dockerhub` | boolean | `true` | Enable pushing to DockerHub |
-| `enable_ghcr` | boolean | `false` | Enable pushing to GitHub Container Registry |
+| `enable_ghcr` | boolean | `true` | Enable pushing to GitHub Container Registry (requires `MANAGE_TOKEN`) |
 | `dockerhub_org` | string | `lerianstudio` | DockerHub organization name |
 | `ghcr_org` | string | `''` | GHCR organization (defaults to repository owner) |
+| `on_existing_tag` | string | `fail` | Behaviour when the target tag already exists in an enabled registry (pre-flight check before build): `fail` (abort early), `skip` (skip build/push, still emit GitOps artifacts for an idempotent re-run), `warn` (warn and build anyway) |
 | `dockerfile_name` | string | `Dockerfile` | Name of the Dockerfile |
 | `app_name_prefix` | string | `''` | Prefix for app names in monorepo |
 | `build_context` | string | `.` | Docker build context |
@@ -122,6 +123,16 @@ Uses `secrets: inherit` pattern. Required secrets:
 | `DOCKER_PASSWORD` | DockerHub password/token | `enable_dockerhub: true` |
 | `MANAGE_TOKEN` | GitHub token for GHCR | `enable_ghcr: true` |
 | `SLACK_WEBHOOK_URL` | Slack webhook for notifications | Optional |
+
+## Tag Immutability and Re-runs
+
+Before building, the workflow checks whether the target image tag already exists in each enabled registry (via `docker manifest inspect`, reusing the registry logins). This avoids a full rebuild that would only fail at push time on registries with tag immutability enabled. Behaviour is controlled by `on_existing_tag`:
+
+- **`fail`** (default): abort early with a clear error instead of rebuilding then failing at push.
+- **`skip`**: skip the build/push but still emit the GitOps tag artifacts (from the version), so a re-run remains idempotent for the downstream GitOps update.
+- **`warn`**: emit a warning and build anyway (push may still fail on immutable registries).
+
+A non-existent tag (or a check that errors out, e.g. transient registry issues) is treated as "not present" so the check never blocks a legitimate build.
 
 ## Platform Build Strategy
 

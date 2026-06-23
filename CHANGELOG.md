@@ -1,5 +1,167 @@
 # Github-actions-shared-workflows Changelog
 
+## [1.36.7](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.36.7)
+
+- Fixes:
+  - Forward `normalize_to_filter` in `extra_builds` entries.
+  - Fail on invalid `s3_uploads` JSON and sync `runner_type` docs.
+  - Enforce `s3_uploads` is a JSON array.
+  - Support per-entry `aws_role_arn` in `s3_uploads`.
+  - Default to `eveo-lxc-runners` instead of `firmino-lxc-runners`.
+
+Contributors: @bedatty, @ferr3ira-gabriel, @lerian-studio.
+
+[Compare changes](https://github.com/LerianStudio/github-actions-shared-workflows/compare/v1.36.6...v1.36.7)
+
+---
+
+## [1.36.6](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.36.6)
+
+- Fixes:
+  - Fixed the release process by merging `develop` into `main` (#477).
+  - Modified `go-release` to run `s3_upload` inline instead of using a matrix over a reusable workflow (#476).
+  - Hardened `s3_upload` checkout and tightened the production tag regex in `go-release`.
+
+- Improvements:
+  - Updated CHANGELOGs for `github-actions-shared-workflows`:`v1.36.5` [skip ci].
+
+Contributors: @bedatty, @lerian-studio.
+
+[Compare changes](https://github.com/LerianStudio/github-actions-shared-workflows/compare/v1.36.5...v1.36.6)
+
+---
+
+## [1.36.5](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.36.5)
+
+- Fixes:
+  - Forward `filter_paths` and `path_level` to security scan in `go-pr-validation`.
+  - Correct release process from `develop` to `main`.
+
+Contributors: @bedatty, @lerian-studio
+
+[Compare changes](https://github.com/LerianStudio/github-actions-shared-workflows/compare/v1.36.4...v1.36.5)
+
+---
+
+## [1.36.4](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.36.4)
+
+- Fixes:
+  - Fix release process by merging `develop` into `main` (#468).
+  - Expose and forward `filter_paths` and `path_level` in `go-pr-validation` (#467).
+  - Type `path_level` as a number to match `go-pr-analysis`.
+
+Contributors: @bedatty, @lerian-studio
+
+[Compare changes](https://github.com/LerianStudio/github-actions-shared-workflows/compare/v1.36.3...v1.36.4)
+
+---
+
+## [1.36.3](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.36.3)
+
+- Fixes:
+  - Fix release process by merging `develop` into `main` (#464).
+  - Add `dockerfile_path` to scan component Dockerfiles in PR security scan (#463).
+
+Contributors: @bedatty, @lerian-studio.
+
+[Compare changes](https://github.com/LerianStudio/github-actions-shared-workflows/compare/v1.36.2...v1.36.3)
+
+---
+
+## [1.36.2](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.36.2)
+
+- Fixes:
+  - Fix: Expose and forward `enable_docker_scan` in `go-pr-validation`.
+  - Fix: Develop to main release process.
+
+Contributors: @bedatty, @lerian-studio.
+
+[Compare changes](https://github.com/LerianStudio/github-actions-shared-workflows/compare/v1.36.1...v1.36.2)
+
+---
+
+## [1.36.1](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.36.1)
+
+- Fixes:
+  - Forward `strip_prefix` and `flatten` in `s3_uploads` entries for `go-release`.
+  - Correct release process from `develop` to `main`.
+
+Contributors: @bedatty, @lerian-studio
+
+[Compare changes](https://github.com/LerianStudio/github-actions-shared-workflows/compare/v1.36.0...v1.36.1)
+
+---
+
+## [1.36.0](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.36.0)
+
+- **Features:**
+  - Added opt-in S3 upload job after build for migration files in `go-release`.
+  - Added opt-in ApiDog E2E test job after gitops-update in `go-release`.
+  - Derived gitops `app_name`, commit prefix, and artifact pattern from `app_name_prefix` in `go-release`.
+  - Supported multiple build groups via `extra_builds` in `go-release`.
+
+- **Fixes:**
+  - Ensured `lerian-lib-version` honors `ignore-pin` before the releases API call.
+  - Made `go-pr-validation` fail gates when the changes job errors.
+  - Implemented pre-flight tag existence check and restored `continue-on-signing-failure` in build.
+  - Shipped default `.ignorecoverunit` coverage exclusions in `go-pr-analysis`.
+  - Made prerelease-check annotation branch-aware in security.
+
+Contributors: @bedatty, @lerian-studio.
+
+[Compare changes](https://github.com/LerianStudio/github-actions-shared-workflows/compare/v1.35.1...v1.36.0)
+
+---
+
+## [1.35.1](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.35.1)
+
+- Fixes:
+  - Add `release_single_app` for single-release multi-build monorepos in `go-release`.
+  - Hand changed-file list off via temp file to avoid `ARG_MAX` overflow in `changed-paths`.
+
+Contributors: @bedatty, @fredcamaral, @lerian-studio
+
+[Compare changes](https://github.com/LerianStudio/github-actions-shared-workflows/compare/v1.35.0...v1.35.1)
+
+---
+
+## [1.35.0](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.35.0)
+
+- **Features**
+  - Expose `helm-dispatch` and `gitops-update` inputs for multi-cluster deploy in `go-release`.
+
+- **Fixes**
+  - Exclude pre-release tags when resolving the latest version in `lerian-lib-version`.
+
+- **Improvements**
+  - Clarify `deploy_in_*` as force-off overrides, not additive selectors in documentation for `go-release`.
+
+Contributors: @bedatty, @lerian-studio.
+
+[Compare changes](https://github.com/LerianStudio/github-actions-shared-workflows/compare/v1.34.0...v1.35.0)
+
+---
+
+## [1.34.0](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.34.0)
+
+- **Features:**
+  - Default `enable_ghcr` to true in `go-release` and `build`.
+  - Add `dry_run` input and preflight-validate backmerge config in release workflows.
+  - Orchestrate backmerge via `backmerge-sync` instead of semantic-release plugin.
+  - Enforce coverage threshold by default in `go-pr-analysis`.
+  - Expose `golangci_lint_args` and `app_name_prefix` in `go-pr-validation`.
+
+- **Fixes:**
+  - Drop trailing blank line in `.releaserc.yml` to satisfy `yamllint`.
+  - Split `golangci_lint_args` via `read -ra` to satisfy `shellcheck`.
+  - Map `golangci_lint_args` via env to prevent shell injection.
+
+Contributors: @bedatty, @lerian-studio,
+
+[Compare changes](https://github.com/LerianStudio/github-actions-shared-workflows/compare/v1.33.1...v1.34.0)
+
+---
+
 ## [1.33.1](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.33.1)
 
 - Fixes:

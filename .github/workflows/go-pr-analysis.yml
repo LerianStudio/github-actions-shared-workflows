@@ -48,7 +48,7 @@ on:
       fail_on_coverage_threshold:
         description: 'Fail the workflow if coverage is below threshold'
         type: boolean
-        default: false
+        default: true
       enable_lint:
         description: 'Enable GolangCI-Lint'
         type: boolean
@@ -137,7 +137,7 @@ jobs:
         app: ${{ fromJson(needs.detect-changes.outputs.matrix) }}
     steps:
       - name: Checkout code
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
 
       - name: Install system dependencies
         if: inputs.system_packages != ''
@@ -213,7 +213,11 @@ jobs:
       - name: Run GolangCI-Lint (direct)
         if: steps.detect-make.outputs.use_make != 'true'
         working-directory: ${{ matrix.app.working_dir }}
-        run: golangci-lint run ${{ inputs.golangci_lint_args }}
+        env:
+          GOLANGCI_LINT_ARGS: ${{ inputs.golangci_lint_args }}
+        run: |
+          read -ra golangci_args <<< "$GOLANGCI_LINT_ARGS"
+          golangci-lint run "${golangci_args[@]}"
 
   # ============================================
   # SECURITY SCANNING
@@ -229,7 +233,7 @@ jobs:
         app: ${{ fromJson(needs.detect-changes.outputs.matrix) }}
     steps:
       - name: Checkout code
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
 
       - name: Install system dependencies
         if: inputs.system_packages != ''
@@ -291,7 +295,7 @@ jobs:
 
       - name: Run Gosec for SARIF
         id: gosec-sarif
-        uses: securego/gosec@4a3bd8af174872c778439083ded7adbf3747e770 # v2.26.1
+        uses: securego/gosec@9e6a9843d7a4a6e3e9a8539b02612c8a4aa3f889 # v2.27.1
         with:
           args: -no-fail -fmt sarif -out gosec-${{ matrix.app.name }}.sarif ./${{ matrix.app.working_dir }}/...
 
@@ -325,7 +329,7 @@ jobs:
         app: ${{ fromJson(needs.detect-changes.outputs.matrix) }}
     steps:
       - name: Checkout code
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
 
       - name: Install system dependencies
         if: inputs.system_packages != ''
@@ -479,7 +483,7 @@ jobs:
         app: ${{ fromJson(needs.detect-changes.outputs.matrix) }}
     steps:
       - name: Checkout code
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
 
       - name: Setup Go
         uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
@@ -517,8 +521,31 @@ jobs:
             IGNORE_FILE="$GITHUB_WORKSPACE/.ignorecoverunit"
             echo "Using .ignorecoverunit from repository root"
           else
-            echo "No .ignorecoverunit file found, using full coverage"
-            exit 0
+            # No repo-provided file — fall back to the shared module default so
+            # common non-unit-testable paths (mocks, cmd/bootstrap, generated
+            # API docs, e2e suites, testutil) are excluded out of the box.
+            # A repo opts out by committing an empty .ignorecoverunit.
+            IGNORE_FILE="$RUNNER_TEMP/.ignorecoverunit.default"
+            cat > "$IGNORE_FILE" <<'DEFAULT_IGNORECOVERUNIT'
+          # Auto-generated mocks
+          *_mock.go
+
+          # Bootstrap / entrypoints
+          /bootstrap/
+          /cmd/
+          bootstrap.go
+
+          # Generated API docs
+          /api/
+
+          # E2E and integration test directories
+          /test/e2e/
+          /tests/e2e/
+
+          # Testutil helpers
+          /internal/testutil/
+          DEFAULT_IGNORECOVERUNIT
+            echo "No .ignorecoverunit file found — applying shared module default exclusions"
           fi
 
           echo "Filtering coverage with .ignorecoverunit patterns..."
@@ -731,7 +758,7 @@ jobs:
         app: ${{ fromJson(needs.detect-changes.outputs.matrix) }}
     steps:
       - name: Checkout code
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
 
       - name: Install system dependencies
         if: inputs.system_packages != ''
@@ -811,7 +838,7 @@ jobs:
         app: ${{ fromJson(needs.detect-changes.outputs.matrix) }}
     steps:
       - name: Checkout code
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
 
       - name: Install system dependencies
         if: inputs.system_packages != ''
@@ -863,7 +890,7 @@ jobs:
         app: ${{ fromJson(needs.detect-changes.outputs.matrix) }}
     steps:
       - name: Checkout code
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
 
       - name: Install system dependencies
         if: inputs.system_packages != ''

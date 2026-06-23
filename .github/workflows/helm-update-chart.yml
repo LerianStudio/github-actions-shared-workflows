@@ -167,7 +167,7 @@ jobs:
           jq -c '.components' /tmp/payload.json > /tmp/components.json
 
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
           token: ${{ steps.app-token.outputs.token }}
           fetch-depth: 0
@@ -223,7 +223,7 @@ jobs:
           go build -o update-chart-version-readme update-chart-version-readme.go
 
       - name: Setup yq
-        uses: mikefarah/yq@751d8ad57b84f1794661bc70c0afb92a22ad7b3c # v4
+        uses: mikefarah/yq@1b9b4ac5187171d2e5e3129be0cfa827c7f9d53d # v4
 
       - name: Process all components
         id: process

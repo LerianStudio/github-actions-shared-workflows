@@ -23,7 +23,7 @@ api-tests:
     test_iterations: "1"
     output_formats: "html,cli"
     node_version: "20"
-    runner_type: "firmino-lxc-runners"
+    runner_type: "eveo-lxc-runners"
     secrets: inherit
 ```
 
@@ -77,7 +77,7 @@ jobs:
 | `node_version` | string | `20` | Node.js version to use |
 | `test_iterations` | string | `1` | Number of test iterations |
 | `output_formats` | string | `html,cli` | Report formats (comma-separated: html, cli, json) |
-| `runner_type` | string | `firmino-lxc-runners` | GitHub runner type |
+| `runner_type` | string | `eveo-lxc-runners` | GitHub runner type |
 | `auto_detect_environment` | boolean | `false` | Enable automatic environment detection from tag |
 | `apidog_cli_version` | string | `latest` | Apidog CLI version to install (npm dist-tag or version, e.g. `latest`, `0.5.2`). Pin to a specific version to avoid non-deterministic CI behavior. |
 
@@ -190,7 +190,7 @@ with:
 
 ```yaml
 with:
-  runner_type: "firmino-lxc-runners"
+  runner_type: "eveo-lxc-runners"
 ```
 
 Faster execution and better resource control.
@@ -322,7 +322,7 @@ jobs:
       auto_detect_environment: true
       test_iterations: "3"
       output_formats: "html,cli,json"
-      runner_type: "firmino-lxc-runners"
+      runner_type: "eveo-lxc-runners"
     secrets: inherit
 ```
 
