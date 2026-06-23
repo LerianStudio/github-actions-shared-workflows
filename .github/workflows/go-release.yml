@@ -134,9 +134,9 @@ on:
         type: string
         default: 'main'
       gitops_runner_type:
-        description: 'Runner for the gitops-update (deploy) job. Deploy needs cluster access, so this defaults to eveo-lxc-runners rather than the build runner.'
+        description: 'Runner for the gitops-update (deploy) job. Defaults to the GITOPS_RUNNERS org-level variable when empty.'
         type: string
-        default: 'eveo-lxc-runners'
+        default: ''
       enable_argocd_sync:
         description: 'Trigger ArgoCD sync after updating the GitOps repository'
         type: boolean

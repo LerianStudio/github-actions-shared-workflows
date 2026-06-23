@@ -45,9 +45,9 @@ on:
         type: string
         required: false
       runner_type:
-        description: 'GitHub runner type to use'
+        description: 'GitHub runner type to use. Defaults to the GITOPS_RUNNERS org-level variable when empty.'
         type: string
-        default: 'blacksmith-4vcpu-ubuntu-2404'
+        default: ''
       enable_argocd_sync:
         description: 'Enable ArgoCD sync after GitOps update'
         type: boolean
@@ -99,7 +99,7 @@ on:
 
 jobs:
   update_gitops:
-    runs-on: ${{ inputs.runner_type }}
+    runs-on: ${{ inputs.runner_type || vars.GITOPS_RUNNERS }}
     outputs:
       app_name: ${{ steps.setup.outputs.app_name }}
       sync_matrix: ${{ steps.apply_tags.outputs.sync_matrix }}
@@ -839,7 +839,7 @@ jobs:
     name: ArgoCD Sync (${{ matrix.target.server }}/${{ matrix.target.env }})
     needs: [update_gitops]
     if: needs.update_gitops.outputs.has_sync_targets == 'true' && inputs.enable_argocd_sync
-    runs-on: ${{ inputs.runner_type }}
+    runs-on: ${{ inputs.runner_type || vars.GITOPS_RUNNERS }}
     strategy:
       fail-fast: false
       matrix:
