@@ -85,6 +85,10 @@ on:
         description: 'JSON object mapping artifact names to YAML keys (e.g., {"app.tag": ".api.image.tag"})'
         type: string
         default: ''
+      deployment_matrix_ref:
+        description: 'Git ref of LerianStudio/github-actions-shared-workflows to read the deployment matrix from. Defaults to main. Override only when testing a branch.'
+        type: string
+        default: 'main'
 
       # ----------------- Shared -----------------
       shared_paths:
@@ -181,4 +185,5 @@ jobs:
       gitops_repository: ${{ inputs.gitops_repository }}
       artifact_pattern: ${{ inputs.gitops_artifact_pattern }}
       yaml_key_mappings: ${{ inputs.gitops_yaml_key_mappings }}
+      deployment_matrix_ref: ${{ inputs.deployment_matrix_ref }}
     secrets: inherit

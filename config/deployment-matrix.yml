@@ -13,6 +13,15 @@
 #   apps.registry                 list of every app name allowed to appear in any cluster
 #   clusters.<name>               cluster block with explicit `apps:` list (no `all_apps`
 #                                 shortcut today — every cluster has its own subset)
+#   clusters.<name>.env_contexts  optional list of context prefixes inserted before the
+#                                 env in the helmfile path. When set, the path becomes
+#                                 helmfile/applications/{context}/{env}/{app}/values.yaml
+#                                 instead of helmfile/applications/{env}/{app}/values.yaml.
+#                                 Combines with env_suffixes: full expansion is
+#                                 contexts × envs × suffixes. Example: env_contexts:
+#                                 ["chaos", "fuzzing"] + env_suffixes: ["-st", "-mt"] on a
+#                                 beta tag yields chaos/dev-st, chaos/dev-mt,
+#                                 fuzzing/dev-st, fuzzing/dev-mt. Defaults to [] (no prefix).
 #   clusters.<name>.env_suffixes  optional list of suffixes to append to each tag-derived
 #                                 env (e.g. ["-st", "-mt"] produces dev-st, dev-mt, stg-st,
 #                                 stg-mt, ...). Defaults to [""] (no suffix) for backward
@@ -127,6 +136,12 @@ clusters:
       - lerian-notification
 
   anacleto:
+    # Anacleto hosts two parallel test types (chaos, fuzzing), each with two
+    # tenant variants per environment. The two-level path structure is:
+    #   helmfile/applications/{context}/{env-with-suffix}/{app}/values.yaml
+    # where context ∈ {chaos, fuzzing} and env-with-suffix ∈ {dev-st, dev-mt}.
+    env_contexts: ["chaos", "fuzzing"]
+    env_suffixes: ["-st", "-mt"]
     apps:
       - midaz
       - fetcher

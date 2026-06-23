@@ -174,6 +174,30 @@ runs:
                     if seen_env and not env_suffixes:
                         warn(f'clusters.{cluster_name}.suffix_excludes_envs is set but env_suffixes is not — suffix_excludes_envs will have no effect.')
 
+            # ── env_contexts (optional) ──
+            # List of context prefix strings inserted before the env in the helmfile path.
+            # When set, path becomes applications/{context}/{env}/{app}/ instead of
+            # applications/{env}/{app}/. Combines with env_suffixes for full expansion.
+            env_contexts = cluster_spec.get('env_contexts')
+            if env_contexts is not None:
+                if not isinstance(env_contexts, list):
+                    err(f'clusters.{cluster_name}.env_contexts must be a list of strings.')
+                else:
+                    if not env_contexts:
+                        err(f'clusters.{cluster_name}.env_contexts is empty; omit the field or provide at least one context name.')
+                    seen_ctx = set()
+                    for i, c in enumerate(env_contexts):
+                        if not isinstance(c, str) or not c.strip():
+                            err(f'clusters.{cluster_name}.env_contexts[{i}] must be a non-empty string.')
+                            continue
+                        if '/' in c:
+                            err(f'clusters.{cluster_name}.env_contexts[{i}] "{c}" must not contain "/" (it is a single path segment).')
+                        if c in seen_ctx:
+                            err(f'Duplicate context "{c}" in clusters.{cluster_name}.env_contexts.')
+                        seen_ctx.add(c)
+                if env_contexts and not env_suffixes:
+                    warn(f'clusters.{cluster_name}.env_contexts is set but env_suffixes is not — contexts will host bare envs (no suffix variants).')
+
             # ── app_helmfile_env (optional) ──
             # Per-app override for the helmfile applications sub-directory.
             # Existing field; validate keys reference apps in the cluster's app list.

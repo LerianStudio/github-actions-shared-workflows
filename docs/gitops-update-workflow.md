@@ -197,6 +197,50 @@ clusters:
 - Each `clusters.<name>.apps` is an explicit list of which apps this cluster hosts.
 - A cluster is added by appending one block. A cluster is removed by deleting it. Affects only this repo — caller workflows are untouched.
 
+### Per-cluster env context directories (Anacleto)
+
+Some clusters organize their helmfile tree with an extra **context** level before the env. Anacleto uses this to separate chaos and fuzzing test suites:
+
+```
+environments/anacleto/helmfile/applications/
+├── chaos/
+│   ├── dev-st/{app}/values.yaml
+│   └── dev-mt/{app}/values.yaml
+└── fuzzing/
+    ├── dev-st/{app}/values.yaml
+    └── dev-mt/{app}/values.yaml
+```
+
+Declare the contexts on the cluster block alongside `env_suffixes`:
+
+```yaml
+clusters:
+  anacleto:
+    env_contexts: ["chaos", "fuzzing"]   # path prefix before the env
+    env_suffixes: ["-st", "-mt"]         # variant suffix appended to the env
+    apps: [midaz, fetcher, ...]
+```
+
+| Field | Default | Effect |
+|---|---|---|
+| `env_contexts` | `[]` | List of subdirectory prefixes inserted before the env in the helmfile path. When empty, no prefix is added (existing behavior). |
+| `env_suffixes` | `[""]` | List of suffixes appended to each tag-derived env. |
+
+**Resolution on a beta tag** (env: `dev`), with the manifest above:
+
+1. Tag-type → base env: `dev`
+2. Suffix expansion: `dev` → `dev-st`, `dev-mt`
+3. Context expansion: for each context × each variant:
+   - `chaos` × `dev-st` → `chaos/dev-st`
+   - `chaos` × `dev-mt` → `chaos/dev-mt`
+   - `fuzzing` × `dev-st` → `fuzzing/dev-st`
+   - `fuzzing` × `dev-mt` → `fuzzing/dev-mt`
+4. Final env list for anacleto: `chaos/dev-st chaos/dev-mt fuzzing/dev-st fuzzing/dev-mt`
+5. Values paths: `environments/anacleto/helmfile/applications/{context/env}/{app}/values.yaml`
+6. ArgoCD app name: `/` normalized to `-`, so `{server}-{app}-chaos/dev-st` → `anacleto-midaz-chaos-dev-st`
+
+Clusters without `env_contexts` (firmino, clotilde, benedita) are unaffected — the field defaults to `[]`.
+
 ### Per-cluster env suffix variants (`-st`, `-mt`, ...)
 
 Some clusters host **multiple parallel variants per environment** as sibling namespaces, helmfile directories, and ArgoCD apps. For example, Benedita runs both single-tenant (`-st`) and multi-tenant (`-mt`) variants:

@@ -361,7 +361,8 @@ jobs:
                 | with_entries(select(.key as $k | $clusters | index($k)))
                 | with_entries(.value = {
                     env_suffixes: (.value.env_suffixes // [""]),
-                    suffix_excludes_envs: (.value.suffix_excludes_envs // [])
+                    suffix_excludes_envs: (.value.suffix_excludes_envs // []),
+                    env_contexts: (.value.env_contexts // [])
                   })
               ')
           echo "env_config=$ENV_CONFIG" >> "$GITHUB_OUTPUT"
@@ -544,10 +545,11 @@ jobs:
           }
 
           # Compute the effective env list for a given server by expanding
-          # tag-derived envs against the cluster's env_suffixes, except for envs
-          # listed in suffix_excludes_envs which stay bare. Falls back to a single
-          # empty-suffix expansion when env_config is empty (e.g. kustomize layout
-          # with sentinel env "-", or clusters without the new fields declared).
+          # tag-derived envs against the cluster's env_suffixes and env_contexts,
+          # except for envs listed in suffix_excludes_envs which stay bare.
+          # When env_contexts is set, each expansion is prefixed: {context}/{env-variant}.
+          # Falls back to a single empty-suffix expansion when env_config is empty
+          # (e.g. kustomize layout with sentinel env "-", or clusters without the new fields).
           expand_envs_for_server() {
             local server="$1"
             local base_envs="$2"
@@ -556,23 +558,36 @@ jobs:
               echo "$base_envs"
               return
             fi
-            local suffixes excludes
+            local suffixes excludes contexts
             suffixes=$(echo "$ENV_CONFIG" | jq -r --arg s "$server" '.[$s].env_suffixes // [""] | .[]' 2>/dev/null || echo "")
             excludes=$(echo "$ENV_CONFIG" | jq -r --arg s "$server" '.[$s].suffix_excludes_envs // [] | .[]' 2>/dev/null || echo "")
+            contexts=$(echo "$ENV_CONFIG" | jq -r --arg s "$server" '.[$s].env_contexts // [] | .[]' 2>/dev/null || echo "")
             if [[ -z "$suffixes" ]]; then
               echo "$base_envs"
               return
             fi
             local out=""
             for base_env in $base_envs; do
-              # If env is in the exclude list, keep it bare (no suffix expansion).
+              # Expand base_env × suffixes (or keep bare if excluded).
+              local expanded=""
               if echo "$excludes" | grep -qx "$base_env" 2>/dev/null; then
-                out="${out:+$out }$base_env"
-                continue
+                expanded="$base_env"
+              else
+                while IFS= read -r suffix; do
+                  expanded="${expanded:+$expanded }${base_env}${suffix}"
+                done <<< "$suffixes"
               fi
-              while IFS= read -r suffix; do
-                out="${out:+$out }${base_env}${suffix}"
-              done <<< "$suffixes"
+              # Apply contexts: prefix each expanded variant with "{context}/".
+              # When no contexts are declared, emit variants as-is.
+              if [[ -n "$contexts" ]]; then
+                while IFS= read -r ctx; do
+                  for variant in $expanded; do
+                    out="${out:+$out }${ctx}/${variant}"
+                  done
+                done <<< "$contexts"
+              else
+                out="${out:+$out }$expanded"
+              fi
             done
             echo "$out"
           }
@@ -860,6 +875,8 @@ jobs:
           NAME="${NAME//\{server\}/$SERVER}"
           NAME="${NAME//\{app\}/$APP}"
           NAME="${NAME//\{env\}/$ENV_NAME}"
+          # Normalize context-prefixed envs: "chaos/dev-st" → "chaos-dev-st".
+          NAME="${NAME//\//-}"
           # Collapse "--" sequences (sentinel env "-" produces "--" inside template).
           while [[ "$NAME" == *--* ]]; do NAME="${NAME//--/-}"; done
           # Strip trailing "-" left over when sentinel env "-" lands at the end.
