@@ -1,5 +1,20 @@
 # Github-actions-shared-workflows Changelog
 
+## [1.36.7](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.36.7)
+
+- Fixes:
+  - Forward `normalize_to_filter` in `extra_builds` entries.
+  - Fail on invalid `s3_uploads` JSON and sync `runner_type` docs.
+  - Enforce `s3_uploads` is a JSON array.
+  - Support per-entry `aws_role_arn` in `s3_uploads`.
+  - Default to `eveo-lxc-runners` instead of `firmino-lxc-runners`.
+
+Contributors: @bedatty, @ferr3ira-gabriel, @lerian-studio.
+
+[Compare changes](https://github.com/LerianStudio/github-actions-shared-workflows/compare/v1.36.6...v1.36.7)
+
+---
+
 ## [1.36.6](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.36.6)
 
 - Fixes:
