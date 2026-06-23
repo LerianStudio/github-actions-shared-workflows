@@ -18,7 +18,7 @@ on:
       update_sandbox:
         description: 'Include sandbox environment on production tags. Set to false to skip sandbox even on a production release.'
         type: boolean
-        default: true
+        default: false
       deploy_in_anacleto:
         description: 'Force-off override for Anacleto. Set to false to suppress deployment even if the manifest includes this app on Anacleto.'
         type: boolean

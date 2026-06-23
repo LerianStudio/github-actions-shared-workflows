@@ -120,7 +120,7 @@ on:
       update_sandbox:
         description: 'Include sandbox environment on production tags. Set to false to skip sandbox even on a production release.'
         type: boolean
-        default: true
+        default: false
       gitops_artifact_pattern:
         description: 'Pattern to download GitOps artifacts (defaults to "gitops-tags-<repo-name>*")'
         type: string
