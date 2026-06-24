@@ -201,6 +201,7 @@ When enabled, the workflow scans `go.mod`, `package.json`, and `Dockerfile` for 
 | `enable_prerelease_check` | boolean | `true` | Block dependencies pinned to pre-release versions (`-beta`, `-rc`) |
 | `prerelease_block_branches` | string | `release-candidate,main` | Comma-separated PR target branches where pre-release versions cause a hard failure. On other branches, findings are reported as warnings only |
 | `ignore_file` | string | `''` | Path to Trivy ignore file (e.g., `.trivyignore.yaml`) for path-scoped suppression of secrets and vulnerabilities. Passed through to `trivy-fs-scan` via `--ignorefile`. Supports Trivy's structured YAML format with `paths:` constraints |
+| `trivy_skip_dirs` | string | `''` | Comma-separated directories to skip in the Trivy filesystem scan (appended to the default skip list: `.git`, `node_modules`, `dist`, `build`, `.next`, `coverage`, `vendor`). Useful for excluding sub-modules from the root scan (e.g. `tools/mock-sta-server`) |
 
 ## Secrets
 

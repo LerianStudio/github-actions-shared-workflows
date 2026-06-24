@@ -112,6 +112,11 @@ on:
         type: string
         required: false
         default: ''
+      trivy_skip_dirs:
+        description: 'Comma-separated directories to skip in the Trivy filesystem scan (appended to the default skip list: .git,node_modules,dist,build,.next,coverage,vendor).'
+        type: string
+        required: false
+        default: ''
 
 permissions:
   actions: read         # Required for CodeQL status reporting
@@ -192,6 +197,7 @@ jobs:
           scan-ref: ${{ matrix.working_dir }}
           app-name: ${{ env.APP_NAME }}
           ignore-file: ${{ inputs.ignore_file }}
+          skip-dirs: ".git,node_modules,dist,build,.next,coverage,vendor${{ inputs.trivy_skip_dirs != '' && format(',{0}', inputs.trivy_skip_dirs) || '' }}"
 
       # ----------------- Docker Build -----------------
       - name: Build Docker Image for Scanning

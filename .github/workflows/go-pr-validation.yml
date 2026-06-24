@@ -150,6 +150,18 @@ on:
         description: 'Languages to analyze with CodeQL (comma-separated, e.g., "go")'
         type: string
         default: ''
+      monorepo_type:
+        description: 'Monorepo layout for the security scan. "type1" = components in separate folders (default). "type2" = backend at repo root + one independent component in a sub-folder.'
+        type: string
+        default: 'type1'
+      frontend_folder:
+        description: 'Sub-folder treated as an independent scan component in type2 repos (e.g. "tools/mock-sta-server"). Ignored when monorepo_type is "type1".'
+        type: string
+        default: 'frontend'
+      trivy_skip_dirs:
+        description: 'Comma-separated directories to skip in every Trivy filesystem scan (appended to the built-in skip list). Useful for excluding sub-modules from the root scan (e.g. "tools/mock-sta-server").'
+        type: string
+        default: ''
 
       # ----------------- Lerian lib version (lerian-lib-version-check.yml) -----------------
       lib_version_go_mod_path:
@@ -272,6 +284,9 @@ jobs:
       filter_paths: ${{ inputs.filter_paths }}
       path_level: ${{ format('{0}', inputs.path_level) }}
       shared_paths: ${{ inputs.shared_paths }}
+      monorepo_type: ${{ inputs.monorepo_type }}
+      frontend_folder: ${{ inputs.frontend_folder }}
+      trivy_skip_dirs: ${{ inputs.trivy_skip_dirs }}
     secrets: inherit
 
   security-gate:
