@@ -887,7 +887,7 @@ jobs:
       - name: Sync ArgoCD application
         shell: bash
         env:
-          ARGOCD_URL: ${{ secrets.ARGOCD_URL }}
+          ARGOCD_URL: ${{ vars.ARGOCD_URL }}
           ARGOCD_TOKEN: ${{ secrets.ARGOCD_GHUSER_TOKEN }}
           APP_NAME: ${{ steps.resolve_argocd_app.outputs.name }}
           ARGOCD_PRUNE: ${{ inputs.argocd_prune }}
