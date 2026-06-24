@@ -412,7 +412,7 @@ jobs:
 
   # ----------------- Extra Builds (tag push, opt-in) -----------------
   extra_build:
-    if: github.ref_type == 'tag' && inputs.extra_builds != ''
+    if: github.ref_type == 'tag' && inputs.extra_builds != '' && inputs.extra_builds != '[]'
     permissions:
       id-token: write
       contents: read
