@@ -197,10 +197,12 @@ jobs:
             echo "yq already installed: $(yq --version)"
           else
             YQ_VERSION="${{ inputs.yq_version }}"
-            YQ_BIN="yq_linux_amd64"
-            YQ_URL="https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}/${YQ_BIN}"
-            sudo curl -L "$YQ_URL" -o /usr/local/bin/yq
-            sudo chmod +x /usr/local/bin/yq
+            YQ_URL="https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}/yq_linux_amd64"
+            mkdir -p ~/.local/bin
+            curl -sSL "$YQ_URL" -o ~/.local/bin/yq
+            chmod +x ~/.local/bin/yq
+            echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+            export PATH="$HOME/.local/bin:$PATH"
           fi
           yq --version
 
@@ -851,8 +853,11 @@ jobs:
           if command -v argocd &>/dev/null; then
             echo "argocd already installed: $(argocd version --client --short 2>/dev/null || argocd version --client)"
           else
-            curl -sSL -o /tmp/argocd https://github.com/argoproj/argo-cd/releases/download/v3.0.6/argocd-linux-amd64
-            sudo install -m 755 /tmp/argocd /usr/local/bin/argocd
+            mkdir -p ~/.local/bin
+            curl -sSL -o ~/.local/bin/argocd https://github.com/argoproj/argo-cd/releases/download/v3.0.6/argocd-linux-amd64
+            chmod +x ~/.local/bin/argocd
+            echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+            export PATH="$HOME/.local/bin:$PATH"
             argocd version --client
           fi
 
