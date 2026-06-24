@@ -848,9 +848,13 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          curl -sSL -o /tmp/argocd https://github.com/argoproj/argo-cd/releases/download/v3.0.6/argocd-linux-amd64
-          sudo install -m 755 /tmp/argocd /usr/local/bin/argocd
-          argocd version --client
+          if command -v argocd &>/dev/null; then
+            echo "argocd already installed: $(argocd version --client --short 2>/dev/null || argocd version --client)"
+          else
+            curl -sSL -o /tmp/argocd https://github.com/argoproj/argo-cd/releases/download/v3.0.6/argocd-linux-amd64
+            sudo install -m 755 /tmp/argocd /usr/local/bin/argocd
+            argocd version --client
+          fi
 
       - name: Resolve ArgoCD application name
         id: resolve_argocd_app
