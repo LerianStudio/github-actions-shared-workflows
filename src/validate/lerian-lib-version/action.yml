@@ -128,10 +128,15 @@ runs:
         # ---------- 2. Load ignore file (optional) ----------
         # Format:
         #   # comment
-        #   lib-name/vN                  -> skip entirely
-        #   lib-name/vN@vX.Y.Z           -> pin: only fail if current < pinned target
+        #   lib-name/vN                          -> skip entirely (permanent)
+        #   lib-name/vN@vX.Y.Z                   -> pin: only fail if current < pinned target
+        #   lib-name/vN|ttl:YYYY-MM-DD           -> skip until TTL date (expires on/after that date)
+        #   lib-name/vN@vX.Y.Z|ttl:YYYY-MM-DD   -> pin until TTL date
         declare -A IGNORE_SKIP=()       # key: module path  -> "1"
         declare -A IGNORE_PIN=()        # key: module path  -> pinned version (vX.Y.Z)
+        declare -A IGNORE_TTL=()        # key: module path  -> TTL date (YYYY-MM-DD)
+
+        TODAY=$(date -u +%Y-%m-%d)
 
         if [[ -f "${IGNORE_FILE}" ]]; then
           log "Loading ignore rules from ${IGNORE_FILE}"
@@ -140,14 +145,36 @@ runs:
             line="${line#"${line%%[![:space:]]*}"}"
             line="${line%"${line##*[![:space:]]}"}"
             [[ -z "${line}" ]] && continue
+
+            # Extract optional TTL suffix: lib-name/vN[|ttl:YYYY-MM-DD]
+            ttl=""
+            if [[ "${line}" == *"|ttl:"* ]]; then
+              ttl="${line##*|ttl:}"
+              line="${line%%|ttl:*}"
+            fi
+
+            # Validate TTL date format and check expiry
+            if [[ -n "${ttl}" ]]; then
+              if ! [[ "${ttl}" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]]; then
+                echo "::warning title=Invalid TTL format::Ignore rule for '${line}' has invalid TTL '${ttl}' (expected YYYY-MM-DD). Treating as expired."
+                continue
+              fi
+              if ! [[ "${TODAY}" < "${ttl}" ]]; then
+                echo "::warning title=Expired ignore rule::Ignore rule for '${line}' (ttl: ${ttl}) has expired as of ${TODAY}. Version check enforced."
+                continue
+              fi
+            fi
+
             if [[ "${line}" == *"@"* ]]; then
               mod="${line%@*}"
               pin="${line##*@}"
               IGNORE_PIN["${mod}"]="${pin}"
-              debug "ignore-pin: ${mod} -> ${pin}"
+              [[ -n "${ttl}" ]] && IGNORE_TTL["${mod}"]="${ttl}"
+              debug "ignore-pin: ${mod} -> ${pin}${ttl:+ (ttl: ${ttl})}"
             else
               IGNORE_SKIP["${line}"]="1"
-              debug "ignore-skip: ${line}"
+              [[ -n "${ttl}" ]] && IGNORE_TTL["${line}"]="${ttl}"
+              debug "ignore-skip: ${line}${ttl:+ (ttl: ${ttl})}"
             fi
           done < "${IGNORE_FILE}"
         else
@@ -282,7 +309,9 @@ runs:
           # Ignore rules
           if [[ -n "${IGNORE_SKIP[${short_path}]:-}" ]]; then
             SKIPPED=$((SKIPPED+1))
-            printf '| `%s` | `%s` | _skipped_ | Skipped (ignore file) |\n' "${short_path}" "${current}" >> "${ROWS_FILE}"
+            ttl_suffix=""
+            [[ -n "${IGNORE_TTL[${short_path}]:-}" ]] && ttl_suffix=", expires ${IGNORE_TTL[${short_path}]}"
+            printf '| `%s` | `%s` | _skipped_ | Skipped (ignore file%s) |\n' "${short_path}" "${current}" "${ttl_suffix}" >> "${ROWS_FILE}"
             continue
           fi
 
@@ -295,6 +324,7 @@ runs:
             target="${IGNORE_PIN[${short_path}]}"
             latest="${target}"
             marker_suffix=" (pinned)"
+            [[ -n "${IGNORE_TTL[${short_path}]:-}" ]] && marker_suffix=" (pinned, expires ${IGNORE_TTL[${short_path}]})"
           else
             latest=$(resolve_latest "${repo}" "${major_filter}")
 
