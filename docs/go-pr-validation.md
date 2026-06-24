@@ -52,6 +52,9 @@ The `go-analysis`, `security` and `lib-version` pipelines each have a `*-gate` a
 | `dockerfile_path` | Explicit path to a single Dockerfile to build and scan (e.g. `components/ledger/Dockerfile`); lets monorepos without a root Dockerfile keep `enable_docker_scan: true` | string | `''` |
 | `enable_codeql` | Enable CodeQL static analysis | boolean | `false` |
 | `codeql_languages` | CodeQL languages (comma-separated) | string | `''` |
+| `monorepo_type` | Monorepo layout for the security scan. `"type1"` = components in separate folders (default). `"type2"` = backend at repo root + one independent component in a sub-folder. | string | `'type1'` |
+| `frontend_folder` | Sub-folder treated as an independent scan component in type2 repos (e.g. `"tools/mock-sta-server"`). Ignored when `monorepo_type` is `"type1"`. | string | `'frontend'` |
+| `trivy_skip_dirs` | Comma-separated directories to skip in every Trivy filesystem scan (appended to the built-in skip list). Useful for excluding sub-modules from the root scan (e.g. `"tools/mock-sta-server"`). | string | `''` |
 | `shared_paths` | Path patterns that trigger analysis/security for all components | string | `''` |
 
 ## Secrets
