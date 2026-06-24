@@ -1,5 +1,20 @@
 # Github-actions-shared-workflows Changelog
 
+## [1.38.0](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.38.0)
+
+- **Features:**
+  - Expose monorepo security parameters to security scan in `go-pr-validation`.
+  - Develop branch merged into main for release.
+
+- **Fixes:**
+  - Guard `extra_build` against empty JSON array in `go-release`.
+
+Contributors: @bedatty, @lerian-studio.
+
+[Compare changes](https://github.com/LerianStudio/github-actions-shared-workflows/compare/v1.37.0...v1.38.0)
+
+---
+
 ## [1.37.0](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.37.0)
 
 - **Features:**
