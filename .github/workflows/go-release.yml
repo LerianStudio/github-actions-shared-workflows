@@ -433,7 +433,7 @@ jobs:
       filter_paths: ${{ matrix.group.filter_paths }}
       shared_paths: ${{ matrix.group.shared_paths || inputs.shared_paths }}
       path_level: ${{ matrix.group.path_level || inputs.path_level }}
-      normalize_to_filter: ${{ toJSON(matrix.group.normalize_to_filter) != 'false' }}
+      normalize_to_filter: ${{ toJSON(matrix.group.normalize_to_filter) == 'false' && 'false' || 'true' }}
       app_name: ${{ matrix.group.app_name }}
       app_name_prefix: ${{ matrix.group.app_name_prefix }}
       app_name_overrides: ${{ matrix.group.app_name_overrides }}
