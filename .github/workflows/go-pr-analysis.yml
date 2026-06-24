@@ -645,14 +645,19 @@ jobs:
       - name: Post coverage comment
         if: github.event_name == 'pull_request'
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          COVERAGE: ${{ steps.coverage.outputs.coverage }}
+          THRESHOLD: ${{ inputs.coverage_threshold }}
+          APP_NAME: ${{ matrix.app.name }}
+          WORKING_DIR: ${{ matrix.app.working_dir }}
         with:
           github-token: ${{ secrets.MANAGE_TOKEN || github.token }}
           script: |
             const fs = require('fs');
-            const coverage = '${{ steps.coverage.outputs.coverage }}';
-            const threshold = '${{ inputs.coverage_threshold }}';
-            const appName = '${{ matrix.app.name }}';
-            const workingDir = '${{ matrix.app.working_dir }}';
+            const coverage = process.env.COVERAGE;
+            const threshold = process.env.THRESHOLD;
+            const appName = process.env.APP_NAME;
+            const workingDir = process.env.WORKING_DIR;
             const passFail = parseFloat(coverage) >= parseFloat(threshold) ? '✅ PASS' : '⚠️ BELOW THRESHOLD';
 
             let coverageReport = '';
@@ -712,9 +717,10 @@ jobs:
 
       - name: Check coverage threshold
         if: inputs.fail_on_coverage_threshold
+        env:
+          COVERAGE: ${{ steps.coverage.outputs.coverage }}
+          THRESHOLD: ${{ inputs.coverage_threshold }}
         run: |
-          COVERAGE=${{ steps.coverage.outputs.coverage }}
-          THRESHOLD=${{ inputs.coverage_threshold }}
           if (( $(echo "$COVERAGE < $THRESHOLD" | bc -l) )); then
             echo "::error::Coverage $COVERAGE% is below threshold $THRESHOLD%"
             exit 1
