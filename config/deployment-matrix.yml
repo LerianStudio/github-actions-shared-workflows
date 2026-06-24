@@ -53,8 +53,9 @@
 #   - ledger, dockerhub-secret (no values.yaml — kustomize / k8s Secret)
 #   - hortencia-apps (legacy umbrella, not workflow-managed)
 #   - environments/production/* (platform infra: addons, observability)
-#   - ungoliant-controller (anacleto), severino-bot (benedita) — kustomize layout,
-#     deployed via gitops_layout=kustomize callers; not governed by this manifest
+#   - ungoliant-controller and severino-bot use gitops_layout=kustomize — they ARE
+#     in this manifest for cluster resolution, but callers must set gitops_layout=kustomize,
+#     kustomize_base_path, and kustomize_image_name; no helmfile values.yaml exists for them
 
 version: 1
 
@@ -87,6 +88,10 @@ apps:
     - lerian-map
     - tenant-manager
 
+    # Kustomize-managed (gitops_layout=kustomize callers; no helmfile values.yaml)
+    - ungoliant-controller        # anacleto only
+    - severino-bot                # benedita only
+
     # Benedita-exclusive
     - rosiehr                     # internal HR app (benedita only); values at cross/
     - go-boilerplate-ddd          # Go service boilerplate (reference/template)
@@ -111,6 +116,7 @@ clusters:
       - plugin-fees
       - plugin-br-pix-indirect-btg
       - plugin-br-pix-switch
+      - ungoliant-controller
 
   benedita:
     # Benedita hosts two parallel variants per environment as sibling namespaces:
@@ -161,3 +167,4 @@ clusters:
       - lerian-notification
       - rosiehr
       - go-boilerplate-ddd
+      - severino-bot
