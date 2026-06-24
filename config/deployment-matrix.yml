@@ -53,8 +53,8 @@
 #   - ledger, dockerhub-secret (no values.yaml — kustomize / k8s Secret)
 #   - hortencia-apps (legacy umbrella, not workflow-managed)
 #   - environments/production/* (platform infra: addons, observability)
-#   - ungoliant-controller (anacleto, kustomize layout — declared here for registry
-#     purposes but deployed via gitops_layout=kustomize, not helmfile)
+#   - ungoliant-controller (anacleto), severino-bot (benedita) — kustomize layout,
+#     deployed via gitops_layout=kustomize callers; not governed by this manifest
 
 version: 1
 
@@ -86,10 +86,6 @@ apps:
     - gestao-acessos-console
     - lerian-map
     - tenant-manager
-
-    # Registry-only (kustomize-managed; deployed via gitops_layout=kustomize, not helmfile)
-    - ungoliant-controller        # anacleto only
-    - severino-bot                # benedita only; kustomize under benedita/kustomize/severino/
 
     # Benedita-exclusive
     - rosiehr                     # internal HR app (benedita only); values at cross/
