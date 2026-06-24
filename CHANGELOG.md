@@ -1,5 +1,34 @@
 # Github-actions-shared-workflows Changelog
 
+## [1.37.0](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.37.0)
+
+- **Features:**
+  - Added support for per-cluster environment suffix variants (`-st` / `-mt`).
+  - Renamed `ARGOCD_GHUSER_TOKEN` to `ARGOCD_TOKEN`.
+  - Resolved `ARGOCD_URL` from organization variable instead of secret.
+  - Removed `runner_type` input; runner resolved exclusively from `GITOPS_RUNNERS` organization variable.
+  - Added `update_sandbox` boolean and resolved `gitops_repository` from organization variable.
+
+- **Fixes:**
+  - Added `lerian-map` as a cross app in deployment matrix for `benedita`.
+  - Restored `ungoliant-controller` and `severino-bot` for kustomize cluster resolution.
+  - Avoided code injection by passing `yq_version` via environment instead of run interpolation.
+  - Fixed `env_contexts` early return, `argocd` rc capture, and runner fallback.
+  - Installed `yq` and `argocd` without `sudo` using `~/.local/bin`.
+
+- **Improvements:**
+  - Skipped `argocd` and `yq` downloads when already installed on runner.
+  - Removed `firmino` and `clotilde` clusters; synced matrix with internal audit.
+  - Aligned deployment matrix with internal audit.
+  - Resolved runner from `GITOPS_RUNNERS` organization-level variable.
+  - Set `update_sandbox` default to `false`.
+
+Contributors: @bedatty, @ferr3ira-gabriel, @gandalf-at-lerian, @lerian-studio.
+
+[Compare changes](https://github.com/LerianStudio/github-actions-shared-workflows/compare/v1.36.8...v1.37.0)
+
+---
+
 ## [1.36.8](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.36.8)
 
 - Fixes:
