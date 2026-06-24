@@ -4,7 +4,7 @@ Reusable workflow for building and pushing Docker images to container registries
 
 ## Features
 
-- **Monorepo support**: Automatic detection of changed components via filter_paths; on tag pushes all components are always built regardless of what changed
+- **Monorepo support**: Automatic detection of changed components via filter_paths; opt-in `force_full_matrix` to always build all components together (useful for tightly-coupled services)
 - **Multi-registry**: Push to DockerHub and/or GitHub Container Registry (GHCR)
 - **Smart platform builds**: Beta/RC tags build amd64 only (unless `force_multiplatform` is enabled), release tags build amd64+arm64
 - **Semantic versioning**: Automatic tag extraction and Docker metadata
