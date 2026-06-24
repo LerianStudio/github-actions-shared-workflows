@@ -1,28 +1,24 @@
 name: "GitOps Update"
 
 # Reusable workflow for updating GitOps repository with new image tags
-# Supports multiple servers (Firmino, Clotilde) and environments: dev (beta), stg (rc), prd (production), sandbox
+# Supports multiple clusters and environments: dev (beta), stg (rc), prd (production), sandbox
 # Handles single or multiple components with flexible YAML key mapping
 
 on:
   workflow_call:
     inputs:
       gitops_repository:
-        description: 'GitOps repository to update (org/repo format)'
+        description: 'GitOps repository to update (org/repo format). Defaults to the GITOPS_REPOSITORY org-level variable when empty.'
         type: string
-        default: 'LerianStudio/midaz-firmino-gitops'
+        default: ''
       app_name:
         description: 'Application name (defaults to repository name if not provided)'
         type: string
         required: false
-      deploy_in_firmino:
-        description: 'Force-off override for Firmino. Set to false to suppress deployment even if the manifest includes this app on Firmino.'
+      update_sandbox:
+        description: 'Include sandbox environment on production tags. Set to false to skip sandbox even on a production release.'
         type: boolean
-        default: true
-      deploy_in_clotilde:
-        description: 'Force-off override for Clotilde. Set to false to suppress deployment even if the manifest includes this app on Clotilde.'
-        type: boolean
-        default: true
+        default: false
       deploy_in_anacleto:
         description: 'Force-off override for Anacleto. Set to false to suppress deployment even if the manifest includes this app on Anacleto.'
         type: boolean
@@ -48,10 +44,6 @@ on:
         description: 'Prefix for commit message (defaults to repository name if not provided)'
         type: string
         required: false
-      runner_type:
-        description: 'GitHub runner type to use'
-        type: string
-        default: 'blacksmith-4vcpu-ubuntu-2404'
       enable_argocd_sync:
         description: 'Enable ArgoCD sync after GitOps update'
         type: boolean
@@ -103,12 +95,13 @@ on:
 
 jobs:
   update_gitops:
-    runs-on: ${{ inputs.runner_type }}
+    runs-on: ${{ vars.GITOPS_RUNNERS || 'blacksmith-4vcpu-ubuntu-2404' }}
     outputs:
       app_name: ${{ steps.setup.outputs.app_name }}
       sync_matrix: ${{ steps.apply_tags.outputs.sync_matrix }}
       has_sync_targets: ${{ steps.apply_tags.outputs.has_sync_targets }}
     env:
+      GITOPS_REPO: ${{ inputs.gitops_repository || vars.GITOPS_REPOSITORY }}
       IS_RC: ${{ contains(github.ref, '-rc.') }}
       IS_BETA: ${{ contains(github.ref, '-beta.') }}
       IS_SANDBOX: ${{ contains(github.ref, '-sandbox.') }}
@@ -122,20 +115,24 @@ jobs:
           password: ${{ secrets.DOCKERHUB_IMAGE_PULL_TOKEN }}
 
       # Trust model: this is a `workflow_call` reusable workflow, NOT triggered by
-      # untrusted PRs. `inputs.gitops_repository` is supplied by trusted caller
-      # workflows (default: LerianStudio/midaz-firmino-gitops) and the MANAGE_TOKEN
-      # is required for the subsequent commit/push step. The allowlist step below
-      # enforces that the repository is a LerianStudio-owned `*-gitops` repo so a
-      # compromised caller cannot redirect the privileged checkout to an arbitrary
-      # target (CodeQL: `actions/untrusted-checkout`).
+      # untrusted PRs. The gitops repository is resolved from inputs.gitops_repository
+      # (caller-supplied) or the GITOPS_REPOSITORY org-level variable, and the
+      # MANAGE_TOKEN is required for the subsequent commit/push step. The allowlist
+      # step below enforces that the repository is a LerianStudio-owned `*-gitops`
+      # repo so a compromised caller cannot redirect the privileged checkout to an
+      # arbitrary target (CodeQL: `actions/untrusted-checkout`).
       - name: Validate gitops_repository against allowlist
         shell: bash
         env:
-          GITOPS_REPOSITORY: ${{ inputs.gitops_repository }}
+          GITOPS_REPOSITORY: ${{ env.GITOPS_REPO }}
         run: |
           set -euo pipefail
+          if [[ -z "$GITOPS_REPOSITORY" ]]; then
+            echo "::error::gitops_repository is empty. Set the input or the GITOPS_REPOSITORY org-level variable."
+            exit 1
+          fi
           if [[ ! "$GITOPS_REPOSITORY" =~ ^LerianStudio/[A-Za-z0-9._-]+-gitops$ ]]; then
-            echo "::error::gitops_repository '$GITOPS_REPOSITORY' is not allowed. Must match ^LerianStudio/<name>-gitops$ (e.g. LerianStudio/midaz-firmino-gitops)."
+            echo "::error::gitops_repository '$GITOPS_REPOSITORY' is not allowed. Must match ^LerianStudio/<name>-gitops$ (e.g. LerianStudio/lerian-internal-gitops)."
             exit 1
           fi
           echo "gitops_repository validated: $GITOPS_REPOSITORY"
@@ -143,7 +140,7 @@ jobs:
       - name: Checkout GitOps Repository
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
-          repository: ${{ inputs.gitops_repository }}
+          repository: ${{ env.GITOPS_REPO }}
           token: ${{ secrets.MANAGE_TOKEN }}
           path: gitops
           fetch-depth: 0
@@ -194,14 +191,20 @@ jobs:
 
       - name: Install yq
         shell: bash
+        env:
+          YQ_VERSION: ${{ inputs.yq_version }}
         run: |
           set -euo pipefail
-          YQ_VERSION="${{ inputs.yq_version }}"
-          YQ_BIN="yq_linux_amd64"
-          YQ_URL="https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}/${YQ_BIN}"
-
-          sudo curl -L "$YQ_URL" -o /usr/local/bin/yq
-          sudo chmod +x /usr/local/bin/yq
+          if command -v yq &>/dev/null; then
+            echo "yq already installed: $(yq --version)"
+          else
+            YQ_URL="https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}/yq_linux_amd64"
+            mkdir -p ~/.local/bin
+            curl -sSL "$YQ_URL" -o ~/.local/bin/yq
+            chmod +x ~/.local/bin/yq
+            echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+            export PATH="$HOME/.local/bin:$PATH"
+          fi
           yq --version
 
       - name: Install kustomize
@@ -258,8 +261,6 @@ jobs:
         env:
           APP_NAME: ${{ steps.setup.outputs.app_name }}
           MANIFEST: shared-workflows/${{ inputs.deployment_matrix_file }}
-          DEPLOY_FIRMINO: ${{ inputs.deploy_in_firmino }}
-          DEPLOY_CLOTILDE: ${{ inputs.deploy_in_clotilde }}
           DEPLOY_ANACLETO: ${{ inputs.deploy_in_anacleto }}
         run: |
           set -euo pipefail
@@ -310,18 +311,6 @@ jobs:
           while IFS= read -r cluster; do
             [[ -z "$cluster" ]] && continue
             case "$cluster" in
-              firmino)
-                if [[ "$DEPLOY_FIRMINO" == "false" ]]; then
-                  echo "  ✗ firmino — suppressed by deploy_in_firmino=false"
-                  continue
-                fi
-                ;;
-              clotilde)
-                if [[ "$DEPLOY_CLOTILDE" == "false" ]]; then
-                  echo "  ✗ clotilde — suppressed by deploy_in_clotilde=false"
-                  continue
-                fi
-                ;;
               anacleto)
                 if [[ "$DEPLOY_ANACLETO" == "false" ]]; then
                   echo "  ✗ anacleto — suppressed by deploy_in_anacleto=false"
@@ -343,6 +332,30 @@ jobs:
           echo "Final cluster set: $FILTERED"
           echo "clusters=$FILTERED" >> "$GITHUB_OUTPUT"
           echo "has_clusters=true" >> "$GITHUB_OUTPUT"
+
+          # Emit a JSON map of per-cluster env_suffixes / suffix_excludes_envs for
+          # downstream steps. Defaults preserve the pre-multi-variant behavior:
+          # - env_suffixes defaults to [""] (one expansion, empty suffix)
+          # - suffix_excludes_envs defaults to []
+          # Clusters that did not declare these fields therefore produce the exact
+          # same env list as before (e.g. dev/stg/prd/sandbox for a prod tag).
+          # Build a JSON array of resolved cluster names for jq. Splitting on the
+          # known single-space delimiter (FILTERED is built with " " separators
+          # above), then feeding each element to jq -R explicitly avoids the need
+          # to rely on word-splitting via `$FILTERED` (shellcheck SC2086).
+          CLUSTERS_JSON=$(printf '%s' "$FILTERED" | tr ' ' '\n' | jq -R . | jq -s .)
+          ENV_CONFIG=$(yq -o=json '.' "$MANIFEST" \
+            | jq -c --argjson clusters "$CLUSTERS_JSON" '
+                .clusters
+                | with_entries(select(.key as $k | $clusters | index($k)))
+                | with_entries(.value = {
+                    env_suffixes: (.value.env_suffixes // [""]),
+                    suffix_excludes_envs: (.value.suffix_excludes_envs // []),
+                    env_contexts: (.value.env_contexts // [])
+                  })
+              ')
+          echo "env_config=$ENV_CONFIG" >> "$GITHUB_OUTPUT"
+          echo "Per-cluster env config: $ENV_CONFIG"
 
       - name: Git pull before update
         shell: bash
@@ -415,6 +428,7 @@ jobs:
           APP_NAME: ${{ steps.setup.outputs.app_name }}
           HAS_CLUSTERS: ${{ steps.resolve_clusters.outputs.has_clusters }}
           RESOLVED_SERVERS: ${{ steps.resolve_clusters.outputs.clusters }}
+          ENV_CONFIG: ${{ steps.resolve_clusters.outputs.env_config }}
           MAPPINGS: ${{ inputs.yaml_key_mappings }}
           CONFIGMAP_MAPPINGS: ${{ inputs.configmap_updates }}
           GITOPS_LAYOUT: ${{ inputs.gitops_layout }}
@@ -422,6 +436,7 @@ jobs:
           KUSTOMIZE_IMAGE_NAME: ${{ inputs.kustomize_image_name }}
           KUSTOMIZE_ENVIRONMENTS: ${{ inputs.kustomize_environments }}
           MANIFEST_FILE: shared-workflows/${{ inputs.deployment_matrix_file }}
+          UPDATE_SANDBOX: ${{ inputs.update_sandbox }}
         run: |
           set -euo pipefail
 
@@ -433,7 +448,11 @@ jobs:
             ENVIRONMENTS="stg"
             ENV_LABEL="rc/stg"
           elif [[ "$IS_PRODUCTION" == "true" ]]; then
-            ENVIRONMENTS="dev stg prd sandbox"
+            if [[ "$UPDATE_SANDBOX" == "true" ]]; then
+              ENVIRONMENTS="dev stg prd sandbox"
+            else
+              ENVIRONMENTS="dev stg prd"
+            fi
             ENV_LABEL="production"
           elif [[ "$IS_SANDBOX" == "true" ]]; then
             ENVIRONMENTS="sandbox"
@@ -519,9 +538,62 @@ jobs:
             return 1
           }
 
+          # Compute the effective env list for a given server by expanding
+          # tag-derived envs against the cluster's env_suffixes and env_contexts,
+          # except for envs listed in suffix_excludes_envs which stay bare.
+          # When env_contexts is set, each expansion is prefixed: {context}/{env-variant}.
+          # Falls back to a single empty-suffix expansion when env_config is empty
+          # (e.g. kustomize layout with sentinel env "-", or clusters without the new fields).
+          expand_envs_for_server() {
+            local server="$1"
+            local base_envs="$2"
+            # Kustomize sentinel env "-" or empty config → return base_envs unchanged.
+            if [[ -z "$ENV_CONFIG" || "$base_envs" == "-" ]]; then
+              echo "$base_envs"
+              return
+            fi
+            local suffixes excludes contexts
+            suffixes=$(echo "$ENV_CONFIG" | jq -r --arg s "$server" '.[$s].env_suffixes // [""] | .[]' 2>/dev/null || echo "")
+            excludes=$(echo "$ENV_CONFIG" | jq -r --arg s "$server" '.[$s].suffix_excludes_envs // [] | .[]' 2>/dev/null || echo "")
+            contexts=$(echo "$ENV_CONFIG" | jq -r --arg s "$server" '.[$s].env_contexts // [] | .[]' 2>/dev/null || echo "")
+            if [[ -z "$suffixes" && -z "$contexts" ]]; then
+              echo "$base_envs"
+              return
+            fi
+            local out=""
+            for base_env in $base_envs; do
+              # Expand base_env × suffixes (or keep bare if excluded).
+              local expanded=""
+              if echo "$excludes" | grep -qx "$base_env" 2>/dev/null; then
+                expanded="$base_env"
+              else
+                while IFS= read -r suffix; do
+                  expanded="${expanded:+$expanded }${base_env}${suffix}"
+                done <<< "$suffixes"
+              fi
+              # Apply contexts: prefix each expanded variant with "{context}/".
+              # When no contexts are declared, emit variants as-is.
+              if [[ -n "$contexts" ]]; then
+                while IFS= read -r ctx; do
+                  for variant in $expanded; do
+                    out="${out:+$out }${ctx}/${variant}"
+                  done
+                done <<< "$contexts"
+              else
+                out="${out:+$out }$expanded"
+              fi
+            done
+            echo "$out"
+          }
+
           # Process each server and environment
           for SERVER in $SERVERS; do
-            for ENV in $ENVIRONMENTS; do
+            SERVER_ENVS=$(expand_envs_for_server "$SERVER" "$ENVIRONMENTS")
+            if [[ "$SERVER_ENVS" != "$ENVIRONMENTS" ]]; then
+              echo ""
+              echo "Server $SERVER env expansion: '$ENVIRONMENTS' -> '$SERVER_ENVS'"
+            fi
+            for ENV in $SERVER_ENVS; do
 
               if [[ "$GITOPS_LAYOUT" == "kustomize" ]]; then
                 # Resolve kustomize target dir (substitute ${SERVER} / ${ENV} placeholders).
@@ -650,10 +722,14 @@ jobs:
                 done < <(echo "$CONFIGMAP_MAPPINGS" | jq -r 'to_entries[] | "\(.key)|\(.value)"')
               fi
 
-              # Only track as updated if changes were actually made
+              # Only track as updated if changes were actually made.
+              # When app_helmfile_env overrides the env (e.g. forge: cross), the
+              # sync target's env must use the override (HELMFILE_ENV), not the
+              # tag-derived env, so the ArgoCD app name resolves correctly
+              # (e.g. benedita-forge-cross, not benedita-forge-dev-st).
               if [[ "$FILE_CHANGED" == "true" ]]; then
                 UPDATED_FILES="${UPDATED_FILES}${VALUES_FILE}\n"
-                UPDATED_SERVERS_ENVS="${UPDATED_SERVERS_ENVS}${SERVER}:${ENV}\n"
+                UPDATED_SERVERS_ENVS="${UPDATED_SERVERS_ENVS}${SERVER}:${HELMFILE_ENV}\n"
               else
                 echo "  No changes needed for this file"
               fi
@@ -678,14 +754,17 @@ jobs:
             echo -e "$MISSING_FILES"
           fi
 
-          # Save updated servers/envs for ArgoCD sync - only include files that actually changed
+          # Save updated servers/envs for ArgoCD sync - only include files that actually changed.
+          # Deduplicate (server:env) pairs: cross apps are visited once per outer env
+          # iteration (e.g. 7 times on benedita for a prod tag) but always write to
+          # the same override path, so a single sync target is correct.
           if [[ -n "$UPDATED_SERVERS_ENVS" ]]; then
-            echo -e "$UPDATED_SERVERS_ENVS" | grep -v '^$' > /tmp/updated_servers_envs.txt
+            echo -e "$UPDATED_SERVERS_ENVS" | grep -v '^$' | sort -u > /tmp/updated_servers_envs.txt
 
             # Output sync targets as JSON array for matrix job
-            SYNC_MATRIX=$(echo -e "$UPDATED_SERVERS_ENVS" | grep -v '^$' | while IFS=: read -r s e; do
+            SYNC_MATRIX=$(while IFS=: read -r s e; do
               [[ -n "$s" && -n "$e" ]] && echo "{\"server\":\"$s\",\"env\":\"$e\"}"
-            done | jq -s -c '.')
+            done < /tmp/updated_servers_envs.txt | jq -s -c '.')
             echo "sync_matrix=$SYNC_MATRIX" >> "$GITHUB_OUTPUT"
             echo "has_sync_targets=true" >> "$GITHUB_OUTPUT"
             echo "Sync matrix: $SYNC_MATRIX"
@@ -762,7 +841,7 @@ jobs:
     name: ArgoCD Sync (${{ matrix.target.server }}/${{ matrix.target.env }})
     needs: [update_gitops]
     if: needs.update_gitops.outputs.has_sync_targets == 'true' && inputs.enable_argocd_sync
-    runs-on: ${{ inputs.runner_type }}
+    runs-on: ${{ vars.GITOPS_RUNNERS || 'blacksmith-4vcpu-ubuntu-2404' }}
     strategy:
       fail-fast: false
       matrix:
@@ -772,9 +851,16 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          curl -sSL -o /tmp/argocd https://github.com/argoproj/argo-cd/releases/download/v3.0.6/argocd-linux-amd64
-          sudo install -m 755 /tmp/argocd /usr/local/bin/argocd
-          argocd version --client
+          if command -v argocd &>/dev/null; then
+            echo "argocd already installed: $(argocd version --client --short 2>/dev/null || argocd version --client)"
+          else
+            mkdir -p ~/.local/bin
+            curl -sSL -o ~/.local/bin/argocd https://github.com/argoproj/argo-cd/releases/download/v3.0.6/argocd-linux-amd64
+            chmod +x ~/.local/bin/argocd
+            echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+            export PATH="$HOME/.local/bin:$PATH"
+            argocd version --client
+          fi
 
       - name: Resolve ArgoCD application name
         id: resolve_argocd_app
@@ -790,6 +876,8 @@ jobs:
           NAME="${NAME//\{server\}/$SERVER}"
           NAME="${NAME//\{app\}/$APP}"
           NAME="${NAME//\{env\}/$ENV_NAME}"
+          # Normalize context-prefixed envs: "chaos/dev-st" → "chaos-dev-st".
+          NAME="${NAME//\//-}"
           # Collapse "--" sequences (sentinel env "-" produces "--" inside template).
           while [[ "$NAME" == *--* ]]; do NAME="${NAME//--/-}"; done
           # Strip trailing "-" left over when sentinel env "-" lands at the end.
@@ -800,8 +888,8 @@ jobs:
       - name: Sync ArgoCD application
         shell: bash
         env:
-          ARGOCD_URL: ${{ secrets.ARGOCD_URL }}
-          ARGOCD_TOKEN: ${{ secrets.ARGOCD_GHUSER_TOKEN }}
+          ARGOCD_URL: ${{ vars.ARGOCD_URL }}
+          ARGOCD_TOKEN: ${{ secrets.ARGOCD_TOKEN }}
           APP_NAME: ${{ steps.resolve_argocd_app.outputs.name }}
           ARGOCD_PRUNE: ${{ inputs.argocd_prune }}
         run: |
@@ -813,13 +901,13 @@ jobs:
           fi
 
           echo "::group::argocd app get $APP_NAME"
-          if ! argocd app get "$APP_NAME" --server "$ARGOCD_URL" --auth-token "$ARGOCD_TOKEN" --grpc-web; then
-            rc=$?
-            echo "::endgroup::"
-            echo "::warning::Failed to get ArgoCD app '$APP_NAME' (exit $rc). Skipping sync — check whether the app exists, auth is valid, and the user has 'applications, get' permission."
+          argocd_rc=0
+          argocd app get "$APP_NAME" --server "$ARGOCD_URL" --auth-token "$ARGOCD_TOKEN" --grpc-web || argocd_rc=$?
+          echo "::endgroup::"
+          if [[ "$argocd_rc" -ne 0 ]]; then
+            echo "::warning::Failed to get ArgoCD app '$APP_NAME' (exit $argocd_rc). Skipping sync — check whether the app exists, auth is valid, and the user has 'applications, get' permission."
             exit 0
           fi
-          echo "::endgroup::"
 
           echo "::group::argocd app sync $APP_NAME"
           for attempt in 1 2 3 4 5; do

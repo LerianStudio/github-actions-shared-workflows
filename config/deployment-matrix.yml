@@ -9,10 +9,31 @@
 # script described in docs/gitops-update-workflow.md (or grep across blocks).
 #
 # Schema:
-#   version            integer, required, currently 1
-#   apps.registry      list of every app name allowed to appear in any cluster
-#   clusters.<name>    cluster block with explicit `apps:` list (no `all_apps`
-#                      shortcut today — every cluster has its own subset)
+#   version                       integer, required, currently 1
+#   apps.registry                 list of every app name allowed to appear in any cluster
+#   clusters.<name>               cluster block with explicit `apps:` list (no `all_apps`
+#                                 shortcut today — every cluster has its own subset)
+#   clusters.<name>.env_contexts  optional list of context prefixes inserted before the
+#                                 env in the helmfile path. When set, the path becomes
+#                                 helmfile/applications/{context}/{env}/{app}/values.yaml
+#                                 instead of helmfile/applications/{env}/{app}/values.yaml.
+#                                 Combines with env_suffixes: full expansion is
+#                                 contexts × envs × suffixes. Example: env_contexts:
+#                                 ["chaos", "fuzzing"] + env_suffixes: ["-st", "-mt"] on a
+#                                 beta tag yields chaos/dev-st, chaos/dev-mt,
+#                                 fuzzing/dev-st, fuzzing/dev-mt. Defaults to [] (no prefix).
+#   clusters.<name>.env_suffixes  optional list of suffixes to append to each tag-derived
+#                                 env (e.g. ["-st", "-mt"] produces dev-st, dev-mt, stg-st,
+#                                 stg-mt, ...). Defaults to [""] (no suffix) for backward
+#                                 compatibility. Use this when one cluster hosts multiple
+#                                 parallel variants per environment (e.g. single-tenant and
+#                                 multi-tenant) as sibling namespaces / helmfile dirs /
+#                                 ArgoCD apps.
+#   clusters.<name>.suffix_excludes_envs
+#                                 optional list of tag-derived env names that should NOT
+#                                 receive any suffix from `env_suffixes` and stay bare
+#                                 (e.g. ["sandbox"] keeps sandbox as "sandbox", not
+#                                 "sandbox-st" / "sandbox-mt"). Defaults to [].
 #
 # Resolution at runtime:
 #   1. Workflow reads this file at the pinned ref of the shared-workflows repo.
@@ -21,13 +42,20 @@
 #   3. The `deploy_in_<cluster>` workflow inputs act as **force-off** overrides:
 #      setting any of them to `false` removes that cluster from the resolved
 #      set even if the manifest includes the app.
+#   4. For each resolved cluster, the tag-derived env list (e.g. dev/stg/prd/sandbox
+#      for a production tag) is expanded against `env_suffixes` and `env_contexts`,
+#      except for envs listed in `suffix_excludes_envs` which remain bare. The final
+#      env list is what the workflow uses to build helmfile paths and ArgoCD app names.
 #
 # Out of scope (managed manually or by other tooling — do NOT add here):
-#   - underwriter, jd-mock-api, mock-btg-server, control-plane,
+#   - underwriter, jd-mock-api, mock-btg-server, fakebtg, control-plane,
 #     platform-console (no CI commit history in gitops repo)
 #   - ledger, dockerhub-secret (no values.yaml — kustomize / k8s Secret)
 #   - hortencia-apps (legacy umbrella, not workflow-managed)
 #   - environments/production/* (platform infra: addons, observability)
+#   - ungoliant-controller and severino-bot use gitops_layout=kustomize — they ARE
+#     in this manifest for cluster resolution, but callers must set gitops_layout=kustomize,
+#     kustomize_base_path, and kustomize_image_name; no helmfile values.yaml exists for them
 
 version: 1
 
@@ -46,31 +74,36 @@ apps:
     # Plugins
     - plugin-access-manager       # caller repo may push as plugin-identity / plugin-auth / casdoor
     - plugin-fees
-    - plugin-br-pix-direct-jd
     - plugin-br-pix-indirect-btg
-    - plugin-br-pix-switch        # multi-component PIX hub (firmino-only today)
-    - plugin-br-bank-transfer     # generic build (firmino + clotilde)
-    - plugin-br-bank-transfer-jd  # JD-specific build (anacleto only)
+    - plugin-br-pix-switch
+    - plugin-br-bank-transfer
+    - plugin-br-payments
     - plugin-bc-correios
 
-    # Lerian internal platform suite (Clotilde + Benedita)
+    # Lerian internal platform suite (Benedita cross/)
     - backoffice-console
     - cs-platform
     - forge
-    - lerian-hq
+    - gestao-acessos-console
     - lerian-map
     - tenant-manager
 
-    # Anacleto-exclusive
-    - ungoliant-controller
+    # Kustomize-managed (gitops_layout=kustomize callers; no helmfile values.yaml)
+    - ungoliant-controller        # anacleto only
+    - severino-bot                # benedita only
 
     # Benedita-exclusive
-    - severino-bot                # internal Slack bot (benedita only)
-    - rosiehr                     # internal HR app (benedita only); values at cross/ — see app_helmfile_env below
-    - go-boilerplate-ddd          # Go service boilerplate (reference/template); benedita only
+    - rosiehr                     # internal HR app (benedita only); values at cross/
+    - go-boilerplate-ddd          # Go service boilerplate (reference/template)
 
 clusters:
-  firmino:
+  anacleto:
+    # Anacleto hosts two parallel test types (chaos, fuzzing), each with two
+    # tenant variants per environment. The two-level path structure is:
+    #   helmfile/applications/{context}/{env-with-suffix}/{app}/values.yaml
+    # where context ∈ {chaos, fuzzing} and env-with-suffix ∈ {dev-st, dev-mt}.
+    env_contexts: ["chaos", "fuzzing"]
+    env_suffixes: ["-st", "-mt"]
     apps:
       - midaz
       - fetcher
@@ -79,89 +112,59 @@ clusters:
       - reporter
       - tracer
       - product-console
-      - lerian-notification
       - plugin-access-manager
       - plugin-fees
-      - plugin-br-pix-direct-jd
+      - plugin-br-pix-indirect-btg
+      - plugin-br-pix-switch
+      - ungoliant-controller
+
+  benedita:
+    # Benedita hosts two parallel variants per environment as sibling namespaces:
+    #   single-tenant (-st): dev-st, stg-st, prd-st
+    #   multi-tenant  (-mt): stg-mt (dev-mt and prd-mt do not exist)
+    # Sandbox is shared across variants and stays bare (no suffix).
+    env_suffixes: ["-st", "-mt"]
+    suffix_excludes_envs: ["sandbox"]
+
+    # app_helmfile_env: per-app override for the helmfile applications sub-directory.
+    # Default path: environments/benedita/helmfile/applications/{env}/{app}/values.yaml
+    # where {env} is the tag-derived env with env_suffixes applied (dev-st, stg-mt, ...).
+    # Apps whose values.yaml lives under cross/ must be listed here; otherwise the
+    # workflow warns "values file not found" and skips them. When an override is set,
+    # env_suffixes are NOT applied — the app deploys exactly once at the override path.
+    #
+    # IMPORTANT: only list apps whose ArgoCD app name follows the standard
+    # {server}-{app}-{env} pattern (e.g. benedita-rosiehr-cross, benedita-forge-cross).
+    app_helmfile_env:
+      backoffice-console: cross
+      cs-platform: cross
+      forge: cross
+      gestao-acessos-console: cross
+      lerian-map: cross
+      rosiehr: cross
+      tenant-manager: cross
+    apps:
+      - midaz
+      - fetcher
+      - flowker
+      - matcher
+      - reporter
+      - tracer
+      - product-console
+      - plugin-access-manager
+      - plugin-fees
       - plugin-br-pix-indirect-btg
       - plugin-br-pix-switch
       - plugin-br-bank-transfer
-      - plugin-bc-correios
-
-  clotilde:
-    apps:
-      - midaz
-      - fetcher
-      - flowker
-      - matcher
-      - reporter
-      - tracer
-      - product-console
-      - plugin-access-manager
-      - plugin-fees
-      - plugin-br-pix-direct-jd
-      - plugin-br-pix-indirect-btg
-      - plugin-br-bank-transfer
+      - plugin-br-payments
       - plugin-bc-correios
       - backoffice-console
       - cs-platform
       - forge
+      - gestao-acessos-console
       - lerian-map
       - tenant-manager
-      - lerian-notification
-
-  anacleto:
-    apps:
-      - midaz
-      - fetcher
-      - flowker
-      - matcher
-      - reporter
-      - tracer
-      - product-console
-      - plugin-access-manager
-      - plugin-fees
-      - plugin-br-pix-direct-jd
-      - plugin-br-pix-indirect-btg
-      - plugin-br-bank-transfer-jd
-      - ungoliant-controller
-      - lerian-notification
-
-  benedita:
-    # app_helmfile_env: per-app override for the helmfile applications sub-directory.
-    # Default path: environments/benedita/helmfile/applications/{env}/{app}/values.yaml
-    # where {env} = dev | stg | prd | sandbox (derived from the git tag type).
-    # Apps whose values.yaml lives under cross/ instead of dev/ must be listed here;
-    # otherwise the gitops-update workflow warns "values file not found" and skips them.
-    #
-    # IMPORTANT: only list apps whose ArgoCD app name follows the standard
-    # {server}-{app}-{env} pattern (e.g. benedita-rosiehr-dev). Apps like
-    # cs-platform, forge, lerian-map use non-standard ArgoCD names (no -dev suffix)
-    # so their gitops-update sync target would resolve incorrectly. Add them here
-    # only after aligning their ArgoCD app naming with the standard convention.
-    app_helmfile_env:
-      rosiehr: cross
-      forge: cross
-    apps:
-      - midaz
-      - fetcher
-      - flowker
-      - matcher
-      - reporter
-      - tracer
-      - product-console
-      - plugin-access-manager
-      - plugin-fees
-      - plugin-br-pix-direct-jd
-      - plugin-br-pix-indirect-btg
-      - plugin-br-bank-transfer
-      - backoffice-console
-      - cs-platform
-      - forge
-      - lerian-hq
-      - lerian-map
-      - tenant-manager
-      - severino-bot
       - lerian-notification
       - rosiehr
       - go-boilerplate-ddd
+      - severino-bot

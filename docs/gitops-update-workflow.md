@@ -1,22 +1,27 @@
-# GitOps Update Workflow
+<table border="0" cellspacing="0" cellpadding="0">
+  <tr>
+    <td><img src="https://github.com/LerianStudio.png" width="72" alt="Lerian" /></td>
+    <td><h1>gitops-update</h1></td>
+  </tr>
+</table>
 
-Reusable workflow for updating GitOps repository with new image tags across multiple servers and environments.
+Reusable workflow for updating GitOps repository with new image tags across multiple clusters and environments.
 
 ## Features
 
 - **Manifest-driven topology**: Cluster membership per app is declared in [`config/deployment-matrix.yml`](../config/deployment-matrix.yml) — no caller-side configuration required to add a cluster to an existing app
-- **Multi-server deployment**: Deploy to Firmino, Clotilde and/or Anacleto with dynamic path generation
+- **Multi-cluster deployment**: Deploy to Anacleto and Benedita with dynamic path generation
+- **Per-cluster env variants**: `env_suffixes` and `env_contexts` support multi-tenant (`-st`/`-mt`) and context-based (`chaos/`, `fuzzing/`) layouts
 - **Force-off overrides**: `deploy_in_<cluster>` inputs can suppress a cluster declared in the manifest, useful for emergency containment without editing the manifest
 - **Convention-based configuration**: Auto-generates paths, names, and patterns from repository name
 - **Multi-environment support**: dev (beta), stg (rc), prd (production), sandbox
-- **Production sync**: Production releases automatically update all environments (dev, stg, prd, sandbox) on all servers
+- **Production sync**: Production releases automatically update all environments on all clusters
 - **File existence validation**: Graceful handling of missing values files with warnings (never fails)
 - **Flexible tag mapping**: Static or dynamic YAML key mapping
 - **Automatic environment detection**: Based on git tag suffix
-- **ArgoCD integration**: Automatic sync for each server/environment combination where files were updated
+- **ArgoCD integration**: Automatic sync for each cluster/environment combination where files were updated
 - **App existence check**: Verifies ArgoCD app exists before attempting sync
-- **Docker Hub login**: Enabled by default to avoid rate limits
-- **Customizable runners**: Support for different GitHub runner types
+- **Org-level configuration**: Runner, gitops repo, and ArgoCD URL resolved from org variables (`GITOPS_RUNNERS`, `GITOPS_REPOSITORY`, `ARGOCD_URL`)
 
 ## Usage
 
@@ -32,7 +37,9 @@ update_gitops:
   secrets: inherit
 ```
 
-> **Required Secrets**: `MANAGE_TOKEN`, `LERIAN_CI_CD_USER_NAME`, `LERIAN_CI_CD_USER_EMAIL`, `ARGOCD_GHUSER_TOKEN`, `ARGOCD_URL`, `DOCKER_USERNAME`, `DOCKER_PASSWORD`
+> **Required Secrets**: `MANAGE_TOKEN`, `LERIAN_CI_CD_USER_NAME`, `LERIAN_CI_CD_USER_EMAIL`, `ARGOCD_TOKEN`, `DOCKER_USERNAME`, `DOCKER_PASSWORD`
+>
+> **Required Variables**: `GITOPS_REPOSITORY`, `GITOPS_RUNNERS`, `ARGOCD_URL`
 
 The workflow reads `config/deployment-matrix.yml` from the shared-workflows repo (by default from `main`, override via `deployment_matrix_ref`) and resolves the cluster set automatically based on `app_name`. No `deploy_in_*` inputs are required for the common case.
 
@@ -114,8 +121,6 @@ update_gitops:
 |-------|------|---------|-------------|
 | `gitops_repository` | string | `LerianStudio/midaz-firmino-gitops` | GitOps repository to update |
 | `app_name` | string | (repo name) | Application name (auto-detected from repository) |
-| `deploy_in_firmino` | boolean | `true` | Force-off override for Firmino (`false` = subtract from manifest-resolved set) |
-| `deploy_in_clotilde` | boolean | `true` | Force-off override for Clotilde (`false` = subtract from manifest-resolved set) |
 | `deploy_in_anacleto` | boolean | `true` | Force-off override for Anacleto (`false` = subtract from manifest-resolved set) |
 | `deployment_matrix_file` | string | `config/deployment-matrix.yml` | Path to the deployment matrix manifest within the shared-workflows checkout |
 | `deployment_matrix_ref` | string | `main` | Git ref of `LerianStudio/github-actions-shared-workflows` to read the deployment matrix from. Default `main` ensures all callers see manifest updates immediately, regardless of the workflow ref they pin. Override only when testing a branch. |
@@ -151,8 +156,15 @@ update_gitops:
 
 | Secret | Description |
 |--------|-------------|
-| `ARGOCD_GHUSER_TOKEN` | ArgoCD authentication token |
-| `ARGOCD_URL` | ArgoCD server URL |
+| `ARGOCD_TOKEN` | ArgoCD authentication token |
+
+### Required Variables
+
+| Variable | Description |
+|----------|-------------|
+| `GITOPS_REPOSITORY` | GitOps repository to update (e.g. `LerianStudio/lerian-internal-gitops`) |
+| `GITOPS_RUNNERS` | GitHub Actions runner label for the gitops/deploy jobs (e.g. `eveo-lxc-runners`) |
+| `ARGOCD_URL` | ArgoCD server hostname without protocol (e.g. `argocd.eveo.lerian.net`) |
 
 ### Required Secrets (Docker Hub)
 
@@ -197,6 +209,97 @@ clusters:
 - Each `clusters.<name>.apps` is an explicit list of which apps this cluster hosts.
 - A cluster is added by appending one block. A cluster is removed by deleting it. Affects only this repo — caller workflows are untouched.
 
+### Per-cluster env context directories (Anacleto)
+
+Some clusters organize their helmfile tree with an extra **context** level before the env. Anacleto uses this to separate chaos and fuzzing test suites:
+
+```
+environments/anacleto/helmfile/applications/
+├── chaos/
+│   ├── dev-st/{app}/values.yaml
+│   └── dev-mt/{app}/values.yaml
+└── fuzzing/
+    ├── dev-st/{app}/values.yaml
+    └── dev-mt/{app}/values.yaml
+```
+
+Declare the contexts on the cluster block alongside `env_suffixes`:
+
+```yaml
+clusters:
+  anacleto:
+    env_contexts: ["chaos", "fuzzing"]   # path prefix before the env
+    env_suffixes: ["-st", "-mt"]         # variant suffix appended to the env
+    apps: [midaz, fetcher, ...]
+```
+
+| Field | Default | Effect |
+|---|---|---|
+| `env_contexts` | `[]` | List of subdirectory prefixes inserted before the env in the helmfile path. When empty, no prefix is added (existing behavior). |
+| `env_suffixes` | `[""]` | List of suffixes appended to each tag-derived env. |
+
+**Resolution on a beta tag** (env: `dev`), with the manifest above:
+
+1. Tag-type → base env: `dev`
+2. Suffix expansion: `dev` → `dev-st`, `dev-mt`
+3. Context expansion: for each context × each variant:
+   - `chaos` × `dev-st` → `chaos/dev-st`
+   - `chaos` × `dev-mt` → `chaos/dev-mt`
+   - `fuzzing` × `dev-st` → `fuzzing/dev-st`
+   - `fuzzing` × `dev-mt` → `fuzzing/dev-mt`
+4. Final env list for anacleto: `chaos/dev-st chaos/dev-mt fuzzing/dev-st fuzzing/dev-mt`
+5. Values paths: `environments/anacleto/helmfile/applications/{context/env}/{app}/values.yaml`
+6. ArgoCD app name: `/` normalized to `-`, so `{server}-{app}-chaos/dev-st` → `anacleto-midaz-chaos-dev-st`
+
+Clusters without `env_contexts` (benedita) are unaffected — the field defaults to `[]`.
+
+### Per-cluster env suffix variants (`-st`, `-mt`, ...)
+
+Some clusters host **multiple parallel variants per environment** as sibling namespaces, helmfile directories, and ArgoCD apps. For example, Benedita runs both single-tenant (`-st`) and multi-tenant (`-mt`) variants:
+
+```
+environments/benedita/helmfile/applications/
+├── dev-st/midaz/values.yaml
+├── dev-mt/midaz/values.yaml
+├── stg-st/midaz/values.yaml
+├── stg-mt/midaz/values.yaml
+├── prd-st/midaz/values.yaml
+├── prd-mt/midaz/values.yaml
+└── sandbox/midaz/values.yaml      # shared, no suffix
+```
+
+Declare the suffixes on the cluster block:
+
+```yaml
+clusters:
+  benedita:
+    env_suffixes: ["-st", "-mt"]         # produces dev-st, dev-mt, stg-st, ...
+    suffix_excludes_envs: ["sandbox"]    # sandbox stays bare (no suffix)
+    apps: [midaz, fetcher, ...]
+```
+
+| Field | Default | Effect |
+|---|---|---|
+| `env_suffixes` | `[""]` | List of suffixes appended to each tag-derived env. `[""]` (the default) preserves the pre-existing single-variant behavior. |
+| `suffix_excludes_envs` | `[]` | Tag-derived env names that stay bare (no suffix expansion). Useful for shared envs like `sandbox`. |
+
+**Resolution on a production tag**, with the manifest above:
+
+1. Tag-type → env list (existing logic): `dev stg prd sandbox`
+2. Cluster expansion (new logic): for benedita, expand each env not in `suffix_excludes_envs` against `env_suffixes`:
+   - `dev` → `dev-st`, `dev-mt`
+   - `stg` → `stg-st`, `stg-mt`
+   - `prd` → `prd-st`, `prd-mt`
+   - `sandbox` (excluded) → `sandbox`
+3. Final env list for benedita: `dev-st dev-mt stg-st stg-mt prd-st prd-mt sandbox` (7 entries)
+4. ArgoCD app name template (default `{server}-{app}-{env}`) resolves to `benedita-midaz-dev-st`, `benedita-midaz-dev-mt`, ..., `benedita-midaz-sandbox`
+
+Firmino, Clotilde, Anacleto behavior is byte-identical to before: with both fields absent, `env_suffixes` defaults to `[""]` (single empty-suffix expansion), so the final env list equals the tag-derived list verbatim.
+
+#### Interaction with `app_helmfile_env`
+
+When an app has an `app_helmfile_env` override (e.g. `forge: cross`), the override path takes precedence and **the suffix expansion is skipped for that app** — it updates once at the override path. The sync target's env is the override value (`cross`), so the ArgoCD app name resolves to `benedita-forge-cross`.
+
 ### Adding a new app to a cluster
 
 1. Open a PR in this repo editing `config/deployment-matrix.yml`:
@@ -237,7 +340,7 @@ gitops/environments/<server>/helmfile/applications/<env>/<app_name>/values.yaml
 ```
 
 Where:
-- `<server>`: any cluster resolved from the deployment matrix (current set: `firmino`, `clotilde`, `anacleto`), minus those force-off via `deploy_in_<cluster>: false`
+- `<server>`: any cluster resolved from the deployment matrix (current set: `anacleto`, `benedita`), minus those force-off via `deploy_in_<cluster>: false`
 - `<env>`: `dev`, `stg`, `prd`, or `sandbox` (determined by tag type)
 - `<app_name>`: from `inputs.app_name` or auto-detected from repository name
 
@@ -278,9 +381,8 @@ When `enable_argocd_sync` is `true`, the workflow syncs ArgoCD applications for 
 ArgoCD apps are named using the pattern: `<server>-<app_name>-<env>`
 
 Examples:
-- `firmino-midaz-dev`, `firmino-midaz-stg`, `firmino-midaz-prd`
-- `clotilde-midaz-dev`, `clotilde-midaz-stg`, `clotilde-midaz-sandbox`
-- `anacleto-midaz-dev`
+- `anacleto-midaz-chaos-dev-st`, `anacleto-midaz-fuzzing-dev-mt`
+- `benedita-midaz-dev-st`, `benedita-midaz-stg-mt`, `benedita-midaz-sandbox`
 
 ### Sync Behavior
 
@@ -362,7 +464,7 @@ update_gitops:
    - `environment_detection`, `manual_environment` - Simplified to automatic detection only
 
 2. **Inputs that became force-off overrides:**
-   - `deploy_in_firmino`, `deploy_in_clotilde`, `deploy_in_anacleto` (all default `true`) — only **subtract** clusters from the manifest-resolved set; cannot add a cluster the manifest does not list
+   - `deploy_in_anacleto` (default `true`) — only **subtracts** clusters from the manifest-resolved set; cannot add a cluster the manifest does not list
 
 3. **New inputs:**
    - `deployment_matrix_file` (default: `config/deployment-matrix.yml`) — alternative manifest path for forks/testing
@@ -380,11 +482,9 @@ update_gitops:
 
 > ⚠️ **Semantic change to `deploy_in_*` inputs** — callers that previously relied on `deploy_in_firmino: true` (etc.) to **include** a cluster will now silently deploy nowhere if their app is not listed in the manifest. The inputs only **subtract** from the manifest-resolved set; they never add. The prerequisite for any deployment is a manifest entry. Workflow logs a warning when `app_name` is missing from every cluster, so these cases surface quickly — but add your app to the manifest before merging this bump if you haven't already.
 
-If your caller currently passes `deploy_in_firmino: true, deploy_in_clotilde: true` explicitly:
-
 1. Add your `app_name` to `apps.registry` and to the appropriate `clusters.<name>.apps` lists in [`config/deployment-matrix.yml`](../config/deployment-matrix.yml) (single PR in this repo).
-2. Once merged and the caller bumps to the new shared-workflows ref (Renovate/Dependabot), the explicit `deploy_in_*: true` inputs become redundant and can be removed from the caller.
-3. Keep `deploy_in_<cluster>: false` only where you want to force-off a cluster the manifest declares.
+2. Once merged and the caller bumps to the new shared-workflows ref (Renovate/Dependabot), any explicit `deploy_in_*: true` inputs become redundant and can be removed from the caller.
+3. Keep `deploy_in_anacleto: false` only where you want to force-off that cluster.
 
 ## Troubleshooting
 
@@ -394,11 +494,11 @@ This is normal if the tag already exists in the GitOps repository. The workflow 
 
 ### Values file not found warnings
 
-If you see warnings like "Values file not found for firmino/dev", this means the values.yaml file doesn't exist for that server/environment combination. The workflow will skip this combination and continue with others.
+If you see warnings like "Values file not found for anacleto/chaos/dev-st", this means the values.yaml file doesn't exist for that server/environment combination. The workflow will skip this combination and continue with others.
 
 ### ArgoCD app does not exist
 
-If you see warnings like "ArgoCD app firmino-myapp-dev does not exist, sync skipped", this means the ArgoCD application hasn't been created yet. The workflow will log a warning and continue.
+If you see warnings like "ArgoCD app anacleto-myapp-chaos-dev-st does not exist, sync skipped", this means the ArgoCD application hasn't been created yet. The workflow will log a warning and continue.
 
 ### Artifact not found
 
