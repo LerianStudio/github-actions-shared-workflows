@@ -95,7 +95,7 @@ on:
 
 jobs:
   update_gitops:
-    runs-on: ${{ vars.GITOPS_RUNNERS }}
+    runs-on: ${{ vars.GITOPS_RUNNERS || 'blacksmith-4vcpu-ubuntu-2404' }}
     outputs:
       app_name: ${{ steps.setup.outputs.app_name }}
       sync_matrix: ${{ steps.apply_tags.outputs.sync_matrix }}
@@ -555,7 +555,7 @@ jobs:
             suffixes=$(echo "$ENV_CONFIG" | jq -r --arg s "$server" '.[$s].env_suffixes // [""] | .[]' 2>/dev/null || echo "")
             excludes=$(echo "$ENV_CONFIG" | jq -r --arg s "$server" '.[$s].suffix_excludes_envs // [] | .[]' 2>/dev/null || echo "")
             contexts=$(echo "$ENV_CONFIG" | jq -r --arg s "$server" '.[$s].env_contexts // [] | .[]' 2>/dev/null || echo "")
-            if [[ -z "$suffixes" ]]; then
+            if [[ -z "$suffixes" && -z "$contexts" ]]; then
               echo "$base_envs"
               return
             fi
@@ -840,7 +840,7 @@ jobs:
     name: ArgoCD Sync (${{ matrix.target.server }}/${{ matrix.target.env }})
     needs: [update_gitops]
     if: needs.update_gitops.outputs.has_sync_targets == 'true' && inputs.enable_argocd_sync
-    runs-on: ${{ vars.GITOPS_RUNNERS }}
+    runs-on: ${{ vars.GITOPS_RUNNERS || 'blacksmith-4vcpu-ubuntu-2404' }}
     strategy:
       fail-fast: false
       matrix:
@@ -900,13 +900,13 @@ jobs:
           fi
 
           echo "::group::argocd app get $APP_NAME"
-          if ! argocd app get "$APP_NAME" --server "$ARGOCD_URL" --auth-token "$ARGOCD_TOKEN" --grpc-web; then
-            rc=$?
-            echo "::endgroup::"
-            echo "::warning::Failed to get ArgoCD app '$APP_NAME' (exit $rc). Skipping sync — check whether the app exists, auth is valid, and the user has 'applications, get' permission."
+          argocd_rc=0
+          argocd app get "$APP_NAME" --server "$ARGOCD_URL" --auth-token "$ARGOCD_TOKEN" --grpc-web || argocd_rc=$?
+          echo "::endgroup::"
+          if [[ "$argocd_rc" -ne 0 ]]; then
+            echo "::warning::Failed to get ArgoCD app '$APP_NAME' (exit $argocd_rc). Skipping sync — check whether the app exists, auth is valid, and the user has 'applications, get' permission."
             exit 0
           fi
-          echo "::endgroup::"
 
           echo "::group::argocd app sync $APP_NAME"
           for attempt in 1 2 3 4 5; do
