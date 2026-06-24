@@ -1,22 +1,27 @@
-# GitOps Update Workflow
+<table border="0" cellspacing="0" cellpadding="0">
+  <tr>
+    <td><img src="https://github.com/LerianStudio.png" width="72" alt="Lerian" /></td>
+    <td><h1>gitops-update</h1></td>
+  </tr>
+</table>
 
-Reusable workflow for updating GitOps repository with new image tags across multiple servers and environments.
+Reusable workflow for updating GitOps repository with new image tags across multiple clusters and environments.
 
 ## Features
 
 - **Manifest-driven topology**: Cluster membership per app is declared in [`config/deployment-matrix.yml`](../config/deployment-matrix.yml) — no caller-side configuration required to add a cluster to an existing app
-- **Multi-server deployment**: Deploy to Firmino, Clotilde and/or Anacleto with dynamic path generation
+- **Multi-cluster deployment**: Deploy to Anacleto and Benedita with dynamic path generation
+- **Per-cluster env variants**: `env_suffixes` and `env_contexts` support multi-tenant (`-st`/`-mt`) and context-based (`chaos/`, `fuzzing/`) layouts
 - **Force-off overrides**: `deploy_in_<cluster>` inputs can suppress a cluster declared in the manifest, useful for emergency containment without editing the manifest
 - **Convention-based configuration**: Auto-generates paths, names, and patterns from repository name
 - **Multi-environment support**: dev (beta), stg (rc), prd (production), sandbox
-- **Production sync**: Production releases automatically update all environments (dev, stg, prd, sandbox) on all servers
+- **Production sync**: Production releases automatically update all environments on all clusters
 - **File existence validation**: Graceful handling of missing values files with warnings (never fails)
 - **Flexible tag mapping**: Static or dynamic YAML key mapping
 - **Automatic environment detection**: Based on git tag suffix
-- **ArgoCD integration**: Automatic sync for each server/environment combination where files were updated
+- **ArgoCD integration**: Automatic sync for each cluster/environment combination where files were updated
 - **App existence check**: Verifies ArgoCD app exists before attempting sync
-- **Docker Hub login**: Enabled by default to avoid rate limits
-- **Customizable runners**: Support for different GitHub runner types
+- **Org-level configuration**: Runner, gitops repo, and ArgoCD URL resolved from org variables (`GITOPS_RUNNERS`, `GITOPS_REPOSITORY`, `ARGOCD_URL`)
 
 ## Usage
 
@@ -32,7 +37,9 @@ update_gitops:
   secrets: inherit
 ```
 
-> **Required Secrets**: `MANAGE_TOKEN`, `LERIAN_CI_CD_USER_NAME`, `LERIAN_CI_CD_USER_EMAIL`, `ARGOCD_TOKEN`, `ARGOCD_URL`, `DOCKER_USERNAME`, `DOCKER_PASSWORD`
+> **Required Secrets**: `MANAGE_TOKEN`, `LERIAN_CI_CD_USER_NAME`, `LERIAN_CI_CD_USER_EMAIL`, `ARGOCD_TOKEN`, `DOCKER_USERNAME`, `DOCKER_PASSWORD`
+>
+> **Required Variables**: `GITOPS_REPOSITORY`, `GITOPS_RUNNERS`, `ARGOCD_URL`
 
 The workflow reads `config/deployment-matrix.yml` from the shared-workflows repo (by default from `main`, override via `deployment_matrix_ref`) and resolves the cluster set automatically based on `app_name`. No `deploy_in_*` inputs are required for the common case.
 
@@ -150,7 +157,14 @@ update_gitops:
 | Secret | Description |
 |--------|-------------|
 | `ARGOCD_TOKEN` | ArgoCD authentication token |
-| `ARGOCD_URL` | ArgoCD server URL |
+
+### Required Variables
+
+| Variable | Description |
+|----------|-------------|
+| `GITOPS_REPOSITORY` | GitOps repository to update (e.g. `LerianStudio/lerian-internal-gitops`) |
+| `GITOPS_RUNNERS` | GitHub Actions runner label for the gitops/deploy jobs (e.g. `eveo-lxc-runners`) |
+| `ARGOCD_URL` | ArgoCD server hostname without protocol (e.g. `argocd.eveo.lerian.net`) |
 
 ### Required Secrets (Docker Hub)
 
