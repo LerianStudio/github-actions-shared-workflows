@@ -46,6 +46,10 @@ inputs:
     description: 'Newline-separated list of working_dirs to keep as-is during consolidation (e.g., "frontend"). Only used when consolidate_to_root is true.'
     required: false
     default: ''
+  force-full-matrix:
+    description: 'When true, skip change detection and return all filter-paths entries as the build matrix. Intended for tag pushes where all components must be built regardless of what changed.'
+    required: false
+    default: 'false'
 
 outputs:
   matrix:
@@ -140,6 +144,7 @@ runs:
         FALLBACK_APP_NAME: ${{ inputs.fallback-app-name }}
         CONSOLIDATE_TO_ROOT: ${{ inputs.consolidate-to-root }}
         CONSOLIDATE_KEEP_DIRS: ${{ inputs.consolidate-keep-dirs }}
+        FORCE_FULL_MATRIX: ${{ inputs.force-full-matrix }}
       run: |
         # Read the file list from the temp file (see "Get changed files"). Command
         # substitution strips the trailing newline, so an empty diff yields empty FILES
@@ -166,17 +171,23 @@ runs:
           done <<< "$APP_NAME_OVERRIDES"
         fi
 
-        if [[ -z "$FILES" ]]; then
+        DIRS_FROM_SHARED=false
+
+        # Force full matrix: skip diff detection and build all filter_paths components
+        if [[ "$FORCE_FULL_MATRIX" == "true" && -n "$FILTER_PATHS" && "$FILTER_PATHS" != "[]" ]]; then
+          echo "Force full matrix: building all filter_paths components"
+          DIRS_FROM_SHARED=true
+        fi
+
+        if [[ "$DIRS_FROM_SHARED" != "true" && -z "$FILES" ]]; then
           echo "No files changed."
           printf "matrix=[]\n" >> "$GITHUB_OUTPUT"
           printf "has_changes=false\n" >> "$GITHUB_OUTPUT"
           exit 0
         fi
 
-        DIRS_FROM_SHARED=false
-
         # Check shared_paths: if any changed file matches, include ALL filter_paths entries
-        if [[ -n "$SHARED_PATHS" ]] && [[ "$SHARED_PATHS" != "[]" ]] && [[ -n "$FILTER_PATHS" ]] && [[ "$FILTER_PATHS" != "[]" ]]; then
+        if [[ "$DIRS_FROM_SHARED" != "true" ]] && [[ -n "$SHARED_PATHS" ]] && [[ "$SHARED_PATHS" != "[]" ]] && [[ -n "$FILTER_PATHS" ]] && [[ "$FILTER_PATHS" != "[]" ]]; then
           if [[ "$SHARED_PATHS" == "["* ]]; then
             SHARED_LIST=$(echo "$SHARED_PATHS" | jq -er '.[]' 2>/dev/null)
             if [[ $? -ne 0 ]]; then

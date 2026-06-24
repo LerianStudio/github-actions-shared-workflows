@@ -38,6 +38,7 @@ Composite action that detects changed files between commits and outputs a matrix
 | `fallback-app-name` | When `filter-paths` is empty, return single-item matrix with this name | No | `''` |
 | `consolidate-to-root` | Consolidate all entries (except `consolidate-keep-dirs`) to root | No | `false` |
 | `consolidate-keep-dirs` | Newline-separated dirs to keep as-is during consolidation | No | `''` |
+| `force-full-matrix` | When `true`, skip change detection and return all `filter-paths` entries. Use on tag pushes where all components must be built regardless of what changed. | No | `false` |
 
 ## Outputs
 

@@ -182,6 +182,7 @@ jobs:
           app-name-prefix: ${{ inputs.app_name_prefix }}
           app-name-overrides: ${{ inputs.app_name_overrides }}
           normalize-to-filter: ${{ inputs.normalize_to_filter }}
+          force-full-matrix: ${{ github.ref_type == 'tag' }}
 
       - name: Set matrix
         id: set-matrix
