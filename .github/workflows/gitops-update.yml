@@ -191,12 +191,13 @@ jobs:
 
       - name: Install yq
         shell: bash
+        env:
+          YQ_VERSION: ${{ inputs.yq_version }}
         run: |
           set -euo pipefail
           if command -v yq &>/dev/null; then
             echo "yq already installed: $(yq --version)"
           else
-            YQ_VERSION="${{ inputs.yq_version }}"
             YQ_URL="https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}/yq_linux_amd64"
             mkdir -p ~/.local/bin
             curl -sSL "$YQ_URL" -o ~/.local/bin/yq
