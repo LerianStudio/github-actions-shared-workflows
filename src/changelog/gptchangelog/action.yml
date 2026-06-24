@@ -320,18 +320,44 @@ runs:
               max_tokens: 1000
             }')
 
-          HTTP_CODE=$(curl -s -w "%{http_code}" --max-time 60 --connect-timeout 10 -o /tmp/api_response.json \
-            https://openrouter.ai/api/v1/chat/completions \
-            -H "Content-Type: application/json" \
-            -H "Authorization: Bearer $OPENROUTER_API_KEY" \
-            -H "HTTP-Referer: https://github.com/${GITHUB_REPOSITORY}" \
-            -H "X-Title: GPT Changelog" \
-            -d "$REQUEST_BODY")
+          MAX_ATTEMPTS=3
+          BACKOFF=(10 30)
+          HTTP_CODE="000"
+          for _attempt in 1 2 3; do
+            HTTP_CODE=$(curl -s -w "%{http_code}" --max-time 60 --connect-timeout 10 \
+              -o /tmp/api_response.json \
+              https://openrouter.ai/api/v1/chat/completions \
+              -H "Content-Type: application/json" \
+              -H "Authorization: Bearer $OPENROUTER_API_KEY" \
+              -H "HTTP-Referer: https://github.com/${GITHUB_REPOSITORY}" \
+              -H "X-Title: GPT Changelog" \
+              -d "$REQUEST_BODY") || HTTP_CODE="000"
 
-          if [ "$HTTP_CODE" -ge 400 ]; then
-            echo "⚠️ API returned HTTP $HTTP_CODE for $APP_NAME - skipping"
-            cat /tmp/api_response.json 2>/dev/null || true
-            rm -f /tmp/api_response.json
+            if [[ "$HTTP_CODE" =~ ^[0-9]+$ ]] && [ "$HTTP_CODE" -lt 400 ]; then
+              break
+            fi
+
+            # Permanent client errors (4xx except 429) — no point retrying
+            if [[ "$HTTP_CODE" =~ ^4 ]] && [ "$HTTP_CODE" != "429" ]; then
+              echo "⚠️ Permanent API error HTTP $HTTP_CODE for $APP_NAME — skipping"
+              cat /tmp/api_response.json 2>/dev/null || true
+              break
+            fi
+
+            if [ "$_attempt" -lt "$MAX_ATTEMPTS" ]; then
+              WAIT=${BACKOFF[$((_attempt - 1))]}
+              echo "⚠️ Attempt $_attempt/$MAX_ATTEMPTS failed (HTTP $HTTP_CODE) — retrying in ${WAIT}s"
+              cat /tmp/api_response.json 2>/dev/null || true
+              sleep "$WAIT"
+            else
+              echo "⚠️ All $MAX_ATTEMPTS attempts failed for $APP_NAME (last HTTP $HTTP_CODE) — skipping"
+              cat /tmp/api_response.json 2>/dev/null || true
+            fi
+          done
+
+          rm -f /tmp/api_response.json
+
+          if ! [[ "$HTTP_CODE" =~ ^[0-9]+$ ]] || [ "$HTTP_CODE" -ge 400 ]; then
             continue
           fi
 
