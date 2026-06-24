@@ -1,5 +1,22 @@
 # Github-actions-shared-workflows Changelog
 
+## [1.39.0](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.39.0)
+
+- **Features:**
+  - Add `force_full_matrix` opt-in input for tightly-coupled components.
+
+- **Fixes:**
+  - Ensure `normalize_to_filter` is a boolean, not a string, in `extra_build`.
+  - Prevent code injection via `coverage_threshold` interpolation in `go-pr-analysis`.
+  - Rename `lerian-notification` to `notifications` in deployment matrix.
+  - Always build all components on tag push.
+
+Contributors: @bedatty, @lerian-studio.
+
+[Compare changes](https://github.com/LerianStudio/github-actions-shared-workflows/compare/v1.38.0...v1.39.0)
+
+---
+
 ## [1.38.0](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.38.0)
 
 - **Features:**
