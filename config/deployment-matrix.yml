@@ -69,7 +69,7 @@ apps:
     - reporter
     - tracer
     - product-console
-    - notifications
+    - lerian-notification
 
     # Plugins
     - plugin-access-manager       # caller repo may push as plugin-identity / plugin-auth / casdoor
@@ -164,7 +164,7 @@ clusters:
       - gestao-acessos-console
       - lerian-map
       - tenant-manager
-      - notifications
+      - lerian-notification
       - rosiehr
       - go-boilerplate-ddd
       - severino-bot
