@@ -47,7 +47,7 @@ inputs:
     required: false
     default: ''
   force-full-matrix:
-    description: 'When true, skip change detection and return all filter-paths entries as the build matrix. Intended for tag pushes where all components must be built regardless of what changed.'
+    description: 'When true, skip change detection and return all filter-paths entries as the build matrix. Use for tightly-coupled components that must always share the same image tag (e.g., auth + identity always released together).'
     required: false
     default: 'false'
 

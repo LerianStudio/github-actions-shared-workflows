@@ -107,6 +107,7 @@ jobs:
 | `app_name_prefix` | string | `''` | Prefix for app names in monorepo |
 | `build_context` | string | `.` | Docker build context |
 | `enable_gitops_artifacts` | boolean | `false` | Upload artifacts for gitops-update workflow |
+| `force_full_matrix` | boolean | `false` | When `true`, build all `filter_paths` components on every run regardless of what changed. Use for tightly-coupled services that must always share the same image tag (e.g., auth + identity always released together) |
 | `force_multiplatform` | boolean | `false` | Force multi-platform build (amd64+arm64) even for beta/rc tags |
 | `enable_cosign_sign` | boolean | `true` | Sign images with cosign keyless (OIDC) signing. Requires `id-token: write` in caller |
 | `cosign_max_attempts` | string | `3` | Max cosign signing attempts per image. Increase to absorb transient OIDC/Fulcio rate limits |
