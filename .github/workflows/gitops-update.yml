@@ -888,7 +888,7 @@ jobs:
         shell: bash
         env:
           ARGOCD_URL: ${{ vars.ARGOCD_URL }}
-          ARGOCD_TOKEN: ${{ secrets.ARGOCD_GHUSER_TOKEN }}
+          ARGOCD_TOKEN: ${{ secrets.ARGOCD_TOKEN }}
           APP_NAME: ${{ steps.resolve_argocd_app.outputs.name }}
           ARGOCD_PRUNE: ${{ inputs.argocd_prune }}
         run: |

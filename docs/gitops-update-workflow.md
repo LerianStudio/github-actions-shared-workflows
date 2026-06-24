@@ -32,7 +32,7 @@ update_gitops:
   secrets: inherit
 ```
 
-> **Required Secrets**: `MANAGE_TOKEN`, `LERIAN_CI_CD_USER_NAME`, `LERIAN_CI_CD_USER_EMAIL`, `ARGOCD_GHUSER_TOKEN`, `ARGOCD_URL`, `DOCKER_USERNAME`, `DOCKER_PASSWORD`
+> **Required Secrets**: `MANAGE_TOKEN`, `LERIAN_CI_CD_USER_NAME`, `LERIAN_CI_CD_USER_EMAIL`, `ARGOCD_TOKEN`, `ARGOCD_URL`, `DOCKER_USERNAME`, `DOCKER_PASSWORD`
 
 The workflow reads `config/deployment-matrix.yml` from the shared-workflows repo (by default from `main`, override via `deployment_matrix_ref`) and resolves the cluster set automatically based on `app_name`. No `deploy_in_*` inputs are required for the common case.
 
@@ -149,7 +149,7 @@ update_gitops:
 
 | Secret | Description |
 |--------|-------------|
-| `ARGOCD_GHUSER_TOKEN` | ArgoCD authentication token |
+| `ARGOCD_TOKEN` | ArgoCD authentication token |
 | `ARGOCD_URL` | ArgoCD server URL |
 
 ### Required Secrets (Docker Hub)
