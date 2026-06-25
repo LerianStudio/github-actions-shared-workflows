@@ -45,6 +45,9 @@ A sticky PR comment summarises the result. An optional `.lerianstudiolibignore` 
 | `.lerianstudiolibignore` does not exist                  | `::warning` — proceed normally                             |
 | A lib is matched by an ignore-skip rule                  | Skipped, marked _skipped_ in the report                    |
 | A lib is matched by an ignore-pin rule (`lib@vX.Y.Z`)    | Compared against the pin instead of latest, marked _pinned_ |
+| A lib has an active TTL (`lib\|ttl:YYYY-MM-DD`)          | Rule honored; expiry date shown in the report column        |
+| A lib's TTL has expired (today ≥ TTL date)               | `::warning` — rule ignored, version check enforced         |
+| TTL date format is invalid                               | `::warning` — treated as expired, version check enforced   |
 | Latest stable release cannot be resolved (API error)     | `::warning` — marked _unknown_, does not fail              |
 
 ## `.lerianstudiolibignore` format
@@ -60,9 +63,25 @@ lib-commons/v5@v5.3.0
 
 # Skip an unversioned module path (v0/v1 modules)
 lib-foo
+
+# Skip with TTL — defer until 2025-09-30, then enforce again automatically
+lib-auth/v2|ttl:2025-09-30
+
+# Pin with TTL — pin is active until 2025-09-30, then latest is enforced
+lib-commons/v5@v5.3.0|ttl:2025-09-30
 ```
 
 Use the **short module path** (strip `github.com/LerianStudio/`).
+
+### TTL (time-to-live)
+
+Append `|ttl:YYYY-MM-DD` to any rule to set an expiry date:
+
+- **Before the TTL date** — the ignore or pin rule is honored as usual. The report shows the expiry date in the status column.
+- **On or after the TTL date** — the rule is treated as if it does not exist. A `::warning` is emitted and the version check is enforced normally.
+- **Invalid format** — treated as expired (safe default). A `::warning` is emitted.
+
+This gives teams a built-in reminder mechanism: acknowledge a deferred bump with a concrete deadline, and CI re-enforces it automatically once the deadline passes.
 
 ## Usage as composite step
 
