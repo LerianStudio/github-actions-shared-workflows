@@ -325,7 +325,11 @@ jobs:
   generate_changelog:
     name: Generate Changelog
     needs: [publish_release, publish_release_status, update_major_tag]
-    if: inputs.enable_changelog && needs.publish_release_status.outputs.release_published == 'true'
+    if: >-
+      always() &&
+      inputs.enable_changelog &&
+      needs.publish_release_status.outputs.release_published == 'true' &&
+      (needs.update_major_tag.result == 'success' || needs.update_major_tag.result == 'skipped')
     runs-on: ${{ inputs.runner_type }}
     environment:
       name: create_release
