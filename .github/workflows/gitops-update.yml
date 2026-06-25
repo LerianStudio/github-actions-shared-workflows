@@ -92,6 +92,10 @@ on:
         description: 'Template for the ArgoCD application name. Supports placeholders {server}, {app}, {env}. Default {server}-{app}-{env} preserves current behavior. For kustomize layouts without env split, use e.g. {server}-{app}.'
         type: string
         default: '{server}-{app}-{env}'
+      argocd_sync_timeout:
+        description: 'Timeout in seconds for argocd app wait after sync. Increase for larger applications or clusters under load.'
+        type: number
+        default: 480
 
 jobs:
   update_gitops:
@@ -892,6 +896,7 @@ jobs:
           ARGOCD_TOKEN: ${{ secrets.ARGOCD_TOKEN }}
           APP_NAME: ${{ steps.resolve_argocd_app.outputs.name }}
           ARGOCD_PRUNE: ${{ inputs.argocd_prune }}
+          ARGOCD_SYNC_TIMEOUT: ${{ inputs.argocd_sync_timeout }}
         run: |
           set -uo pipefail
 
@@ -925,7 +930,7 @@ jobs:
           echo "::endgroup::"
 
           echo "::group::argocd app wait $APP_NAME"
-          if ! argocd app wait "$APP_NAME" --server "$ARGOCD_URL" --auth-token "$ARGOCD_TOKEN" --grpc-web --timeout 180; then
+          if ! argocd app wait "$APP_NAME" --server "$ARGOCD_URL" --auth-token "$ARGOCD_TOKEN" --grpc-web --timeout "$ARGOCD_SYNC_TIMEOUT"; then
             echo "::endgroup::"
             echo "::error::Timeout waiting for sync completion of $APP_NAME"
             exit 1
