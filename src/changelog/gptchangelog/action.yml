@@ -265,13 +265,15 @@ runs:
             VERSION=$(echo "$LAST_TAG" | sed 's/^v//')
           fi
 
+          # Collect SHA, short-hash, and subject in one git log pass (unit-separator delimited)
+          # to avoid a redundant git log -1 subprocess per commit.
           if [ "$WORKING_DIR" != "." ]; then
-            SHAS=$(git log "$SINCE".."$LAST_TAG" --format='%H' -- "$WORKING_DIR" 2>/dev/null)
+            GIT_LOG_DATA=$(git log "$SINCE".."$LAST_TAG" --format='%H%x1f%h%x1f%s' -- "$WORKING_DIR" 2>/dev/null || true)
           else
-            SHAS=$(git log "$SINCE".."$LAST_TAG" --format='%H' 2>/dev/null)
+            GIT_LOG_DATA=$(git log "$SINCE".."$LAST_TAG" --format='%H%x1f%h%x1f%s' 2>/dev/null || true)
           fi
 
-          COMMIT_COUNT=$(echo "$SHAS" | grep -c . || true)
+          COMMIT_COUNT=$(echo "$GIT_LOG_DATA" | grep -c . || true)
           echo "📊 Found $COMMIT_COUNT commits for $APP_NAME"
 
           if [ "$COMMIT_COUNT" -eq 0 ]; then
@@ -282,16 +284,16 @@ runs:
           # Build annotated commit list: "short-hash subject [@author]"
           # Each commit carries its author handle so GPT can attribute inline.
           COMMITS_ANNOTATED=""
-          for SHA in $SHAS; do
-            COMMIT_LINE=$(git log -1 --format='%h %s' "$SHA" 2>/dev/null || true)
+          while IFS=$'\x1f' read -r SHA SHORT_HASH SUBJECT; do
+            [[ -z "$SHA" ]] && continue
             LOGIN=$(gh api "repos/${GITHUB_REPOSITORY}/commits/${SHA}" \
               --jq '.author.login // empty' 2>/dev/null || true)
             if [[ -n "$LOGIN" && "$LOGIN" != *"[bot]" ]]; then
-              COMMITS_ANNOTATED+="${COMMIT_LINE} [@${LOGIN}]"$'\n'
+              COMMITS_ANNOTATED+="${SHORT_HASH} ${SUBJECT} [@${LOGIN}]"$'\n'
             else
-              COMMITS_ANNOTATED+="${COMMIT_LINE}"$'\n'
+              COMMITS_ANNOTATED+="${SHORT_HASH} ${SUBJECT}"$'\n'
             fi
-          done
+          done <<< "$GIT_LOG_DATA"
           echo "📝 Annotated commits:"$'\n'"${COMMITS_ANNOTATED}"
 
           PROMPT="Generate a changelog for ${APP_NAME} ONLY. Each commit below includes the author handle in brackets. Commits: ${COMMITS_ANNOTATED} --- STRICT RULES: 1) NEVER mention other components - only ${APP_NAME}. 2) Use bullet points. 3) Group by Features, Fixes, Improvements (skip empty sections). 4) No markdown headers. 5) Max 5 bullet points. 6) For each bullet point add the GitHub handle(s) of the author(s) in parentheses at the end, e.g. 'Fix something important (@bedatty)'. If a bullet combines multiple commits, list all unique handles. Omit handles only when none were detected. 7) ALWAYS wrap version references in backticks - this includes tag names (\`v1\`, \`v1.28.8\`, \`v2.0.0-beta.1\`), action refs (\`@v1\`, \`@v1.28.8\`), and any semver-like token. Never emit a bare version."
