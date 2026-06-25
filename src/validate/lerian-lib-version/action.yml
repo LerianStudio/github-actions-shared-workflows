@@ -155,11 +155,19 @@ runs:
 
             # Validate TTL date format and check expiry
             if [[ -n "${ttl}" ]]; then
-              # Portable calendar range check (no GNU date required)
-              _ttl_m="${ttl:5:2}"; _ttl_d="${ttl:8:2}"
-              if ! [[ "${ttl}" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]] || \
-                 [[ 10#${_ttl_m} -lt 1 || 10#${_ttl_m} -gt 12 ]] || \
-                 [[ 10#${_ttl_d} -lt 1 || 10#${_ttl_d} -gt 31 ]]; then
+              _ttl_ok=true
+              if ! [[ "${ttl}" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]]; then
+                _ttl_ok=false
+              else
+                # Portable calendar range check (no GNU date required).
+                # Pre-expand with $(( 10#... )) to avoid SC2309 in [[ -lt/-gt ]].
+                _ttl_mi=$(( 10#${ttl:5:2} )); _ttl_di=$(( 10#${ttl:8:2} ))
+                if [[ "${_ttl_mi}" -lt 1 || "${_ttl_mi}" -gt 12 || \
+                      "${_ttl_di}" -lt 1 || "${_ttl_di}" -gt 31 ]]; then
+                  _ttl_ok=false
+                fi
+              fi
+              if [[ "${_ttl_ok}" != "true" ]]; then
                 echo "::warning title=Invalid TTL format::Ignore rule for '${line}' has invalid TTL '${ttl}' (expected YYYY-MM-DD). Treating as expired."
                 continue
               fi
