@@ -298,20 +298,20 @@ jobs:
 
   # ----------------- Org ruleset compatibility stubs -----------------
   # Go Analysis and Lib Version are required status checks in the Lerian org
-  # branch-protection ruleset (designed for Go repos). These no-op stubs satisfy
-  # those checks for JS/TS repositories so callers do not need a separate ruleset.
+  # branch-protection ruleset (designed for Go repos). These stubs are
+  # intentionally skipped (if: false) for JS/TS repositories — GitHub treats
+  # a skipped conclusion as satisfying required status checks, so no separate
+  # ruleset is needed.
   go-analysis-gate:
     name: Go Analysis
-    if: always()
+    if: false
     runs-on: ${{ inputs.runner_type }}
     steps:
-      - name: Not applicable for JS/TS repositories
-        run: echo "Go Analysis does not apply to JavaScript/TypeScript repositories."
+      - run: echo "Not applicable for JS/TS repositories"
 
   lib-version-gate:
     name: Lib Version
-    if: always()
+    if: false
     runs-on: ${{ inputs.runner_type }}
     steps:
-      - name: Not applicable for JS/TS repositories
-        run: echo "Lib Version check does not apply to JavaScript/TypeScript repositories."
+      - run: echo "Not applicable for JS/TS repositories"
