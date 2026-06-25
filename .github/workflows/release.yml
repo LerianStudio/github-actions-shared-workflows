@@ -324,7 +324,7 @@ jobs:
   # ----------------- Changelog Generation -----------------
   generate_changelog:
     name: Generate Changelog
-    needs: [publish_release, publish_release_status]
+    needs: [publish_release, publish_release_status, update_major_tag]
     if: inputs.enable_changelog && needs.publish_release_status.outputs.release_published == 'true'
     runs-on: ${{ inputs.runner_type }}
     environment:
