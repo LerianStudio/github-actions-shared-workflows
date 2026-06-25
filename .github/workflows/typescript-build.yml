@@ -20,6 +20,10 @@ name: "TypeScript Build and Push Docker Images"
 
 on:
   workflow_call:
+    outputs:
+      has_builds:
+        description: 'Whether any components were detected for building (true/false). Use this to skip downstream jobs when no paths changed.'
+        value: ${{ jobs.prepare.outputs.has_builds }}
     inputs:
       runner_type:
         description: 'Runner to use for the workflow'
@@ -92,6 +96,10 @@ on:
         description: 'Normalize changed paths to their filter path. Recommended for monorepos.'
         type: boolean
         default: true
+      force_full_matrix:
+        description: 'When true, build all filter_paths components on every run regardless of what changed. Use for repos where components must always share the same image tag (e.g., auth + identity always released together).'
+        type: boolean
+        default: false
       # Helm dispatch configuration
       enable_helm_dispatch:
         description: 'Enable dispatching to Helm repository for chart updates'
@@ -171,6 +179,7 @@ jobs:
           app-name-prefix: ${{ inputs.app_name_prefix }}
           app-name-overrides: ${{ inputs.app_name_overrides }}
           normalize-to-filter: ${{ inputs.normalize_to_filter }}
+          force-full-matrix: ${{ inputs.force_full_matrix }}
 
       - name: Set matrix
         id: set-matrix
