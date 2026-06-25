@@ -1,5 +1,16 @@
 # Github-actions-shared-workflows Changelog
 
+## [1.40.2](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.40.2)
+
+- Fix: Corrected the release process from `develop` to `main` to ensure proper workflow transitions (@bedatty).
+- Fix: Improved the `gptchangelog` by attributing contributors inline per bullet point instead of using a trailing list, enhancing clarity and readability (@bedatty).
+- Fix: Optimized `gptchangelog` by folding commit subjects into the git log pass, reducing the need for extra subprocesses (@bedatty).
+- Fix: Adjusted the `gptchangelog` to delete `api_response.json` after reading with `jq`, preventing premature deletions and potential errors (@bedatty).
+
+[Compare changes](https://github.com/LerianStudio/github-actions-shared-workflows/compare/v1.40.1...v1.40.2)
+
+---
+
 ## [1.39.0](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.39.0)
 
 - **Features:**
