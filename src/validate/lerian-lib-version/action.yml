@@ -155,7 +155,11 @@ runs:
 
             # Validate TTL date format and check expiry
             if [[ -n "${ttl}" ]]; then
-              if ! [[ "${ttl}" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]] || ! date -d "${ttl}" +%Y-%m-%d > /dev/null 2>&1; then
+              # Portable calendar range check (no GNU date required)
+              _ttl_m="${ttl:5:2}"; _ttl_d="${ttl:8:2}"
+              if ! [[ "${ttl}" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]] || \
+                 [[ 10#${_ttl_m} -lt 1 || 10#${_ttl_m} -gt 12 ]] || \
+                 [[ 10#${_ttl_d} -lt 1 || 10#${_ttl_d} -gt 31 ]]; then
                 echo "::warning title=Invalid TTL format::Ignore rule for '${line}' has invalid TTL '${ttl}' (expected YYYY-MM-DD). Treating as expired."
                 continue
               fi
