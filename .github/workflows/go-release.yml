@@ -107,6 +107,10 @@ on:
         description: 'JSON array of additional build groups, each forwarded to build.yml with its own config (filter_paths, path_level, normalize_to_filter, app_name_overrides, build_context_from_working_dir, helm_*). Runs alongside the primary build on tag push; all groups feed the single gitops-update. Empty = one build only (default).'
         type: string
         default: ''
+      force_full_matrix:
+        description: 'When true, build all filter_paths components on every run regardless of what changed. Use for repos where components must always share the same image tag (e.g., auth + identity always released together).'
+        type: boolean
+        default: false
 
       # ----------------- GitOps Update (gitops-update.yml) -----------------
       enable_gitops_update:
@@ -275,6 +279,7 @@ jobs:
       helm_values_key_mappings: ${{ inputs.helm_values_key_mappings }}
       shared_paths: ${{ inputs.shared_paths }}
       filter_paths: ${{ inputs.filter_paths }}
+      force_full_matrix: ${{ inputs.force_full_matrix }}
     secrets: inherit
 
   # ----------------- S3 Upload (tag push, post-build, opt-in) -----------------
