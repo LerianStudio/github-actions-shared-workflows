@@ -197,10 +197,12 @@ runs:
               mod="${line%@*}"
               pin="${line##*@}"
               IGNORE_PIN["${mod}"]="${pin}"
+              unset "IGNORE_TTL[${mod}]"
               [[ -n "${ttl}" ]] && IGNORE_TTL["${mod}"]="${ttl}"
               debug "ignore-pin: ${mod} -> ${pin}${ttl:+ (ttl: ${ttl})}"
             else
               IGNORE_SKIP["${line}"]="1"
+              unset "IGNORE_TTL[${line}]"
               [[ -n "${ttl}" ]] && IGNORE_TTL["${line}"]="${ttl}"
               debug "ignore-skip: ${line}${ttl:+ (ttl: ${ttl})}"
             fi
