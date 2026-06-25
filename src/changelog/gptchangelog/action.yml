@@ -355,9 +355,8 @@ runs:
             fi
           done
 
-          rm -f /tmp/api_response.json
-
           if ! [[ "$HTTP_CODE" =~ ^[0-9]+$ ]] || [ "$HTTP_CODE" -ge 400 ]; then
+            rm -f /tmp/api_response.json
             continue
           fi
 
