@@ -1,5 +1,16 @@
 # Github-actions-shared-workflows Changelog
 
+## [1.40.3](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.40.3)
+
+Fixes:
+- Ensure `generate_changelog` runs after `update_major_tag` to resolve `gptchangelog@v1` to the current code. (@bedatty)
+- Allow `generate_changelog` execution when `update_major_tag` is skipped. (@bedatty)
+- Remove type prefix repetition in bullets and group them under plain section headers. (@bedatty)
+
+[Compare changes](https://github.com/LerianStudio/github-actions-shared-workflows/compare/v1.40.2...v1.40.3)
+
+---
+
 ## [1.40.2](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.40.2)
 
 - Fix: Corrected the release process from `develop` to `main` to ensure proper workflow transitions (@bedatty).
