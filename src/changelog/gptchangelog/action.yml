@@ -77,7 +77,7 @@ runs:
           echo "📌 Triggered by tag push: $TAG_NAME"
         else
           echo "📌 Triggered by branch/workflow_run, finding latest stable tags..."
-          git fetch --tags
+          git fetch --tags --force
 
           LATEST_TAGS=$(git tag --sort=-creatordate | head -20 || true)
           echo "📌 Recent tags: $LATEST_TAGS"
@@ -144,7 +144,7 @@ runs:
           exit 0
         fi
 
-        git fetch --tags
+        git fetch --tags --force
 
         if [ -z "$FILTER_PATHS" ]; then
           APP_NAME="${GITHUB_REPOSITORY##*/}"
