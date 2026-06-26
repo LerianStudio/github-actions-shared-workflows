@@ -13,7 +13,7 @@ on:
         type: string
         default: 'blacksmith-4vcpu-ubuntu-2404'
       dry_run:
-        description: 'Reserved. Downstream release/build/gitops workflows do not yet expose a dry-run mode.'
+        description: 'Run semantic-release in dry-run mode (no tags/releases created) and preview the backmerge instead of applying it'
         required: false
         type: boolean
         default: false
@@ -24,15 +24,43 @@ on:
         type: string
         default: '*.md docs/* .github/* LICENSE* .gitignore'
 
-      # ----------------- Release (typescript-release.yml) -----------------
-      node_version:
-        description: 'Node.js version to use for semantic-release'
-        type: string
-        default: '20'
+      # ----------------- Release (release.yml) -----------------
       semantic_version:
         description: 'Semantic release version to use'
         type: string
         default: '23.0.8'
+      enable_changelog:
+        description: 'Generate CHANGELOG.md files via GPT after a successful release'
+        type: boolean
+        default: false
+      enable_major_tag:
+        description: 'Force-update the floating major version tag (e.g. v1) after a successful release'
+        type: boolean
+        default: false
+      stable_releases_only:
+        description: 'Only generate changelogs for stable releases (skip beta/rc/alpha tags)'
+        type: boolean
+        default: true
+      release_single_app:
+        description: 'Force single-app mode for the release job even when filter_paths is set. Use for repos with one version tag but multiple Docker images.'
+        type: boolean
+        default: false
+      backmerge_enabled:
+        description: 'Backmerge the release branch into the target branch after a successful release'
+        type: boolean
+        default: true
+      backmerge_source:
+        description: 'Release branch eligible for backmerge'
+        type: string
+        default: 'main'
+      backmerge_target:
+        description: 'Branch that receives the backmerge'
+        type: string
+        default: 'develop'
+      backmerge_mode:
+        description: 'Backmerge strategy: direct | pr | direct-with-pr-fallback'
+        type: string
+        default: 'direct-with-pr-fallback'
       filter_paths:
         description: 'Newline-separated list of path prefixes to filter. Empty = single-app repo.'
         type: string
@@ -175,14 +203,19 @@ jobs:
       issues: write
       pull-requests: write
       packages: read
-    uses: ./.github/workflows/typescript-release.yml
+    uses: ./.github/workflows/release.yml
     with:
       runner_type: ${{ inputs.runner_type }}
-      node_version: ${{ inputs.node_version }}
       semantic_version: ${{ inputs.semantic_version }}
-      filter_paths: ${{ inputs.filter_paths }}
+      enable_changelog: ${{ inputs.enable_changelog }}
+      enable_major_tag: ${{ inputs.enable_major_tag }}
+      stable_releases_only: ${{ inputs.stable_releases_only }}
+      backmerge_enabled: ${{ inputs.backmerge_enabled }}
+      backmerge_source: ${{ inputs.backmerge_source }}
+      backmerge_target: ${{ inputs.backmerge_target }}
+      backmerge_mode: ${{ inputs.backmerge_mode }}
       shared_paths: ${{ inputs.shared_paths }}
-      path_level: ${{ inputs.path_level }}
+      filter_paths: ${{ !inputs.release_single_app && inputs.filter_paths || '' }}
     secrets: inherit
 
   # ----------------- Build (tag push) -----------------
