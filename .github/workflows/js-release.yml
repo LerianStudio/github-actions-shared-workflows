@@ -41,10 +41,6 @@ on:
         description: 'Only generate changelogs for stable releases (skip beta/rc/alpha tags)'
         type: boolean
         default: true
-      changelog_bot_ignore_list:
-        description: 'Space-separated list of GitHub login substrings to exclude from the changelog (bot authors). Logins ending in [bot] are always excluded. Extends the default list inside the gptchangelog composite action.'
-        type: string
-        default: ''
       release_single_app:
         description: 'Force single-app mode for the release job even when filter_paths is set. Use for repos with one version tag but multiple Docker images.'
         type: boolean
@@ -215,12 +211,12 @@ jobs:
       enable_changelog: ${{ inputs.enable_changelog }}
       enable_major_tag: ${{ inputs.enable_major_tag }}
       stable_releases_only: ${{ inputs.stable_releases_only }}
-      changelog_bot_ignore_list: ${{ inputs.changelog_bot_ignore_list }}
       backmerge_enabled: ${{ inputs.backmerge_enabled }}
       backmerge_source: ${{ inputs.backmerge_source }}
       backmerge_target: ${{ inputs.backmerge_target }}
       backmerge_mode: ${{ inputs.backmerge_mode }}
       shared_paths: ${{ inputs.shared_paths }}
+      path_level: ${{ inputs.path_level }}
       filter_paths: ${{ !inputs.release_single_app && inputs.filter_paths || '' }}
     secrets: inherit
 
@@ -235,6 +231,7 @@ jobs:
     uses: ./.github/workflows/typescript-build.yml
     with:
       runner_type: ${{ inputs.runner_type }}
+      dry_run: ${{ inputs.dry_run }}
       enable_dockerhub: ${{ inputs.enable_dockerhub }}
       enable_ghcr: ${{ inputs.enable_ghcr }}
       enable_gitops_artifacts: ${{ inputs.enable_gitops_artifacts }}

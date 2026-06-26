@@ -34,11 +34,12 @@ inputs:
     default: 'openai/gpt-4o'
   bot-ignore-list:
     description: |
-      Space-separated list of GitHub login substrings to treat as bots and exclude from the changelog.
+      Additional space-separated GitHub login substrings to treat as bots and exclude from the changelog.
       Any login that ends with [bot] is always excluded regardless of this list.
-      Default covers common automation accounts used across LerianStudio repositories.
+      A built-in baseline (dependabot renovate github-actions lerian-studio-midaz-push-bot
+      semantic-release-bot) is always applied; this value extends it.
     required: false
-    default: 'dependabot renovate github-actions lerian-studio-midaz-push-bot semantic-release-bot'
+    default: ''
 
 outputs:
   has-changes:
@@ -309,12 +310,14 @@ runs:
             LOGIN=$(gh api "repos/${GITHUB_REPOSITORY}/commits/${SHA}" \
               --jq '.author.login // empty' 2>/dev/null || true)
 
-            # Skip bots: any login ending in [bot] OR matching an entry in BOT_IGNORE_LIST
+            # Skip bots: any login ending in [bot] OR matching an entry in the
+            # built-in baseline OR the caller-supplied BOT_IGNORE_LIST extension.
+            BOT_BASELINE='dependabot renovate github-actions lerian-studio-midaz-push-bot semantic-release-bot'
             IS_BOT=false
             if [[ "$LOGIN" == *"[bot]" ]]; then
               IS_BOT=true
             else
-              for bot_pattern in $BOT_IGNORE_LIST; do
+              for bot_pattern in $BOT_BASELINE $BOT_IGNORE_LIST; do
                 if [[ "${LOGIN,,}" == *"${bot_pattern,,}"* ]]; then
                   IS_BOT=true
                   break

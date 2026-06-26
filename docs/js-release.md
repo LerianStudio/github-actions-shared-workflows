@@ -7,7 +7,7 @@
 
 Umbrella reusable workflow for JavaScript/TypeScript **service** repositories (deployable apps that ship as container images). A caller references this single workflow and it drives the full release pipeline, branching on the pushed ref:
 
-- **Branch push** → change gate (`src/config/non-doc-changes`) → semantic release (`typescript-release.yml`). Documentation-only pushes skip the release.
+- **Branch push** → change gate (`src/config/non-doc-changes`) → semantic release (`release.yml`). Documentation-only pushes skip the release.
 - **Tag push** → container build & push (`typescript-build.yml`) → GitOps update (`gitops-update.yml`), gated on the build actually producing images.
 
 Mirrors the [`go-release`](./go-release-workflow.md) umbrella for Go services — providing the same single-caller DX for Next.js frontends, NestJS backends, and any JS/TS service that ships a Docker image.
@@ -28,9 +28,8 @@ Mirrors the [`go-release`](./go-release-workflow.md) umbrella for Go services �
 | Input | Description | Type | Default |
 |-------|-------------|------|---------|
 | `runner_type` | GitHub runner type | string | `blacksmith-4vcpu-ubuntu-2404` |
-| `dry_run` | Reserved (downstream workflows have no dry-run mode yet) | boolean | `false` |
+| `dry_run` | Run semantic-release and build in dry-run mode (no tags/releases/images created) | boolean | `false` |
 | `ignore_globs` | Space-separated globs treated as docs/meta for the branch-push gate | string | `*.md docs/* .github/* LICENSE* .gitignore` |
-| `node_version` | Node.js version for semantic-release | string | `20` |
 | `semantic_version` | semantic-release version | string | `23.0.8` |
 | `filter_paths` | Path prefixes to filter (empty = single-app repo) | string | `''` |
 | `shared_paths` | Path patterns that trigger a release/build for all components | string | `''` |
@@ -181,7 +180,7 @@ permissions:
 
 ## Related
 
-- [typescript-release](./typescript-release-workflow.md) — semantic-release pipeline this umbrella calls
+- [release](./release.md) — semantic-release pipeline this umbrella calls on branch push
 - [typescript-build](./typescript-build.md) — container build & push this umbrella calls
 - [gitops-update](./gitops-update-workflow.md) — GitOps update this umbrella calls
 - [go-release](./go-release-workflow.md) — the equivalent umbrella for Go service repositories

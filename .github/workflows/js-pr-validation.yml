@@ -213,7 +213,7 @@ jobs:
   # ----------------- Change Detection (gate) -----------------
   changes:
     name: Detect non-doc changes
-    if: contains(fromJSON('["opened","synchronize","reopened","ready_for_review"]'), github.event.action)
+    if: contains(fromJSON('["opened","edited","synchronize","reopened","ready_for_review"]'), github.event.action)
     runs-on: ${{ inputs.runner_type }}
     permissions:
       contents: read
