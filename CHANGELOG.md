@@ -1,5 +1,21 @@
 # Github-actions-shared-workflows Changelog
 
+## [1.40.4](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.40.4)
+
+Fixes:
+- Corrected the release process by merging `develop` into `main`. (@bedatty)
+- Sanitized `filter_paths` injection by mapping environment variables to prevent security issues identified by CodeQL. (@bedatty)
+- Addressed feedback from CodeRabbit review on PR `#523`. (@bedatty)
+- Improved changelog generation by filtering out bot and irrelevant commits. (@bedatty)
+
+Features:
+- Introduced `js-pr-validation.yml`, an umbrella workflow for JavaScript/TypeScript repositories to streamline pull request validation. (@bedatty)
+- Added `js-release.yml`, an umbrella workflow for JavaScript/TypeScript repositories to facilitate the release process. (@bedatty)
+
+[Compare changes](https://github.com/LerianStudio/github-actions-shared-workflows/compare/v1.40.3...v1.40.4)
+
+---
+
 ## [1.40.3](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.40.3)
 
 Fixes:
