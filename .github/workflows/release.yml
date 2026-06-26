@@ -124,14 +124,18 @@ jobs:
 
       - name: Set matrix
         id: set-matrix
+        env:
+          FILTER_PATHS: ${{ inputs.filter_paths }}
+          REPO_NAME: ${{ github.event.repository.name }}
+          CHANGED_MATRIX: ${{ steps.changed-paths.outputs.matrix }}
         run: |
-          if [ -z "${{ inputs.filter_paths }}" ]; then
+          if [ -z "$FILTER_PATHS" ]; then
             # Single app mode - release from root
-            APP_NAME="${{ github.event.repository.name }}"
+            APP_NAME="$REPO_NAME"
             echo "matrix=[{\"name\": \"${APP_NAME}\", \"working_dir\": \".\"}]" >> "$GITHUB_OUTPUT"
             echo "has_changes=true" >> "$GITHUB_OUTPUT"
           else
-            MATRIX='${{ steps.changed-paths.outputs.matrix }}'
+            MATRIX="$CHANGED_MATRIX"
             if [ "$MATRIX" == "[]" ] || [ -z "$MATRIX" ]; then
               echo "matrix=[]" >> "$GITHUB_OUTPUT"
               echo "has_changes=false" >> "$GITHUB_OUTPUT"
