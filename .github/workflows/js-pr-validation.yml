@@ -1,0 +1,325 @@
+name: "JS/TS PR Validation"
+
+# Umbrella reusable workflow for JavaScript/TypeScript repositories.
+# Orchestrates PR metadata validation, a non-doc change gate, the frontend
+# analysis pipeline and the security scan pipeline behind opt-in flags, so
+# a caller only needs to reference this single workflow.
+
+on:
+  workflow_call:
+    inputs:
+      runner_type:
+        description: 'GitHub runner type to use'
+        type: string
+        default: 'blacksmith-4vcpu-ubuntu-2404'
+      dry_run:
+        description: 'Preview metadata validations without posting comments or labels'
+        required: false
+        type: boolean
+        default: false
+
+      # ----------------- Pipeline toggles -----------------
+      run_frontend_analysis:
+        description: 'Run the frontend analysis pipeline (lint, typecheck, npm audit, tests, coverage, build)'
+        type: boolean
+        default: true
+      run_security:
+        description: 'Run the security scan pipeline (Trivy, CodeQL, prerelease checks)'
+        type: boolean
+        default: true
+
+      # ----------------- Change gate -----------------
+      ignore_globs:
+        description: 'Space-separated glob patterns treated as docs/meta; when only these change, the analysis and security pipelines are skipped.'
+        type: string
+        default: '*.md docs/* .github/* LICENSE* .gitignore'
+
+      # ----------------- PR metadata (pr-validation.yml) -----------------
+      pr_title_types:
+        description: 'Allowed commit types (pipe-separated)'
+        type: string
+        default: |
+          feat
+          fix
+          docs
+          style
+          refactor
+          perf
+          test
+          chore
+          ci
+          build
+          revert
+      pr_title_scopes:
+        description: 'Allowed scopes (pipe-separated, empty = any scope allowed)'
+        type: string
+        default: ''
+      require_scope:
+        description: 'Require scope in PR title'
+        type: boolean
+        default: false
+      enable_auto_labeler:
+        description: 'Enable automatic labeling based on changed files'
+        type: boolean
+        default: true
+      labeler_config_path:
+        description: 'Path to labeler configuration file'
+        type: string
+        default: '.github/labeler.yml'
+      enforce_source_branches:
+        description: 'Enforce that PRs to protected branches come from specific source branches.'
+        type: boolean
+        default: true
+      allowed_source_branches:
+        description: 'Allowed source branches (pipe-separated, supports * prefix matching)'
+        type: string
+        default: 'develop|release-candidate|hotfix/*'
+      target_branches_for_source_check:
+        description: 'Target branches that require source branch validation (pipe-separated)'
+        type: string
+        default: 'main'
+
+      # ----------------- Frontend analysis (frontend-pr-analysis.yml) -----------------
+      node_version:
+        description: 'Node.js version to use'
+        type: string
+        default: '22'
+      package_manager:
+        description: 'Package manager to use (npm, yarn, pnpm)'
+        type: string
+        default: 'npm'
+      eslint_args:
+        description: 'Additional arguments for ESLint'
+        type: string
+        default: ''
+      audit_level:
+        description: 'npm audit severity level (low, moderate, high, critical)'
+        type: string
+        default: 'high'
+      coverage_threshold:
+        description: 'Minimum coverage percentage required (0-100)'
+        type: number
+        default: 80
+      fail_on_coverage_threshold:
+        description: 'Fail the workflow if coverage is below threshold'
+        type: boolean
+        default: false
+      app_name_prefix:
+        description: 'Prefix used to namespace coverage/build artifacts'
+        type: string
+        default: ''
+      enable_lint:
+        description: 'Enable ESLint'
+        type: boolean
+        default: true
+      enable_typecheck:
+        description: 'Enable TypeScript type checking'
+        type: boolean
+        default: true
+      enable_security:
+        description: 'Enable security scanning (npm audit)'
+        type: boolean
+        default: true
+      enable_tests:
+        description: 'Enable unit tests'
+        type: boolean
+        default: true
+      enable_coverage:
+        description: 'Enable coverage check with PR comment'
+        type: boolean
+        default: true
+      enable_build:
+        description: 'Enable build verification'
+        type: boolean
+        default: true
+      enable_i18n_check:
+        description: 'Enable i18n key validation'
+        type: boolean
+        default: false
+      i18n_check_script:
+        description: 'npm script name for extraction-parity check'
+        type: string
+        default: 'check:i18n'
+      i18n_keys_check_script:
+        description: 'npm script name for locale-parity check'
+        type: string
+        default: 'check:i18n:keys'
+      i18n_check_fail_on_violation:
+        description: 'Fail the workflow if any i18n check reports violations'
+        type: boolean
+        default: true
+
+      # ----------------- Security (pr-security-scan.yml) -----------------
+      prerelease_block_branches:
+        description: 'Comma-separated list of PR target branches where pre-release versions cause a hard failure'
+        type: string
+        default: 'release-candidate,main'
+      enable_docker_scan:
+        description: 'Build and scan a Docker image with Trivy. Set to false for repos without a Dockerfile (e.g. Node.js CLIs or libraries).'
+        type: boolean
+        default: true
+      dockerfile_path:
+        description: 'Explicit path to a single Dockerfile to build and scan (e.g. Dockerfile). Leave empty to auto-discover.'
+        type: string
+        default: ''
+      enable_codeql:
+        description: 'Enable CodeQL static analysis. Requires codeql_languages to be set.'
+        type: boolean
+        default: false
+      codeql_languages:
+        description: 'Languages to analyze with CodeQL (comma-separated, e.g., "javascript-typescript")'
+        type: string
+        default: ''
+      ignore_file:
+        description: 'Path to Trivy ignore file (e.g., .trivyignore.yaml)'
+        type: string
+        default: ''
+      trivy_skip_dirs:
+        description: 'Comma-separated directories to skip in every Trivy filesystem scan (appended to the built-in skip list).'
+        type: string
+        default: ''
+    secrets:
+      MANAGE_TOKEN:
+        required: false
+      SLACK_WEBHOOK_URL:
+        required: false
+
+permissions:
+  actions: read
+  contents: read
+  id-token: write
+  issues: write
+  pull-requests: write
+  security-events: write
+
+jobs:
+  # ----------------- PR Metadata Validation -----------------
+  metadata:
+    name: PR Metadata
+    uses: ./.github/workflows/pr-validation.yml
+    with:
+      runner_type: ${{ inputs.runner_type }}
+      dry_run: ${{ inputs.dry_run }}
+      pr_title_types: ${{ inputs.pr_title_types }}
+      pr_title_scopes: ${{ inputs.pr_title_scopes }}
+      require_scope: ${{ inputs.require_scope }}
+      enable_auto_labeler: ${{ inputs.enable_auto_labeler }}
+      labeler_config_path: ${{ inputs.labeler_config_path }}
+      enforce_source_branches: ${{ inputs.enforce_source_branches }}
+      allowed_source_branches: ${{ inputs.allowed_source_branches }}
+      target_branches_for_source_check: ${{ inputs.target_branches_for_source_check }}
+    secrets: inherit
+
+  # ----------------- Change Detection (gate) -----------------
+  changes:
+    name: Detect non-doc changes
+    if: contains(fromJSON('["opened","edited","synchronize","reopened","ready_for_review"]'), github.event.action)
+    runs-on: ${{ inputs.runner_type }}
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      code: ${{ steps.gate.outputs.code }}
+    steps:
+      - name: Non-doc change gate
+        id: gate
+        uses: LerianStudio/github-actions-shared-workflows/src/config/non-doc-changes@v1
+        with:
+          github-token: ${{ github.token }}
+          ignore-globs: ${{ inputs.ignore_globs }}
+
+  # ----------------- Frontend Analysis -----------------
+  frontend-analysis:
+    name: Frontend Analysis (pipeline)
+    needs: changes
+    if: inputs.run_frontend_analysis && needs.changes.outputs.code == 'true'
+    uses: ./.github/workflows/frontend-pr-analysis.yml
+    with:
+      runner_type: ${{ inputs.runner_type }}
+      node_version: ${{ inputs.node_version }}
+      package_manager: ${{ inputs.package_manager }}
+      eslint_args: ${{ inputs.eslint_args }}
+      audit_level: ${{ inputs.audit_level }}
+      coverage_threshold: ${{ inputs.coverage_threshold }}
+      fail_on_coverage_threshold: ${{ inputs.fail_on_coverage_threshold }}
+      app_name_prefix: ${{ inputs.app_name_prefix }}
+      enable_lint: ${{ inputs.enable_lint }}
+      enable_typecheck: ${{ inputs.enable_typecheck }}
+      enable_security: ${{ inputs.enable_security }}
+      enable_tests: ${{ inputs.enable_tests }}
+      enable_coverage: ${{ inputs.enable_coverage }}
+      enable_build: ${{ inputs.enable_build }}
+      enable_i18n_check: ${{ inputs.enable_i18n_check }}
+      i18n_check_script: ${{ inputs.i18n_check_script }}
+      i18n_keys_check_script: ${{ inputs.i18n_keys_check_script }}
+      i18n_check_fail_on_violation: ${{ inputs.i18n_check_fail_on_violation }}
+    secrets: inherit
+
+  frontend-analysis-gate:
+    name: Frontend Analysis
+    needs: [changes, frontend-analysis]
+    if: always()
+    runs-on: ${{ inputs.runner_type }}
+    permissions:
+      contents: read
+    steps:
+      - name: Aggregate Frontend Analysis result
+        uses: LerianStudio/github-actions-shared-workflows/src/validate/result-gate@v1
+        with:
+          result: ${{ needs.changes.result != 'success' && needs.changes.result || needs.frontend-analysis.result }}
+          label: Frontend Analysis
+
+  # ----------------- Security Scan -----------------
+  security:
+    name: Security (pipeline)
+    needs: changes
+    if: inputs.run_security && needs.changes.outputs.code == 'true'
+    uses: ./.github/workflows/pr-security-scan.yml
+    with:
+      runner_type: ${{ inputs.runner_type }}
+      ignore_file: ${{ inputs.ignore_file }}
+      enable_docker_scan: ${{ inputs.enable_docker_scan }}
+      dockerfile_path: ${{ inputs.dockerfile_path }}
+      enable_codeql: ${{ inputs.enable_codeql }}
+      codeql_languages: ${{ inputs.codeql_languages }}
+      prerelease_block_branches: ${{ inputs.prerelease_block_branches }}
+      trivy_skip_dirs: ${{ inputs.trivy_skip_dirs }}
+    secrets: inherit
+
+  security-gate:
+    name: Security
+    needs: [changes, security]
+    if: always()
+    runs-on: ${{ inputs.runner_type }}
+    permissions:
+      contents: read
+    steps:
+      - name: Aggregate security result
+        uses: LerianStudio/github-actions-shared-workflows/src/validate/result-gate@v1
+        with:
+          result: ${{ needs.changes.result != 'success' && needs.changes.result || needs.security.result }}
+          label: Security
+
+  # ----------------- Org ruleset compatibility stubs -----------------
+  # Go Analysis and Lib Version are required status checks in the Lerian org
+  # branch-protection ruleset (designed for Go repos). These stubs are
+  # intentionally skipped (if: false) for JS/TS repositories — GitHub treats
+  # a skipped conclusion as satisfying required status checks, so no separate
+  # ruleset is needed.
+  go-analysis-gate:
+    name: Go Analysis
+    if: ${{ github.event_name == 'none' }}
+    runs-on: ${{ inputs.runner_type }}
+    permissions:
+      contents: read
+    steps:
+      - run: echo "Not applicable for JS/TS repositories"
+
+  lib-version-gate:
+    name: Lib Version
+    if: ${{ github.event_name == 'none' }}
+    runs-on: ${{ inputs.runner_type }}
+    permissions:
+      contents: read
+    steps:
+      - run: echo "Not applicable for JS/TS repositories"

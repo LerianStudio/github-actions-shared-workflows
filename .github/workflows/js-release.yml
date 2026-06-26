@@ -1,0 +1,276 @@
+name: "JS Release"
+
+# Umbrella reusable workflow for JavaScript/TypeScript service repositories.
+# On branch pushes it runs semantic-release (gated by a non-doc change detector);
+# on tag pushes it builds and pushes the container image and then updates the
+# GitOps repository. A caller only needs to reference this single workflow.
+
+on:
+  workflow_call:
+    inputs:
+      runner_type:
+        description: 'GitHub runner type to use'
+        type: string
+        default: 'blacksmith-4vcpu-ubuntu-2404'
+      dry_run:
+        description: 'Run semantic-release in dry-run mode (no tags/releases created) and preview the backmerge instead of applying it'
+        required: false
+        type: boolean
+        default: false
+
+      # ----------------- Change gate -----------------
+      ignore_globs:
+        description: 'Space-separated glob patterns treated as docs/meta; when only these change on a branch push, the release is skipped.'
+        type: string
+        default: '*.md docs/* .github/* LICENSE* .gitignore'
+
+      # ----------------- Release (release.yml) -----------------
+      semantic_version:
+        description: 'Semantic release version to use'
+        type: string
+        default: '23.0.8'
+      enable_changelog:
+        description: 'Generate CHANGELOG.md files via GPT after a successful release'
+        type: boolean
+        default: false
+      enable_major_tag:
+        description: 'Force-update the floating major version tag (e.g. v1) after a successful release'
+        type: boolean
+        default: false
+      stable_releases_only:
+        description: 'Only generate changelogs for stable releases (skip beta/rc/alpha tags)'
+        type: boolean
+        default: true
+      release_single_app:
+        description: 'Force single-app mode for the release job even when filter_paths is set. Use for repos with one version tag but multiple Docker images.'
+        type: boolean
+        default: false
+      backmerge_enabled:
+        description: 'Backmerge the release branch into the target branch after a successful release'
+        type: boolean
+        default: true
+      backmerge_source:
+        description: 'Release branch eligible for backmerge'
+        type: string
+        default: 'main'
+      backmerge_target:
+        description: 'Branch that receives the backmerge'
+        type: string
+        default: 'develop'
+      backmerge_mode:
+        description: 'Backmerge strategy: direct | pr | direct-with-pr-fallback'
+        type: string
+        default: 'direct-with-pr-fallback'
+      filter_paths:
+        description: 'Newline-separated list of path prefixes to filter. Empty = single-app repo.'
+        type: string
+        default: ''
+      shared_paths:
+        description: 'Newline-separated path patterns that trigger a release/build for all components.'
+        type: string
+        default: ''
+      path_level:
+        description: 'Directory depth level to extract app name (e.g., 2 -> "apps/agent")'
+        type: string
+        default: '2'
+
+      # ----------------- Build (typescript-build.yml) -----------------
+      enable_dockerhub:
+        description: 'Enable pushing to DockerHub'
+        type: boolean
+        default: false
+      enable_ghcr:
+        description: 'Enable pushing to GitHub Container Registry'
+        type: boolean
+        default: true
+      enable_gitops_artifacts:
+        description: 'Enable GitOps artifacts upload for the downstream gitops-update job'
+        type: boolean
+        default: false
+      app_name_prefix:
+        description: 'Prefix for app names in monorepo (e.g., "midaz" -> "midaz-agent")'
+        type: string
+        default: ''
+      app_name_overrides:
+        description: 'Explicit app name mappings in "path:name" format. Overrides default extraction for matched paths.'
+        type: string
+        default: ''
+      dockerfile_name:
+        description: 'Name of the Dockerfile'
+        type: string
+        default: 'Dockerfile'
+      build_context:
+        description: 'Docker build context (defaults to repository root)'
+        type: string
+        default: '.'
+      build_secrets:
+        description: 'Additional secrets for docker build (one per line). npmrc is always included automatically.'
+        type: string
+        default: ''
+      enable_cosign_sign:
+        description: 'Sign container images with cosign keyless (OIDC) signing after push'
+        type: boolean
+        default: true
+      dockerhub_org:
+        description: 'DockerHub organization name'
+        type: string
+        default: 'lerianstudio'
+      force_full_matrix:
+        description: 'When true, build all filter_paths components on every run regardless of what changed. Use for repos where components must always share the same image tag (e.g., auth + identity always released together).'
+        type: boolean
+        default: false
+
+      # ----------------- GitOps Update (gitops-update.yml) -----------------
+      enable_gitops_update:
+        description: 'Run the gitops-update job on tag push'
+        type: boolean
+        default: true
+      gitops_repository:
+        description: 'GitOps repository to update (org/repo format). Defaults to the GITOPS_REPOSITORY org-level variable when empty.'
+        type: string
+        default: ''
+      update_sandbox:
+        description: 'Include sandbox environment on production tags. Set to false to skip sandbox even on a production release.'
+        type: boolean
+        default: false
+      gitops_artifact_pattern:
+        description: 'Pattern to download GitOps artifacts (defaults to "gitops-tags-<repo-name>*")'
+        type: string
+        default: ''
+      gitops_yaml_key_mappings:
+        description: 'JSON object mapping artifact names to YAML keys (e.g., {"app.tag": ".api.image.tag"})'
+        type: string
+        default: ''
+      deployment_matrix_ref:
+        description: 'Git ref of LerianStudio/github-actions-shared-workflows to read the deployment matrix from. Defaults to main. Override only when testing a branch.'
+        type: string
+        default: 'main'
+      enable_argocd_sync:
+        description: 'Trigger ArgoCD sync after updating the GitOps repository'
+        type: boolean
+        default: true
+      commit_message_prefix:
+        description: 'Prefix for the GitOps commit message. When empty, falls back to app_name_prefix, then the repository name.'
+        type: string
+        default: ''
+      use_dynamic_mapping:
+        description: 'Use dynamic artifact-to-YAML key mapping in gitops-update'
+        type: boolean
+        default: false
+      configmap_updates:
+        description: 'JSON object mapping artifact names to configmap keys (helmfile layout only)'
+        type: string
+        default: ''
+      enable_docker_login:
+        description: 'Log in to DockerHub in the gitops-update job (for private image digest reads)'
+        type: boolean
+        default: false
+
+    secrets:
+      MANAGE_TOKEN:
+        required: false
+      SLACK_WEBHOOK_URL:
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  # ----------------- Change Detection (release gate, branch push only) -----------------
+  changes:
+    name: Detect non-doc changes
+    if: github.ref_type == 'branch'
+    runs-on: ${{ inputs.runner_type }}
+    permissions:
+      contents: read
+    outputs:
+      code: ${{ steps.gate.outputs.code }}
+    steps:
+      - name: Non-doc change gate
+        id: gate
+        uses: LerianStudio/github-actions-shared-workflows/src/config/non-doc-changes@v1
+        with:
+          github-token: ${{ github.token }}
+          ignore-globs: ${{ inputs.ignore_globs }}
+
+  # ----------------- Release (branch push) -----------------
+  release:
+    needs: changes
+    if: github.ref_type == 'branch' && needs.changes.outputs.code == 'true'
+    permissions:
+      id-token: write
+      contents: write
+      issues: write
+      pull-requests: write
+      packages: read
+    uses: ./.github/workflows/release.yml
+    with:
+      runner_type: ${{ inputs.runner_type }}
+      dry_run: ${{ inputs.dry_run }}
+      semantic_version: ${{ inputs.semantic_version }}
+      enable_changelog: ${{ inputs.enable_changelog }}
+      enable_major_tag: ${{ inputs.enable_major_tag }}
+      stable_releases_only: ${{ inputs.stable_releases_only }}
+      backmerge_enabled: ${{ inputs.backmerge_enabled }}
+      backmerge_source: ${{ inputs.backmerge_source }}
+      backmerge_target: ${{ inputs.backmerge_target }}
+      backmerge_mode: ${{ inputs.backmerge_mode }}
+      shared_paths: ${{ inputs.shared_paths }}
+      path_level: ${{ inputs.path_level }}
+      filter_paths: ${{ !inputs.release_single_app && inputs.filter_paths || '' }}
+    secrets: inherit
+
+  # ----------------- Build (tag push) -----------------
+  build:
+    if: github.ref_type == 'tag'
+    permissions:
+      id-token: write
+      contents: read
+      pull-requests: write
+      packages: write
+    uses: ./.github/workflows/typescript-build.yml
+    with:
+      runner_type: ${{ inputs.runner_type }}
+      dry_run: ${{ inputs.dry_run }}
+      enable_dockerhub: ${{ inputs.enable_dockerhub }}
+      enable_ghcr: ${{ inputs.enable_ghcr }}
+      enable_gitops_artifacts: ${{ inputs.enable_gitops_artifacts }}
+      app_name_prefix: ${{ inputs.app_name_prefix }}
+      app_name_overrides: ${{ inputs.app_name_overrides }}
+      dockerfile_name: ${{ inputs.dockerfile_name }}
+      build_context: ${{ inputs.build_context }}
+      build_secrets: ${{ inputs.build_secrets }}
+      enable_cosign_sign: ${{ inputs.enable_cosign_sign }}
+      dockerhub_org: ${{ inputs.dockerhub_org }}
+      shared_paths: ${{ inputs.shared_paths }}
+      filter_paths: ${{ inputs.filter_paths }}
+      path_level: ${{ inputs.path_level }}
+      force_full_matrix: ${{ inputs.force_full_matrix }}
+    secrets: inherit
+
+  # ----------------- GitOps Update (tag push) -----------------
+  update_gitops:
+    needs: [build]
+    if: >-
+      github.ref_type == 'tag' && inputs.enable_gitops_update &&
+      inputs.enable_gitops_artifacts && !cancelled() &&
+      needs.build.result == 'success' && needs.build.outputs.has_builds == 'true'
+    permissions:
+      id-token: write
+      contents: read
+      pull-requests: write
+      packages: write
+    uses: ./.github/workflows/gitops-update.yml
+    with:
+      gitops_repository: ${{ inputs.gitops_repository }}
+      update_sandbox: ${{ inputs.update_sandbox }}
+      app_name: ${{ inputs.app_name_prefix }}
+      artifact_pattern: ${{ inputs.gitops_artifact_pattern || format('gitops-tags-{0}*', github.event.repository.name) }}
+      yaml_key_mappings: ${{ inputs.gitops_yaml_key_mappings }}
+      deployment_matrix_ref: ${{ inputs.deployment_matrix_ref }}
+      enable_argocd_sync: ${{ inputs.enable_argocd_sync }}
+      commit_message_prefix: ${{ inputs.commit_message_prefix || inputs.app_name_prefix }}
+      use_dynamic_mapping: ${{ inputs.use_dynamic_mapping }}
+      configmap_updates: ${{ inputs.configmap_updates }}
+      enable_docker_login: ${{ inputs.enable_docker_login }}
+    secrets: inherit

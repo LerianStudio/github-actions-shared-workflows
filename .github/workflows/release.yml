@@ -52,6 +52,11 @@ on:
         required: false
         type: string
         default: 'openai/gpt-4o'
+      changelog_bot_ignore_list:
+        description: 'Space-separated list of GitHub login substrings to exclude from the changelog (bot authors). Logins ending in [bot] are always excluded. Extends the default list built into the gptchangelog composite action.'
+        required: false
+        type: string
+        default: ''
 
       # ----------------- Backmerge -----------------
       backmerge_enabled:
@@ -119,14 +124,18 @@ jobs:
 
       - name: Set matrix
         id: set-matrix
+        env:
+          FILTER_PATHS: ${{ inputs.filter_paths }}
+          REPO_NAME: ${{ github.event.repository.name }}
+          CHANGED_MATRIX: ${{ steps.changed-paths.outputs.matrix }}
         run: |
-          if [ -z "${{ inputs.filter_paths }}" ]; then
+          if [ -z "$FILTER_PATHS" ]; then
             # Single app mode - release from root
-            APP_NAME="${{ github.event.repository.name }}"
+            APP_NAME="$REPO_NAME"
             echo "matrix=[{\"name\": \"${APP_NAME}\", \"working_dir\": \".\"}]" >> "$GITHUB_OUTPUT"
             echo "has_changes=true" >> "$GITHUB_OUTPUT"
           else
-            MATRIX='${{ steps.changed-paths.outputs.matrix }}'
+            MATRIX="$CHANGED_MATRIX"
             if [ "$MATRIX" == "[]" ] || [ -z "$MATRIX" ]; then
               echo "matrix=[]" >> "$GITHUB_OUTPUT"
               echo "has_changes=false" >> "$GITHUB_OUTPUT"
@@ -353,6 +362,7 @@ jobs:
           filter-paths: ${{ inputs.filter_paths }}
           stable-releases-only: ${{ inputs.stable_releases_only }}
           openai-model: ${{ inputs.openai_model }}
+          bot-ignore-list: ${{ inputs.changelog_bot_ignore_list }}
 
   # ----------------- Major Tag Update -----------------
   update_major_tag:
