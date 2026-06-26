@@ -52,6 +52,11 @@ on:
         required: false
         type: string
         default: 'openai/gpt-4o'
+      changelog_bot_ignore_list:
+        description: 'Space-separated list of GitHub login substrings to exclude from the changelog (bot authors). Logins ending in [bot] are always excluded. Extends the default list built into the gptchangelog composite action.'
+        required: false
+        type: string
+        default: ''
 
       # ----------------- Backmerge -----------------
       backmerge_enabled:
@@ -353,6 +358,7 @@ jobs:
           filter-paths: ${{ inputs.filter_paths }}
           stable-releases-only: ${{ inputs.stable_releases_only }}
           openai-model: ${{ inputs.openai_model }}
+          bot-ignore-list: ${{ inputs.changelog_bot_ignore_list }}
 
   # ----------------- Major Tag Update -----------------
   update_major_tag:

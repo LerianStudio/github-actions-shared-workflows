@@ -7,6 +7,8 @@
 
 Generates `CHANGELOG.md` files using GPT (via OpenRouter) and pushes a signed commit directly to the default branch. Backmerges into `develop` automatically; falls back to a PR only when a conflict prevents the direct push. Supports both single-app and monorepo layouts. Skips prerelease tags when `stable-releases-only` is enabled.
 
+Bot commits (any login ending in `[bot]` plus the entries in `bot-ignore-list`) and `[skip ci]` commits (semantic-release version bumps, changelog backmerges, etc.) are filtered out before the GPT prompt is built, ensuring the changelog only reflects meaningful human-authored changes.
+
 ## Inputs
 
 | Input | Description | Required | Default |
@@ -20,6 +22,7 @@ Generates `CHANGELOG.md` files using GPT (via OpenRouter) and pushes a signed co
 | `filter-paths` | Newline-separated path prefixes for monorepo support. Empty = single-app mode. | no | `''` |
 | `stable-releases-only` | Skip beta/rc/alpha tags | no | `'true'` |
 | `openai-model` | Model to use (OpenRouter format) | no | `'openai/gpt-4o'` |
+| `bot-ignore-list` | Space-separated GitHub login substrings to exclude. Logins ending in `[bot]` are always excluded. | no | `'dependabot renovate github-actions lerian-studio-midaz-push-bot semantic-release-bot'` |
 
 ## Outputs
 

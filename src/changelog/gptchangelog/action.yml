@@ -32,6 +32,13 @@ inputs:
     description: Model to use for changelog generation (OpenRouter format)
     required: false
     default: 'openai/gpt-4o'
+  bot-ignore-list:
+    description: |
+      Space-separated list of GitHub login substrings to treat as bots and exclude from the changelog.
+      Any login that ends with [bot] is always excluded regardless of this list.
+      Default covers common automation accounts used across LerianStudio repositories.
+    required: false
+    default: 'dependabot renovate github-actions lerian-studio-midaz-push-bot semantic-release-bot'
 
 outputs:
   has-changes:
@@ -211,6 +218,7 @@ runs:
         MATRIX: ${{ steps.set-matrix.outputs.matrix }}
         OPENAI_MODEL: ${{ inputs.openai-model }}
         REPO_URL: https://github.com/${{ github.repository }}
+        BOT_IGNORE_LIST: ${{ inputs.bot-ignore-list }}
       run: |
         git fetch --tags --force
 
@@ -282,21 +290,58 @@ runs:
           fi
 
           # Build annotated commit list: "short-hash subject [@author]"
-          # Each commit carries its author handle so GPT can attribute inline.
+          # Bots and [skip ci] commits are excluded entirely so GPT only sees
+          # meaningful human-authored changes.
           COMMITS_ANNOTATED=""
+          SKIPPED_BOTS=0
+          SKIPPED_SKIP_CI=0
           while IFS=$'\x1f' read -r SHA SHORT_HASH SUBJECT; do
             [[ -z "$SHA" ]] && continue
+
+            # Skip commits whose subject matches [skip ci] / skip-ci patterns
+            # (semantic-release version bumps, changelog backmerges, etc.)
+            if echo "$SUBJECT" | grep -qiE '\[skip[[:space:]-]ci\]|chore\(release\):|chore\(changelog\):'; then
+              echo "⏭️ Skipping skip-ci commit: $SHORT_HASH $SUBJECT"
+              SKIPPED_SKIP_CI=$((SKIPPED_SKIP_CI + 1))
+              continue
+            fi
+
             LOGIN=$(gh api "repos/${GITHUB_REPOSITORY}/commits/${SHA}" \
               --jq '.author.login // empty' 2>/dev/null || true)
-            if [[ -n "$LOGIN" && "$LOGIN" != *"[bot]" ]]; then
+
+            # Skip bots: any login ending in [bot] OR matching an entry in BOT_IGNORE_LIST
+            IS_BOT=false
+            if [[ "$LOGIN" == *"[bot]" ]]; then
+              IS_BOT=true
+            else
+              for bot_pattern in $BOT_IGNORE_LIST; do
+                if [[ "${LOGIN,,}" == *"${bot_pattern,,}"* ]]; then
+                  IS_BOT=true
+                  break
+                fi
+              done
+            fi
+
+            if [[ "$IS_BOT" == "true" ]]; then
+              echo "🤖 Skipping bot commit: $SHORT_HASH by ${LOGIN:-unknown}"
+              SKIPPED_BOTS=$((SKIPPED_BOTS + 1))
+              continue
+            fi
+
+            if [[ -n "$LOGIN" ]]; then
               COMMITS_ANNOTATED+="${SHORT_HASH} ${SUBJECT} [@${LOGIN}]"$'\n'
             else
               COMMITS_ANNOTATED+="${SHORT_HASH} ${SUBJECT}"$'\n'
             fi
           done <<< "$GIT_LOG_DATA"
-          echo "📝 Annotated commits:"$'\n'"${COMMITS_ANNOTATED}"
+          echo "📝 Commits after filtering (skipped bots: $SKIPPED_BOTS, skipped skip-ci: $SKIPPED_SKIP_CI):"$'\n'"${COMMITS_ANNOTATED}"
 
-          PROMPT="Generate a changelog for ${APP_NAME} ONLY. Each commit below includes the author handle in brackets. Commits: ${COMMITS_ANNOTATED} --- STRICT RULES: 1) NEVER mention other components - only ${APP_NAME}. 2) Use bullet points under section headers only — do NOT repeat the commit type prefix (feat:, fix:, etc.) inside each bullet; the section header already conveys the category. 3) Group entries under plain section headers: 'Features:', 'Fixes:', 'Improvements:' (skip empty sections). Each bullet is plain prose describing WHAT changed, not the raw commit message. 4) No markdown headers (no #). 5) Max 5 bullet points total across all sections. 6) For each bullet point add the GitHub handle(s) of the author(s) in parentheses at the end, indented on the same line, e.g. 'Ensure normalize_to_filter is a boolean in extra_build. (@bedatty)'. If a bullet combines multiple commits, list all unique handles. Omit handles only when none were detected. 7) ALWAYS wrap version references in backticks - this includes tag names (\`v1\`, \`v1.28.8\`, \`v2.0.0-beta.1\`), action refs (\`@v1\`, \`@v1.28.8\`), and any semver-like token. Never emit a bare version."
+          if [ -z "${COMMITS_ANNOTATED// /}" ]; then
+            echo "⚠️ No human commits after filtering bots and skip-ci for $APP_NAME — skipping"
+            continue
+          fi
+
+          PROMPT="Generate a changelog for ${APP_NAME} ONLY. Each commit below includes the author handle in brackets. Commits: ${COMMITS_ANNOTATED} --- STRICT RULES: 1) NEVER mention other components - only ${APP_NAME}. 2) Use bullet points under section headers only — do NOT repeat the commit type prefix (feat:, fix:, etc.) inside each bullet; the section header already conveys the category. 3) Group entries under plain section headers: 'Features:', 'Fixes:', 'Improvements:' (skip empty sections). Each bullet is plain prose describing WHAT changed, not the raw commit message. 4) No markdown headers (no #). 5) Include ALL meaningful commits — do not omit any entry. Group two or more closely-related commits into a single bullet only when they describe the exact same change; otherwise keep them separate. 6) For each bullet point add the GitHub handle(s) of the author(s) in parentheses at the end, indented on the same line, e.g. 'Ensure normalize_to_filter is a boolean in extra_build. (@bedatty)'. If a bullet combines multiple commits, list all unique handles. Omit handles only when none were detected. 7) ALWAYS wrap version references in backticks - this includes tag names (\`v1\`, \`v1.28.8\`, \`v2.0.0-beta.1\`), action refs (\`@v1\`, \`@v1.28.8\`), and any semver-like token. Never emit a bare version."
 
           REQUEST_BODY=$(jq -n \
             --arg model "$OPENAI_MODEL" \
@@ -305,7 +350,7 @@ runs:
               model: $model,
               messages: [{role: "user", content: $prompt}],
               temperature: 0.3,
-              max_tokens: 1000
+              max_tokens: 2000
             }')
 
           MAX_ATTEMPTS=3
