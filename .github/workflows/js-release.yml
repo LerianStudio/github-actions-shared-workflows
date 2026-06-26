@@ -206,6 +206,7 @@ jobs:
     uses: ./.github/workflows/release.yml
     with:
       runner_type: ${{ inputs.runner_type }}
+      dry_run: ${{ inputs.dry_run }}
       semantic_version: ${{ inputs.semantic_version }}
       enable_changelog: ${{ inputs.enable_changelog }}
       enable_major_tag: ${{ inputs.enable_major_tag }}
@@ -249,7 +250,8 @@ jobs:
   update_gitops:
     needs: [build]
     if: >-
-      github.ref_type == 'tag' && inputs.enable_gitops_update && !cancelled() &&
+      github.ref_type == 'tag' && inputs.enable_gitops_update &&
+      inputs.enable_gitops_artifacts && !cancelled() &&
       needs.build.result == 'success' && needs.build.outputs.has_builds == 'true'
     permissions:
       id-token: write
