@@ -23,7 +23,7 @@ The `frontend-analysis` and `security` pipelines each have a `*-gate` aggregator
 | `run_frontend_analysis` | Run the frontend analysis pipeline | boolean | `true` |
 | `run_security` | Run the security scan pipeline | boolean | `true` |
 | `ignore_globs` | Space-separated globs treated as docs/meta for the change gate | string | `*.md docs/* .github/* LICENSE* .gitignore` |
-| `pr_title_types` | Allowed commit types (pipe-separated) | string | conventional set |
+| `pr_title_types` | Allowed commit types (pipe-separated) | string | `feat\|fix\|docs\|style\|refactor\|perf\|test\|chore\|ci\|build\|revert` |
 | `pr_title_scopes` | Allowed scopes (pipe-separated, empty = any) | string | `''` |
 | `require_scope` | Require scope in PR title | boolean | `false` |
 | `enable_auto_labeler` | Auto-label by changed files | boolean | `true` |

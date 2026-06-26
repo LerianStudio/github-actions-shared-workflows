@@ -260,6 +260,8 @@ jobs:
     needs: [changes, frontend-analysis]
     if: always()
     runs-on: ${{ inputs.runner_type }}
+    permissions:
+      contents: read
     steps:
       - name: Aggregate Frontend Analysis result
         uses: LerianStudio/github-actions-shared-workflows/src/validate/result-gate@v1
@@ -289,6 +291,8 @@ jobs:
     needs: [changes, security]
     if: always()
     runs-on: ${{ inputs.runner_type }}
+    permissions:
+      contents: read
     steps:
       - name: Aggregate security result
         uses: LerianStudio/github-actions-shared-workflows/src/validate/result-gate@v1
@@ -304,14 +308,18 @@ jobs:
   # ruleset is needed.
   go-analysis-gate:
     name: Go Analysis
-    if: false
+    if: ${{ github.event_name == 'none' }}
     runs-on: ${{ inputs.runner_type }}
+    permissions:
+      contents: read
     steps:
       - run: echo "Not applicable for JS/TS repositories"
 
   lib-version-gate:
     name: Lib Version
-    if: false
+    if: ${{ github.event_name == 'none' }}
     runs-on: ${{ inputs.runner_type }}
+    permissions:
+      contents: read
     steps:
       - run: echo "Not applicable for JS/TS repositories"
