@@ -41,6 +41,10 @@ on:
         description: 'Only generate changelogs for stable releases (skip beta/rc/alpha tags)'
         type: boolean
         default: true
+      changelog_bot_ignore_list:
+        description: 'Space-separated list of GitHub login substrings to exclude from the changelog (bot authors). Logins ending in [bot] are always excluded. Extends the default list inside the gptchangelog composite action.'
+        type: string
+        default: ''
 
       # ----------------- Build (build.yml) -----------------
       enable_dockerhub:
@@ -247,6 +251,7 @@ jobs:
       enable_changelog: ${{ inputs.enable_changelog }}
       enable_major_tag: ${{ inputs.enable_major_tag }}
       stable_releases_only: ${{ inputs.stable_releases_only }}
+      changelog_bot_ignore_list: ${{ inputs.changelog_bot_ignore_list }}
       shared_paths: ${{ inputs.shared_paths }}
       filter_paths: ${{ !inputs.release_single_app && inputs.filter_paths || '' }}
     secrets: inherit
