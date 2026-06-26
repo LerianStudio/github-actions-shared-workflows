@@ -49,7 +49,7 @@ jobs:
       all_files: ${{ steps.detect.outputs.all-files }}
     steps:
       - name: Checkout
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
       - name: Detect changed files
         id: detect
@@ -65,7 +65,7 @@ jobs:
     if: needs.changed-files.outputs.yaml_files != ''
     steps:
       - name: Checkout
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
       - name: YAML Lint
         uses: ./src/lint/yamllint
@@ -80,7 +80,7 @@ jobs:
     if: needs.changed-files.outputs.workflow_files != ''
     steps:
       - name: Checkout
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
       - name: Action Lint
         uses: ./src/lint/actionlint
@@ -95,7 +95,7 @@ jobs:
     if: needs.changed-files.outputs.action_files != ''
     steps:
       - name: Checkout
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
       - name: Pinned Actions Check
         uses: ./src/lint/pinned-actions
@@ -110,7 +110,7 @@ jobs:
     if: needs.changed-files.outputs.markdown_files != ''
     steps:
       - name: Checkout
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
       - name: Markdown Link Check
         uses: ./src/lint/markdown-link-check
@@ -125,7 +125,7 @@ jobs:
     runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
       - name: Checkout
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
       - name: Spelling Check
         uses: ./src/lint/typos
@@ -140,7 +140,7 @@ jobs:
     if: needs.changed-files.outputs.action_files != ''
     steps:
       - name: Checkout
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
       - name: Shell Check
         uses: ./src/lint/shellcheck
@@ -155,7 +155,7 @@ jobs:
     if: needs.changed-files.outputs.action_files != ''
     steps:
       - name: Checkout
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
       - name: README Check
         uses: ./src/lint/readme-check
@@ -170,7 +170,7 @@ jobs:
     if: needs.changed-files.outputs.composite_files != ''
     steps:
       - name: Checkout
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
       - name: Composite Schema Lint
         uses: ./src/lint/composite-schema
@@ -185,7 +185,7 @@ jobs:
     if: contains(needs.changed-files.outputs.all_files, 'config/deployment-matrix.yml')
     steps:
       - name: Checkout
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
       - name: Deployment Matrix Lint
         uses: ./src/lint/deployment-matrix
@@ -205,7 +205,7 @@ jobs:
       actions: read
     steps:
       - name: Checkout
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
       - name: Generate CodeQL config for changed files
         id: codeql-config
@@ -248,7 +248,7 @@ jobs:
     if: always() && github.event_name == 'pull_request' && needs.changed-files.result == 'success'
     steps:
       - name: Checkout
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
       - name: Post Lint Report
         uses: ./src/notify/pr-lint-reporter
