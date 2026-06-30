@@ -166,6 +166,24 @@ on:
         type: boolean
         default: false
 
+      # ----------------- E2E Tests -----------------
+      enable_e2e:
+        description: 'Enable the E2E test job after the build (runs only on tag push)'
+        type: boolean
+        default: false
+      e2e_script:
+        description: 'npm script to run for E2E tests (e.g. test:e2e, test:e2e:mock)'
+        type: string
+        default: 'test:e2e'
+      e2e_base_url:
+        description: 'Base URL injected as BASE_URL env var for real-environment E2E mode. Empty = localhost fallback.'
+        type: string
+        default: ''
+      node_version:
+        description: 'Node.js version for the E2E test runner'
+        type: string
+        default: '22'
+
     secrets:
       MANAGE_TOKEN:
         required: false
@@ -247,6 +265,43 @@ jobs:
       path_level: ${{ inputs.path_level }}
       force_full_matrix: ${{ inputs.force_full_matrix }}
     secrets: inherit
+
+  # ----------------- E2E Tests (tag push) -----------------
+  e2e_tests:
+    name: E2E Tests
+    needs: [build]
+    if: >-
+      github.ref_type == 'tag' && inputs.enable_e2e &&
+      !cancelled() && needs.build.result == 'success'
+    runs-on: ${{ inputs.runner_type }}
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6.0.3
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ inputs.node_version }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+
+      - name: Run E2E tests
+        run: npm run ${{ inputs.e2e_script }}
+        env:
+          BASE_URL: ${{ inputs.e2e_base_url }}
+
+      - name: Upload Playwright report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 7
 
   # ----------------- GitOps Update (tag push) -----------------
   update_gitops:
