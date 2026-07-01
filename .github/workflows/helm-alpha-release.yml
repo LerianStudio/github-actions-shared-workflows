@@ -1,0 +1,91 @@
+name: Helm Alpha Release
+
+# Reusable workflow that publishes a disposable ALPHA prerelease of a Helm chart
+# to an isolated OCI namespace: each chart becomes its own package under
+# ghcr.io/lerianstudio/alpha/<chart>. Authenticates with the built-in
+# GITHUB_TOKEN (same org, packages:write) — no App token, no static secret.
+# TTL is enforced separately by helm-alpha-cleanup.yml. Does NOT run
+# semantic-release: no Chart.yaml commit, git tag, CHANGELOG, back-merge or notes.
+#
+# Usage:
+#   jobs:
+#     alpha:
+#       uses: LerianStudio/github-actions-shared-workflows/.github/workflows/helm-alpha-release.yml@v1
+#       with:
+#         chart: flowker
+
+on:
+  workflow_call:
+    inputs:
+      chart:
+        description: Chart directory name under charts_path
+        required: true
+        type: string
+      charts_path:
+        description: Path to the charts directory
+        required: false
+        type: string
+        default: "charts"
+      registry:
+        description: OCI namespace to push the alpha chart to (each chart becomes alpha/<chart>)
+        required: false
+        type: string
+        default: "oci://ghcr.io/lerianstudio/alpha"
+      runner_type:
+        description: GitHub runner to use
+        required: false
+        type: string
+        default: "ubuntu-latest"
+      dry_run:
+        description: Package and validate but do not push
+        required: false
+        type: boolean
+        default: false
+  workflow_dispatch:
+    inputs:
+      chart:
+        description: Chart directory name under charts/ (may be a new chart on your branch)
+        required: true
+        type: string
+      dry_run:
+        description: Package and validate but do not push
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  alpha:
+    name: "Publish alpha • ${{ inputs.chart }}"
+    runs-on: ${{ inputs.runner_type || 'ubuntu-latest' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Publish alpha
+        id: alpha
+        uses: ./src/build/helm-alpha-publish
+        with:
+          chart: ${{ inputs.chart }}
+          charts-path: ${{ inputs.charts_path || 'charts' }}
+          registry: ${{ inputs.registry || 'oci://ghcr.io/lerianstudio/alpha' }}
+          registry-host: ghcr.io
+          registry-username: ${{ github.actor }}
+          registry-password: ${{ github.token }}
+          dry-run: ${{ inputs.dry_run }}
+
+      - name: Summary
+        if: ${{ !inputs.dry_run }}
+        run: |
+          {
+            echo "### 🚀 Alpha published"
+            echo ""
+            echo "\`${{ steps.alpha.outputs.reference }}\`"
+            echo ""
+            echo "> TTL ~3 days — pruned by the *Helm Alpha Cleanup* workflow."
+          } >> "$GITHUB_STEP_SUMMARY"
