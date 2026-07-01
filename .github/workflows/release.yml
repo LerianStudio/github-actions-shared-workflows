@@ -302,6 +302,7 @@ jobs:
       - name: Guard against stale prerelease
         id: guard
         if: steps.semantic_dry.outputs.new_release_published == 'true'
+        # TODO: revert to `@v1` once prerelease-guard is included in a v1 release (see #530 / #532 follow-up)
         uses: LerianStudio/github-actions-shared-workflows/src/config/prerelease-guard@develop
         with:
           calculated-version: ${{ steps.semantic_dry.outputs.new_release_version }}
