@@ -250,7 +250,7 @@ jobs:
           github-token: ${{ steps.app-token.outputs.token }}
           source-branch: ${{ inputs.backmerge_source }}
           target-branch: ${{ github.ref_name }}
-          mode: ${{ inputs.backmerge_mode }}
+          mode: direct-with-pr-fallback
           dry-run: ${{ inputs.dry_run }}
           commit-message: "chore(release): sync ${source} into ${target} before release [skip ci]"
           pr-title: "chore(release): sync ${source} → ${target}"
@@ -259,8 +259,13 @@ jobs:
 
       - name: Warn about pending backmerge sync
         if: steps.pre_sync.outputs.action == 'pr-opened' || steps.pre_sync.outputs.action == 'pr-existing'
+        env:
+          APP_NAME: ${{ matrix.app.name }}
+          BACKMERGE_SOURCE: ${{ inputs.backmerge_source }}
+          REF_NAME: ${{ github.ref_name }}
+          PR_URL: ${{ steps.pre_sync.outputs.pr-url }}
         run: |
-          echo "::warning::Release skipped for ${{ matrix.app.name }} — ${{ inputs.backmerge_source }} could not be auto-merged into ${{ github.ref_name }} (PR: ${{ steps.pre_sync.outputs.pr-url }}). Merge it and push again to release."
+          printf '::warning::Release skipped for %s — %s could not be auto-merged into %s (PR: %s). Merge it and push again to release.\n' "$APP_NAME" "$BACKMERGE_SOURCE" "$REF_NAME" "$PR_URL"
 
       - name: Setup Node.js
         uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6
