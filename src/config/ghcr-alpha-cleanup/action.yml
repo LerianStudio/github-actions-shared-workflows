@@ -52,11 +52,10 @@ runs:
           esac
         done
 
-    # NOTE: pin to a commit SHA before release, and confirm the exact input
-    # names/accepted values (tag-selection, cut-off format) for the pinned
-    # version. Composites under src/** are not tracked by Dependabot here.
+    # Pinned by SHA (Dependabot does not track composites under src/** here, so
+    # bump this manually). Inputs verified against v3.1.0.
     - name: Container retention policy
-      uses: snok/container-retention-policy@v3.0.0
+      uses: snok/container-retention-policy@d3bdcf5ce9b05f685154e4a16c39233b245e3d53 # v3.1.0
       with:
         account: ${{ inputs.account }}
         token: ${{ inputs.token }}
