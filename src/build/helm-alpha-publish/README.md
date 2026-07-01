@@ -9,6 +9,8 @@ Composite action that packages a Helm chart as a **disposable alpha prerelease**
 
 Does **not** run semantic-release: no `Chart.yaml` commit, git tag, CHANGELOG, back-merge or notifications.
 
+Depends on [`azure/setup-helm`](https://github.com/Azure/setup-helm) to install the `helm` CLI on the runner — required for `helm dependency update`, `helm lint`, `helm package`, and `helm push` to the OCI registry. It is the maintained, official installer, avoiding a hand-rolled download/verify step.
+
 ## Inputs
 
 | Input | Description | Required | Default |

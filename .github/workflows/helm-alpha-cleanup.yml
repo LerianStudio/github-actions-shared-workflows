@@ -8,6 +8,9 @@ name: Helm Alpha Cleanup
 # GITHUB_TOKEN cannot delete org-level packages, so a PAT with delete:packages
 # is required (GHCR_CLEANUP_PAT).
 #
+# workflow_call only — the schedule/manual entrypoint is a self-* caller in the
+# consuming repo (e.g. helm/.github/workflows/helm-alpha-cleanup.yml).
+#
 # Usage:
 #   jobs:
 #     cleanup:
@@ -45,11 +48,6 @@ on:
         required: false
         type: number
         default: 5
-      runner_type:
-        description: GitHub runner to use
-        required: false
-        type: string
-        default: "ubuntu-latest"
       dry_run:
         description: Preview deletions without applying them
         required: false
@@ -59,28 +57,32 @@ on:
       GHCR_CLEANUP_PAT:
         description: PAT with delete:packages (GITHUB_TOKEN cannot delete org-level packages)
         required: true
-  workflow_dispatch:
-    inputs:
-      dry_run:
-        description: Preview deletions without applying them
-        type: boolean
-        default: true
 
+# Least privilege: read by default, escalate per-job.
 permissions:
-  packages: write
+  contents: read
+
+# Serialize runs so overlapping schedule/dispatch invocations don't race on the
+# same GHCR package versions.
+concurrency:
+  group: helm-alpha-cleanup-${{ github.repository }}
+  cancel-in-progress: false
 
 jobs:
   cleanup:
     name: Prune alpha packages past TTL
-    runs-on: ${{ inputs.runner_type || 'ubuntu-latest' }}
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    permissions:
+      packages: write # delete alpha package versions from GHCR
     steps:
       - name: Prune alphas
-        uses: ./src/config/ghcr-alpha-cleanup
+        # TODO: pin to @v1 once released; @develop for testing.
+        uses: LerianStudio/github-actions-shared-workflows/src/config/ghcr-alpha-cleanup@develop
         with:
-          account: ${{ inputs.account || 'lerianstudio' }}
+          account: ${{ inputs.account }}
           token: ${{ secrets.GHCR_CLEANUP_PAT }}
-          image-names: ${{ inputs.image_names || 'alpha/*' }}
-          image-tags: ${{ inputs.image_tags || '*-alpha*' }}
-          cut-off: ${{ inputs.cut_off || '3d' }}
-          keep-n-most-recent: ${{ inputs.keep_n_most_recent || 5 }}
+          image-names: ${{ inputs.image_names }}
+          image-tags: ${{ inputs.image_tags }}
+          cut-off: ${{ inputs.cut_off }}
+          keep-n-most-recent: ${{ inputs.keep_n_most_recent }}
           dry-run: ${{ inputs.dry_run }}

@@ -7,6 +7,9 @@ name: Helm Alpha Release
 # TTL is enforced separately by helm-alpha-cleanup.yml. Does NOT run
 # semantic-release: no Chart.yaml commit, git tag, CHANGELOG, back-merge or notes.
 #
+# workflow_call only — the manual entrypoint is a self-* caller in the consuming
+# repo (e.g. helm/.github/workflows/helm-alpha.yml).
+#
 # Usage:
 #   jobs:
 #     alpha:
@@ -31,35 +34,23 @@ on:
         required: false
         type: string
         default: "oci://ghcr.io/lerianstudio/alpha"
-      runner_type:
-        description: GitHub runner to use
-        required: false
-        type: string
-        default: "ubuntu-latest"
       dry_run:
         description: Package and validate but do not push
         required: false
         type: boolean
         default: false
-  workflow_dispatch:
-    inputs:
-      chart:
-        description: Chart directory name under charts/ (may be a new chart on your branch)
-        required: true
-        type: string
-      dry_run:
-        description: Package and validate but do not push
-        type: boolean
-        default: true
 
+# Least privilege: read by default, escalate per-job.
 permissions:
   contents: read
-  packages: write
 
 jobs:
   alpha:
     name: "Publish alpha • ${{ inputs.chart }}"
-    runs-on: ${{ inputs.runner_type || 'ubuntu-latest' }}
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    permissions:
+      contents: read # checkout the chart source
+      packages: write # push the packaged chart to GHCR
     steps:
       - name: Checkout
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
@@ -69,11 +60,12 @@ jobs:
 
       - name: Publish alpha
         id: alpha
-        uses: ./src/build/helm-alpha-publish
+        # TODO: pin to @v1 once released; @develop for testing.
+        uses: LerianStudio/github-actions-shared-workflows/src/build/helm-alpha-publish@develop
         with:
           chart: ${{ inputs.chart }}
-          charts-path: ${{ inputs.charts_path || 'charts' }}
-          registry: ${{ inputs.registry || 'oci://ghcr.io/lerianstudio/alpha' }}
+          charts-path: ${{ inputs.charts_path }}
+          registry: ${{ inputs.registry }}
           registry-host: ghcr.io
           registry-username: ${{ github.actor }}
           registry-password: ${{ github.token }}

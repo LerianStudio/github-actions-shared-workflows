@@ -5,7 +5,9 @@
   </tr>
 </table>
 
-Reusable workflow that publishes a **disposable alpha prerelease** of a Helm chart to an isolated OCI namespace, for testing a chart before it is released through the normal `develop`/`main` pipeline. Alphas have a short TTL enforced by [`helm-alpha-cleanup`](./helm-alpha-cleanup.md).
+Reusable workflow that publishes a **disposable alpha prerelease** of a Helm chart to an isolated OCI namespace, for testing a chart before it goes through the normal `develop`/`main` pipeline. Each chart becomes its own package under `ghcr.io/lerianstudio/alpha/<chart>`. Alphas have a short TTL enforced by [`helm-alpha-cleanup`](./helm-alpha-cleanup.md).
+
+Authenticates with the built-in `GITHUB_TOKEN` (same org, `packages: write`) — no App token, no static secret. Does **not** run semantic-release: no git tag, CHANGELOG, version bump or notifications.
 
 ## What it does
 
@@ -15,7 +17,9 @@ Reusable workflow that publishes a **disposable alpha prerelease** of a Helm cha
 | Validate | `helm dependency update` + `helm lint`; fails with the chart list if `chart` is not found |
 | Publish | `helm package` + `helm push` to `registry` (default `oci://ghcr.io/lerianstudio/alpha`) |
 
-Because the checkout uses the caller's ref, **a chart that only exists on a work branch is published as long as the workflow is dispatched from that branch**. It does **not** touch git history, CHANGELOG, tags or notifications.
+Because the checkout uses the caller's ref, **a chart that only exists on a work branch is published as long as the caller is dispatched from that branch**.
+
+`workflow_call` only — the manual entrypoint is a caller workflow in the consuming repo.
 
 ## Inputs
 
@@ -24,16 +28,11 @@ Because the checkout uses the caller's ref, **a chart that only exists on a work
 | `chart` | `string` | Yes | — | Chart directory name under `charts_path` |
 | `charts_path` | `string` | No | `charts` | Path to the charts directory |
 | `registry` | `string` | No | `oci://ghcr.io/lerianstudio/alpha` | OCI namespace to push to |
-| `registry_host` | `string` | No | `ghcr.io` | Registry host for login |
-| `registry_username` | `string` | No | `lerianstudio` | Registry login user |
-| `runner_type` | `string` | No | `ubuntu-latest` | Runner label |
 | `dry_run` | `boolean` | No | `false` | Package/validate but do not push |
 
 ## Secrets
 
-| Secret | Required | Description |
-|---|---|---|
-| `REGISTRY_PASSWORD` | No | Token with `packages:write`. Falls back to `GITHUB_TOKEN` when omitted. |
+None — the job's `GITHUB_TOKEN` (`packages: write`) is used for the push.
 
 ## Usage
 
@@ -60,12 +59,11 @@ permissions:
 
 jobs:
   alpha:
-    # Testing: pin to @develop. Production: pin to a stable @vX.Y.Z.
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/helm-alpha-release.yml@v1
+    # Testing: @develop. Production: a stable @vX.Y.Z.
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/helm-alpha-release.yml@develop
     with:
       chart: ${{ inputs.chart }}
       dry_run: ${{ inputs.dry_run }}
-    secrets: inherit
 ```
 
 > Dispatch from your work branch (the branch selector in **Run workflow**) so the checkout uses that ref and picks up new charts.

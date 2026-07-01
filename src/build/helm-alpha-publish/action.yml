@@ -64,9 +64,10 @@ runs:
           exit 1
         fi
 
-        # Read name/version without depending on yq being on PATH.
-        NAME="$(grep -E '^name:' "$DIR/Chart.yaml" | head -1 | sed -E 's/^name:[[:space:]]*//; s/["'\'']//g')"
-        BASE="$(grep -E '^version:' "$DIR/Chart.yaml" | head -1 | sed -E 's/^version:[[:space:]]*//; s/["'\'']//g')"
+        # Parse Chart.yaml with a real YAML parser (yq ships on the runner image)
+        # so inline comments / quoting never leak into the values.
+        NAME="$(yq '.name' "$DIR/Chart.yaml")"
+        BASE="$(yq '.version' "$DIR/Chart.yaml")"
         ALPHA="${BASE}-alpha.$(date -u +%Y%m%d%H%M).$(git rev-parse --short HEAD)"
 
         echo "version=$ALPHA" >> "$GITHUB_OUTPUT"
