@@ -1,0 +1,68 @@
+name: GHCR Alpha Cleanup
+description: Deletes alpha Helm chart packages from GHCR older than a cut-off, keeping real releases untouched. Wraps snok/container-retention-policy.
+
+inputs:
+  account:
+    description: GitHub org/user that owns the packages
+    required: false
+    default: "lerianstudio"
+  token:
+    description: Token with delete:packages (org-level deletion may require a PAT — App tokens are not guaranteed to delete org packages)
+    required: true
+  image-names:
+    description: Package name globs to target (space-separated). MUST be scoped to the alpha namespace.
+    required: false
+    default: "alpha/*"
+  image-tags:
+    description: Tag globs to target
+    required: false
+    default: "*-alpha*"
+  cut-off:
+    description: Delete versions older than this (e.g. "3d", "1w")
+    required: false
+    default: "3d"
+  keep-n-most-recent:
+    description: Always keep at least this many recent versions per package (safety net)
+    required: false
+    default: "5"
+  dry-run:
+    description: Preview deletions without applying them
+    required: false
+    default: "true"
+
+runs:
+  using: composite
+  steps:
+    # Safety guard: refuse to run against unscoped image-names so a stray "*"
+    # can never reach real releases (which live outside the alpha/ namespace).
+    - name: Guard — enforce alpha scope
+      shell: bash
+      env:
+        IMAGE_NAMES: ${{ inputs.image-names }}
+      run: |
+        set -f # disable globbing so a pattern like alpha/* is validated literally
+        # Every entry must live under the alpha/ namespace — a stray "*" or a
+        # release package name (e.g. "*-helm") must never slip through.
+        for n in $IMAGE_NAMES; do
+          case "$n" in
+            alpha/*) : ;;
+            *)
+              echo "::error::image-names entry '$n' is not under the alpha/ namespace. Refusing to run."
+              exit 1
+              ;;
+          esac
+        done
+
+    # Pinned by SHA (Dependabot does not track composites under src/** here, so
+    # bump this manually). Inputs verified against v3.1.0.
+    - name: Container retention policy
+      uses: snok/container-retention-policy@d3bdcf5ce9b05f685154e4a16c39233b245e3d53 # v3.1.0
+      with:
+        account: ${{ inputs.account }}
+        token: ${{ inputs.token }}
+        image-names: ${{ inputs.image-names }}
+        image-tags: ${{ inputs.image-tags }}
+        tag-selection: tagged
+        cut-off: ${{ inputs.cut-off }}
+        keep-n-most-recent: ${{ inputs.keep-n-most-recent }}
+        dry-run: ${{ inputs.dry-run }}
