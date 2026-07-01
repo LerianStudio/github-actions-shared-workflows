@@ -73,11 +73,14 @@ jobs:
 
       - name: Summary
         if: ${{ !inputs.dry_run }}
+        env:
+          # Pass via env (not direct ${{ }} in run) to avoid script injection.
+          REFERENCE: ${{ steps.alpha.outputs.reference }}
         run: |
           {
             echo "### 🚀 Alpha published"
             echo ""
-            echo "\`${{ steps.alpha.outputs.reference }}\`"
+            echo "\`${REFERENCE}\`"
             echo ""
             echo "> TTL ~3 days — pruned by the *Helm Alpha Cleanup* workflow."
           } >> "$GITHUB_STEP_SUMMARY"

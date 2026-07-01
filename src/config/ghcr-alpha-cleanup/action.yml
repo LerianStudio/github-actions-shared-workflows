@@ -40,6 +40,7 @@ runs:
       env:
         IMAGE_NAMES: ${{ inputs.image-names }}
       run: |
+        set -f # disable globbing so a pattern like alpha/* is validated literally
         # Every entry must live under the alpha/ namespace — a stray "*" or a
         # release package name (e.g. "*-helm") must never slip through.
         for n in $IMAGE_NAMES; do
