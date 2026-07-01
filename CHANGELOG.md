@@ -1,5 +1,28 @@
 # Github-actions-shared-workflows Changelog
 
+## [1.41.0](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.41.0)
+
+Features:
+- Add reusable workflows for Helm alpha release and cleanup. (@guimoreirar)
+
+Fixes:
+- Correct the release process by merging `develop` into `main`. (@bedatty)
+- Prevent reliance on unevaluated expressions as input defaults in the prerelease guard. (@bedatty)
+- Address issues in the release process by pointing the prerelease-guard ref at `develop` until `v1` catches up. (@bedatty)
+- Guard `release.yml` against prerelease versions published after stable releases. (@bedatty)
+- Address code review feedback on prerelease gates. (@bedatty)
+- Prevent script injection by passing references via environment variables in the Helm alpha release workflow. (@guimoreirar)
+
+Improvements:
+- Bump `trufflesecurity/trufflehog` from `3.95.5` to `3.95.6` in the security-scanners group. (@bedatty)
+- Update the GitHub security group with two dependency updates. (@bedatty)
+- Refactor Helm alpha workflows for improved clarity and functionality. (@guimoreirar)
+- Update the container retention policy to use a pinned SHA `v3.1.0`. (@guimoreirar)
+
+[Compare changes](https://github.com/LerianStudio/github-actions-shared-workflows/compare/v1.40.4...v1.41.0)
+
+---
+
 ## [1.40.4](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.40.4)
 
 Fixes:
