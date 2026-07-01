@@ -13,7 +13,7 @@ Fails the run if a calculated beta/rc version's `X.Y.Z` has already been publish
 |-------|-------------|----------|---------|
 | `calculated-version` | The prerelease version `semantic-release` would publish (e.g. `1.10.0-beta.6`) | Yes | |
 | `source-branch` | Name of the stable branch the prerelease is compared against (for the error message only) | No | `main` |
-| `target-branch` | Name of the prerelease branch being validated (for the error message only) | No | `${{ github.ref_name }}` |
+| `target-branch` | Name of the prerelease branch being validated (for the error message only). Defaults to the current ref if omitted. | No | `''` |
 
 ## Outputs
 
