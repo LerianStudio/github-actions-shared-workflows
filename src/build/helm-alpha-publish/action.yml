@@ -1,0 +1,90 @@
+name: Helm Alpha Publish
+description: Packages a Helm chart as a disposable alpha prerelease and pushes it to an isolated OCI namespace.
+
+inputs:
+  chart:
+    description: Chart directory name under charts-path
+    required: true
+  charts-path:
+    description: Path to the charts directory
+    required: false
+    default: "charts"
+  registry:
+    description: OCI registry/namespace to push the alpha chart to (isolated alpha namespace)
+    required: false
+    default: "oci://ghcr.io/lerianstudio/alpha"
+  registry-host:
+    description: Registry host used for helm registry login
+    required: false
+    default: "ghcr.io"
+  registry-username:
+    description: Username for registry login
+    required: false
+    default: "lerianstudio"
+  registry-password:
+    description: Token/password for registry login (needs packages:write)
+    required: true
+  dry-run:
+    description: Package and validate but do not push
+    required: false
+    default: "false"
+
+outputs:
+  version:
+    description: The generated alpha version (e.g. 1.2.3-alpha.202607011200.abc1234)
+    value: ${{ steps.publish.outputs.version }}
+  reference:
+    description: Full OCI reference of the pushed chart
+    value: ${{ steps.publish.outputs.reference }}
+
+runs:
+  using: composite
+  steps:
+    - name: Setup Helm
+      uses: azure/setup-helm@1a275c3b69536ee54be43f2070a358922e12c8d4 # v4
+
+    - name: Package & push alpha
+      id: publish
+      shell: bash
+      env:
+        CHART: ${{ inputs.chart }}
+        CHARTS_PATH: ${{ inputs.charts-path }}
+        REGISTRY: ${{ inputs.registry }}
+        REGISTRY_HOST: ${{ inputs.registry-host }}
+        REGISTRY_USERNAME: ${{ inputs.registry-username }}
+        REGISTRY_PASSWORD: ${{ inputs.registry-password }}
+        DRY_RUN: ${{ inputs.dry-run }}
+      run: |
+        set -euo pipefail
+
+        DIR="$CHARTS_PATH/$CHART"
+        if [ ! -f "$DIR/Chart.yaml" ]; then
+          echo "::error::chart '$CHART' not found in $CHARTS_PATH/ (this ref)."
+          echo "Charts available on this branch:"; ls -1 "$CHARTS_PATH" || true
+          exit 1
+        fi
+
+        # Parse Chart.yaml with a real YAML parser (yq ships on the runner image)
+        # so inline comments / quoting never leak into the values.
+        NAME="$(yq '.name' "$DIR/Chart.yaml")"
+        BASE="$(yq '.version' "$DIR/Chart.yaml")"
+        ALPHA="${BASE}-alpha.$(date -u +%Y%m%d%H%M).$(git rev-parse --short HEAD)"
+
+        echo "version=$ALPHA" >> "$GITHUB_OUTPUT"
+        echo "reference=${REGISTRY}/${NAME}:${ALPHA}" >> "$GITHUB_OUTPUT"
+
+        helm dependency update "$DIR"
+        helm lint "$DIR"
+        PKG="$(helm package "$DIR" --version "$ALPHA" -d "$RUNNER_TEMP" | awk '{print $NF}')"
+
+        if [ "$DRY_RUN" = "true" ]; then
+          echo "::notice::DRY RUN — chart packaged ($ALPHA) but NOT pushed"
+          echo "  chart    : $NAME"
+          echo "  package  : $PKG"
+          echo "  target   : $REGISTRY"
+          exit 0
+        fi
+
+        echo "$REGISTRY_PASSWORD" | helm registry login "$REGISTRY_HOST" -u "$REGISTRY_USERNAME" --password-stdin
+        helm push "$PKG" "$REGISTRY"
+        echo "::notice::alpha published: ${REGISTRY}/${NAME}:${ALPHA}"

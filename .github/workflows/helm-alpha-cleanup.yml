@@ -1,0 +1,88 @@
+name: Helm Alpha Cleanup
+
+# Reusable workflow that enforces the TTL of alpha Helm chart packages: deletes
+# packages under the alpha/ namespace (image_names, default alpha/*) with alpha
+# tags older than cut_off. Real releases (ghcr.io/lerianstudio/<chart>) are a
+# different package path and are guarded out.
+#
+# GITHUB_TOKEN cannot delete org-level packages, so a PAT with delete:packages
+# is required (GHCR_CLEANUP_PAT).
+#
+# workflow_call only — the schedule/manual entrypoint is a self-* caller in the
+# consuming repo (e.g. helm/.github/workflows/helm-alpha-cleanup.yml).
+#
+# Usage:
+#   jobs:
+#     cleanup:
+#       uses: LerianStudio/github-actions-shared-workflows/.github/workflows/helm-alpha-cleanup.yml@v1
+#       with:
+#         dry_run: false
+#       secrets:
+#         GHCR_CLEANUP_PAT: ${{ secrets.GHCR_CLEANUP_PAT }}
+
+on:
+  workflow_call:
+    inputs:
+      account:
+        description: GitHub org/user that owns the packages
+        required: false
+        type: string
+        default: "lerianstudio"
+      image_names:
+        description: Package name globs to target (must be alpha/ scoped)
+        required: false
+        type: string
+        default: "alpha/*"
+      image_tags:
+        description: Tag globs to target
+        required: false
+        type: string
+        default: "*-alpha*"
+      cut_off:
+        description: Delete versions older than this (e.g. "3d", "1w")
+        required: false
+        type: string
+        default: "3d"
+      keep_n_most_recent:
+        description: Always keep at least this many recent versions per package
+        required: false
+        type: number
+        default: 5
+      dry_run:
+        description: Preview deletions without applying them
+        required: false
+        type: boolean
+        default: false
+    secrets:
+      GHCR_CLEANUP_PAT:
+        description: PAT with delete:packages (GITHUB_TOKEN cannot delete org-level packages)
+        required: true
+
+# Least privilege: read by default, escalate per-job.
+permissions:
+  contents: read
+
+# Serialize runs so overlapping schedule/dispatch invocations don't race on the
+# same GHCR package versions.
+concurrency:
+  group: helm-alpha-cleanup-${{ github.repository }}
+  cancel-in-progress: false
+
+jobs:
+  cleanup:
+    name: Prune alpha packages past TTL
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    permissions:
+      packages: write # delete alpha package versions from GHCR
+    steps:
+      - name: Prune alphas
+        # TODO: pin to @v1 once released; @develop for testing.
+        uses: LerianStudio/github-actions-shared-workflows/src/config/ghcr-alpha-cleanup@develop
+        with:
+          account: ${{ inputs.account }}
+          token: ${{ secrets.GHCR_CLEANUP_PAT }}
+          image-names: ${{ inputs.image_names }}
+          image-tags: ${{ inputs.image_tags }}
+          cut-off: ${{ inputs.cut_off }}
+          keep-n-most-recent: ${{ inputs.keep_n_most_recent }}
+          dry-run: ${{ inputs.dry_run }}

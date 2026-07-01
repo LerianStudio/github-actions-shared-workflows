@@ -1,0 +1,55 @@
+name: Prerelease Guard
+description: "Fails the run if a calculated beta/rc version's X.Y.Z has already been published as a stable release, catching prerelease branches left out of sync with the stable branch."
+
+inputs:
+  calculated-version:
+    description: The prerelease version semantic-release would publish (e.g. 1.10.0-beta.6)
+    required: true
+  source-branch:
+    description: Name of the stable branch the prerelease is compared against (for the error message only)
+    required: false
+    default: main
+  target-branch:
+    description: Name of the prerelease branch being validated (for the error message only). Defaults to the current ref if omitted.
+    required: false
+    default: ''
+
+runs:
+  using: composite
+  steps:
+    - name: Compare calculated prerelease against latest stable
+      shell: bash
+      env:
+        CALCULATED_VERSION: ${{ inputs.calculated-version }}
+        SOURCE_BRANCH: ${{ inputs.source-branch }}
+        TARGET_BRANCH_INPUT: ${{ inputs.target-branch }}
+        CURRENT_REF_NAME: ${{ github.ref_name }}
+      run: |
+        set -euo pipefail
+
+        TARGET_BRANCH="${TARGET_BRANCH_INPUT:-$CURRENT_REF_NAME}"
+
+        git fetch --tags origin
+
+        CALCULATED_XYZ="${CALCULATED_VERSION%%-*}"
+
+        HIGHEST_STABLE=$(git tag -l 'v*' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sed 's/^v//' | sort -V | tail -1 || true)
+
+        if [ -z "$HIGHEST_STABLE" ]; then
+          echo "::notice::No stable release found yet — nothing to compare against"
+          exit 0
+        fi
+
+        echo "::notice::Calculated prerelease base: ${CALCULATED_XYZ} — highest stable published: ${HIGHEST_STABLE}"
+
+        # sort -V ranks the two versions; if the calculated X.Y.Z isn't strictly
+        # newer than the highest stable already published, the prerelease branch
+        # is stale relative to the stable branch.
+        NEWEST=$(printf '%s\n%s\n' "$CALCULATED_XYZ" "$HIGHEST_STABLE" | sort -V | tail -1)
+
+        if [ "$NEWEST" != "$CALCULATED_XYZ" ] || [ "$CALCULATED_XYZ" = "$HIGHEST_STABLE" ]; then
+          echo "::error::Prerelease v${CALCULATED_VERSION} would be published for version ${CALCULATED_XYZ}, but v${HIGHEST_STABLE} is already released as stable. ${TARGET_BRANCH} is out of sync with ${SOURCE_BRANCH} — merge the pending backmerge (or resolve conflicts manually) and push again."
+          exit 1
+        fi
+
+        echo "::notice::${CALCULATED_XYZ} is newer than the highest stable (${HIGHEST_STABLE}) — prerelease is valid"
