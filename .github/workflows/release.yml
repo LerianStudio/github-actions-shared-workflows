@@ -441,9 +441,11 @@ jobs:
               echo "✅ $(basename "$f" .txt) reported a release (${leg_version})"
             fi
           done
-          echo "published=$published" >> "$GITHUB_OUTPUT"
-          echo "version=$version" >> "$GITHUB_OUTPUT"
-          echo "git_tag=$git_tag" >> "$GITHUB_OUTPUT"
+          {
+            echo "published=$published"
+            echo "version=$version"
+            echo "git_tag=$git_tag"
+          } >> "$GITHUB_OUTPUT"
           if [[ "$published" == "true" ]]; then
             echo "✅ At least one matrix leg published a release (latest: ${version})"
           else
