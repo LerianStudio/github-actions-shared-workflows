@@ -14,11 +14,11 @@ on:
         description: 'true when at least one matrix leg published a release.'
         value: ${{ jobs.publish_release_status.outputs.release_published }}
       new_release_version:
-        description: 'Published version (single-app mode; last matrix leg wins in monorepo).'
-        value: ${{ jobs.publish_release.outputs.new_release_version }}
+        description: 'Published version (single-app mode; last matrix leg that actually published wins in monorepo).'
+        value: ${{ jobs.publish_release_status.outputs.release_version }}
       new_release_git_tag:
-        description: 'Git tag semantic-release created (single-app mode; last leg wins in monorepo).'
-        value: ${{ jobs.publish_release.outputs.new_release_git_tag }}
+        description: 'Git tag semantic-release created (single-app mode; last leg that actually published wins in monorepo).'
+        value: ${{ jobs.publish_release_status.outputs.release_git_tag }}
     inputs:
       semantic_version:
         description: 'Semantic release version to use'
@@ -360,17 +360,26 @@ jobs:
 
       # ----------------- Per-leg release publish marker -----------------
       # Matrix job outputs are last-writer-wins, so we persist each leg's
-      # publish signal as an artifact and aggregate downstream.
+      # publish signal (plus version/tag) as an artifact and aggregate
+      # downstream — this keeps new_release_version/new_release_git_tag
+      # consistent with release_published instead of picking them from
+      # whichever leg's job output happens to write last, published or not.
       - name: Mark publish status
         if: always()
         env:
           SEMANTIC_PUBLISHED: ${{ steps.semantic.outputs.new_release_published }}
+          SEMANTIC_VERSION: ${{ steps.semantic.outputs.new_release_version }}
+          SEMANTIC_TAG: ${{ steps.semantic.outputs.new_release_git_tag }}
           APP_NAME: ${{ matrix.app.name }}
           STATUS_DIR: ${{ runner.temp }}/publish-status
         run: |
           mkdir -p "$STATUS_DIR"
           if [[ "$SEMANTIC_PUBLISHED" == "true" ]]; then
-            echo "true" > "$STATUS_DIR/${APP_NAME}.txt"
+            {
+              echo "true"
+              echo "$SEMANTIC_VERSION"
+              echo "$SEMANTIC_TAG"
+            } > "$STATUS_DIR/${APP_NAME}.txt"
             echo "✅ ${APP_NAME}: release published"
           else
             echo "false" > "$STATUS_DIR/${APP_NAME}.txt"
@@ -393,6 +402,8 @@ jobs:
     runs-on: ${{ inputs.runner_type }}
     outputs:
       release_published: ${{ steps.aggregate.outputs.published }}
+      release_version: ${{ steps.aggregate.outputs.version }}
+      release_git_tag: ${{ steps.aggregate.outputs.git_tag }}
     steps:
       - name: Download all publish status artifacts
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
@@ -406,13 +417,20 @@ jobs:
         run: |
           shopt -s nullglob
           published=false
+          version=""
+          git_tag=""
           for f in /tmp/publish-status/*.txt; do
-            if [[ "$(cat "$f")" == "true" ]]; then
+            leg_published="$(sed -n '1p' "$f")"
+            if [[ "$leg_published" == "true" ]]; then
               published=true
-              echo "✅ $(basename "$f" .txt) reported a release"
+              version="$(sed -n '2p' "$f")"
+              git_tag="$(sed -n '3p' "$f")"
+              echo "✅ $(basename "$f" .txt) reported a release (${version})"
             fi
           done
           echo "published=$published" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "git_tag=$git_tag" >> "$GITHUB_OUTPUT"
           if [[ "$published" == "true" ]]; then
             echo "✅ At least one matrix leg published a release"
           else

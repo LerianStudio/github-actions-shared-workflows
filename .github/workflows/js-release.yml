@@ -284,7 +284,7 @@ jobs:
     needs: [build]
     if: >-
       github.ref_type == 'tag' && inputs.enable_e2e &&
-      !cancelled() && needs.build.result == 'success'
+      !cancelled() && needs.build.result == 'success' && !inputs.dry_run
     runs-on: ${{ inputs.runner_type }}
     permissions:
       id-token: write
