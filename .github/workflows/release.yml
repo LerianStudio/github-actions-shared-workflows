@@ -314,7 +314,7 @@ jobs:
       - name: Guard against stale prerelease
         id: guard
         if: steps.semantic_dry.outputs.new_release_published == 'true'
-        uses: LerianStudio/github-actions-shared-workflows/src/config/prerelease-guard@develop
+        uses: LerianStudio/github-actions-shared-workflows/src/config/prerelease-guard@v1
         with:
           calculated-version: ${{ steps.semantic_dry.outputs.new_release_version }}
           source-branch: ${{ inputs.backmerge_source }}
