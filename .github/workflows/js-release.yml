@@ -183,11 +183,18 @@ on:
         description: 'Node.js version for the E2E test runner'
         type: string
         default: '22'
+      e2e_s3_artifact_path:
+        description: 'Subpath under s3://lerian-e2e-artifacts/<repo>/<tag>/ where the Playwright report is uploaded'
+        type: string
+        default: 'playwright-report'
 
     secrets:
       MANAGE_TOKEN:
         required: false
       SLACK_WEBHOOK_URL:
+        required: false
+      AWS_E2E_ARTIFACTS_ROLE_ARN:
+        description: 'IAM role ARN assumed via OIDC to upload the E2E (Playwright) report to the lerian-e2e-artifacts S3 bucket. Optional — when unset, the S3 upload step is skipped and only the GitHub Actions artifact is produced.'
         required: false
 
 permissions:
@@ -275,7 +282,10 @@ jobs:
       !cancelled() && needs.build.result == 'success'
     runs-on: ${{ inputs.runner_type }}
     permissions:
+      id-token: write
       contents: read
+    env:
+      AWS_E2E_ARTIFACTS_ROLE_ARN: ${{ secrets.AWS_E2E_ARTIFACTS_ROLE_ARN }}
     steps:
       - uses: actions/checkout@v6.0.3
 
@@ -302,6 +312,27 @@ jobs:
           name: playwright-report
           path: playwright-report/
           retention-days: 7
+
+      # lerian-e2e-artifacts lives in the devops AWS account. Skipped when the
+      # AWS_E2E_ARTIFACTS_ROLE_ARN secret is not configured by the caller.
+      - name: Configure AWS credentials for E2E artifacts upload
+        if: always() && env.AWS_E2E_ARTIFACTS_ROLE_ARN != ''
+        uses: aws-actions/configure-aws-credentials@e7f100cf4c008499ea8adda475de1042d6975c7b # v6.2.0
+        with:
+          role-to-assume: ${{ env.AWS_E2E_ARTIFACTS_ROLE_ARN }}
+          aws-region: us-east-2
+
+      - name: Upload Playwright report to S3
+        if: always() && env.AWS_E2E_ARTIFACTS_ROLE_ARN != ''
+        run: |
+          set -euo pipefail
+          if [[ -d playwright-report ]]; then
+            S3_PATH="s3://lerian-e2e-artifacts/${{ github.event.repository.name }}/${{ github.ref_name }}/${{ inputs.e2e_s3_artifact_path }}/"
+            aws s3 cp playwright-report/ "$S3_PATH" --recursive
+            echo "::notice::Uploaded Playwright report to ${S3_PATH}"
+          else
+            echo "::warning::playwright-report/ not found — skipping S3 upload"
+          fi
 
   # ----------------- GitOps Update (tag push) -----------------
   update_gitops:
