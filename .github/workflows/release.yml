@@ -379,6 +379,7 @@ jobs:
               echo "true"
               echo "$SEMANTIC_VERSION"
               echo "$SEMANTIC_TAG"
+              date +%s
             } > "$STATUS_DIR/${APP_NAME}.txt"
             echo "✅ ${APP_NAME}: release published"
           else
@@ -419,20 +420,32 @@ jobs:
           published=false
           version=""
           git_tag=""
+          best_ts=-1
+          # Glob order is alphabetical by app name, not matrix execution order,
+          # so pick the leg with the latest recorded timestamp (not the
+          # alphabetically-last filename) to genuinely reflect "last leg that
+          # published wins" when multiple legs publish in the same run.
           for f in /tmp/publish-status/*.txt; do
             leg_published="$(sed -n '1p' "$f")"
             if [[ "$leg_published" == "true" ]]; then
               published=true
-              version="$(sed -n '2p' "$f")"
-              git_tag="$(sed -n '3p' "$f")"
-              echo "✅ $(basename "$f" .txt) reported a release (${version})"
+              leg_ts="$(sed -n '4p' "$f")"
+              leg_ts="${leg_ts:-0}"
+              leg_version="$(sed -n '2p' "$f")"
+              leg_tag="$(sed -n '3p' "$f")"
+              if [[ "$leg_ts" -gt "$best_ts" ]]; then
+                best_ts="$leg_ts"
+                version="$leg_version"
+                git_tag="$leg_tag"
+              fi
+              echo "✅ $(basename "$f" .txt) reported a release (${leg_version})"
             fi
           done
           echo "published=$published" >> "$GITHUB_OUTPUT"
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "git_tag=$git_tag" >> "$GITHUB_OUTPUT"
           if [[ "$published" == "true" ]]; then
-            echo "✅ At least one matrix leg published a release"
+            echo "✅ At least one matrix leg published a release (latest: ${version})"
           else
             echo "ℹ️ No release published across matrix legs"
           fi
