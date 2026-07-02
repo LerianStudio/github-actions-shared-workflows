@@ -261,6 +261,12 @@ jobs:
         app: ${{ fromJson(needs.prepare.outputs.matrix) }}
 
     steps:
+      # Trust model: this is a `workflow_call` reusable workflow, not triggered
+      # by untrusted PRs. checkout_ref defaults to '' (the workflow run ref) for
+      # every caller; the only caller that sets it (go-release.yml's
+      # build_on_release feature) sources it from needs.release.outputs.new_release_git_tag
+      # — a tag semantic-release just created earlier in the SAME run, never
+      # from pull_request/fork-controlled data (CodeQL: actions/untrusted-checkout).
       - name: Checkout repository
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
@@ -490,14 +496,16 @@ jobs:
       # ----------------- GitOps Artifacts -----------------
       - name: Create GitOps tag artifact
         if: inputs.enable_gitops_artifacts
+        env:
+          RAW_VERSION: ${{ steps.version.outputs.version }}
+          APP_NAME: ${{ matrix.app.name }}
         run: |
           set -euo pipefail
           mkdir -p gitops-tags
           # Extract version without leading 'v'
-          VERSION="${{ steps.version.outputs.version }}"
-          VERSION="${VERSION#v}"
-          printf "%s" "$VERSION" > "gitops-tags/${{ matrix.app.name }}.tag"
-          echo "Created artifact: gitops-tags/${{ matrix.app.name }}.tag with version: $VERSION"
+          VERSION="${RAW_VERSION#v}"
+          printf "%s" "$VERSION" > "gitops-tags/${APP_NAME}.tag"
+          echo "Created artifact: gitops-tags/${APP_NAME}.tag with version: $VERSION"
 
       - name: Upload GitOps tag artifact
         if: inputs.enable_gitops_artifacts
