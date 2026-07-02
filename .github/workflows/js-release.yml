@@ -200,7 +200,7 @@ on:
     outputs:
       has_e2e_s3_upload:
         description: 'Whether the E2E Playwright report was uploaded to the lerian-e2e-artifacts S3 bucket (true/false). Always false when AWS_E2E_ARTIFACTS_ROLE_ARN is unset or enable_e2e is false.'
-        value: ${{ jobs.e2e_tests.outputs.has_e2e_s3_upload }}
+        value: ${{ jobs.e2e_tests.outputs.has_e2e_s3_upload || 'false' }}
 
 permissions:
   contents: read
@@ -295,6 +295,8 @@ jobs:
       AWS_E2E_ARTIFACTS_ROLE_ARN: ${{ secrets.AWS_E2E_ARTIFACTS_ROLE_ARN }}
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          persist-credentials: false
 
       - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6
         with:
