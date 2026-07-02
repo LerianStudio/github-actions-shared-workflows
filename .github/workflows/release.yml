@@ -379,7 +379,7 @@ jobs:
               echo "true"
               echo "$SEMANTIC_VERSION"
               echo "$SEMANTIC_TAG"
-              date +%s
+              date +%s%N
             } > "$STATUS_DIR/${APP_NAME}.txt"
             echo "✅ ${APP_NAME}: release published"
           else
