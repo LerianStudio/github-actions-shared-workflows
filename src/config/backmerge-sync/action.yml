@@ -97,9 +97,25 @@ runs:
         SOURCE_BRANCH: ${{ inputs.source-branch }}
         TARGET_BRANCH: ${{ inputs.target-branch }}
       run: |
-        git fetch --no-tags --prune origin \
-          "+refs/heads/${SOURCE_BRANCH}:refs/remotes/origin/${SOURCE_BRANCH}" \
-          "+refs/heads/${TARGET_BRANCH}:refs/remotes/origin/${TARGET_BRANCH}"
+        set -uo pipefail
+        # GitHub's ref advertisement can briefly lag right after a push. On main
+        # this step runs immediately AFTER semantic-release commits+tags, so a
+        # fresh fetch can transiently fail with "couldn't find remote ref" and
+        # abort both refspecs (exit 128), even though the branch exists. Retry
+        # with backoff; the happy path succeeds on the first attempt.
+        for attempt in 1 2 3 4 5; do
+          if git fetch --no-tags --prune origin \
+            "+refs/heads/${SOURCE_BRANCH}:refs/remotes/origin/${SOURCE_BRANCH}" \
+            "+refs/heads/${TARGET_BRANCH}:refs/remotes/origin/${TARGET_BRANCH}"; then
+            exit 0
+          fi
+          echo "::warning::backmerge fetch of ${SOURCE_BRANCH}/${TARGET_BRANCH} failed (attempt ${attempt}/5) — retrying"
+          if [ "$attempt" -lt 5 ]; then
+            sleep $((attempt * 3))
+          fi
+        done
+        echo "::error::could not fetch ${SOURCE_BRANCH}/${TARGET_BRANCH} from origin after 5 attempts"
+        exit 1
 
     # ----------------- Sync Branches -----------------
     - name: Sync branches
@@ -226,9 +242,27 @@ runs:
         fi
 
         if ! git push origin "$TARGET_BRANCH"; then
-          # A rejected push can mean another worker advanced target — refetch and re-check ancestry.
-          git fetch --no-tags origin \
-            "+refs/heads/${TARGET_BRANCH}:refs/remotes/origin/${TARGET_BRANCH}"
+          # A rejected push can mean another worker advanced target — refetch and
+          # re-check ancestry. Exposed to the same GitHub ref-advertisement lag as
+          # the initial fetch above, so retry with the same backoff.
+          fetch_ok=false
+          for attempt in 1 2 3 4 5; do
+            if git fetch --no-tags origin \
+              "+refs/heads/${TARGET_BRANCH}:refs/remotes/origin/${TARGET_BRANCH}"; then
+              fetch_ok=true
+              break
+            fi
+            echo "::warning::post-push-rejection fetch of ${TARGET_BRANCH} failed (attempt ${attempt}/5) — retrying"
+            if [ "$attempt" -lt 5 ]; then
+              sleep $((attempt * 3))
+            fi
+          done
+          if [ "$fetch_ok" != "true" ]; then
+            echo "::error::could not re-fetch ${TARGET_BRANCH} from origin after 5 attempts"
+            emit "failed"
+            exit 1
+          fi
+
           if git merge-base --is-ancestor "$SOURCE_SHA" "origin/${TARGET_BRANCH}"; then
             echo "::notice::${TARGET_BRANCH} already contains ${SOURCE_BRANCH} after push rejection — skipping"
             emit "skipped"

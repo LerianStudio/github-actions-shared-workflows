@@ -96,6 +96,10 @@ on:
         description: 'Timeout in seconds for argocd app wait after sync. Increase for larger applications or clusters under load.'
         type: number
         default: 480
+      force_env:
+        description: 'Override tag-based environment detection with development|staging|production|sandbox. Set when running on a branch (no tag in GITHUB_REF), e.g. same-run gitops update after a stable release. Empty = detect from the tag.'
+        type: string
+        default: ''
 
 jobs:
   update_gitops:
@@ -149,6 +153,10 @@ jobs:
           path: gitops
           fetch-depth: 0
 
+      # Read-only sparse checkout of a single manifest file from this same
+      # (LerianStudio-owned) repository — never a caller-controlled repo, no
+      # credentials persisted, and the file is only read as data (YAML config),
+      # never executed (CodeQL: actions/untrusted-checkout).
       - name: Checkout deployment matrix manifest
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
@@ -158,8 +166,6 @@ jobs:
           sparse-checkout: |
             ${{ inputs.deployment_matrix_file }}
           sparse-checkout-cone-mode: false
-          # Read-only sparse checkout of a single manifest file — no credentials
-          # needed, and we never execute code from this checkout.
           persist-credentials: false
 
       - name: Setup application name and paths
@@ -441,11 +447,31 @@ jobs:
           KUSTOMIZE_ENVIRONMENTS: ${{ inputs.kustomize_environments }}
           MANIFEST_FILE: shared-workflows/${{ inputs.deployment_matrix_file }}
           UPDATE_SANDBOX: ${{ inputs.update_sandbox }}
+          FORCE_ENV: ${{ inputs.force_env }}
         run: |
           set -euo pipefail
 
-          # Determine environments to update based on tag type (IS_* from job env)
-          if [[ "$IS_BETA" == "true" ]]; then
+          # Determine environments to update. force_env overrides tag-based detection
+          # (used on branch-push runs where GITHUB_REF has no tag); otherwise IS_* from job env.
+          if [[ -n "$FORCE_ENV" ]]; then
+            case "$FORCE_ENV" in
+              production)
+                if [[ "$UPDATE_SANDBOX" == "true" ]]; then
+                  ENVIRONMENTS="dev stg prd sandbox"
+                else
+                  ENVIRONMENTS="dev stg prd"
+                fi
+                ENV_LABEL="production"
+                ;;
+              staging)     ENVIRONMENTS="stg"; ENV_LABEL="rc/stg" ;;
+              development) ENVIRONMENTS="dev"; ENV_LABEL="beta/dev" ;;
+              sandbox)     ENVIRONMENTS="sandbox"; ENV_LABEL="sandbox" ;;
+              *)
+                echo "::error::Invalid force_env '$FORCE_ENV' (must be: development, staging, production, sandbox)"
+                exit 1
+                ;;
+            esac
+          elif [[ "$IS_BETA" == "true" ]]; then
             ENVIRONMENTS="dev"
             ENV_LABEL="beta/dev"
           elif [[ "$IS_RC" == "true" ]]; then

@@ -160,6 +160,14 @@ on:
         description: 'When true, continue to GitOps artifact upload even if cosign signing fails after all retries. Image stays in registry unsigned and a warning is emitted; manual signing is required afterwards.'
         type: boolean
         default: false
+      release_version:
+        description: 'Explicit image version (semver, leading v optional). When set (e.g. same-run build after semantic-release on a branch push), used as the image tag instead of parsing the git tag from GITHUB_REF.'
+        type: string
+        default: ''
+      checkout_ref:
+        description: 'Git ref to build (e.g. the freshly-created release tag). Empty = the workflow run ref.'
+        type: string
+        default: ''
 
 permissions:
   contents: read
@@ -253,8 +261,17 @@ jobs:
         app: ${{ fromJson(needs.prepare.outputs.matrix) }}
 
     steps:
+      # Trust model: this is a `workflow_call` reusable workflow, not triggered
+      # by untrusted PRs. checkout_ref defaults to '' (the workflow run ref) for
+      # every caller; the only caller that sets it (go-release.yml's
+      # build_on_release feature) sources it from needs.release.outputs.new_release_git_tag
+      # — a tag semantic-release just created earlier in the SAME run, never
+      # from pull_request/fork-controlled data (CodeQL: actions/untrusted-checkout).
       - name: Checkout repository
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          ref: ${{ inputs.checkout_ref }}   # empty string = default run ref
+          persist-credentials: false
 
       - name: Set up QEMU
         if: contains(needs.prepare.outputs.platforms, 'arm64')
@@ -310,15 +327,23 @@ jobs:
 
       - name: Extract version from tag
         id: version
+        env:
+          RELEASE_VERSION: ${{ inputs.release_version }}
         run: |
-          TAG="${GITHUB_REF#refs/tags/}"
-          # Strip app prefix by finding -v and extracting from there
-          # e.g., agent-v1.0.0-beta.1 -> v1.0.0-beta.1
-          # e.g., control-plane-v1.0.0-beta.1 -> v1.0.0-beta.1
-          # shellcheck disable=SC2001
-          VERSION=$(echo "$TAG" | sed 's/.*-\(v[0-9]\)/\1/')
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "Extracted version: $VERSION from tag: $TAG"
+          if [ -n "$RELEASE_VERSION" ]; then
+            # Branch-push build (same run as semantic-release): no tag in GITHUB_REF.
+            echo "version=$RELEASE_VERSION" >> "$GITHUB_OUTPUT"
+            echo "Using explicit release version: $RELEASE_VERSION"
+          else
+            TAG="${GITHUB_REF#refs/tags/}"
+            # Strip app prefix by finding -v and extracting from there
+            # e.g., agent-v1.0.0-beta.1 -> v1.0.0-beta.1
+            # e.g., control-plane-v1.0.0-beta.1 -> v1.0.0-beta.1
+            # shellcheck disable=SC2001
+            VERSION=$(echo "$TAG" | sed 's/.*-\(v[0-9]\)/\1/')
+            echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+            echo "Extracted version: $VERSION from tag: $TAG"
+          fi
 
       - name: Pre-flight tag existence check
         id: preflight
@@ -471,14 +496,16 @@ jobs:
       # ----------------- GitOps Artifacts -----------------
       - name: Create GitOps tag artifact
         if: inputs.enable_gitops_artifacts
+        env:
+          RAW_VERSION: ${{ steps.version.outputs.version }}
+          APP_NAME: ${{ matrix.app.name }}
         run: |
           set -euo pipefail
           mkdir -p gitops-tags
           # Extract version without leading 'v'
-          VERSION="${{ steps.version.outputs.version }}"
-          VERSION="${VERSION#v}"
-          printf "%s" "$VERSION" > "gitops-tags/${{ matrix.app.name }}.tag"
-          echo "Created artifact: gitops-tags/${{ matrix.app.name }}.tag with version: $VERSION"
+          VERSION="${RAW_VERSION#v}"
+          printf "%s" "$VERSION" > "gitops-tags/${APP_NAME}.tag"
+          echo "Created artifact: gitops-tags/${APP_NAME}.tag with version: $VERSION"
 
       - name: Upload GitOps tag artifact
         if: inputs.enable_gitops_artifacts
