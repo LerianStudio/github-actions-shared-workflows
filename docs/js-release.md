@@ -56,6 +56,11 @@ Mirrors the [`go-release`](./go-release-workflow.md) umbrella for Go services �
 | `use_dynamic_mapping` | Use dynamic artifact-to-YAML key mapping | boolean | `false` |
 | `configmap_updates` | JSON mapping of artifact names to configmap keys (helmfile only) | string | `''` |
 | `enable_docker_login` | Log in to DockerHub in the gitops-update job | boolean | `false` |
+| `enable_e2e` | Enable the E2E test job after the build (tag push only) | boolean | `false` |
+| `e2e_script` | npm script for E2E tests (e.g. `test:e2e`, `test:e2e:mock`) | string | `test:e2e` |
+| `e2e_base_url` | Base URL injected as `BASE_URL` env var. Empty = localhost fallback | string | `''` |
+| `node_version` | Node.js version for the E2E runner | string | `22` |
+| `e2e_s3_artifact_path` | Subpath under `s3://lerian-e2e-artifacts/<repo>/<tag>/` where the Playwright report is uploaded. Only used when `AWS_E2E_ARTIFACTS_ROLE_ARN` is set | string | `playwright-report` |
 
 ## Secrets
 
@@ -63,6 +68,7 @@ Mirrors the [`go-release`](./go-release-workflow.md) umbrella for Go services �
 |--------|-------------|----------|
 | `MANAGE_TOKEN` | Token for release commits, tags and private module access | No |
 | `SLACK_WEBHOOK_URL` | Slack webhook for pipeline notifications | No |
+| `AWS_E2E_ARTIFACTS_ROLE_ARN` | IAM role ARN assumed via OIDC to upload the Playwright report to the `lerian-e2e-artifacts` S3 bucket (`s3://lerian-e2e-artifacts/<repo>/<tag>/<e2e_s3_artifact_path>/`). Unset → S3 upload step is skipped, only the GitHub Actions artifact is produced | No |
 
 All other secrets required by the underlying primitives (GitHub App tokens, GPG key, DockerHub credentials, etc.) are forwarded automatically via `secrets: inherit`.
 
@@ -120,6 +126,67 @@ jobs:
       gitops_yaml_key_mappings: '{"plugin-access-manager-auth.tag": ".auth.image.tag", "plugin-access-manager-identity.tag": ".identity.image.tag"}'
     secrets: inherit
 ```
+
+### E2E tests on tag push — mock mode
+
+Self-contained: no real backend required. Playwright spins up its own mock server.
+
+```yaml
+jobs:
+  pipeline:
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/js-release.yml@vX.Y.Z
+    with:
+      enable_ghcr: true
+      enable_e2e: true
+      e2e_script: test:e2e:mock
+    secrets: inherit
+```
+
+### E2E tests on tag push — real environment mode
+
+Runs against a deployed staging URL injected via `BASE_URL`.
+
+```yaml
+jobs:
+  pipeline:
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/js-release.yml@vX.Y.Z
+    with:
+      enable_ghcr: true
+      enable_e2e: true
+      e2e_script: test:e2e
+      e2e_base_url: ${{ vars.STAGING_URL }}
+    secrets: inherit
+```
+
+> The consumer's `playwright.config.ts` should read `process.env.BASE_URL || 'http://localhost:8081'` to support both modes.
+
+### Uploading the E2E report to S3
+
+When the `AWS_E2E_ARTIFACTS_ROLE_ARN` secret is available (via `secrets: inherit` from an org-level secret, or passed explicitly), the Playwright report is also uploaded to the `lerian-e2e-artifacts` S3 bucket under a path that mirrors the caller repository and release tag:
+
+```
+s3://lerian-e2e-artifacts/<repo-name>/<tag>/<e2e_s3_artifact_path>/
+```
+
+Example for `product-console` releasing `v1.10.0-beta.5` with the default `e2e_s3_artifact_path`:
+
+```
+s3://lerian-e2e-artifacts/product-console/v1.10.0-beta.5/playwright-report/
+```
+
+```yaml
+jobs:
+  pipeline:
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/js-release.yml@vX.Y.Z
+    with:
+      enable_ghcr: true
+      enable_e2e: true
+      e2e_script: test:e2e:mock
+      # e2e_s3_artifact_path: playwright-report  # optional override
+    secrets: inherit
+```
+
+No caller changes are needed once the `AWS_E2E_ARTIFACTS_ROLE_ARN` org secret is configured — `secrets: inherit` picks it up automatically. When the secret is not set, the S3 upload step is skipped and the workflow behaves exactly as before (GitHub Actions artifact only).
 
 ### Replacing two caller files with one
 
