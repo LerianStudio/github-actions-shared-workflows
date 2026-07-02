@@ -197,6 +197,11 @@ on:
         description: 'IAM role ARN assumed via OIDC to upload the E2E (Playwright) report to the lerian-e2e-artifacts S3 bucket. Optional — when unset, the S3 upload step is skipped and only the GitHub Actions artifact is produced.'
         required: false
 
+    outputs:
+      has_e2e_s3_upload:
+        description: 'Whether the E2E Playwright report was uploaded to the lerian-e2e-artifacts S3 bucket (true/false). Always false when AWS_E2E_ARTIFACTS_ROLE_ARN is unset or enable_e2e is false.'
+        value: ${{ jobs.e2e_tests.outputs.has_e2e_s3_upload }}
+
 permissions:
   contents: read
 
@@ -284,12 +289,14 @@ jobs:
     permissions:
       id-token: write
       contents: read
+    outputs:
+      has_e2e_s3_upload: ${{ steps.s3_upload.outputs.uploaded == 'true' && 'true' || 'false' }}
     env:
       AWS_E2E_ARTIFACTS_ROLE_ARN: ${{ secrets.AWS_E2E_ARTIFACTS_ROLE_ARN }}
     steps:
-      - uses: actions/checkout@v6.0.3
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
 
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6
         with:
           node-version: ${{ inputs.node_version }}
           cache: 'npm'
@@ -301,18 +308,20 @@ jobs:
         run: npx playwright install --with-deps chromium
 
       - name: Run E2E tests
-        run: npm run ${{ inputs.e2e_script }}
+        run: npm run "$E2E_SCRIPT"
         env:
+          E2E_SCRIPT: ${{ inputs.e2e_script }}
           BASE_URL: ${{ inputs.e2e_base_url }}
 
       - name: Upload Playwright report
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: playwright-report
           path: playwright-report/
           retention-days: 7
 
+      # ----------------- E2E Report S3 Upload (optional) -----------------
       # lerian-e2e-artifacts lives in the devops AWS account. Skipped when the
       # AWS_E2E_ARTIFACTS_ROLE_ARN secret is not configured by the caller.
       - name: Configure AWS credentials for E2E artifacts upload
@@ -323,15 +332,22 @@ jobs:
           aws-region: us-east-2
 
       - name: Upload Playwright report to S3
+        id: s3_upload
         if: always() && env.AWS_E2E_ARTIFACTS_ROLE_ARN != ''
+        env:
+          REPO_NAME: ${{ github.event.repository.name }}
+          TAG_NAME: ${{ github.ref_name }}
+          ARTIFACT_PATH: ${{ inputs.e2e_s3_artifact_path }}
         run: |
           set -euo pipefail
           if [[ -d playwright-report ]]; then
-            S3_PATH="s3://lerian-e2e-artifacts/${{ github.event.repository.name }}/${{ github.ref_name }}/${{ inputs.e2e_s3_artifact_path }}/"
+            S3_PATH="s3://lerian-e2e-artifacts/${REPO_NAME}/${TAG_NAME}/${ARTIFACT_PATH}/"
             aws s3 cp playwright-report/ "$S3_PATH" --recursive
             echo "::notice::Uploaded Playwright report to ${S3_PATH}"
+            echo "uploaded=true" >> "$GITHUB_OUTPUT"
           else
             echo "::warning::playwright-report/ not found — skipping S3 upload"
+            echo "uploaded=false" >> "$GITHUB_OUTPUT"
           fi
 
   # ----------------- GitOps Update (tag push) -----------------

@@ -72,6 +72,12 @@ Mirrors the [`go-release`](./go-release-workflow.md) umbrella for Go services â€
 
 All other secrets required by the underlying primitives (GitHub App tokens, GPG key, DockerHub credentials, etc.) are forwarded automatically via `secrets: inherit`.
 
+## Outputs
+
+| Output | Description |
+|--------|-------------|
+| `has_e2e_s3_upload` | Whether the E2E Playwright report was uploaded to the `lerian-e2e-artifacts` S3 bucket (`true`/`false`). Always `false` when `AWS_E2E_ARTIFACTS_ROLE_ARN` is unset or `enable_e2e` is `false`. |
+
 ## Usage
 
 ### Single-app repository
