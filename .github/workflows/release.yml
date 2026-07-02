@@ -9,6 +9,16 @@ name: "Release Workflow"
 
 on:
   workflow_call:
+    outputs:
+      new_release_published:
+        description: 'true when at least one matrix leg published a release.'
+        value: ${{ jobs.publish_release_status.outputs.release_published }}
+      new_release_version:
+        description: 'Published version (single-app mode; last matrix leg wins in monorepo).'
+        value: ${{ jobs.publish_release.outputs.new_release_version }}
+      new_release_git_tag:
+        description: 'Git tag semantic-release created (single-app mode; last leg wins in monorepo).'
+        value: ${{ jobs.publish_release.outputs.new_release_git_tag }}
     inputs:
       semantic_version:
         description: 'Semantic release version to use'
@@ -165,6 +175,8 @@ jobs:
 
     outputs:
       gpg_fingerprint: ${{ steps.import_gpg.outputs.fingerprint }}
+      new_release_version: ${{ steps.semantic.outputs.new_release_version }}
+      new_release_git_tag: ${{ steps.semantic.outputs.new_release_git_tag }}
 
     steps:
       - uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
