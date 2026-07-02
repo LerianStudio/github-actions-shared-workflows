@@ -1,5 +1,29 @@
 # Github-actions-shared-workflows Changelog
 
+## [1.42.0](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.42.0)
+
+Features:
+- Added an optional end-to-end test job after the build on tag push for JavaScript releases. (@bedatty)
+- Implemented the upload of Playwright reports to S3 in the `e2e_tests` job for JavaScript releases. (@bedatty)
+- Introduced the `build_on_release` feature to publish GA images during the run, available as an opt-in for Go releases. (@fredcamaral)
+
+Fixes:
+- Resolved an issue where the release process incorrectly picked the published version/tag by glob order instead of by timestamp. (@bedatty)
+- Updated the release process to use nanosecond-resolution timestamps to avoid tie-breaks. (@bedatty)
+- Fixed a shellcheck SC2129 issue in the publish status aggregation script. (@bedatty)
+- Addressed CodeQL findings related to the release process. (@bedatty)
+- Reverted the `prerelease-guard` reference back to `@v1`. (@bedatty)
+- Addressed CodeRabbit findings on the release process. (@bedatty)
+- Resolved CodeRabbit security findings for JavaScript releases. (@bedatty)
+- Enhanced the backmerge-sync process to retry fetch operations to handle post-push ref-advertisement lag. (@fredcamaral)
+
+Improvements:
+- Added an optional end-to-end test job after the build on tag push for JavaScript releases. (@bedatty)
+
+[Compare changes](https://github.com/LerianStudio/github-actions-shared-workflows/compare/v1.41.0...v1.42.0)
+
+---
+
 ## [1.41.0](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.41.0)
 
 Features:
