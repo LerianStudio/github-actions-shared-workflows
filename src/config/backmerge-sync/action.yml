@@ -97,9 +97,23 @@ runs:
         SOURCE_BRANCH: ${{ inputs.source-branch }}
         TARGET_BRANCH: ${{ inputs.target-branch }}
       run: |
-        git fetch --no-tags --prune origin \
-          "+refs/heads/${SOURCE_BRANCH}:refs/remotes/origin/${SOURCE_BRANCH}" \
-          "+refs/heads/${TARGET_BRANCH}:refs/remotes/origin/${TARGET_BRANCH}"
+        set -uo pipefail
+        # GitHub's ref advertisement can briefly lag right after a push. On main
+        # this step runs immediately AFTER semantic-release commits+tags, so a
+        # fresh fetch can transiently fail with "couldn't find remote ref" and
+        # abort both refspecs (exit 128), even though the branch exists. Retry
+        # with backoff; the happy path succeeds on the first attempt.
+        for attempt in 1 2 3 4 5; do
+          if git fetch --no-tags --prune origin \
+            "+refs/heads/${SOURCE_BRANCH}:refs/remotes/origin/${SOURCE_BRANCH}" \
+            "+refs/heads/${TARGET_BRANCH}:refs/remotes/origin/${TARGET_BRANCH}"; then
+            exit 0
+          fi
+          echo "::warning::backmerge fetch of ${SOURCE_BRANCH}/${TARGET_BRANCH} failed (attempt ${attempt}/5) — retrying"
+          sleep $((attempt * 3))
+        done
+        echo "::error::could not fetch ${SOURCE_BRANCH}/${TARGET_BRANCH} from origin after 5 attempts"
+        exit 1
 
     # ----------------- Sync Branches -----------------
     - name: Sync branches
