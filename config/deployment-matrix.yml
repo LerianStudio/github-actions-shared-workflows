@@ -48,7 +48,7 @@
 #      env list is what the workflow uses to build helmfile paths and ArgoCD app names.
 #
 # Out of scope (managed manually or by other tooling — do NOT add here):
-#   - underwriter, jd-mock-api, mock-btg-server, fakebtg, control-plane,
+#   - underwriter, jd-mock-api, fakebtg, control-plane,
 #     platform-console (no CI commit history in gitops repo)
 #   - ledger, dockerhub-secret (no values.yaml — kustomize / k8s Secret)
 #   - hortencia-apps (legacy umbrella, not workflow-managed)
@@ -79,6 +79,9 @@ apps:
     - plugin-br-bank-transfer
     - plugin-br-payments
     - plugin-bc-correios
+
+    # Test/mock infrastructure
+    - mock-btg-server             # benedita only (-st variant); companion to plugin-br-pix-indirect-btg
 
     # Lerian internal platform suite (Benedita cross/)
     - backoffice-console
@@ -158,6 +161,7 @@ clusters:
       - plugin-br-bank-transfer
       - plugin-br-payments
       - plugin-bc-correios
+      - mock-btg-server
       - backoffice-console
       - cs-platform
       - forge
