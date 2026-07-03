@@ -1,5 +1,16 @@
 # Github-actions-shared-workflows Changelog
 
+## [1.43.1](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.43.1)
+
+Fixes:
+
+- Corrected the release process to ensure changes from `develop` are properly merged into `main`. (@bedatty)
+- Improved the `go-release` workflow by cleanly skipping the `update_gitops` step when only `extra_build` has run. (@bedatty)
+
+[Compare changes](https://github.com/LerianStudio/github-actions-shared-workflows/compare/v1.43.0...v1.43.1)
+
+---
+
 ## [1.43.0](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.43.0)
 
 Features:
