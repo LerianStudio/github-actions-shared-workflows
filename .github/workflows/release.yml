@@ -99,6 +99,11 @@ on:
         required: false
         type: string
         default: 'develop,release-candidate'
+      prerelease_backmerge_sync_enabled:
+        description: 'Merge backmerge_source into a prerelease branch (see prerelease_branches) before calculating its next version. Independent of backmerge_enabled, which also gates the separate post-release backmerge on backmerge_source itself. Defaults to false (opt-in) — set to true to enable this pre-version-calculation sync, which can skip/block a release on prerelease branches when the merge cannot complete directly. The post-release backmerge on backmerge_source is unaffected by this input either way.'
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -256,7 +261,7 @@ jobs:
 
       - name: Sync ${{ inputs.backmerge_source }} → ${{ github.ref_name }} before calculating version
         id: pre_sync
-        if: inputs.backmerge_enabled && steps.classify.outputs.is_prerelease == 'true'
+        if: inputs.backmerge_enabled && inputs.prerelease_backmerge_sync_enabled && steps.classify.outputs.is_prerelease == 'true'
         uses: LerianStudio/github-actions-shared-workflows/src/config/backmerge-sync@v1
         with:
           github-token: ${{ steps.app-token.outputs.token }}

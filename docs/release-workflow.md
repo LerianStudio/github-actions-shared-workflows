@@ -88,6 +88,8 @@ jobs:
 | `backmerge_target` | string | `develop` | Branch that receives the backmerge |
 | `backmerge_mode` | string | `direct-with-pr-fallback` | Backmerge strategy: `direct`, `pr`, or `direct-with-pr-fallback` |
 | `dry_run` | boolean | `false` | Run semantic-release in dry-run mode (no tags/releases) and preview the backmerge instead of applying it |
+| `prerelease_branches` | string | `develop,release-candidate` | Comma-separated list of branches treated as prerelease lines (beta/rc) |
+| `prerelease_backmerge_sync_enabled` | boolean | `false` | Merge `backmerge_source` into a prerelease branch before calculating its next version. Independent of `backmerge_enabled`, which also gates the separate post-release backmerge on `backmerge_source` itself. Opt-in — set to `true` to enable this pre-version-calculation sync, which can skip/block a release on prerelease branches when the merge cannot complete directly |
 
 ## Secrets
 
