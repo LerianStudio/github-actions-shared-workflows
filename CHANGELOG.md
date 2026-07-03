@@ -1,5 +1,18 @@
 # Github-actions-shared-workflows Changelog
 
+## [1.43.0](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.43.0)
+
+Features:
+- Added the `prerelease_backmerge_sync_enabled` input, which is opt-in and defaults to false. (@bedatty)
+- Registered `mock-btg-server` for the benedita gitops-update in the deployment matrix. (@bedatty)
+
+Fixes:
+- Corrected the release process from `develop` to `main`. (@bedatty)
+
+[Compare changes](https://github.com/LerianStudio/github-actions-shared-workflows/compare/v1.42.0...v1.43.0)
+
+---
+
 ## [1.42.0](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.42.0)
 
 Features:
