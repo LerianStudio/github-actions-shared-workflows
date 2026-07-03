@@ -45,6 +45,10 @@ on:
         description: 'Space-separated list of GitHub login substrings to exclude from the changelog (bot authors). Logins ending in [bot] are always excluded. Extends the default list inside the gptchangelog composite action.'
         type: string
         default: ''
+      prerelease_backmerge_sync_enabled:
+        description: 'Merge main into a prerelease branch (develop/release-candidate) before calculating its next version. Defaults to false (opt-in) — set to true to enable this pre-version-calculation sync, which can skip/block a release on those branches when the merge cannot complete directly. The post-release backmerge on main after a stable release is unaffected by this input either way.'
+        type: boolean
+        default: false
 
       # ----------------- Build (build.yml) -----------------
       enable_dockerhub:
@@ -256,6 +260,7 @@ jobs:
       enable_major_tag: ${{ inputs.enable_major_tag }}
       stable_releases_only: ${{ inputs.stable_releases_only }}
       changelog_bot_ignore_list: ${{ inputs.changelog_bot_ignore_list }}
+      prerelease_backmerge_sync_enabled: ${{ inputs.prerelease_backmerge_sync_enabled }}
       shared_paths: ${{ inputs.shared_paths }}
       filter_paths: ${{ !inputs.release_single_app && inputs.filter_paths || '' }}
     secrets: inherit
