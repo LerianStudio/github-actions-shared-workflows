@@ -158,6 +158,8 @@ Set `extra_builds` to a JSON array of build groups. Each group runs a parallel `
 
 > **Important** — `update_gitops` downloads artifacts by `gitops_artifact_pattern` (default `gitops-tags-<repo-name>*`). When an extra build produces an image whose name does **not** start with the repo name (e.g. `mock-btg-server`), set `gitops_artifact_pattern` to a wildcard that captures every image (e.g. `gitops-tags-*`), otherwise that image's tag artifact is skipped.
 
+> **Separate ArgoCD Application** — the wildcard-pattern approach above only works when the extra image is deployed *within the same app's* `values.yaml` (different nested key, same `app_name`/directory). If the extra build's component is its own, independent ArgoCD Application (its own `environments/*/helmfile/applications/<other-app-name>/values.yaml`), the single `update_gitops` job can't target it — `app_name` is one value per job call. Add a second, dedicated job in your caller `release.yml` that calls `gitops-update.yml` directly with that component's own `app_name`, `artifact_pattern`, and `yaml_key_mappings`, independent of the primary `update_gitops`. The primary `update_gitops` job only runs when the primary build actually produced artifacts (`needs.build.outputs.has_builds == 'true'`), so it skips cleanly — instead of failing — on releases where only an `extra_builds` group changed.
+
 ```yaml
 jobs:
   pipeline:

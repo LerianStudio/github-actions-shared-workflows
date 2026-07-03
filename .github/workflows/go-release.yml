@@ -477,6 +477,13 @@ jobs:
     secrets: inherit
 
   # ----------------- GitOps Update (tag push) -----------------
+  # Gated on the primary build actually producing artifacts (has_builds).
+  # extra_build succeeding alone is not enough: this job's artifact_pattern
+  # and gitops_yaml_key_mappings target the primary app_name, so it has
+  # nothing valid to download/apply when only an extra_builds group ran.
+  # Callers whose extra_builds groups need their own gitops-update (e.g. a
+  # component deployed as a separate ArgoCD Application) should add a
+  # dedicated gitops-update.yml job of their own, independent of this one.
   update_gitops:
     needs: [build, extra_build]
     if: >-
@@ -484,8 +491,7 @@ jobs:
       needs.build.result != 'failure' && needs.extra_build.result != 'failure' &&
       (
         (github.ref_type == 'tag' &&
-          ((needs.build.result == 'success' && needs.build.outputs.has_builds == 'true') ||
-           needs.extra_build.result == 'success')) ||
+          needs.build.result == 'success' && needs.build.outputs.has_builds == 'true') ||
         (inputs.build_on_release && github.ref_type == 'branch' &&
           needs.build.result == 'success' && needs.build.outputs.has_builds == 'true')
       )
