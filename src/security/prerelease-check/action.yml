@@ -112,8 +112,9 @@ runs:
         done
 
         # ----------------- allowlist (accepted pre-release pins) -----------------
-        # Exempt pins explicitly accepted in an allow-file: one "module version"
-        # per line, '#' comments and blank lines ignored. Same discipline
+        # Exempt pins explicitly accepted in an allow-file: one entry per line,
+        # matched on the raw scanned line's first two whitespace tokens (for
+        # go.mod: "module version"); '#' comments and blank lines ignored. Same discipline
         # .trivyignore applies to CVEs that cannot be remediated by upgrade — a
         # direct dependency whose upstream ships no stable release (only beta/rc)
         # stays visible in the report as a notice, but does not block promotion.

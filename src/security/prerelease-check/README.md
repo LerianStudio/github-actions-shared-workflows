@@ -41,16 +41,18 @@ For `go.mod` and `package.json`: matches any semver with a pre-release suffix st
 
 ## Allowlisting accepted pins
 
-Some pre-release pins cannot be remediated by upgrade — a direct dependency whose upstream ships no stable release (only `beta`/`rc`), or a pre-release version reached transitively through a dependency you do not control. For these, list the accepted `module version` pairs in an allow-file (default `.prerelease-allow`, auto-discovered at the scanned root). Matching findings are exempted and reported as `::notice::` instead of blocking — the same discipline `.trivyignore` applies to CVEs with no fixed version. Any pin **not** listed still blocks.
+Some pre-release pins cannot be remediated by upgrade — a direct dependency whose upstream ships no stable release (only `beta`/`rc`), or a pre-release version reached transitively through a dependency you do not control. For these, list the accepted entries in an allow-file (default `.prerelease-allow`, auto-discovered at the scanned root). Matching findings are exempted and reported as `::notice::` instead of blocking — the same discipline `.trivyignore` applies to CVEs with no fixed version. Any pin **not** listed still blocks.
 
-```
-# .prerelease-allow — one "module version" per line; '#' comments and blank lines ignored.
+```text
+# .prerelease-allow — one accepted entry per line; '#' comments and blank lines ignored.
 # go-imap v2 has no stable upstream release (v2 is beta-only). Direct dep.
 # Review by: 2026-09-30
 github.com/emersion/go-imap/v2 v2.0.0-beta.8
 ```
 
-The key is the first two whitespace-delimited tokens of the offending line (module + version), so a `// indirect` suffix on the `go.mod` line does not affect the match.
+Matching is on the **first two whitespace-delimited tokens of the raw scanned line**. For `go.mod` that is `module version` (a trailing `// indirect` does not affect the match). For `package.json` and `Dockerfile` findings the entry must mirror the raw scan output verbatim, punctuation and all — e.g. `"pkg": "^2.0.0-beta.1"` or `FROM node:20.0.0-rc1`.
+
+> **Security — review your exemptions.** The allow-file is read from the scanned working tree, so — exactly like `.trivyignore` — a PR can add its own entry and self-exempt a pin. Put `.prerelease-allow` under `CODEOWNERS` in consuming repos so every exemption gets a dedicated review rather than being self-approved.
 
 ## Usage
 
