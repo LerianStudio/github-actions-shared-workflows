@@ -1,5 +1,18 @@
 # Github-actions-shared-workflows Changelog
 
+## [1.44.0](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.44.0)
+
+Features:
+- Promote prerelease `allow-file` to main, enhancing security checks for pre-release versions. (@fredcamaral)
+- Allowlist accepted pre-release pins in the prerelease-check to improve flexibility in version management. (@fredcamaral)
+
+Fixes:
+- Normalize the `go.mod` require keyword in `allow-file` matching to ensure consistent dependency management. (@fredcamaral)
+
+[Compare changes](https://github.com/LerianStudio/github-actions-shared-workflows/compare/v1.43.1...v1.44.0)
+
+---
+
 ## [1.43.1](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.43.1)
 
 Fixes:
