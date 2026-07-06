@@ -41,7 +41,7 @@ For `go.mod` and `package.json`: matches any semver with a pre-release suffix st
 
 ## Allowlisting accepted pins
 
-Some pre-release pins cannot be remediated by upgrade — a direct dependency whose upstream ships no stable release (only `beta`/`rc`), or a pre-release version reached transitively through a dependency you do not control. For these, list the accepted entries in an allow-file (default `.prerelease-allow`, auto-discovered at the scanned root). Matching findings are exempted and reported as `::notice::` instead of blocking — the same discipline `.trivyignore` applies to CVEs with no fixed version. Any pin **not** listed still blocks.
+Some pre-release pins cannot be remediated by upgrade — a direct dependency whose upstream ships no stable release (only `beta`/`rc`), or a pre-release version reached transitively through a dependency you do not control. For these, list the accepted entries in an allow-file (default `.prerelease-allow`, resolved relative to each scanned base — the `scan-ref` directory and the repository root — so a monorepo component can carry its own). Matching findings are exempted and reported as `::notice::` instead of blocking — the same discipline `.trivyignore` applies to CVEs with no fixed version. Any pin **not** listed still blocks.
 
 ```text
 # .prerelease-allow — one accepted entry per line; '#' comments and blank lines ignored.
