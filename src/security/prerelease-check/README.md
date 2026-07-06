@@ -15,6 +15,7 @@ Composite action that scans dependency files for unstable version pins. Only sta
 | `app-name` | Application name for reporting context | No | `''` |
 | `target-branch` | PR target branch (e.g. `github.base_ref`). Selects the annotation level (see below). Empty = warning | No | `''` |
 | `block-branches` | Comma-separated branches where pre-release pins annotate as error. Must match the downstream gate | No | `release-candidate,main` |
+| `allow-file` | Path (relative to each scanned base) to a file of accepted pre-release pins. Matching findings are exempted (reported as `::notice::`). Absent file = no exemptions | No | `.prerelease-allow` |
 
 ## Outputs
 
@@ -37,6 +38,19 @@ For `go.mod` and `package.json`: matches any semver with a pre-release suffix st
 | `go.mod` | `vX.Y.Z-<letter...>` | `v1.2.3-beta.1`, `v1.2.3-rc.1`, `v1.2.3-alpha.1` | `v1.2.3`, `v0.0.0-20240101-abcdef012345` |
 | `package.json` | `"[~^>=]*X.Y.Z-<letter...>"` | `"^2.0.0-beta.1"`, `"~1.0.0-rc.3"` | `"2.0.0"` |
 | `Dockerfile`, `*.dockerfile`, `Dockerfile.*` | `:X.Y.Z-(alpha\|beta\|rc\|dev\|...)` | `golang:1.21.0-beta1` | `golang:1.21.0`, `python:3.12-slim`, `node:20-alpine` |
+
+## Allowlisting accepted pins
+
+Some pre-release pins cannot be remediated by upgrade — a direct dependency whose upstream ships no stable release (only `beta`/`rc`), or a pre-release version reached transitively through a dependency you do not control. For these, list the accepted `module version` pairs in an allow-file (default `.prerelease-allow`, auto-discovered at the scanned root). Matching findings are exempted and reported as `::notice::` instead of blocking — the same discipline `.trivyignore` applies to CVEs with no fixed version. Any pin **not** listed still blocks.
+
+```
+# .prerelease-allow — one "module version" per line; '#' comments and blank lines ignored.
+# go-imap v2 has no stable upstream release (v2 is beta-only). Direct dep.
+# Review by: 2026-09-30
+github.com/emersion/go-imap/v2 v2.0.0-beta.8
+```
+
+The key is the first two whitespace-delimited tokens of the offending line (module + version), so a `// indirect` suffix on the `go.mod` line does not affect the match.
 
 ## Usage
 
