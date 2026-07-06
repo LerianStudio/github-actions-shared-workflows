@@ -113,30 +113,29 @@ runs:
 
         # ----------------- allowlist (accepted pre-release pins) -----------------
         # Exempt pins explicitly accepted in an allow-file: one entry per line,
-        # matched on the raw scanned line's first two whitespace tokens (for
-        # go.mod: "module version"); '#' comments and blank lines ignored. Same discipline
-        # .trivyignore applies to CVEs that cannot be remediated by upgrade — a
-        # direct dependency whose upstream ships no stable release (only beta/rc)
-        # stays visible in the report as a notice, but does not block promotion.
-        # Absent file (the default) = zero exemptions = unchanged behavior.
+        # keyed as "module version" — a leading `require` keyword (go.mod
+        # single-line form `require <module> <version>`) is stripped so it keys
+        # the same as the indented block form; '#' comments and blank lines
+        # ignored. Same discipline .trivyignore applies to CVEs that cannot be
+        # remediated by upgrade — a direct dependency whose upstream ships no
+        # stable release (only beta/rc) stays visible as a notice but does not
+        # block promotion. Absent file (the default) = zero exemptions = unchanged.
+        norm_key() {
+          echo "$1" | sed 's/^[[:space:]]*//; s/^require[[:space:]]\{1,\}//' | awk '{print $1, $2}'
+        }
         ALLOW_ENTRIES=()
-        ALLOW_SEEN=()
         if [ -n "$ALLOW_FILE" ]; then
           for base in "${SCAN_PATHS[@]}"; do
             af="$base/$ALLOW_FILE"
             [ -f "$af" ] || continue
             real=$(realpath "$af")
-            dup=false
-            for s in "${ALLOW_SEEN[@]}"; do
-              if [ "$s" = "$real" ]; then dup=true; break; fi
-            done
-            if [ "$dup" = "true" ]; then continue; fi
-            ALLOW_SEEN+=("$real")
+            already_seen "$real" && continue
+            SEEN_FILES+=("$real")
             while IFS= read -r line || [ -n "$line" ]; do
               line="${line%%#*}"
               line=$(echo "$line" | xargs)
               if [ -z "$line" ]; then continue; fi
-              ALLOW_ENTRIES+=("$(echo "$line" | awk '{print $1, $2}')")
+              ALLOW_ENTRIES+=("$(norm_key "$line")")
             done < "$af"
           done
         fi
@@ -146,7 +145,7 @@ runs:
           for f in "${FINDINGS[@]}"; do
             REST="${f#*|}"
             CONTENT="${REST#*:}"
-            KEY=$(echo "$CONTENT" | sed 's/^[[:space:]]*//' | awk '{print $1, $2}')
+            KEY=$(norm_key "$CONTENT")
             allowed=false
             for a in "${ALLOW_ENTRIES[@]}"; do
               if [ "$KEY" = "$a" ]; then allowed=true; break; fi
