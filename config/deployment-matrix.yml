@@ -80,6 +80,7 @@ apps:
     - plugin-br-payments
     - plugin-bc-correios
     - underwriter
+    - br-sta
 
     # Test/mock infrastructure
     - mock-btg-server             # benedita only (-st variant); companion to plugin-br-pix-indirect-btg
@@ -163,6 +164,7 @@ clusters:
       - plugin-br-payments
       - plugin-bc-correios
       - underwriter
+      - br-sta
       - mock-btg-server
       - backoffice-console
       - cs-platform
