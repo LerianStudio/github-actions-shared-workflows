@@ -184,7 +184,7 @@ on:
         type: string
         default: '22'
       e2e_s3_artifact_path:
-        description: 'Subpath under s3://lerian-e2e-artifacts/<repo>/<tag>/ where the Playwright report is uploaded'
+        description: 'Subpath under s3://lerian-e2e-artifacts/<repo>/<channel>/<tag>/ where the Playwright report is uploaded. Channel (main/beta/rc) is derived from the tag''s prerelease identifier.'
         type: string
         default: 'playwright-report'
 
@@ -343,7 +343,17 @@ jobs:
         run: |
           set -euo pipefail
           if [[ -d playwright-report ]]; then
-            S3_PATH="s3://lerian-e2e-artifacts/${REPO_NAME}/${TAG_NAME}/${ARTIFACT_PATH}/"
+            # Channel is derived from the tag's prerelease identifier, which
+            # matches the branch that cut the release (see .releaserc.yml
+            # `branches` / prerelease config): develop -> vX.Y.Z-beta.N,
+            # release-candidate -> vX.Y.Z-rc.N, main -> plain vX.Y.Z.
+            CHANNEL="main"
+            if [[ "$TAG_NAME" == *-beta.* ]]; then
+              CHANNEL="beta"
+            elif [[ "$TAG_NAME" == *-rc.* ]]; then
+              CHANNEL="rc"
+            fi
+            S3_PATH="s3://lerian-e2e-artifacts/${REPO_NAME}/${CHANNEL}/${TAG_NAME}/${ARTIFACT_PATH}/"
             aws s3 cp playwright-report/ "$S3_PATH" --recursive
             echo "::notice::Uploaded Playwright report to ${S3_PATH}"
             echo "uploaded=true" >> "$GITHUB_OUTPUT"
