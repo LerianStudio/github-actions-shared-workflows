@@ -332,14 +332,17 @@ jobs:
           echo "Workflow dispatched successfully"
 
       - name: Summary
+        env:
+          HELM_REPOSITORY: ${{ inputs.helm_repository }}
+          CHART: ${{ inputs.chart }}
         run: |
           COMPONENTS=$(cat /tmp/components_payload.json)
 
           {
             echo "### Dispatch Summary"
             echo ""
-            echo "**Repository:** \`${{ inputs.helm_repository }}\`"
-            echo "**Chart:** \`${{ inputs.chart }}\`"
+            echo "**Repository:** \`${HELM_REPOSITORY}\`"
+            echo "**Chart:** \`${CHART}\`"
             echo ""
             echo "**Components:**"
             echo ""
