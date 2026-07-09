@@ -17,7 +17,7 @@ name: "Dispatch to Helm Repository"
 #     with:
 #       helm_repository: org/helm-repo
 #       chart: my-app
-#       target_ref: develop
+#       target_ref: main
 #       version: ${{ github.ref_name }}
 #       paths_matrix: ${{ needs.detect.outputs.matrix }}
 #       path_mapping: ${{ env.PATH_MAPPING }}
@@ -42,9 +42,9 @@ on:
         type: string
         required: true
       target_ref:
-        description: 'Target branch/ref to trigger the workflow on (e.g., develop, main)'
+        description: 'Target branch/ref to trigger the workflow on (e.g., main, develop)'
         type: string
-        default: 'develop'
+        default: 'main'
       workflow_file:
         description: 'Workflow file name to trigger (e.g., app-sync.yml)'
         type: string
@@ -100,7 +100,7 @@ jobs:
     runs-on: ${{ inputs.runner_type }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v6.0.3
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
           fetch-depth: 0
 
@@ -277,7 +277,7 @@ jobs:
           PROCESSED_COMPONENTS="${PROCESSED_COMPONENTS}]"
 
           echo "Processed components: $PROCESSED_COMPONENTS"
-          echo "has_new_env_vars=$HAS_NEW_ENV_VARS" >> $GITHUB_OUTPUT
+          echo "has_new_env_vars=$HAS_NEW_ENV_VARS" >> "$GITHUB_OUTPUT"
 
           # Save to file to avoid escaping issues
           echo "$PROCESSED_COMPONENTS" > /tmp/components_payload.json
@@ -332,17 +332,21 @@ jobs:
           echo "Workflow dispatched successfully"
 
       - name: Summary
+        env:
+          HELM_REPOSITORY: ${{ inputs.helm_repository }}
+          CHART: ${{ inputs.chart }}
         run: |
           COMPONENTS=$(cat /tmp/components_payload.json)
 
-          echo "### Dispatch Summary" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Repository:** \`${{ inputs.helm_repository }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "**Chart:** \`${{ inputs.chart }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Components:**" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "| Component | Version | New Env Vars |" >> $GITHUB_STEP_SUMMARY
-          echo "|-----------|---------|--------------|" >> $GITHUB_STEP_SUMMARY
-
-          echo "$COMPONENTS" | jq -r '.[] | "| \(.name) | \(.version) | \(.env_vars | if . == {} then "-" else (. | keys | join(", ")) end) |"' >> $GITHUB_STEP_SUMMARY
+          {
+            echo "### Dispatch Summary"
+            echo ""
+            echo "**Repository:** \`${HELM_REPOSITORY}\`"
+            echo "**Chart:** \`${CHART}\`"
+            echo ""
+            echo "**Components:**"
+            echo ""
+            echo "| Component | Version | New Env Vars |"
+            echo "|-----------|---------|--------------|"
+            echo "$COMPONENTS" | jq -r '.[] | "| \(.name) | \(.version) | \(.env_vars | if . == {} then "-" else (. | keys | join(", ")) end) |"'
+          } >> "$GITHUB_STEP_SUMMARY"
