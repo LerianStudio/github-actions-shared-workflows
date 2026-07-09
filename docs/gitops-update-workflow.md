@@ -15,7 +15,7 @@ Reusable workflow for updating GitOps repository with new image tags across mult
 - **Force-off overrides**: `deploy_in_<cluster>` inputs can suppress a cluster declared in the manifest, useful for emergency containment without editing the manifest
 - **Convention-based configuration**: Auto-generates paths, names, and patterns from repository name
 - **Multi-environment support**: dev (beta), stg (rc), prd (production), sandbox
-- **Production sync**: Production releases automatically update all environments on all clusters
+- **Configurable per-release environments**: Each release type targets its own environment by default (beta→`dev`, rc→`stg`, stable→`prd`), overridable via `beta_environments` / `rc_environments` / `stable_environments`
 - **File existence validation**: Graceful handling of missing values files with warnings (never fails)
 - **Flexible tag mapping**: Static or dynamic YAML key mapping
 - **Automatic environment detection**: Based on git tag suffix
@@ -139,6 +139,9 @@ update_gitops:
 | `kustomize_environments` | string | - | Optional space-separated env list overriding the default tag-based env loop when `gitops_layout=kustomize`. Leave empty for layouts without env split |
 | `kustomize_version` | string | `v5.4.3` | Version of kustomize CLI to install (only when `gitops_layout=kustomize`) |
 | `argocd_app_name_template` | string | `{server}-{app}-{env}` | Template for the ArgoCD application name. Supports `{server}`, `{app}`, `{env}`. For kustomize layouts without env split, use e.g. `{server}-{app}` |
+| `beta_environments` | string | `dev` | Space-separated environments updated by a beta release (`develop` branch) |
+| `rc_environments` | string | `stg` | Space-separated environments updated by an rc release (`release-candidate` branch) |
+| `stable_environments` | string | `prd` | Space-separated environments updated by a stable release (`main` branch). Default `prd` so a hotfix does not overwrite features still in dev/stg. Set to `dev stg prd` to refresh lower environments too. Sandbox is controlled separately by `update_sandbox` |
 
 ## Secrets
 
@@ -346,12 +349,14 @@ Where:
 
 ### Environment-to-Files Mapping
 
-| Tag Type | Environment Label | Environments Updated |
+| Tag Type | Environment Label | Environments Updated (default) |
 |----------|------------------|----------------------|
-| `v*.*.*-beta.*` | beta/dev | `dev` on selected servers |
-| `v*.*.*-rc.*` | rc/stg | `stg` on selected servers |
-| `v*.*.*` (no suffix) | production | `dev`, `stg`, `prd`, `sandbox` on selected servers |
+| `v*.*.*-beta.*` | beta/dev | `dev` on selected servers (`beta_environments`) |
+| `v*.*.*-rc.*` | rc/stg | `stg` on selected servers (`rc_environments`) |
+| `v*.*.*` (no suffix) | production | `prd` on selected servers (`stable_environments`), plus `sandbox` when `update_sandbox=true` |
 | `v*.*.*-sandbox.*` | sandbox | `sandbox` on selected servers |
+
+The per-type environment lists are configurable via the `beta_environments`, `rc_environments`, and `stable_environments` inputs. By default each release stays scoped to its own environment, so a stable hotfix merged to `main` updates only `prd` and does not overwrite features still living in dev/stg. To have a stable release also refresh the lower environments (previous behavior), set `stable_environments: "dev stg prd"`.
 
 ### File Existence Validation
 
@@ -364,13 +369,15 @@ This allows for partial deployments where not all server/environment combination
 
 ### Example: Production Release
 
-When a production tag (e.g., `v1.2.3`) is pushed for an app declared in all three clusters, the workflow will:
+When a production tag (e.g., `v1.2.3`) is pushed for an app declared in all three clusters, the workflow will (with default `stable_environments: prd`):
 
 1. Resolve cluster set from manifest: `firmino`, `clotilde`, `anacleto`.
-2. For each cluster, generate paths for every production environment (`dev`, `stg`, `prd`, `sandbox`):
+2. For each cluster, generate paths for the stable environment(s) (`prd` by default, plus `sandbox` when `update_sandbox=true`):
    - `gitops/environments/<cluster>/helmfile/applications/<env>/my-app/values.yaml`
 3. Apply tags to all existing files (skip missing ones with warning).
 4. Sync ArgoCD apps for each cluster/environment where files were updated.
+
+To keep the previous behavior where a stable release also refreshes `dev` and `stg`, set `stable_environments: "dev stg prd"`.
 
 ## ArgoCD Multi-Server Sync
 

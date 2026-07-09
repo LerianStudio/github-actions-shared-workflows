@@ -100,6 +100,18 @@ on:
         description: 'Override tag-based environment detection with development|staging|production|sandbox. Set when running on a branch (no tag in GITHUB_REF), e.g. same-run gitops update after a stable release. Empty = detect from the tag.'
         type: string
         default: ''
+      beta_environments:
+        description: 'Space-separated environments updated by a beta release (develop branch). Default "dev".'
+        type: string
+        default: 'dev'
+      rc_environments:
+        description: 'Space-separated environments updated by an rc release (release-candidate branch). Default "stg".'
+        type: string
+        default: 'stg'
+      stable_environments:
+        description: 'Space-separated environments updated by a stable release (main branch). Default "prd" so a hotfix does not overwrite features still in dev/stg. Set to "dev stg prd" to refresh lower environments too. Sandbox is controlled separately by update_sandbox.'
+        type: string
+        default: 'prd'
 
 jobs:
   update_gitops:
@@ -448,23 +460,30 @@ jobs:
           MANIFEST_FILE: shared-workflows/${{ inputs.deployment_matrix_file }}
           UPDATE_SANDBOX: ${{ inputs.update_sandbox }}
           FORCE_ENV: ${{ inputs.force_env }}
+          BETA_ENVIRONMENTS: ${{ inputs.beta_environments }}
+          RC_ENVIRONMENTS: ${{ inputs.rc_environments }}
+          STABLE_ENVIRONMENTS: ${{ inputs.stable_environments }}
         run: |
           set -euo pipefail
 
           # Determine environments to update. force_env overrides tag-based detection
           # (used on branch-push runs where GITHUB_REF has no tag); otherwise IS_* from job env.
+          # Per-release-type env targets are configurable via inputs
+          # (beta/rc/stable_environments). Defaults keep each release scoped to
+          # its own environment (beta->dev, rc->stg, stable->prd) so a stable
+          # hotfix does not overwrite features still living in dev/stg. Sandbox
+          # is appended to stable/production only when update_sandbox=true.
           if [[ -n "$FORCE_ENV" ]]; then
             case "$FORCE_ENV" in
               production)
+                ENVIRONMENTS="$STABLE_ENVIRONMENTS"
                 if [[ "$UPDATE_SANDBOX" == "true" ]]; then
-                  ENVIRONMENTS="dev stg prd sandbox"
-                else
-                  ENVIRONMENTS="dev stg prd"
+                  ENVIRONMENTS="$ENVIRONMENTS sandbox"
                 fi
                 ENV_LABEL="production"
                 ;;
-              staging)     ENVIRONMENTS="stg"; ENV_LABEL="rc/stg" ;;
-              development) ENVIRONMENTS="dev"; ENV_LABEL="beta/dev" ;;
+              staging)     ENVIRONMENTS="$RC_ENVIRONMENTS"; ENV_LABEL="rc/stg" ;;
+              development) ENVIRONMENTS="$BETA_ENVIRONMENTS"; ENV_LABEL="beta/dev" ;;
               sandbox)     ENVIRONMENTS="sandbox"; ENV_LABEL="sandbox" ;;
               *)
                 echo "::error::Invalid force_env '$FORCE_ENV' (must be: development, staging, production, sandbox)"
@@ -472,16 +491,15 @@ jobs:
                 ;;
             esac
           elif [[ "$IS_BETA" == "true" ]]; then
-            ENVIRONMENTS="dev"
+            ENVIRONMENTS="$BETA_ENVIRONMENTS"
             ENV_LABEL="beta/dev"
           elif [[ "$IS_RC" == "true" ]]; then
-            ENVIRONMENTS="stg"
+            ENVIRONMENTS="$RC_ENVIRONMENTS"
             ENV_LABEL="rc/stg"
           elif [[ "$IS_PRODUCTION" == "true" ]]; then
+            ENVIRONMENTS="$STABLE_ENVIRONMENTS"
             if [[ "$UPDATE_SANDBOX" == "true" ]]; then
-              ENVIRONMENTS="dev stg prd sandbox"
-            else
-              ENVIRONMENTS="dev stg prd"
+              ENVIRONMENTS="$ENVIRONMENTS sandbox"
             fi
             ENV_LABEL="production"
           elif [[ "$IS_SANDBOX" == "true" ]]; then
