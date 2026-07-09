@@ -1,5 +1,19 @@
 # Github-actions-shared-workflows Changelog
 
+## [1.44.1](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.44.1)
+
+Fixes:
+
+- Ensure the release process correctly transitions from `develop` to `main`. (@bedatty)
+- Make environment targets configurable for `stable`, `rc`, and `beta` releases in the GitOps update process. (@bedatty)
+- Use a channel-aware S3 path for uploading E2E reports in the JavaScript release workflow. (@bedatty)
+- Register `br-sta` in the Benedita deployment matrix. (@bedatty)
+- Register the underwriter in the Benedita deployment matrix. (@bedatty)
+
+[Compare changes](https://github.com/LerianStudio/github-actions-shared-workflows/compare/v1.44.0...v1.44.1)
+
+---
+
 ## [1.44.0](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.44.0)
 
 Features:
