@@ -17,7 +17,7 @@ name: "Dispatch to Helm Repository"
 #     with:
 #       helm_repository: org/helm-repo
 #       chart: my-app
-#       target_ref: develop
+#       target_ref: main
 #       version: ${{ github.ref_name }}
 #       paths_matrix: ${{ needs.detect.outputs.matrix }}
 #       path_mapping: ${{ env.PATH_MAPPING }}
@@ -42,9 +42,9 @@ on:
         type: string
         required: true
       target_ref:
-        description: 'Target branch/ref to trigger the workflow on (e.g., develop, main)'
+        description: 'Target branch/ref to trigger the workflow on (e.g., main, develop)'
         type: string
-        default: 'develop'
+        default: 'main'
       workflow_file:
         description: 'Workflow file name to trigger (e.g., app-sync.yml)'
         type: string
