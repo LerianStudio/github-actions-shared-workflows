@@ -146,7 +146,7 @@ on:
         type: string
         default: 'stg'
       stable_environments:
-        description: 'Space-separated environments updated by a stable release (main branch). Default "prd" so a hotfix does not overwrite features still in dev/stg. Set to "dev stg prd" to refresh lower environments too.'
+        description: 'Space-separated environments updated by a stable release (main branch). Default "prd" so a hotfix does not overwrite features still in dev/stg. Set to "dev stg prd" to refresh lower environments too. Sandbox is controlled separately by update_sandbox.'
         type: string
         default: 'prd'
       gitops_artifact_pattern:

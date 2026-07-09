@@ -50,6 +50,10 @@ A third layout needs `release_single_app: true`: **one semantic-release tag for 
 | `extra_builds` | JSON array of additional build groups, each forwarded to `build.yml` with its own config; all feed the single gitops-update (see [Multiple build groups](#multiple-build-groups)) | string | `''` |
 | `enable_gitops_update` | Run the gitops-update job on tag push | boolean | `true` |
 | `gitops_repository` | GitOps repository to update (org/repo) | string | `LerianStudio/midaz-firmino-gitops` |
+| `update_sandbox` | Include sandbox environment on stable releases (appended to `stable_environments`) | boolean | `false` |
+| `beta_environments` | Space-separated environments updated by a beta release (`develop` branch) | string | `dev` |
+| `rc_environments` | Space-separated environments updated by an rc release (`release-candidate` branch) | string | `stg` |
+| `stable_environments` | Space-separated environments updated by a stable release (`main` branch). Default `prd` so a hotfix does not overwrite features still in dev/stg. Set to `dev stg prd` to refresh lower environments too. Sandbox is controlled separately by `update_sandbox` | string | `prd` |
 | `gitops_artifact_pattern` | Pattern to download GitOps artifacts. Empty → `gitops-tags-<repo-name>*` | string | `''` |
 | `gitops_yaml_key_mappings` | JSON mapping of artifact names to YAML keys | string | `''` |
 | `gitops_runner_type` | Runner for the gitops-update (deploy) job (needs cluster access) | string | `eveo-lxc-runners` |
