@@ -83,7 +83,7 @@ jobs:
 
       - name: Build Go Lambda artifact
         id: build
-        uses: LerianStudio/github-actions-shared-workflows/src/build/build-go-lambda@feat/lambda-release # testing on branch — set to @develop after merge, @vX.Y.Z for release
+        uses: LerianStudio/github-actions-shared-workflows/src/build/build-go-lambda@main # pin to @vX.Y.Z for stable releases
         with:
           go-version: ${{ inputs.go_version }}
           main-package: ${{ inputs.main_package }}
