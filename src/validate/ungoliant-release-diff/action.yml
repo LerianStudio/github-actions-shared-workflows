@@ -72,6 +72,15 @@ outputs:
   target-env:
     description: Composed target env forwarded to the controller
     value: ${{ steps.resolve.outputs.target_env }}
+  outcome:
+    description: High-level outcome — executed (smoke/chaos ran) | skipped (no tests warranted)
+    value: ${{ steps.webhook.outputs.outcome }}
+  k6:
+    description: Number of k6 smoke scenarios selected by the controller
+    value: ${{ steps.webhook.outputs.k6 }}
+  chaos:
+    description: Number of chaos experiments selected by the controller
+    value: ${{ steps.webhook.outputs.chaos }}
 
 runs:
   using: composite
@@ -312,30 +321,162 @@ runs:
         SCHEMA="$(printf '%s' "$RESPONSE" | jq -r '.schema // "?"' 2>/dev/null || echo "?")"
         RISK="$(printf '%s' "$RESPONSE" | jq -r '.risk_level // "?"' 2>/dev/null || echo "?")"
         K6_COUNT="$(printf '%s' "$RESPONSE" | jq -r '.k6 // 0' 2>/dev/null || echo 0)"
+        CHAOS_COUNT="$(printf '%s' "$RESPONSE" | jq -r '.chaos // 0' 2>/dev/null || echo 0)"
+
+        # A completed analysis that selected neither smoke nor chaos is a
+        # deliberate skip: the controller judged the diff low-risk / provably
+        # trivial (doc-only or CI/linter cosmetics) and ran no tests. Surface
+        # that as a first-class outcome so the release makes the decision clear
+        # instead of it hiding behind a generic "analysis_completed".
+        OUTCOME="failed"
+        if [ "$STATUS" = "analysis_completed" ]; then
+          if [ "$K6_COUNT" = "0" ] && [ "$CHAOS_COUNT" = "0" ]; then
+            OUTCOME="skipped"
+          else
+            OUTCOME="executed"
+          fi
+        fi
 
         {
           echo "status=$STATUS"
           echo "run_id=$RUN_ID"
           echo "schema=$SCHEMA"
           echo "risk_level=$RISK"
+          echo "k6=$K6_COUNT"
+          echo "chaos=$CHAOS_COUNT"
+          echo "outcome=$OUTCOME"
         } >> "$GITHUB_OUTPUT"
 
+        if [ "$OUTCOME" = "skipped" ]; then
+          SUMMARY_TITLE="### Ungoliant release-diff — SKIPPED (no tests warranted)"
+        elif [ "$OUTCOME" = "executed" ]; then
+          SUMMARY_TITLE="### Ungoliant release-diff — EXECUTED (full flow)"
+        else
+          SUMMARY_TITLE="### Ungoliant release-diff — FAILED"
+        fi
+
         {
-          echo "### Ungoliant release-diff"
+          echo "$SUMMARY_TITLE"
           echo ""
           echo "| Field | Value |"
           echo "| --- | --- |"
+          echo "| outcome | \`$OUTCOME\` |"
           echo "| status | \`$STATUS\` |"
           echo "| run_id | \`$RUN_ID\` |"
           echo "| schema | \`$SCHEMA\` |"
           echo "| risk_level | \`$RISK\` |"
           echo "| target_env | \`$TARGET_ENV\` |"
           echo "| k6 | \`$K6_COUNT\` |"
+          echo "| chaos | \`$CHAOS_COUNT\` |"
           echo "| elapsed | \`${ELAPSED}s\` |"
         } >> "$GITHUB_STEP_SUMMARY"
 
-        if [ "$STATUS" != "analysis_completed" ]; then
-          echo "::error::Analysis failed — status: $STATUS (elapsed ${ELAPSED}s)"
+        if [ "$OUTCOME" = "failed" ]; then
+          echo "::error::Ungoliant analysis failed — status: $STATUS (elapsed ${ELAPSED}s)"
           exit 1
         fi
-        echo "::notice::Analysis completed in ${ELAPSED}s (run_id=$RUN_ID, schema=$SCHEMA, risk=$RISK)"
+        if [ "$OUTCOME" = "skipped" ]; then
+          echo "::notice::Ungoliant SKIPPED test execution in ${ELAPSED}s — no smoke/chaos warranted (run_id=$RUN_ID, risk=$RISK)"
+        else
+          echo "::notice::Ungoliant EXECUTED full flow in ${ELAPSED}s (run_id=$RUN_ID, schema=$SCHEMA, risk=$RISK, k6=$K6_COUNT, chaos=$CHAOS_COUNT)"
+        fi
+
+    # ----------------- Comment on Originating PR -----------------
+    # Best-effort: post/update a comment on the PR that produced this release
+    # stating whether Ungoliant ran the full flow or skipped it. Never fails
+    # the release — an API/permission hiccup only logs a warning.
+    - name: Comment ungoliant outcome on originating PR
+      if: inputs.dry-run != 'true' && (steps.webhook.outputs.outcome == 'executed' || steps.webhook.outputs.outcome == 'skipped')
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+        RUN_REPO: ${{ github.repository }}
+        SHA: ${{ github.sha }}
+        SERVER_URL: ${{ github.server_url }}
+        RUN_ID_GH: ${{ github.run_id }}
+        APP: ${{ inputs.app }}
+        VERSION: ${{ inputs.version }}
+        TARGET_ENV: ${{ steps.resolve.outputs.target_env }}
+        OUTCOME: ${{ steps.webhook.outputs.outcome }}
+        STATUS: ${{ steps.webhook.outputs.status }}
+        SCHEMA: ${{ steps.webhook.outputs.schema }}
+        RISK: ${{ steps.webhook.outputs.risk_level }}
+        K6_COUNT: ${{ steps.webhook.outputs.k6 }}
+        CHAOS_COUNT: ${{ steps.webhook.outputs.chaos }}
+        RUN_ID: ${{ steps.webhook.outputs.run_id }}
+      run: |
+        set -uo pipefail
+        API="https://api.github.com/repos/${RUN_REPO}"
+        AUTH=(-H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json")
+
+        # Resolve the PR behind this release commit. Primary: PRs GitHub
+        # associates with the tagged commit. Fallback: the last (#NNN) in the
+        # commit message (squash-merge title).
+        PR_NUMBER="$(curl -sf --max-time 30 "${AUTH[@]}" \
+          "${API}/commits/${SHA}/pulls" 2>/dev/null \
+          | jq -r 'if length > 0 then .[0].number else "" end' 2>/dev/null || echo "")"
+        if [ -z "$PR_NUMBER" ] || [ "$PR_NUMBER" = "null" ]; then
+          MSG="$(curl -sf --max-time 30 "${AUTH[@]}" "${API}/commits/${SHA}" 2>/dev/null \
+            | jq -r '.commit.message' 2>/dev/null || echo "")"
+          PR_NUMBER="$(printf '%s' "$MSG" | grep -oE '#[0-9]+' | tail -1 | tr -d '#' || echo "")"
+        fi
+        if [ -z "$PR_NUMBER" ] || [ "$PR_NUMBER" = "null" ]; then
+          echo "::warning::Could not resolve an originating PR for ${SHA} — skipping PR comment"
+          exit 0
+        fi
+        echo "Originating PR: #${PR_NUMBER}"
+
+        RUN_URL="${SERVER_URL}/${RUN_REPO}/actions/runs/${RUN_ID_GH}"
+        MARKER="<!-- ungoliant-release-diff:${VERSION} -->"
+        if [ "$OUTCOME" = "skipped" ]; then
+          HEADER="## Ungoliant Release Diff — Skipped"
+          BLURB="No smoke or chaos tests were run for this release. Ungoliant judged the diff low-risk / provably trivial (doc-only or CI/linter cosmetics), so test execution was skipped."
+        else
+          HEADER="## Ungoliant Release Diff — Executed"
+          BLURB="The full chaos/fuzz analysis flow ran for this release."
+        fi
+
+        BODY=""
+        add() { BODY="${BODY}${1}"$'\n'; }
+        add "$MARKER"
+        add "$HEADER"
+        add ""
+        add "$BLURB"
+        add ""
+        add "| Field | Value |"
+        add "| --- | --- |"
+        add "| outcome | \`${OUTCOME}\` |"
+        add "| app | \`${APP}\` |"
+        add "| version | \`${VERSION}\` |"
+        add "| target_env | \`${TARGET_ENV}\` |"
+        add "| risk_level | \`${RISK}\` |"
+        add "| k6 smoke scenarios | \`${K6_COUNT}\` |"
+        add "| chaos experiments | \`${CHAOS_COUNT}\` |"
+        add "| schema | \`${SCHEMA}\` |"
+        add "| run_id | \`${RUN_ID}\` |"
+        add ""
+        add "[Workflow run](${RUN_URL})"
+
+        jq -n --arg body "$BODY" '{body: $body}' > comment.json
+
+        # Upsert: update the existing comment for this version if present,
+        # otherwise create a new one.
+        EXISTING_ID="$(curl -sf --max-time 30 "${AUTH[@]}" \
+          "${API}/issues/${PR_NUMBER}/comments?per_page=100" 2>/dev/null \
+          | jq -r --arg m "$MARKER" '[.[] | select((.body // "") | contains($m))] | if length > 0 then .[-1].id else "" end' 2>/dev/null || echo "")"
+
+        if [ -n "$EXISTING_ID" ] && [ "$EXISTING_ID" != "null" ]; then
+          if curl -sf --max-time 30 "${AUTH[@]}" -X PATCH \
+              "${API}/issues/comments/${EXISTING_ID}" --data-binary @comment.json >/dev/null 2>&1; then
+            echo "Updated ungoliant comment ${EXISTING_ID} on PR #${PR_NUMBER}"
+          else
+            echo "::warning::Failed to update PR comment ${EXISTING_ID} (need pull-requests: write?)"
+          fi
+        else
+          if curl -sf --max-time 30 "${AUTH[@]}" -X POST \
+              "${API}/issues/${PR_NUMBER}/comments" --data-binary @comment.json >/dev/null 2>&1; then
+            echo "Posted ungoliant comment on PR #${PR_NUMBER}"
+          else
+            echo "::warning::Failed to post PR comment on #${PR_NUMBER} (need pull-requests: write?)"
+          fi
+        fi

@@ -457,6 +457,7 @@ jobs:
     runs-on: ${{ vars.UNGOLIANT_RUNNERS || inputs.ungoliant_runner_type }}
     permissions:
       contents: read
+      pull-requests: write
     steps:
       - name: Resolve release channel and base env
         id: target

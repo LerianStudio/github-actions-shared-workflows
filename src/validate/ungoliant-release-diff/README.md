@@ -46,6 +46,17 @@ This is the CI equivalent of `ungoliant-controller/docs/testing/cluster/test-rel
 | `schema`     | Response schema (`release-plan` \| `release-summary`).   |
 | `risk-level` | Risk level reported by the controller.                   |
 | `target-env` | Composed `target_env` forwarded to the controller.       |
+| `outcome`    | `executed` (smoke/chaos ran) \| `skipped` (no tests warranted). |
+| `k6`         | Number of k6 smoke scenarios selected.                   |
+| `chaos`      | Number of chaos experiments selected.                    |
+
+When the controller completes an analysis but selects neither smoke nor chaos
+(a low-risk / provably-trivial diff), the step reports `outcome: skipped` and
+succeeds — the run makes the skip explicit in its logs and step summary. In both
+the `executed` and `skipped` cases the action also posts (or updates) a comment
+on the pull request that produced the release, so reviewers see whether the full
+Ungoliant flow ran or was skipped. Posting the comment requires the calling job
+to grant `pull-requests: write`; it is best-effort and never fails the release.
 
 ## Usage as composite step
 
