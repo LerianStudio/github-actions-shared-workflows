@@ -608,6 +608,7 @@ jobs:
     permissions:
       contents: read
       pull-requests: write
+      issues: write
     steps:
       - name: Resolve release channel and base env
         id: target

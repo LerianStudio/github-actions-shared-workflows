@@ -466,17 +466,14 @@ runs:
           | jq -r --arg m "$MARKER" '[.[] | select((.body // "") | contains($m))] | if length > 0 then .[-1].id else "" end' 2>/dev/null || echo "")"
 
         if [ -n "$EXISTING_ID" ] && [ "$EXISTING_ID" != "null" ]; then
-          if curl -sf --max-time 30 "${AUTH[@]}" -X PATCH \
-              "${API}/issues/comments/${EXISTING_ID}" --data-binary @comment.json >/dev/null 2>&1; then
-            echo "Updated ungoliant comment ${EXISTING_ID} on PR #${PR_NUMBER}"
-          else
-            echo "::warning::Failed to update PR comment ${EXISTING_ID} (need pull-requests: write?)"
-          fi
+          METHOD="PATCH"; URL="${API}/issues/comments/${EXISTING_ID}"; WHAT="update comment ${EXISTING_ID}"
         else
-          if curl -sf --max-time 30 "${AUTH[@]}" -X POST \
-              "${API}/issues/${PR_NUMBER}/comments" --data-binary @comment.json >/dev/null 2>&1; then
-            echo "Posted ungoliant comment on PR #${PR_NUMBER}"
-          else
-            echo "::warning::Failed to post PR comment on #${PR_NUMBER} (need pull-requests: write?)"
-          fi
+          METHOD="POST"; URL="${API}/issues/${PR_NUMBER}/comments"; WHAT="post comment"
+        fi
+        HTTP_CODE="$(curl -s -o /tmp/ungoliant_comment_resp.json -w '%{http_code}' --max-time 30 \
+          "${AUTH[@]}" -X "$METHOD" "$URL" --data-binary @comment.json 2>/dev/null || echo "000")"
+        if [ "${HTTP_CODE:0:1}" = "2" ]; then
+          echo "Ungoliant PR comment ${METHOD}ed on #${PR_NUMBER} (HTTP ${HTTP_CODE})"
+        else
+          echo "::warning::Failed to ${WHAT} on PR #${PR_NUMBER} — HTTP ${HTTP_CODE}: $(head -c 300 /tmp/ungoliant_comment_resp.json 2>/dev/null)"
         fi
