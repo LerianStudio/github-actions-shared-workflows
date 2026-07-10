@@ -36,8 +36,8 @@ For all file types, only known pre-release keywords (`alpha`, `beta`, `rc`, `dev
 
 | File | Scanned patterns | Blocked (unstable) | Allowed (stable) |
 |---|---|---|---|
-| `go.mod` | `vX.Y.Z-(alpha\|beta\|rc\|dev\|...)` | `v1.2.3-beta.1`, `v1.2.3-rc.1`, `v1.2.3-alpha.1` | `v1.2.3`, `v1.0.1-vault-7`, `v0.0.0-20240101-abcdef012345` |
-| `package.json` | `"[~^>=]*X.Y.Z-(alpha\|beta\|rc\|dev\|...)"` | `"^2.0.0-beta.1"`, `"~1.0.0-rc.3"` | `"2.0.0"` |
+| `go.mod` | `vX.Y.Z-(alpha\|beta\|rc\|dev\|...)` | `v1.2.3-beta.1`, `v1.2.3-rc.1`, `v1.2.3-alpha.1` | `v1.2.3`, `v1.0.1-vault-7`, `v0.0.0-20240101120000-abcdef012345` |
+| `package.json` | `"[~^<>=]*X.Y.Z-(alpha\|beta\|rc\|dev\|...)"` | `"^2.0.0-beta.1"`, `"~1.0.0-rc.3"`, `"<2.0.0-beta.1"` | `"2.0.0"` |
 | `Dockerfile`, `*.dockerfile`, `Dockerfile.*` | `:X.Y.Z-(alpha\|beta\|rc\|dev\|...)` | `golang:1.21.0-beta1` | `golang:1.21.0`, `python:3.12-slim`, `node:20-alpine` |
 
 ## Overriding the pattern

@@ -57,11 +57,14 @@ runs:
         # positives on stable vendor-suffixed releases (e.g. the -vault-N suffix,
         # such as v1.0.1-vault-7). Go pseudo-versions (v0.0.0-YYYYMMDDHHMMSS-commitsha)
         # and SHA pins are also allowed because their suffix is not a known keyword.
+        # A token boundary after each keyword keeps prefix-matches like -devtools-7
+        # or -rca from being flagged as -dev/-rc, while still accepting numeric and
+        # dot/plus-separated forms such as -beta1, -beta.1 and -rc.2.
         # The pattern is overridable via the prerelease-pattern input (wired from an
         # org/repo variable); an empty value falls back to the built-in allowlist.
         # The same pattern drives go.mod, package.json and Dockerfile scanning so
         # stable image variants like -slim, -alpine, -bookworm never match either.
-        PRERELEASE_PATTERN="${PRERELEASE_PATTERN:-[0-9]+\.[0-9]+\.[0-9]+-(alpha|beta|rc|dev|preview|canary|snapshot|nightly)}"
+        PRERELEASE_PATTERN="${PRERELEASE_PATTERN:-[0-9]+\.[0-9]+\.[0-9]+-(alpha|beta|rc|dev|preview|canary|snapshot|nightly)([[:digit:]]+|[.][[:alnum:]-]+|[+][[:alnum:].-]+)?([^[:alnum:]-]|\$)}"
         DOCKER_PRERELEASE="$PRERELEASE_PATTERN"
         FINDINGS=()
 
