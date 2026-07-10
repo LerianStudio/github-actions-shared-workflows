@@ -22,6 +22,10 @@ inputs:
     description: 'Path (relative to each scanned base) to a file listing accepted pre-release pins as "module version" lines (# comments allowed). Matching findings are exempted and reported as notices — the same discipline .trivyignore applies to CVEs that cannot be remediated by upgrade (e.g. a direct dependency with no stable upstream release). Auto-discovered at the default path when present; absent file = no exemptions.'
     required: false
     default: '.prerelease-allow'
+  prerelease-pattern:
+    description: 'Override the semver pre-release regex used for go.mod, package.json and Dockerfile scanning. Wire from an org/repo variable (e.g. ${{ vars.PRERELEASE_PATTERN }}) to tune the policy without a release. Empty (the default) uses the built-in allowlist: [0-9]+\.[0-9]+\.[0-9]+-(alpha|beta|rc|dev|preview|canary|snapshot|nightly).'
+    required: false
+    default: ''
 
 outputs:
   has-findings:
@@ -46,16 +50,35 @@ runs:
         TARGET_BRANCH: ${{ inputs.target-branch }}
         BLOCK_BRANCHES: ${{ inputs.block-branches }}
         ALLOW_FILE: ${{ inputs.allow-file }}
+        PRERELEASE_PATTERN: ${{ inputs.prerelease-pattern }}
       run: |
-        # Matches x.y.z-<letter...> — any semver with a pre-release suffix starting
-        # with a letter (alpha, beta, rc, dev, preview, canary, snapshot, etc.).
-        # Excludes Go pseudo-versions (v0.0.0-YYYYMMDDHHMMSS-commitsha) because
-        # their suffix starts with digits, not letters. SHA pins are also allowed.
-        PRERELEASE_PATTERN='[0-9]+\.[0-9]+\.[0-9]+-[a-zA-Z]'
+        # Matches x.y.z-<keyword> — only known pre-release suffixes (alpha, beta,
+        # rc, dev, preview, canary, snapshot, nightly). An allowlist avoids false
+        # positives on stable vendor-suffixed releases (e.g. the -vault-N suffix,
+        # such as v1.0.1-vault-7). Go pseudo-versions (v0.0.0-YYYYMMDDHHMMSS-commitsha)
+        # and SHA pins are also allowed because their suffix is not a known keyword.
+        # A token boundary after each keyword keeps prefix-matches like -devtools-7,
+        # -rca or -dev_build from being flagged as -dev/-rc (underscore counts as
+        # part of the token, not a delimiter), while still accepting numeric and
+        # dot/plus-separated forms such as -beta1, -beta.1 and -rc.2.
+        # The pattern is overridable via the prerelease-pattern input (wired from an
+        # org/repo variable); an empty value falls back to the built-in allowlist.
+        # The same pattern drives go.mod, package.json and Dockerfile scanning so
+        # stable image variants like -slim, -alpine, -bookworm never match either.
+        DEFAULT_PRERELEASE_PATTERN='[0-9]+\.[0-9]+\.[0-9]+-(alpha|beta|rc|dev|preview|canary|snapshot|nightly)([[:digit:]]+|[.][[:alnum:]-]+|[+][[:alnum:].-]+)?([^[:alnum:]_-]|$)'
+        PRERELEASE_PATTERN="${PRERELEASE_PATTERN:-$DEFAULT_PRERELEASE_PATTERN}"
 
-        # Docker-specific pattern: only match known pre-release prefixes to avoid
-        # false positives on stable image variants like -slim, -alpine, -bookworm.
-        DOCKER_PRERELEASE='[0-9]+\.[0-9]+\.[0-9]+-(alpha|beta|rc|dev|preview|canary|snapshot|nightly)'
+        # Guard against a malformed override: an invalid ERE would make every
+        # "grep -E ... || true" below look like zero findings and silently disable
+        # the gate. Probe the resolved pattern (grep exits >=2 on a bad regex) and
+        # fall back to the built-in allowlist with a warning if it is unusable.
+        PROBE_RC=0
+        printf '' | grep -Eq "$PRERELEASE_PATTERN" 2>/dev/null || PROBE_RC=$?
+        if [ "$PROBE_RC" -ge 2 ]; then
+          echo "::warning::Invalid prerelease-pattern override; falling back to the built-in allowlist."
+          PRERELEASE_PATTERN="$DEFAULT_PRERELEASE_PATTERN"
+        fi
+        DOCKER_PRERELEASE="$PRERELEASE_PATTERN"
         FINDINGS=()
 
         # Scan the component scan-ref AND the repo root. In Go monorepos a single
