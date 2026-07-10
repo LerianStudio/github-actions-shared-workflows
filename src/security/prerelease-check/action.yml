@@ -23,7 +23,7 @@ inputs:
     required: false
     default: '.prerelease-allow'
   prerelease-pattern:
-    description: 'Override the semver pre-release regex used for go.mod, package.json and Dockerfile scanning. Wire from an org/repo variable (e.g. ${{ vars.PRERELEASE_PATTERN }}) to tune the policy without a release. Empty (the default) uses the built-in allowlist: [0-9]+\.[0-9]+\.[0-9]+-(alpha|beta|rc|dev|preview|canary|snapshot|nightly).'
+    description: 'Override the semver pre-release regex used for go.mod, package.json and Dockerfile scanning. Wire from an org/repo Actions variable named PRERELEASE_PATTERN to tune the policy without a release. Empty (the default) uses the built-in allowlist: [0-9]+\.[0-9]+\.[0-9]+-(alpha|beta|rc|dev|preview|canary|snapshot|nightly).'
     required: false
     default: ''
 
