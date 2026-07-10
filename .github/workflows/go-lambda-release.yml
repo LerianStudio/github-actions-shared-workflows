@@ -1,0 +1,160 @@
+name: Go Lambda Release
+
+on:
+  workflow_call:
+    inputs:
+      go_version:
+        description: Go version used to build the Lambda binary.
+        required: false
+        type: string
+        default: "1.23"
+      main_package:
+        description: Path to the Go main package to build (e.g. ./cmd/authorizer).
+        required: false
+        type: string
+        default: "."
+      goarch:
+        description: Target architecture for the Lambda binary (arm64 or amd64).
+        required: false
+        type: string
+        default: "arm64"
+      artifact_name:
+        description: File name of the generated zip artifact.
+        required: false
+        type: string
+        default: "bootstrap.zip"
+      version:
+        description: Release version used in the S3 key (e.g. v1.2.3). Defaults to the pushed git tag.
+        required: false
+        type: string
+        default: ""
+      s3_bucket:
+        description: Target S3 bucket for the artifact.
+        required: true
+        type: string
+      s3_key_prefix:
+        description: Key prefix under the bucket. Final key is <prefix>/<version>/<artifact_name>.
+        required: true
+        type: string
+      aws_region:
+        description: AWS region of the target S3 bucket.
+        required: false
+        type: string
+        default: "us-east-2"
+      dry_run:
+        description: Build and resolve the target key without uploading to S3.
+        required: false
+        type: boolean
+        default: false
+    secrets:
+      AWS_ROLE_ARN:
+        description: IAM role ARN to assume via OIDC for the S3 upload.
+        required: true
+    outputs:
+      version:
+        description: Resolved release version.
+        value: ${{ jobs.release.outputs.version }}
+      s3_key:
+        description: Full S3 key of the uploaded artifact.
+        value: ${{ jobs.release.outputs.s3_key }}
+      s3_version_id:
+        description: S3 object version id of the uploaded artifact (empty on dry run).
+        value: ${{ jobs.release.outputs.s3_version_id }}
+      binary_sha256:
+        description: SHA-256 checksum of the built bootstrap binary.
+        value: ${{ jobs.release.outputs.binary_sha256 }}
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  release:
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    outputs:
+      version: ${{ steps.resolve.outputs.version }}
+      s3_key: ${{ steps.resolve.outputs.s3_key }}
+      s3_version_id: ${{ steps.upload.outputs.version_id }}
+      binary_sha256: ${{ steps.build.outputs.binary-sha256 }}
+    steps:
+      # ----------------- Checkout & Build -----------------
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+
+      - name: Build Go Lambda artifact
+        id: build
+        uses: LerianStudio/github-actions-shared-workflows/src/build/build-go-lambda@develop # testing — pin to @vX.Y.Z before release
+        with:
+          go-version: ${{ inputs.go_version }}
+          main-package: ${{ inputs.main_package }}
+          goarch: ${{ inputs.goarch }}
+          artifact-name: ${{ inputs.artifact_name }}
+
+      # ----------------- Resolve Target Key -----------------
+      - name: Resolve version and S3 key
+        id: resolve
+        shell: bash
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+          REF_NAME: ${{ github.ref_name }}
+          REF_TYPE: ${{ github.ref_type }}
+          S3_KEY_PREFIX: ${{ inputs.s3_key_prefix }}
+          ARTIFACT_NAME: ${{ inputs.artifact_name }}
+        run: |
+          VERSION="$INPUT_VERSION"
+          if [ -z "$VERSION" ]; then
+            if [ "$REF_TYPE" = "tag" ]; then
+              VERSION="$REF_NAME"
+            else
+              echo "::error::No version provided and ref is not a tag ($REF_NAME). Pass inputs.version explicitly."
+              exit 1
+            fi
+          fi
+          PREFIX="${S3_KEY_PREFIX%/}"
+          S3_KEY="${PREFIX}/${VERSION}/${ARTIFACT_NAME}"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "s3_key=$S3_KEY" >> "$GITHUB_OUTPUT"
+
+      # ----------------- Dry Run -----------------
+      - name: Dry run summary
+        if: ${{ inputs.dry_run }}
+        shell: bash
+        env:
+          ARTIFACT_PATH: ${{ steps.build.outputs.artifact-path }}
+          BINARY_SHA256: ${{ steps.build.outputs.binary-sha256 }}
+          S3_BUCKET: ${{ inputs.s3_bucket }}
+          S3_KEY: ${{ steps.resolve.outputs.s3_key }}
+          AWS_REGION: ${{ inputs.aws_region }}
+        run: |
+          echo "::notice::DRY RUN — artifact will not be uploaded"
+          echo "  artifact : $ARTIFACT_PATH"
+          echo "  sha256   : $BINARY_SHA256"
+          echo "  bucket   : $S3_BUCKET"
+          echo "  key      : $S3_KEY"
+          echo "  region   : $AWS_REGION"
+
+      # ----------------- Upload to S3 -----------------
+      - name: Configure AWS credentials
+        if: ${{ !inputs.dry_run }}
+        uses: aws-actions/configure-aws-credentials@e7f100cf4c008499ea8adda475de1042d6975c7b # v6.2.0
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ inputs.aws_region }}
+
+      - name: Upload artifact to S3
+        id: upload
+        if: ${{ !inputs.dry_run }}
+        shell: bash
+        env:
+          ARTIFACT_PATH: ${{ steps.build.outputs.artifact-path }}
+          S3_BUCKET: ${{ inputs.s3_bucket }}
+          S3_KEY: ${{ steps.resolve.outputs.s3_key }}
+        run: |
+          VERSION_ID=$(aws s3api put-object \
+            --bucket "$S3_BUCKET" \
+            --key "$S3_KEY" \
+            --body "$ARTIFACT_PATH" \
+            --content-type application/zip \
+            --query VersionId --output text)
+          echo "version_id=$VERSION_ID" >> "$GITHUB_OUTPUT"
+          echo "::notice::Uploaded s3://$S3_BUCKET/$S3_KEY (versionId=$VERSION_ID)"
