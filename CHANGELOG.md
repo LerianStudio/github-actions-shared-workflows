@@ -1,5 +1,21 @@
 # Github-actions-shared-workflows Changelog
 
+## [1.45.0](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.45.0)
+
+Features:
+- Add Go Lambda release workflow. (@guimoreirar)
+- Add Go Lambda release workflow and build action. (@guimoreirar)
+- Add Go Lambda release workflow and build action with documentation. (@guimoreirar)
+
+Fixes:
+- Adjust permissions for AWS OIDC and update build action reference to use `develop` branch. (@guimoreirar)
+- Update build action reference for Go Lambda artifact to pin to `main` for stable releases. (@guimoreirar)
+- Update build action reference for Go Lambda artifact to use the feature branch. (@guimoreirar)
+
+[Compare changes](https://github.com/LerianStudio/github-actions-shared-workflows/compare/v1.44.1...v1.45.0)
+
+---
+
 ## [1.44.1](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.44.1)
 
 Fixes:
