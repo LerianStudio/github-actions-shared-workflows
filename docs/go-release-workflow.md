@@ -68,6 +68,12 @@ A third layout needs `release_single_app: true`: **one semantic-release tag for 
 | `enable_apidog_e2e` | Run the ApiDog E2E test job on tag push after a successful gitops-update | boolean | `false` |
 | `apidog_runner_type` | Runner for the ApiDog E2E test job (needs reach to the deployed environment) | string | `eveo-lxc-runners` |
 | `apidog_auto_detect_environment` | Auto-detect the ApiDog environment from the tag (beta → dev, rc → stg); when `false`, uses `APIDOG_ENVIRONMENT_ID` | boolean | `true` |
+| `enable_ungoliant_release_diff` | Fire the Ungoliant release-diff webhook on tag push after a successful gitops-update (see [Ungoliant release diff](#ungoliant-release-diff)) | boolean | `false` |
+| `ungoliant_app` | App slug sent to the controller; when empty falls back to `app_name`, then `app_name_prefix`, then the repo name | string | `''` |
+| `ungoliant_env_type` | Ungoliant environment/testing type — `chaos` \| `fuzzing` | string | `chaos` |
+| `ungoliant_tenancy` | Ungoliant tenancy — `st` (single-tenant) \| `mt` (multi-tenant) | string | `st` |
+| `ungoliant_controller_url` | Ungoliant controller base URL (reachable over Tailscale) | string | `https://ungoliant-controller.anacleto.lerian.net` |
+| `ungoliant_runner_type` | Runner for the Ungoliant release-diff job (needs Tailscale reach to the controller) | string | `eveo-anacleto-lxc-runners` |
 | `shared_paths` | Path patterns that trigger a release/build for all components | string | `''` |
 | `filter_paths` | Path prefixes to filter (empty = single-app repo) | string | `''` |
 | `release_single_app` | Force single-app mode for the release job even when `filter_paths` is set (one version tag, many images) | boolean | `false` |
@@ -87,6 +93,7 @@ A third layout needs `release_single_app: true`: **one semantic-release tag for 
 | `APIDOG_DEV_ENVIRONMENT_ID` | ApiDog dev environment ID (used for beta tags in auto-detect mode) | No |
 | `APIDOG_STG_ENVIRONMENT_ID` | ApiDog staging environment ID (used for rc tags in auto-detect mode) | No |
 | `APIDOG_ENVIRONMENT_ID` | ApiDog environment ID for manual mode (`apidog_auto_detect_environment: false`) | No |
+| `UNGOLIANT_WEBHOOK_TOKEN` | Token sent as the `X-Ungoliant-Token` header (used when `enable_ungoliant_release_diff`) | No |
 
 ## Usage
 
@@ -154,6 +161,30 @@ with:
 Set `enable_apidog_e2e: true` to run [api-dog-e2e-tests](./api-dog-e2e-tests-workflow.md) on tag push after a successful `update_gitops`. The job is skipped on branch pushes and when the gitops update did not succeed.
 
 Because the underlying workflow expects fixed secret names (`test_scenario_id`, `apidog_access_token`, …), the ApiDog secrets **cannot** be passed via `secrets: inherit` — map them explicitly to the `APIDOG_*` secrets this workflow declares. With `apidog_auto_detect_environment: true` (default), the tag type selects the environment (`-beta.` → `APIDOG_DEV_ENVIRONMENT_ID`, `-rc.` → `APIDOG_STG_ENVIRONMENT_ID`); the underlying workflow errors on tags that are neither beta nor rc, so enable it only for repos that tag pre-release. For manual mode set `apidog_auto_detect_environment: false` and provide `APIDOG_ENVIRONMENT_ID`.
+
+## Ungoliant release diff
+
+Set `enable_ungoliant_release_diff: true` to fire the Ungoliant controller `release-diff` webhook on tag push, **only after a successful `update_gitops`** (i.e. the release was actually deployed). The job resolves the diff for the tag and POSTs it to the controller, which triggers chaos/fuzz analysis. It is the CI equivalent of the `ungoliant-controller` `test-release.sh` script and uses the [ungoliant-release-diff](../src/validate/ungoliant-release-diff/README.md) composite.
+
+The controller is reachable only over Tailscale, so the job runs on the `eveo-anacleto-lxc-runners` self-hosted runner by default (`ungoliant_runner_type`). Inputs are derived automatically:
+
+- **app** — `ungoliant_app`, else `app_name`, else `app_name_prefix`, else the repo name.
+- **version** — the pushed tag (`github.ref_name`).
+- **release channel / base env** — derived from the tag, which maps 1:1 to the source branch: `-beta.` → `beta`/`dev` (develop), `-rc.` → `rc`/`stg` (release-candidate), otherwise `stable`/`prd` (main).
+
+Compose behaviour with `ungoliant_env_type` (`chaos` default, `fuzzing` supported) and `ungoliant_tenancy` (`st` default, `mt` supported). Provide `UNGOLIANT_WEBHOOK_TOKEN` via `secrets: inherit` for an authenticated call; when unset the webhook is sent unauthenticated.
+
+```yaml
+jobs:
+  pipeline:
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/go-release.yml@v1
+    with:
+      enable_ungoliant_release_diff: true
+      ungoliant_env_type: chaos
+      ungoliant_tenancy: st
+    secrets: inherit
+```
+
 ## Multiple build groups
 
 By default `go-release` runs **one** `build.yml` call (driven by the top-level `filter_paths`/`app_name_*`/`build_context_from_working_dir` inputs) before the single `update_gitops`. Some repos ship images that need **different build configs in the same release** — e.g. an app + workers built from the repo root, plus a tool/mock image built with `build_context_from_working_dir: true`. These cannot be merged into one `build.yml` call.
@@ -237,4 +268,5 @@ The single caller job must grant the union of what the internal jobs need: `id-t
 - [gitops-update](./gitops-update-workflow.md) — GitOps update this umbrella calls
 - [s3-upload](./s3-upload.md) — standalone S3 upload reusable workflow (the umbrella performs the equivalent upload inline via `s3_uploads`)
 - [api-dog-e2e-tests](./api-dog-e2e-tests-workflow.md) — optional post-gitops E2E tests this umbrella calls
+- [ungoliant-release-diff](../src/validate/ungoliant-release-diff/README.md) — the composite the optional release-diff job runs
 - [go-pr-validation](./go-pr-validation.md) — the matching PR validation umbrella

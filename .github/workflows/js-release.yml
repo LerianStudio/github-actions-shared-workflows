@@ -200,6 +200,32 @@ on:
         type: string
         default: 'playwright-report'
 
+      # ----------------- Ungoliant Release Diff (ungoliant-release-diff composite) -----------------
+      enable_ungoliant_release_diff:
+        description: 'Fire the Ungoliant release-diff webhook on tag push after a successful gitops-update to trigger chaos/fuzz analysis for the release.'
+        type: boolean
+        default: false
+      ungoliant_app:
+        description: 'App slug sent to the Ungoliant controller. When empty, falls back to app_name_prefix, then the repository name.'
+        type: string
+        default: ''
+      ungoliant_env_type:
+        description: 'Ungoliant environment/testing type — chaos | fuzzing.'
+        type: string
+        default: 'chaos'
+      ungoliant_tenancy:
+        description: 'Ungoliant tenancy — st (single-tenant) | mt (multi-tenant).'
+        type: string
+        default: 'st'
+      ungoliant_controller_url:
+        description: 'Ungoliant controller base URL (reachable over Tailscale).'
+        type: string
+        default: 'https://ungoliant-controller.anacleto.lerian.net'
+      ungoliant_runner_type:
+        description: 'Runner for the Ungoliant release-diff job. Needs Tailscale reach to the controller, so it defaults to eveo-anacleto-lxc-runners rather than the build runner.'
+        type: string
+        default: 'eveo-anacleto-lxc-runners'
+
     secrets:
       MANAGE_TOKEN:
         required: false
@@ -207,6 +233,8 @@ on:
         required: false
       AWS_E2E_ARTIFACTS_ROLE_ARN:
         description: 'IAM role ARN assumed via OIDC to upload the E2E (Playwright) report to the lerian-e2e-artifacts S3 bucket. Optional — when unset, the S3 upload step is skipped and only the GitHub Actions artifact is produced.'
+        required: false
+      UNGOLIANT_WEBHOOK_TOKEN:
         required: false
 
     outputs:
@@ -403,3 +431,49 @@ jobs:
       configmap_updates: ${{ inputs.configmap_updates }}
       enable_docker_login: ${{ inputs.enable_docker_login }}
     secrets: inherit
+
+  # ----------------- Ungoliant Release Diff (tag push, post-gitops, opt-in) -----------------
+  # Runs only after a successful gitops-update (i.e. the release was deployed).
+  # The controller is reachable only over Tailscale, so the job runs on the
+  # eveo-anacleto-lxc-runners self-hosted runner. base-env/env are derived from
+  # the tag, which maps 1:1 to the source branch (beta<-develop, rc<-release-
+  # candidate, stable<-main) per .releaserc conventions.
+  ungoliant_release_diff:
+    name: Ungoliant Release Diff
+    needs: [update_gitops]
+    if: github.ref_type == 'tag' && inputs.enable_ungoliant_release_diff && needs.update_gitops.result == 'success'
+    runs-on: ${{ inputs.ungoliant_runner_type }}
+    permissions:
+      contents: read
+    steps:
+      - name: Resolve release channel and base env
+        id: target
+        env:
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          if [[ "$REF_NAME" == *-beta.* ]]; then
+            RELEASE_ENV="beta"; BASE_ENV="dev"
+          elif [[ "$REF_NAME" == *-rc.* ]]; then
+            RELEASE_ENV="rc"; BASE_ENV="stg"
+          else
+            RELEASE_ENV="stable"; BASE_ENV="prd"
+          fi
+          {
+            echo "release_env=$RELEASE_ENV"
+            echo "base_env=$BASE_ENV"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Send release-diff webhook
+        uses: LerianStudio/github-actions-shared-workflows/src/validate/ungoliant-release-diff@feat/ungoliant-release-diff
+        with:
+          app: ${{ inputs.ungoliant_app || inputs.app_name_prefix || github.event.repository.name }}
+          version: ${{ github.ref_name }}
+          env: ${{ steps.target.outputs.release_env }}
+          env-type: ${{ inputs.ungoliant_env_type }}
+          tenancy: ${{ inputs.ungoliant_tenancy }}
+          base-env: ${{ steps.target.outputs.base_env }}
+          controller-url: ${{ inputs.ungoliant_controller_url }}
+          github-token: ${{ github.token }}
+          webhook-token: ${{ secrets.UNGOLIANT_WEBHOOK_TOKEN }}
+          dry-run: ${{ inputs.dry_run }}

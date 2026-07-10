@@ -9,7 +9,7 @@ Resolves a release diff and fires the `release-diff` webhook at the Ungoliant co
 
 This is the CI equivalent of `ungoliant-controller/docs/testing/cluster/test-release.sh`. The action:
 
-1. Resolves the target repository as `<repo-owner>/<app>` and composes `target_env = <testing-type>-<base-env>-<tenancy>`.
+1. Resolves the target repository as `<repo-owner>/<app>` and composes `target_env = <env-type>-<base-env>-<tenancy>`.
 2. Auto-resolves the previous tag from the GitHub API when `previous` is empty.
 3. Fetches the `previous...version` compare (revision SHA, previous SHA, files changed) and the raw diff, capped at `max-diff-bytes`.
 4. Builds the JSON payload (`app, env, repository, version, revision, previous, diff, target_env`).
@@ -26,7 +26,7 @@ This is the CI equivalent of `ungoliant-controller/docs/testing/cluster/test-rel
 | `version`        | Tag to test (e.g. `v1.3.4-beta.1`).                                             | Yes      |                                                      |
 | `previous`       | Previous tag for the diff. Auto-resolved from the GitHub API when empty.        | No       | `""`                                                 |
 | `env`            | Release channel — `beta` \| `rc` \| `stable`.                                   | No       | `beta`                                               |
-| `testing-type`   | Testing type — `chaos` \| `fuzzing`. Empty produces a legacy `target_env`.      | No       | `chaos`                                              |
+| `env-type`       | Environment/testing type — `chaos` \| `fuzzing`. Empty produces a legacy `target_env`. | No | `chaos`                                              |
 | `tenancy`        | Tenancy — `st` (single-tenant) \| `mt` (multi-tenant).                          | No       | `st`                                                 |
 | `base-env`       | Base environment — `dev` \| `stg` \| `prd`.                                     | No       | `dev`                                                |
 | `controller-url` | Ungoliant controller base URL (reachable over Tailscale).                       | No       | `https://ungoliant-controller.anacleto.lerian.net`   |

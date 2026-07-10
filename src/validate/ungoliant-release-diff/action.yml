@@ -16,8 +16,8 @@ inputs:
     description: Release channel — beta | rc | stable
     required: false
     default: "beta"
-  testing-type:
-    description: Testing type — chaos | fuzzing. Empty produces a legacy target env.
+  env-type:
+    description: Environment/testing type — chaos | fuzzing. Empty produces a legacy target env.
     required: false
     default: "chaos"
   tenancy:
@@ -83,7 +83,7 @@ runs:
       env:
         APP: ${{ inputs.app }}
         REPO_OWNER: ${{ inputs.repo-owner }}
-        TESTING_TYPE: ${{ inputs.testing-type }}
+        ENV_TYPE: ${{ inputs.env-type }}
         TENANCY: ${{ inputs.tenancy }}
         BASE_ENV: ${{ inputs.base-env }}
       run: |
@@ -94,8 +94,8 @@ runs:
           exit 1
         fi
 
-        if [ -n "$TESTING_TYPE" ] && [ "$TESTING_TYPE" != "chaos" ] && [ "$TESTING_TYPE" != "fuzzing" ]; then
-          echo "::error::testing-type must be 'chaos' or 'fuzzing' (got: $TESTING_TYPE)"
+        if [ -n "$ENV_TYPE" ] && [ "$ENV_TYPE" != "chaos" ] && [ "$ENV_TYPE" != "fuzzing" ]; then
+          echo "::error::env-type must be 'chaos' or 'fuzzing' (got: $ENV_TYPE)"
           exit 1
         fi
         if [ -n "$TENANCY" ] && [ "$TENANCY" != "st" ] && [ "$TENANCY" != "mt" ]; then
@@ -105,8 +105,8 @@ runs:
 
         REPO="${REPO_OWNER}/${APP}"
 
-        if [ -n "$TESTING_TYPE" ]; then
-          TARGET_ENV="${TESTING_TYPE}-${BASE_ENV}-${TENANCY}"
+        if [ -n "$ENV_TYPE" ]; then
+          TARGET_ENV="${ENV_TYPE}-${BASE_ENV}-${TENANCY}"
         else
           TARGET_ENV="${BASE_ENV}"
         fi

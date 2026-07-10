@@ -64,6 +64,12 @@ Mirrors the [`go-release`](./go-release-workflow.md) umbrella for Go services �
 | `e2e_base_url` | Base URL injected as `BASE_URL` env var. Empty = localhost fallback | string | `''` |
 | `node_version` | Node.js version for the E2E runner | string | `22` |
 | `e2e_s3_artifact_path` | Subpath under `s3://lerian-e2e-artifacts/<repo>/<channel>/<tag>/` where the Playwright report is uploaded. Channel (`main`/`beta`/`rc`) is derived from the tag's prerelease identifier. Only used when `AWS_E2E_ARTIFACTS_ROLE_ARN` is set | string | `playwright-report` |
+| `enable_ungoliant_release_diff` | Fire the Ungoliant release-diff webhook on tag push after a successful gitops-update (see [Ungoliant release diff](#ungoliant-release-diff)) | boolean | `false` |
+| `ungoliant_app` | App slug sent to the controller; when empty falls back to `app_name_prefix`, then the repo name | string | `''` |
+| `ungoliant_env_type` | Ungoliant environment/testing type — `chaos` \| `fuzzing` | string | `chaos` |
+| `ungoliant_tenancy` | Ungoliant tenancy — `st` (single-tenant) \| `mt` (multi-tenant) | string | `st` |
+| `ungoliant_controller_url` | Ungoliant controller base URL (reachable over Tailscale) | string | `https://ungoliant-controller.anacleto.lerian.net` |
+| `ungoliant_runner_type` | Runner for the Ungoliant release-diff job (needs Tailscale reach to the controller) | string | `eveo-anacleto-lxc-runners` |
 
 ## Secrets
 
@@ -72,6 +78,7 @@ Mirrors the [`go-release`](./go-release-workflow.md) umbrella for Go services �
 | `MANAGE_TOKEN` | Token for release commits, tags and private module access | No |
 | `SLACK_WEBHOOK_URL` | Slack webhook for pipeline notifications | No |
 | `AWS_E2E_ARTIFACTS_ROLE_ARN` | IAM role ARN assumed via OIDC to upload the Playwright report to the `lerian-e2e-artifacts` S3 bucket (`s3://lerian-e2e-artifacts/<repo>/<channel>/<tag>/<e2e_s3_artifact_path>/`). Unset → S3 upload step is skipped, only the GitHub Actions artifact is produced | No |
+| `UNGOLIANT_WEBHOOK_TOKEN` | Token sent as the `X-Ungoliant-Token` header (used when `enable_ungoliant_release_diff`) | No |
 
 All other secrets required by the underlying primitives (GitHub App tokens, GPG key, DockerHub credentials, etc.) are forwarded automatically via `secrets: inherit`.
 
@@ -256,9 +263,33 @@ permissions:
   packages: write
 ```
 
+## Ungoliant release diff
+
+Set `enable_ungoliant_release_diff: true` to fire the Ungoliant controller `release-diff` webhook on tag push, **only after a successful `update_gitops`** (i.e. the release was actually deployed). The job resolves the diff for the tag and POSTs it to the controller, which triggers chaos/fuzz analysis, using the [ungoliant-release-diff](../src/validate/ungoliant-release-diff/README.md) composite.
+
+The controller is reachable only over Tailscale, so the job runs on the `eveo-anacleto-lxc-runners` self-hosted runner by default (`ungoliant_runner_type`). Inputs are derived automatically:
+
+- **app** — `ungoliant_app`, else `app_name_prefix`, else the repo name.
+- **version** — the pushed tag (`github.ref_name`).
+- **release channel / base env** — derived from the tag, which maps 1:1 to the source branch: `-beta.` → `beta`/`dev` (develop), `-rc.` → `rc`/`stg` (release-candidate), otherwise `stable`/`prd` (main).
+
+Compose behaviour with `ungoliant_env_type` (`chaos` default, `fuzzing` supported) and `ungoliant_tenancy` (`st` default, `mt` supported). Provide `UNGOLIANT_WEBHOOK_TOKEN` via `secrets: inherit` for an authenticated call.
+
+```yaml
+jobs:
+  pipeline:
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/js-release.yml@v1
+    with:
+      enable_ungoliant_release_diff: true
+      ungoliant_env_type: chaos
+      ungoliant_tenancy: st
+    secrets: inherit
+```
+
 ## Related
 
 - [release](./release.md) — semantic-release pipeline this umbrella calls on branch push
 - [typescript-build](./typescript-build.md) — container build & push this umbrella calls
 - [gitops-update](./gitops-update-workflow.md) — GitOps update this umbrella calls
 - [go-release](./go-release-workflow.md) — the equivalent umbrella for Go service repositories
+- [ungoliant-release-diff](../src/validate/ungoliant-release-diff/README.md) — the composite the release-diff job runs
