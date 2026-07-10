@@ -68,7 +68,7 @@ jobs:
       contents: read
     steps:
       - name: Send release-diff webhook
-        uses: LerianStudio/github-actions-shared-workflows/src/validate/ungoliant-release-diff@develop
+        uses: LerianStudio/github-actions-shared-workflows/src/validate/ungoliant-release-diff@v1
         with:
           app: reporter
           version: ${{ github.ref_name }}
