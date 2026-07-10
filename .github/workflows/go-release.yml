@@ -561,8 +561,17 @@ jobs:
 
   # ----------------- API Dog E2E Tests (tag push, post-gitops, opt-in) -----------------
   api_dog_e2e_tests:
-    needs: [update_gitops]
-    if: github.ref_type == 'tag' && inputs.enable_apidog_e2e && needs.update_gitops.result == 'success'
+    needs: [build, update_gitops]
+    # See the note on ungoliant_release_diff: gate on build's has_builds output
+    # instead of the unreliable needs.update_gitops.result == 'success'.
+    if: >-
+      !cancelled()
+      && github.ref_type == 'tag'
+      && inputs.enable_apidog_e2e
+      && inputs.enable_gitops_update
+      && needs.build.outputs.has_builds == 'true'
+      && needs.update_gitops.result != 'failure'
+      && needs.update_gitops.result != 'cancelled'
     uses: ./.github/workflows/api-dog-e2e-tests.yml
     with:
       runner_type: ${{ inputs.apidog_runner_type }}
@@ -582,8 +591,19 @@ jobs:
   # candidate, stable<-main) per .releaserc conventions.
   ungoliant_release_diff:
     name: Ungoliant Release Diff
-    needs: [update_gitops]
-    if: github.ref_type == 'tag' && inputs.enable_ungoliant_release_diff && needs.update_gitops.result == 'success'
+    needs: [build, update_gitops]
+    # Gate on build's has_builds output (which propagates reliably and proves a
+    # real deploy happened) rather than needs.update_gitops.result == 'success':
+    # update_gitops wraps a reusable workflow with a dynamic matrix, and its
+    # caller result does not reliably surface as 'success' to dependents.
+    if: >-
+      !cancelled()
+      && github.ref_type == 'tag'
+      && inputs.enable_ungoliant_release_diff
+      && inputs.enable_gitops_update
+      && needs.build.outputs.has_builds == 'true'
+      && needs.update_gitops.result != 'failure'
+      && needs.update_gitops.result != 'cancelled'
     runs-on: ${{ inputs.ungoliant_runner_type }}
     permissions:
       contents: read

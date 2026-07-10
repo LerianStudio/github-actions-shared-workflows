@@ -440,8 +440,20 @@ jobs:
   # candidate, stable<-main) per .releaserc conventions.
   ungoliant_release_diff:
     name: Ungoliant Release Diff
-    needs: [update_gitops]
-    if: github.ref_type == 'tag' && inputs.enable_ungoliant_release_diff && needs.update_gitops.result == 'success'
+    needs: [build, update_gitops]
+    # Gate on build's has_builds output (which propagates reliably and proves a
+    # real deploy happened) rather than needs.update_gitops.result == 'success':
+    # update_gitops wraps a reusable workflow with a dynamic matrix, and its
+    # caller result does not reliably surface as 'success' to dependents.
+    if: >-
+      !cancelled()
+      && github.ref_type == 'tag'
+      && inputs.enable_ungoliant_release_diff
+      && inputs.enable_gitops_update
+      && inputs.enable_gitops_artifacts
+      && needs.build.outputs.has_builds == 'true'
+      && needs.update_gitops.result != 'failure'
+      && needs.update_gitops.result != 'cancelled'
     runs-on: ${{ inputs.ungoliant_runner_type }}
     permissions:
       contents: read
