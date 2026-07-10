@@ -31,7 +31,7 @@ This action never fails the job itself — it only reports. The summary annotati
 
 ## What it scans
 
-For all file types, only known pre-release keywords (`alpha`, `beta`, `rc`, `dev`, `preview`, `canary`, `snapshot`, `nightly`) are matched. This allowlist avoids false positives on stable vendor-suffixed releases (e.g. HashiCorp's `v1.0.1-vault-7`) and stable image variants (e.g. `-slim`, `-alpine`, `-bookworm`).
+For all file types, only known pre-release keywords (`alpha`, `beta`, `rc`, `dev`, `preview`, `canary`, `snapshot`, `nightly`) are matched. This allowlist avoids false positives on stable vendor-suffixed releases (e.g. the `-vault-N` suffix, such as `v1.0.1-vault-7`) and stable image variants (e.g. `-slim`, `-alpine`, `-bookworm`).
 
 | File | Scanned patterns | Blocked (unstable) | Allowed (stable) |
 |---|---|---|---|

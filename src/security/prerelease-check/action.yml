@@ -49,9 +49,9 @@ runs:
       run: |
         # Matches x.y.z-<keyword> — only known pre-release suffixes (alpha, beta,
         # rc, dev, preview, canary, snapshot, nightly). An allowlist avoids false
-        # positives on stable vendor-suffixed releases (e.g. HashiCorp's
-        # v1.0.1-vault-7). Go pseudo-versions (v0.0.0-YYYYMMDDHHMMSS-commitsha) and
-        # SHA pins are also allowed because their suffix is not a known keyword.
+        # positives on stable vendor-suffixed releases (e.g. the -vault-N suffix,
+        # such as v1.0.1-vault-7). Go pseudo-versions (v0.0.0-YYYYMMDDHHMMSS-commitsha)
+        # and SHA pins are also allowed because their suffix is not a known keyword.
         PRERELEASE_PATTERN='[0-9]+\.[0-9]+\.[0-9]+-(alpha|beta|rc|dev|preview|canary|snapshot|nightly)'
 
         # Docker-specific pattern: only match known pre-release prefixes to avoid
