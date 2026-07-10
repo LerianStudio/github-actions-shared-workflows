@@ -1,5 +1,27 @@
 # Github-actions-shared-workflows Changelog
 
+## [1.46.0](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.46.0)
+
+Features:
+- Allow overriding the prerelease-check pattern via an organization variable. (@bedatty)
+
+Fixes:
+- Improve the robustness of the previous-tag fallback, add retries, and implement a fail-fast health check in the ungoliant-release-diff workflow. (@bedatty)
+- Add a reusable workflow and composite for the controller release-diff in the ungoliant-release-diff workflow. (@bedatty)
+- Use a keyword allowlist in the prerelease-check to avoid false positives due to vendor-suffixes. (@bedatty)
+- Validate pattern overrides and treat underscores as tokens in the prerelease-check. (@bedatty)
+- Require a token boundary after the pre-release keyword in the prerelease-check. (@bedatty)
+- Reword a comment in the prerelease-check to satisfy the spell check. (@bedatty)
+- Fix the release process from `develop` to `main`. (@bedatty)
+
+Improvements:
+- Bump `trufflesecurity/trufflehog` from `3.95.6` to `3.95.8` in the security-scanners group. (@bedatty)
+- Update the github-security group with two dependency updates. (@bedatty)
+
+[Compare changes](https://github.com/LerianStudio/github-actions-shared-workflows/compare/v1.45.0...v1.46.0)
+
+---
+
 ## [1.45.0](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.45.0)
 
 Features:
