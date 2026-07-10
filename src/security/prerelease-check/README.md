@@ -16,6 +16,7 @@ Composite action that scans dependency files for unstable version pins. Only sta
 | `target-branch` | PR target branch (e.g. `github.base_ref`). Selects the annotation level (see below). Empty = warning | No | `''` |
 | `block-branches` | Comma-separated branches where pre-release pins annotate as error. Must match the downstream gate | No | `release-candidate,main` |
 | `allow-file` | Path (relative to each scanned base) to a file of accepted pre-release pins. Matching findings are exempted (reported as `::notice::`). Absent file = no exemptions | No | `.prerelease-allow` |
+| `prerelease-pattern` | Override the semver pre-release regex (applied to `go.mod`, `package.json` and `Dockerfile`). Wire from an org/repo variable to tune the policy without a release. Empty = built-in allowlist | No | `''` |
 
 ## Outputs
 
@@ -31,13 +32,23 @@ This action never fails the job itself — it only reports. The summary annotati
 
 ## What it scans
 
-For `go.mod` and `package.json`: matches any semver with a pre-release suffix starting with a letter (`x.y.z-<letter...>`). For `Dockerfile`: only matches known pre-release prefixes to avoid false positives on stable image variants.
+For all file types, only known pre-release keywords (`alpha`, `beta`, `rc`, `dev`, `preview`, `canary`, `snapshot`, `nightly`) are matched. This allowlist avoids false positives on stable vendor-suffixed releases (e.g. the `-vault-N` suffix, such as `v1.0.1-vault-7`) and stable image variants (e.g. `-slim`, `-alpine`, `-bookworm`).
 
 | File | Scanned patterns | Blocked (unstable) | Allowed (stable) |
 |---|---|---|---|
-| `go.mod` | `vX.Y.Z-<letter...>` | `v1.2.3-beta.1`, `v1.2.3-rc.1`, `v1.2.3-alpha.1` | `v1.2.3`, `v0.0.0-20240101-abcdef012345` |
-| `package.json` | `"[~^>=]*X.Y.Z-<letter...>"` | `"^2.0.0-beta.1"`, `"~1.0.0-rc.3"` | `"2.0.0"` |
+| `go.mod` | `vX.Y.Z-(alpha\|beta\|rc\|dev\|...)` | `v1.2.3-beta.1`, `v1.2.3-rc.1`, `v1.2.3-alpha.1` | `v1.2.3`, `v1.0.1-vault-7`, `v0.0.0-20240101120000-abcdef012345` |
+| `package.json` | `"[~^<>=]*X.Y.Z-(alpha\|beta\|rc\|dev\|...)"` | `"^2.0.0-beta.1"`, `"~1.0.0-rc.3"`, `"<2.0.0-beta.1"` | `"2.0.0"` |
 | `Dockerfile`, `*.dockerfile`, `Dockerfile.*` | `:X.Y.Z-(alpha\|beta\|rc\|dev\|...)` | `golang:1.21.0-beta1` | `golang:1.21.0`, `python:3.12-slim`, `node:20-alpine` |
+
+## Overriding the pattern
+
+The regex is fixed in the action but overridable through the `prerelease-pattern` input, wired from an organization (or repository) variable so the policy can be tuned centrally without cutting a new release. The `pr-security-scan` reusable workflow already forwards `${{ vars.PRERELEASE_PATTERN }}`; define that variable once at the org level to apply it across every consuming repo.
+
+- Set it in **Settings → Secrets and variables → Actions → Variables** (organization scope) with a value such as `[0-9]+\.[0-9]+\.[0-9]+-(alpha|beta|rc|dev|preview|canary|snapshot|nightly)`.
+- Leaving the variable undefined (the default) falls back to the built-in allowlist above — behavior is unchanged for repos that never set it.
+- The same override applies to `go.mod`, `package.json` and `Dockerfile` scanning.
+
+> **Security — this is a global policy knob.** Because the variable is read at org scope, anyone able to edit org variables can loosen (or tighten) the pre-release gate for **every** repository at once. Restrict who can manage Actions variables and prefer the per-pin `.prerelease-allow` allow-file for narrow, reviewable exemptions.
 
 ## Allowlisting accepted pins
 
