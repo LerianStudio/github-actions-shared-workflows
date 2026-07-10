@@ -1,5 +1,14 @@
 # Github-actions-shared-workflows Changelog
 
+## [1.46.1](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.46.1)
+
+Fixes:
+- Removed the vars expression from the input description in the prerelease-check workflow. (@bedatty)
+
+[Compare changes](https://github.com/LerianStudio/github-actions-shared-workflows/compare/v1.46.0...v1.46.1)
+
+---
+
 ## [1.46.0](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.46.0)
 
 Features:
