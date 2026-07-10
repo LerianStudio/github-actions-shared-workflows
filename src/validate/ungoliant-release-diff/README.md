@@ -65,7 +65,8 @@ jobs:
   release-diff:
     runs-on: eveo-anacleto-lxc-runners
     permissions:
-      contents: read
+      contents: read          # read tags / compare / diff via the GitHub API
+      pull-requests: write    # optional: post/update the outcome comment on the originating PR
     steps:
       - name: Send release-diff webhook
         uses: LerianStudio/github-actions-shared-workflows/src/validate/ungoliant-release-diff@v1
@@ -95,7 +96,8 @@ jobs:
 
 ```yaml
 permissions:
-  contents: read   # read tags / compare / diff via the GitHub API
+  contents: read          # read tags / compare / diff via the GitHub API
+  pull-requests: write    # optional: post/update the outcome comment on the originating PR
 ```
 
 ## Implementation notes

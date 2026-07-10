@@ -125,6 +125,18 @@ runs:
           echo "target_env=$TARGET_ENV"
         } >> "$GITHUB_OUTPUT"
 
+    # ----------------- Health Check (fail fast before GitHub API calls) -----------------
+    - name: Health check controller
+      shell: bash
+      env:
+        CONTROLLER_URL: ${{ inputs.controller-url }}
+      run: |
+        set -euo pipefail
+        echo "Checking controller at ${CONTROLLER_URL}..."
+        HTTP_CODE="$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "${CONTROLLER_URL}/healthz" || true)"
+        [ "$HTTP_CODE" = "200" ] || { echo "::error::Controller not reachable ($HTTP_CODE). Is the runner on Tailscale?"; exit 1; }
+        echo "Controller is up"
+
     # ----------------- Resolve Previous Tag -----------------
     - name: Resolve previous tag
       id: previous
@@ -145,18 +157,26 @@ runs:
         PREV="$PREVIOUS"
         if [ -z "$PREV" ]; then
           echo "Resolving previous tag for $REPO..."
-          TAGS_JSON="$(curl -sf --max-time 30 \
-            -H "Authorization: Bearer $GH_TOKEN" \
-            -H "Accept: application/vnd.github+json" \
-            "https://api.github.com/repos/${REPO}/tags?per_page=100")"
-          PREV="$(printf '%s' "$TAGS_JSON" | jq -r --arg v "$VERSION" '
-            [.[].name] as $n
-            | ($n | index($v)) as $i
-            | if $i == null then
-                (if ($n | length) > 1 then $n[1] else "" end)
-              else
-                (if ($i + 1) < ($n | length) then $n[$i + 1] else "" end)
-              end')"
+          # The /tags API guarantees no ordering and caps at 100 per page, so
+          # collect every page and sort deterministically instead of trusting
+          # the response order (which could resolve the wrong previous tag).
+          ALL_TAGS=""
+          page=1
+          while [ "$page" -le 20 ]; do
+            PAGE_JSON="$(curl -sf --retry 2 --retry-delay 2 --max-time 30 \
+              -H "Authorization: Bearer $GH_TOKEN" \
+              -H "Accept: application/vnd.github+json" \
+              "https://api.github.com/repos/${REPO}/tags?per_page=100&page=${page}")"
+            COUNT="$(printf '%s' "$PAGE_JSON" | jq 'length')"
+            [ "$COUNT" -gt 0 ] || break
+            ALL_TAGS="${ALL_TAGS}$(printf '%s' "$PAGE_JSON" | jq -r '.[].name')"$'\n'
+            [ "$COUNT" -lt 100 ] && break
+            page=$((page + 1))
+          done
+          # Version-sort descending and take the tag immediately below VERSION.
+          PREV="$(printf '%s' "$ALL_TAGS" | grep -v '^$' | grep -vFx "$VERSION" \
+            | { printf '%s\n' "$VERSION"; cat; } | sort -rV \
+            | awk -v v="$VERSION" 'found { print; exit } $0 == v { found = 1 }')" || true
           [ -n "$PREV" ] || { echo "::error::Could not resolve previous tag — pass it explicitly"; exit 1; }
           echo "Previous tag resolved: $PREV"
         fi
@@ -179,20 +199,20 @@ runs:
         API="https://api.github.com/repos/${REPO}"
 
         echo "Fetching compare ${PREVIOUS} -> ${VERSION} from ${REPO}..."
-        COMPARE="$(curl -sf --max-time 60 \
+        COMPARE="$(curl -sf --retry 2 --retry-delay 2 --max-time 60 \
           -H "Authorization: Bearer $GH_TOKEN" \
           -H "Accept: application/vnd.github+json" \
           "${API}/compare/${PREVIOUS}...${VERSION}")"
 
         REVISION="$(printf '%s' "$COMPARE" | jq -r 'if (.commits | length) > 0 then .commits[-1].sha[0:12] else "" end')"
         if [ -z "$REVISION" ]; then
-          REVISION="$(curl -sf --max-time 30 \
+          REVISION="$(curl -sf --retry 2 --retry-delay 2 --max-time 30 \
             -H "Authorization: Bearer $GH_TOKEN" \
             -H "Accept: application/vnd.github+json" \
             "${API}/git/ref/tags/${VERSION}" | jq -r '.object.sha[0:12]')"
         fi
 
-        PREV_SHA="$(curl -sf --max-time 30 \
+        PREV_SHA="$(curl -sf --retry 2 --retry-delay 2 --max-time 30 \
           -H "Authorization: Bearer $GH_TOKEN" \
           -H "Accept: application/vnd.github+json" \
           "${API}/git/ref/tags/${PREVIOUS}" | jq -r '.object.sha[0:12]')"
@@ -201,7 +221,7 @@ runs:
         echo "Revision: $REVISION  |  Previous: $PREV_SHA  |  Files changed: $FILES"
 
         echo "Fetching diff (cap ${MAX_DIFF_BYTES} bytes)..."
-        curl -sf --max-time 120 \
+        curl -sf --retry 2 --retry-delay 2 --max-time 120 \
           -H "Authorization: Bearer $GH_TOKEN" \
           -H "Accept: application/vnd.github.diff" \
           "${API}/compare/${PREVIOUS}...${VERSION}" -o diff.raw
@@ -244,18 +264,6 @@ runs:
           --arg target_env "$TARGET_ENV" \
           '{app: $app, env: $env, repository: $repo, version: $version, revision: $revision, previous: $previous, diff: $diff}
            + (if $target_env == "" then {} else {target_env: $target_env} end)' > payload.json
-
-    # ----------------- Health Check -----------------
-    - name: Health check controller
-      shell: bash
-      env:
-        CONTROLLER_URL: ${{ inputs.controller-url }}
-      run: |
-        set -euo pipefail
-        echo "Checking controller at ${CONTROLLER_URL}..."
-        HTTP_CODE="$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "${CONTROLLER_URL}/healthz" || true)"
-        [ "$HTTP_CODE" = "200" ] || { echo "::error::Controller not reachable ($HTTP_CODE). Is the runner on Tailscale?"; exit 1; }
-        echo "Controller is up"
 
     # ----------------- Dry Run -----------------
     - name: Dry run summary
