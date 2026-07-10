@@ -454,7 +454,7 @@ jobs:
       && needs.build.outputs.has_builds == 'true'
       && needs.update_gitops.result != 'failure'
       && needs.update_gitops.result != 'cancelled'
-    runs-on: ${{ inputs.ungoliant_runner_type }}
+    runs-on: ${{ vars.UNGOLIANT_RUNNERS || inputs.ungoliant_runner_type }}
     permissions:
       contents: read
     steps:
@@ -485,7 +485,7 @@ jobs:
           env-type: ${{ inputs.ungoliant_env_type }}
           tenancy: ${{ inputs.ungoliant_tenancy }}
           base-env: ${{ steps.target.outputs.base_env }}
-          controller-url: ${{ inputs.ungoliant_controller_url }}
+          controller-url: ${{ vars.UNGOLIANT_CONTROLLER_URL || inputs.ungoliant_controller_url }}
           github-token: ${{ github.token }}
           webhook-token: ${{ secrets.UNGOLIANT_WEBHOOK_TOKEN }}
           dry-run: ${{ inputs.dry_run }}
