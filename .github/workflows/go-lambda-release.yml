@@ -64,13 +64,16 @@ on:
         description: SHA-256 checksum of the built bootstrap binary.
         value: ${{ jobs.release.outputs.binary_sha256 }}
 
+# Least privilege by default; the release job escalates for AWS OIDC.
 permissions:
-  id-token: write
   contents: read
 
 jobs:
   release:
     runs-on: blacksmith-4vcpu-ubuntu-2404
+    permissions:
+      id-token: write # AWS OIDC to assume the upload role
+      contents: read
     outputs:
       version: ${{ steps.resolve.outputs.version }}
       s3_key: ${{ steps.resolve.outputs.s3_key }}
@@ -80,10 +83,12 @@ jobs:
       # ----------------- Checkout & Build -----------------
       - name: Checkout
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          persist-credentials: false
 
       - name: Build Go Lambda artifact
         id: build
-        uses: LerianStudio/github-actions-shared-workflows/src/build/build-go-lambda@main # pin to @vX.Y.Z for stable releases
+        uses: LerianStudio/github-actions-shared-workflows/src/build/build-go-lambda@develop # TODO: pin to @v1 once released
         with:
           go-version: ${{ inputs.go_version }}
           main-package: ${{ inputs.main_package }}
@@ -101,6 +106,7 @@ jobs:
           S3_KEY_PREFIX: ${{ inputs.s3_key_prefix }}
           ARTIFACT_NAME: ${{ inputs.artifact_name }}
         run: |
+          set -euo pipefail
           VERSION="$INPUT_VERSION"
           if [ -z "$VERSION" ]; then
             if [ "$REF_TYPE" = "tag" ]; then
@@ -150,6 +156,7 @@ jobs:
           S3_BUCKET: ${{ inputs.s3_bucket }}
           S3_KEY: ${{ steps.resolve.outputs.s3_key }}
         run: |
+          set -euo pipefail
           VERSION_ID=$(aws s3api put-object \
             --bucket "$S3_BUCKET" \
             --key "$S3_KEY" \
