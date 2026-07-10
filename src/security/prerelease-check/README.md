@@ -31,12 +31,12 @@ This action never fails the job itself — it only reports. The summary annotati
 
 ## What it scans
 
-For `go.mod` and `package.json`: matches any semver with a pre-release suffix starting with a letter (`x.y.z-<letter...>`). For `Dockerfile`: only matches known pre-release prefixes to avoid false positives on stable image variants.
+For all file types, only known pre-release keywords (`alpha`, `beta`, `rc`, `dev`, `preview`, `canary`, `snapshot`, `nightly`) are matched. This allowlist avoids false positives on stable vendor-suffixed releases (e.g. HashiCorp's `v1.0.1-vault-7`) and stable image variants (e.g. `-slim`, `-alpine`, `-bookworm`).
 
 | File | Scanned patterns | Blocked (unstable) | Allowed (stable) |
 |---|---|---|---|
-| `go.mod` | `vX.Y.Z-<letter...>` | `v1.2.3-beta.1`, `v1.2.3-rc.1`, `v1.2.3-alpha.1` | `v1.2.3`, `v0.0.0-20240101-abcdef012345` |
-| `package.json` | `"[~^>=]*X.Y.Z-<letter...>"` | `"^2.0.0-beta.1"`, `"~1.0.0-rc.3"` | `"2.0.0"` |
+| `go.mod` | `vX.Y.Z-(alpha\|beta\|rc\|dev\|...)` | `v1.2.3-beta.1`, `v1.2.3-rc.1`, `v1.2.3-alpha.1` | `v1.2.3`, `v1.0.1-vault-7`, `v0.0.0-20240101-abcdef012345` |
+| `package.json` | `"[~^>=]*X.Y.Z-(alpha\|beta\|rc\|dev\|...)"` | `"^2.0.0-beta.1"`, `"~1.0.0-rc.3"` | `"2.0.0"` |
 | `Dockerfile`, `*.dockerfile`, `Dockerfile.*` | `:X.Y.Z-(alpha\|beta\|rc\|dev\|...)` | `golang:1.21.0-beta1` | `golang:1.21.0`, `python:3.12-slim`, `node:20-alpine` |
 
 ## Allowlisting accepted pins

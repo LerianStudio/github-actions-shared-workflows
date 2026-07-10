@@ -47,11 +47,12 @@ runs:
         BLOCK_BRANCHES: ${{ inputs.block-branches }}
         ALLOW_FILE: ${{ inputs.allow-file }}
       run: |
-        # Matches x.y.z-<letter...> — any semver with a pre-release suffix starting
-        # with a letter (alpha, beta, rc, dev, preview, canary, snapshot, etc.).
-        # Excludes Go pseudo-versions (v0.0.0-YYYYMMDDHHMMSS-commitsha) because
-        # their suffix starts with digits, not letters. SHA pins are also allowed.
-        PRERELEASE_PATTERN='[0-9]+\.[0-9]+\.[0-9]+-[a-zA-Z]'
+        # Matches x.y.z-<keyword> — only known pre-release suffixes (alpha, beta,
+        # rc, dev, preview, canary, snapshot, nightly). An allowlist avoids false
+        # positives on stable vendor-suffixed releases (e.g. HashiCorp's
+        # v1.0.1-vault-7). Go pseudo-versions (v0.0.0-YYYYMMDDHHMMSS-commitsha) and
+        # SHA pins are also allowed because their suffix is not a known keyword.
+        PRERELEASE_PATTERN='[0-9]+\.[0-9]+\.[0-9]+-(alpha|beta|rc|dev|preview|canary|snapshot|nightly)'
 
         # Docker-specific pattern: only match known pre-release prefixes to avoid
         # false positives on stable image variants like -slim, -alpine, -bookworm.
