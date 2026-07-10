@@ -22,6 +22,10 @@ inputs:
     description: 'Path (relative to each scanned base) to a file listing accepted pre-release pins as "module version" lines (# comments allowed). Matching findings are exempted and reported as notices — the same discipline .trivyignore applies to CVEs that cannot be remediated by upgrade (e.g. a direct dependency with no stable upstream release). Auto-discovered at the default path when present; absent file = no exemptions.'
     required: false
     default: '.prerelease-allow'
+  prerelease-pattern:
+    description: 'Override the semver pre-release regex used for go.mod, package.json and Dockerfile scanning. Wire from an org/repo variable (e.g. ${{ vars.PRERELEASE_PATTERN }}) to tune the policy without a release. Empty (the default) uses the built-in allowlist: [0-9]+\.[0-9]+\.[0-9]+-(alpha|beta|rc|dev|preview|canary|snapshot|nightly).'
+    required: false
+    default: ''
 
 outputs:
   has-findings:
@@ -46,17 +50,19 @@ runs:
         TARGET_BRANCH: ${{ inputs.target-branch }}
         BLOCK_BRANCHES: ${{ inputs.block-branches }}
         ALLOW_FILE: ${{ inputs.allow-file }}
+        PRERELEASE_PATTERN: ${{ inputs.prerelease-pattern }}
       run: |
         # Matches x.y.z-<keyword> — only known pre-release suffixes (alpha, beta,
         # rc, dev, preview, canary, snapshot, nightly). An allowlist avoids false
         # positives on stable vendor-suffixed releases (e.g. the -vault-N suffix,
         # such as v1.0.1-vault-7). Go pseudo-versions (v0.0.0-YYYYMMDDHHMMSS-commitsha)
         # and SHA pins are also allowed because their suffix is not a known keyword.
-        PRERELEASE_PATTERN='[0-9]+\.[0-9]+\.[0-9]+-(alpha|beta|rc|dev|preview|canary|snapshot|nightly)'
-
-        # Docker-specific pattern: only match known pre-release prefixes to avoid
-        # false positives on stable image variants like -slim, -alpine, -bookworm.
-        DOCKER_PRERELEASE='[0-9]+\.[0-9]+\.[0-9]+-(alpha|beta|rc|dev|preview|canary|snapshot|nightly)'
+        # The pattern is overridable via the prerelease-pattern input (wired from an
+        # org/repo variable); an empty value falls back to the built-in allowlist.
+        # The same pattern drives go.mod, package.json and Dockerfile scanning so
+        # stable image variants like -slim, -alpine, -bookworm never match either.
+        PRERELEASE_PATTERN="${PRERELEASE_PATTERN:-[0-9]+\.[0-9]+\.[0-9]+-(alpha|beta|rc|dev|preview|canary|snapshot|nightly)}"
+        DOCKER_PRERELEASE="$PRERELEASE_PATTERN"
         FINDINGS=()
 
         # Scan the component scan-ref AND the repo root. In Go monorepos a single

@@ -179,6 +179,8 @@ jobs:
 
 When enabled, the workflow scans `go.mod`, `package.json`, and `Dockerfile` for unstable version pins (`-alpha`, `-beta`, `-rc`, `-dev`, etc.). On branches listed in `prerelease_block_branches` (default: `release-candidate,main`) the PR is blocked. On other branches (e.g., `develop`) findings are reported as warnings only.
 
+The detection regex can be overridden centrally through the optional **organization variable `PRERELEASE_PATTERN`** — the workflow forwards `${{ vars.PRERELEASE_PATTERN }}` to the `prerelease-check` action. Define it once at the org level (Settings → Secrets and variables → Actions → Variables) to tune the policy across every consuming repo without cutting a new release; leave it undefined to keep the built-in allowlist (`[0-9]+\.[0-9]+\.[0-9]+-(alpha|beta|rc|dev|preview|canary|snapshot|nightly)`). This is a global policy knob, so restrict who can manage Actions variables and prefer a per-pin `.prerelease-allow` allow-file for narrow, reviewable exemptions.
+
 ## Inputs
 
 | Input | Type | Default | Description |
