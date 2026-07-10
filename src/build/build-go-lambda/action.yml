@@ -1,0 +1,99 @@
+name: Build Go Lambda
+description: Compile a Go AWS Lambda to a provided.al2* bootstrap binary and package it as a deployable zip artifact.
+
+inputs:
+  go-version:
+    description: Go version to install (passed to actions/setup-go).
+    required: false
+    default: "1.23"
+  main-package:
+    description: Path to the Go main package to build (e.g. ./cmd/authorizer).
+    required: false
+    default: "."
+  goos:
+    description: Target operating system for the Lambda binary.
+    required: false
+    default: "linux"
+  goarch:
+    description: Target architecture for the Lambda binary (arm64 or amd64).
+    required: false
+    default: "arm64"
+  build-tags:
+    description: Comma-separated Go build tags. lambda.norpc drops the unused net/rpc runtime.
+    required: false
+    default: "lambda.norpc"
+  ldflags:
+    description: Linker flags passed to go build. The default strips symbols to shrink the binary.
+    required: false
+    default: "-s -w"
+  cgo-enabled:
+    description: Value for CGO_ENABLED. 0 produces a static binary for the custom runtime.
+    required: false
+    default: "0"
+  artifact-name:
+    description: File name of the generated zip artifact.
+    required: false
+    default: "bootstrap.zip"
+  working-directory:
+    description: Directory to run the build from (must contain go.mod).
+    required: false
+    default: "."
+
+outputs:
+  artifact-path:
+    description: Path to the generated zip artifact, relative to the workspace.
+    value: ${{ steps.package.outputs.artifact-path }}
+  artifact-name:
+    description: File name of the generated zip artifact.
+    value: ${{ inputs.artifact-name }}
+  binary-sha256:
+    description: SHA-256 checksum of the built bootstrap binary.
+    value: ${{ steps.package.outputs.binary-sha256 }}
+
+runs:
+  using: composite
+  steps:
+    # ----------------- Toolchain -----------------
+    - name: Set up Go
+      uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
+      with:
+        go-version: ${{ inputs.go-version }}
+        cache-dependency-path: ${{ inputs.working-directory }}/go.sum
+
+    # ----------------- Build & Package -----------------
+    - name: Build bootstrap binary
+      id: build
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        CGO_ENABLED: ${{ inputs.cgo-enabled }}
+        GOOS: ${{ inputs.goos }}
+        GOARCH: ${{ inputs.goarch }}
+        MAIN_PACKAGE: ${{ inputs.main-package }}
+        BUILD_TAGS: ${{ inputs.build-tags }}
+        LDFLAGS: ${{ inputs.ldflags }}
+      run: |
+        echo "::notice::Building $MAIN_PACKAGE for $GOOS/$GOARCH"
+        go build \
+          -tags "$BUILD_TAGS" \
+          -trimpath \
+          -ldflags "$LDFLAGS" \
+          -o bootstrap \
+          "$MAIN_PACKAGE"
+        file bootstrap
+
+    - name: Package zip artifact
+      id: package
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        ARTIFACT_NAME: ${{ inputs.artifact-name }}
+        WORKING_DIRECTORY: ${{ inputs.working-directory }}
+      run: |
+        zip -j "$ARTIFACT_NAME" bootstrap
+        SHA=$(sha256sum bootstrap | cut -d' ' -f1)
+        ARTIFACT_PATH="${WORKING_DIRECTORY%/}/$ARTIFACT_NAME"
+        ARTIFACT_PATH="${ARTIFACT_PATH#./}"
+        echo "binary-sha256=$SHA" >> "$GITHUB_OUTPUT"
+        echo "artifact-path=$ARTIFACT_PATH" >> "$GITHUB_OUTPUT"
+        echo "::notice::Packaged $ARTIFACT_PATH (bootstrap sha256=$SHA)"

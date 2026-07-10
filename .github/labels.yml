@@ -84,6 +84,10 @@
 
 # ── Capabilities ──────────────────────────────────────────────────────────────
 
+- name: build
+  color: "b4e197"
+  description: Changes to build and artifact composite actions (src/build/)
+
 - name: config
   color: "c5def5"
   description: Changes to repository configuration composite actions (src/config/)

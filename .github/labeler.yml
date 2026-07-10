@@ -67,6 +67,12 @@ deployment-matrix:
 
 # ── Capabilities ──────────────────────────────────────────────────────────────
 
+build:
+  - changed-files:
+    - any-glob-to-any-file:
+      - "src/build/**"
+      - ".github/workflows/go-lambda-release.yml"
+
 config:
   - changed-files:
     - any-glob-to-any-file: "src/config/**"
