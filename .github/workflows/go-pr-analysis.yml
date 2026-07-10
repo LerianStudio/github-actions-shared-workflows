@@ -464,25 +464,25 @@ jobs:
 
       # OpenAPI spec drift gate (opt-in, auto-detected — same make -n probe style
       # as "Detect Makefile test target" above).
-      # Probe order: check-api-spec (canonical opt-in name) > check-generated-artifacts
-      #   > check-openapi-spec > check-huma-spec. The first target that exists runs
-      #   as a HARD GATE: a stale committed OpenAPI spec fails the job. No matching
-      #   target (or no Makefile) => one log line and succeed.
-      # validate-api-docs is DELIBERATELY NOT probed: it is an unverified swag-family
-      #   target and auto-adopting it could break PRs org-wide. A repo opts in by
-      #   exposing a detectable target (canonical name: check-api-spec).
+      # Probes exactly ONE target: check-api-spec, the canonical opt-in name. If it
+      #   exists it runs as a HARD GATE — a stale committed OpenAPI spec fails the job.
+      #   No such target (or no Makefile) => one log line and succeed.
+      # Only check-api-spec is probed, on purpose. Boilerplate-standard names such as
+      #   check-generated-artifacts and validate-api-docs are NOT probed: they exist in
+      #   many org repos with divergent, unverified bodies (swag-family targets that
+      #   exit 1 when swag is absent, which this job does not install), so auto-adopting
+      #   them would break PRs org-wide the moment the shared-workflow ref bumps. A repo
+      #   opts in by exposing check-api-spec — aliasing its own verified check into it.
       - name: OpenAPI spec drift gate
         working-directory: ${{ matrix.app.working_dir }}
         run: |
           if [[ -f "Makefile" ]] || [[ -f "makefile" ]] || [[ -f "GNUmakefile" ]]; then
-            for target in check-api-spec check-generated-artifacts check-openapi-spec check-huma-spec; do
-              if make -n "$target" >/dev/null 2>&1; then
-                echo "OpenAPI drift gate: running '$target'"
-                make "$target"
-                exit 0
-              fi
-            done
-            echo "no OpenAPI drift-gate target found — skipping; add check-api-spec to opt in"
+            if make -n check-api-spec >/dev/null 2>&1; then
+              echo "OpenAPI drift gate: running 'check-api-spec'"
+              make check-api-spec
+            else
+              echo "no OpenAPI drift-gate target found — skipping; add check-api-spec to opt in"
+            fi
           else
             echo "No Makefile found — skipping OpenAPI drift gate"
           fi
