@@ -1,0 +1,341 @@
+name: Ungoliant Release Diff
+description: Resolve a release diff and fire the release-diff webhook at the Ungoliant controller to trigger chaos/fuzz analysis.
+
+inputs:
+  app:
+    description: App slug (midaz, reporter, plugin-fees, …)
+    required: true
+  version:
+    description: Tag to test (e.g. v1.3.4-beta.1)
+    required: true
+  previous:
+    description: Previous tag for the diff. Auto-resolved from the GitHub API when empty.
+    required: false
+    default: ""
+  env:
+    description: Release channel — beta | rc | stable
+    required: false
+    default: "beta"
+  testing-type:
+    description: Testing type — chaos | fuzzing. Empty produces a legacy target env.
+    required: false
+    default: "chaos"
+  tenancy:
+    description: Tenancy — st (single-tenant) | mt (multi-tenant)
+    required: false
+    default: "st"
+  base-env:
+    description: Base environment — dev | stg | prd
+    required: false
+    default: "dev"
+  controller-url:
+    description: Ungoliant controller base URL (reachable over Tailscale)
+    required: false
+    default: "https://ungoliant-controller.anacleto.lerian.net"
+  repo-owner:
+    description: GitHub owner/org that hosts the app repository
+    required: false
+    default: "LerianStudio"
+  github-token:
+    description: GitHub token used to read tags, compare and diff via the API
+    required: true
+  webhook-token:
+    description: Ungoliant webhook token sent as the X-Ungoliant-Token header
+    required: false
+    default: ""
+  max-diff-bytes:
+    description: Maximum diff size forwarded to the controller (bytes)
+    required: false
+    default: "262144"
+  curl-timeout:
+    description: Timeout for the webhook POST in seconds (LLM inference can take 60-120s)
+    required: false
+    default: "300"
+  dry-run:
+    description: Resolve and preview the payload without firing the webhook
+    required: false
+    default: "false"
+
+outputs:
+  status:
+    description: Controller response status (e.g. analysis_completed)
+    value: ${{ steps.webhook.outputs.status }}
+  run-id:
+    description: Controller run_id for the analysis
+    value: ${{ steps.webhook.outputs.run_id }}
+  schema:
+    description: Response schema (release-plan | release-summary)
+    value: ${{ steps.webhook.outputs.schema }}
+  risk-level:
+    description: Risk level reported by the controller
+    value: ${{ steps.webhook.outputs.risk_level }}
+  target-env:
+    description: Composed target env forwarded to the controller
+    value: ${{ steps.resolve.outputs.target_env }}
+
+runs:
+  using: composite
+  steps:
+    # ----------------- Resolve Repo & Target Env -----------------
+    - name: Resolve config
+      id: resolve
+      shell: bash
+      env:
+        APP: ${{ inputs.app }}
+        REPO_OWNER: ${{ inputs.repo-owner }}
+        TESTING_TYPE: ${{ inputs.testing-type }}
+        TENANCY: ${{ inputs.tenancy }}
+        BASE_ENV: ${{ inputs.base-env }}
+      run: |
+        set -euo pipefail
+
+        if [ -z "$APP" ]; then
+          echo "::error::app input is required"
+          exit 1
+        fi
+
+        if [ -n "$TESTING_TYPE" ] && [ "$TESTING_TYPE" != "chaos" ] && [ "$TESTING_TYPE" != "fuzzing" ]; then
+          echo "::error::testing-type must be 'chaos' or 'fuzzing' (got: $TESTING_TYPE)"
+          exit 1
+        fi
+        if [ -n "$TENANCY" ] && [ "$TENANCY" != "st" ] && [ "$TENANCY" != "mt" ]; then
+          echo "::error::tenancy must be 'st' or 'mt' (got: $TENANCY)"
+          exit 1
+        fi
+
+        REPO="${REPO_OWNER}/${APP}"
+
+        if [ -n "$TESTING_TYPE" ]; then
+          TARGET_ENV="${TESTING_TYPE}-${BASE_ENV}-${TENANCY}"
+        else
+          TARGET_ENV="${BASE_ENV}"
+        fi
+
+        {
+          echo "repo=$REPO"
+          echo "target_env=$TARGET_ENV"
+        } >> "$GITHUB_OUTPUT"
+
+    # ----------------- Resolve Previous Tag -----------------
+    - name: Resolve previous tag
+      id: previous
+      shell: bash
+      env:
+        REPO: ${{ steps.resolve.outputs.repo }}
+        VERSION: ${{ inputs.version }}
+        PREVIOUS: ${{ inputs.previous }}
+        GH_TOKEN: ${{ inputs.github-token }}
+      run: |
+        set -euo pipefail
+
+        if [ -z "$VERSION" ]; then
+          echo "::error::version input is required"
+          exit 1
+        fi
+
+        PREV="$PREVIOUS"
+        if [ -z "$PREV" ]; then
+          echo "Resolving previous tag for $REPO..."
+          TAGS_JSON="$(curl -sf --max-time 30 \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${REPO}/tags?per_page=100")"
+          PREV="$(printf '%s' "$TAGS_JSON" | jq -r --arg v "$VERSION" '
+            [.[].name] as $n
+            | ($n | index($v)) as $i
+            | if $i == null then
+                (if ($n | length) > 1 then $n[1] else "" end)
+              else
+                (if ($i + 1) < ($n | length) then $n[$i + 1] else "" end)
+              end')"
+          [ -n "$PREV" ] || { echo "::error::Could not resolve previous tag — pass it explicitly"; exit 1; }
+          echo "Previous tag resolved: $PREV"
+        fi
+
+        echo "previous=$PREV" >> "$GITHUB_OUTPUT"
+
+    # ----------------- Fetch Compare & Diff -----------------
+    - name: Fetch compare and diff
+      id: diff
+      shell: bash
+      env:
+        REPO: ${{ steps.resolve.outputs.repo }}
+        VERSION: ${{ inputs.version }}
+        PREVIOUS: ${{ steps.previous.outputs.previous }}
+        MAX_DIFF_BYTES: ${{ inputs.max-diff-bytes }}
+        GH_TOKEN: ${{ inputs.github-token }}
+      run: |
+        set -euo pipefail
+
+        API="https://api.github.com/repos/${REPO}"
+
+        echo "Fetching compare ${PREVIOUS} -> ${VERSION} from ${REPO}..."
+        COMPARE="$(curl -sf --max-time 60 \
+          -H "Authorization: Bearer $GH_TOKEN" \
+          -H "Accept: application/vnd.github+json" \
+          "${API}/compare/${PREVIOUS}...${VERSION}")"
+
+        REVISION="$(printf '%s' "$COMPARE" | jq -r 'if (.commits | length) > 0 then .commits[-1].sha[0:12] else "" end')"
+        if [ -z "$REVISION" ]; then
+          REVISION="$(curl -sf --max-time 30 \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "${API}/git/ref/tags/${VERSION}" | jq -r '.object.sha[0:12]')"
+        fi
+
+        PREV_SHA="$(curl -sf --max-time 30 \
+          -H "Authorization: Bearer $GH_TOKEN" \
+          -H "Accept: application/vnd.github+json" \
+          "${API}/git/ref/tags/${PREVIOUS}" | jq -r '.object.sha[0:12]')"
+
+        FILES="$(printf '%s' "$COMPARE" | jq -r '.files | length')"
+        echo "Revision: $REVISION  |  Previous: $PREV_SHA  |  Files changed: $FILES"
+
+        echo "Fetching diff (cap ${MAX_DIFF_BYTES} bytes)..."
+        curl -sf --max-time 120 \
+          -H "Authorization: Bearer $GH_TOKEN" \
+          -H "Accept: application/vnd.github.diff" \
+          "${API}/compare/${PREVIOUS}...${VERSION}" -o diff.raw
+
+        head -c "$MAX_DIFF_BYTES" diff.raw > diff.trunc
+        # Strip any UTF-8 sequence left incomplete by the byte-level truncation.
+        iconv -f UTF-8 -t UTF-8 -c diff.trunc > diff.txt 2>/dev/null || cp diff.trunc diff.txt
+
+        DIFF_SIZE="$(wc -c < diff.txt | tr -d ' ')"
+        echo "Diff size: ${DIFF_SIZE} bytes"
+        [ "$DIFF_SIZE" -gt 0 ] || { echo "::error::Empty diff — check tags exist in $REPO"; exit 1; }
+
+        {
+          echo "revision=$REVISION"
+          echo "prev_sha=$PREV_SHA"
+          echo "files=$FILES"
+        } >> "$GITHUB_OUTPUT"
+
+    # ----------------- Build Payload -----------------
+    - name: Build payload
+      shell: bash
+      env:
+        APP: ${{ inputs.app }}
+        ENV: ${{ inputs.env }}
+        REPO: ${{ steps.resolve.outputs.repo }}
+        VERSION: ${{ inputs.version }}
+        REVISION: ${{ steps.diff.outputs.revision }}
+        PREV_SHA: ${{ steps.diff.outputs.prev_sha }}
+        TARGET_ENV: ${{ steps.resolve.outputs.target_env }}
+      run: |
+        set -euo pipefail
+        jq -n \
+          --rawfile diff diff.txt \
+          --arg app "$APP" \
+          --arg env "$ENV" \
+          --arg repo "$REPO" \
+          --arg version "$VERSION" \
+          --arg revision "$REVISION" \
+          --arg previous "$PREV_SHA" \
+          --arg target_env "$TARGET_ENV" \
+          '{app: $app, env: $env, repository: $repo, version: $version, revision: $revision, previous: $previous, diff: $diff}
+           + (if $target_env == "" then {} else {target_env: $target_env} end)' > payload.json
+
+    # ----------------- Health Check -----------------
+    - name: Health check controller
+      shell: bash
+      env:
+        CONTROLLER_URL: ${{ inputs.controller-url }}
+      run: |
+        set -euo pipefail
+        echo "Checking controller at ${CONTROLLER_URL}..."
+        HTTP_CODE="$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "${CONTROLLER_URL}/healthz" || true)"
+        [ "$HTTP_CODE" = "200" ] || { echo "::error::Controller not reachable ($HTTP_CODE). Is the runner on Tailscale?"; exit 1; }
+        echo "Controller is up"
+
+    # ----------------- Dry Run -----------------
+    - name: Dry run summary
+      if: inputs.dry-run == 'true'
+      shell: bash
+      env:
+        APP: ${{ inputs.app }}
+        VERSION: ${{ inputs.version }}
+        ENV: ${{ inputs.env }}
+        TARGET_ENV: ${{ steps.resolve.outputs.target_env }}
+        REPO: ${{ steps.resolve.outputs.repo }}
+        PREVIOUS: ${{ steps.previous.outputs.previous }}
+        REVISION: ${{ steps.diff.outputs.revision }}
+      run: |
+        set -euo pipefail
+        echo "::notice::DRY RUN — release-diff webhook will not be sent"
+        echo "  app         : $APP"
+        echo "  repository  : $REPO"
+        echo "  version     : $VERSION"
+        echo "  previous    : $PREVIOUS"
+        echo "  revision    : $REVISION"
+        echo "  env         : $ENV"
+        echo "  target_env  : $TARGET_ENV"
+        echo "  payload size: $(wc -c < payload.json | tr -d ' ') bytes"
+
+    # ----------------- Fire Webhook -----------------
+    - name: Send release-diff webhook
+      id: webhook
+      if: inputs.dry-run != 'true'
+      shell: bash
+      env:
+        CONTROLLER_URL: ${{ inputs.controller-url }}
+        CURL_TIMEOUT: ${{ inputs.curl-timeout }}
+        WEBHOOK_TOKEN: ${{ inputs.webhook-token }}
+        APP: ${{ inputs.app }}
+        VERSION: ${{ inputs.version }}
+        ENV: ${{ inputs.env }}
+        TARGET_ENV: ${{ steps.resolve.outputs.target_env }}
+      run: |
+        set -euo pipefail
+
+        echo "Sending release-diff webhook (timeout ${CURL_TIMEOUT}s)..."
+        echo "  app=$APP  version=$VERSION  env=$ENV  target_env=$TARGET_ENV"
+        [ -n "$WEBHOOK_TOKEN" ] || echo "::warning::UNGOLIANT_WEBHOOK_TOKEN not set — sending unauthenticated"
+
+        # The payload is streamed via --data-binary @- to avoid the per-argument
+        # length limit (E2BIG) that a large diff would hit if passed as argv.
+        CURL_ARGS=(-s --max-time "$CURL_TIMEOUT" -X POST
+          "${CONTROLLER_URL}/webhook/release-diff"
+          -H "Content-Type: application/json"
+          --data-binary @payload.json)
+        [ -n "$WEBHOOK_TOKEN" ] && CURL_ARGS+=(-H "X-Ungoliant-Token: $WEBHOOK_TOKEN")
+
+        START="$(date +%s)"
+        RESPONSE="$(curl "${CURL_ARGS[@]}" 2>&1 || true)"
+        ELAPSED=$(( $(date +%s) - START ))
+
+        echo "$RESPONSE" | jq . 2>/dev/null || echo "$RESPONSE"
+        echo "Elapsed: ${ELAPSED}s"
+
+        STATUS="$(printf '%s' "$RESPONSE" | jq -r '.status // "parse_error"' 2>/dev/null || echo "parse_error")"
+        RUN_ID="$(printf '%s' "$RESPONSE" | jq -r '.run_id // ""' 2>/dev/null || echo "")"
+        SCHEMA="$(printf '%s' "$RESPONSE" | jq -r '.schema // "?"' 2>/dev/null || echo "?")"
+        RISK="$(printf '%s' "$RESPONSE" | jq -r '.risk_level // "?"' 2>/dev/null || echo "?")"
+        K6_COUNT="$(printf '%s' "$RESPONSE" | jq -r '.k6 // 0' 2>/dev/null || echo 0)"
+
+        {
+          echo "status=$STATUS"
+          echo "run_id=$RUN_ID"
+          echo "schema=$SCHEMA"
+          echo "risk_level=$RISK"
+        } >> "$GITHUB_OUTPUT"
+
+        {
+          echo "### Ungoliant release-diff"
+          echo ""
+          echo "| Field | Value |"
+          echo "| --- | --- |"
+          echo "| status | \`$STATUS\` |"
+          echo "| run_id | \`$RUN_ID\` |"
+          echo "| schema | \`$SCHEMA\` |"
+          echo "| risk_level | \`$RISK\` |"
+          echo "| target_env | \`$TARGET_ENV\` |"
+          echo "| k6 | \`$K6_COUNT\` |"
+          echo "| elapsed | \`${ELAPSED}s\` |"
+        } >> "$GITHUB_STEP_SUMMARY"
+
+        if [ "$STATUS" != "analysis_completed" ]; then
+          echo "::error::Analysis failed — status: $STATUS (elapsed ${ELAPSED}s)"
+          exit 1
+        fi
+        echo "::notice::Analysis completed in ${ELAPSED}s (run_id=$RUN_ID, schema=$SCHEMA, risk=$RISK)"
