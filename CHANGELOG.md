@@ -1,5 +1,79 @@
 # Github-actions-shared-workflows Changelog
 
+## [1.46.1](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.46.1)
+
+Fixes:
+- Removed the vars expression from the input description in the prerelease-check workflow. (@bedatty)
+
+[Compare changes](https://github.com/LerianStudio/github-actions-shared-workflows/compare/v1.46.0...v1.46.1)
+
+---
+
+## [1.46.0](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.46.0)
+
+Features:
+- Allow overriding the prerelease-check pattern via an organization variable. (@bedatty)
+
+Fixes:
+- Improve the robustness of the previous-tag fallback, add retries, and implement a fail-fast health check in the ungoliant-release-diff workflow. (@bedatty)
+- Add a reusable workflow and composite for the controller release-diff in the ungoliant-release-diff workflow. (@bedatty)
+- Use a keyword allowlist in the prerelease-check to avoid false positives due to vendor-suffixes. (@bedatty)
+- Validate pattern overrides and treat underscores as tokens in the prerelease-check. (@bedatty)
+- Require a token boundary after the pre-release keyword in the prerelease-check. (@bedatty)
+- Reword a comment in the prerelease-check to satisfy the spell check. (@bedatty)
+- Fix the release process from `develop` to `main`. (@bedatty)
+
+Improvements:
+- Bump `trufflesecurity/trufflehog` from `3.95.6` to `3.95.8` in the security-scanners group. (@bedatty)
+- Update the github-security group with two dependency updates. (@bedatty)
+
+[Compare changes](https://github.com/LerianStudio/github-actions-shared-workflows/compare/v1.45.0...v1.46.0)
+
+---
+
+## [1.45.0](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.45.0)
+
+Features:
+- Add Go Lambda release workflow. (@guimoreirar)
+- Add Go Lambda release workflow and build action. (@guimoreirar)
+- Add Go Lambda release workflow and build action with documentation. (@guimoreirar)
+
+Fixes:
+- Adjust permissions for AWS OIDC and update build action reference to use `develop` branch. (@guimoreirar)
+- Update build action reference for Go Lambda artifact to pin to `main` for stable releases. (@guimoreirar)
+- Update build action reference for Go Lambda artifact to use the feature branch. (@guimoreirar)
+
+[Compare changes](https://github.com/LerianStudio/github-actions-shared-workflows/compare/v1.44.1...v1.45.0)
+
+---
+
+## [1.44.1](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.44.1)
+
+Fixes:
+
+- Ensure the release process correctly transitions from `develop` to `main`. (@bedatty)
+- Make environment targets configurable for `stable`, `rc`, and `beta` releases in the GitOps update process. (@bedatty)
+- Use a channel-aware S3 path for uploading E2E reports in the JavaScript release workflow. (@bedatty)
+- Register `br-sta` in the Benedita deployment matrix. (@bedatty)
+- Register the underwriter in the Benedita deployment matrix. (@bedatty)
+
+[Compare changes](https://github.com/LerianStudio/github-actions-shared-workflows/compare/v1.44.0...v1.44.1)
+
+---
+
+## [1.44.0](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.44.0)
+
+Features:
+- Promote prerelease `allow-file` to main, enhancing security checks for pre-release versions. (@fredcamaral)
+- Allowlist accepted pre-release pins in the prerelease-check to improve flexibility in version management. (@fredcamaral)
+
+Fixes:
+- Normalize the `go.mod` require keyword in `allow-file` matching to ensure consistent dependency management. (@fredcamaral)
+
+[Compare changes](https://github.com/LerianStudio/github-actions-shared-workflows/compare/v1.43.1...v1.44.0)
+
+---
+
 ## [1.43.1](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.43.1)
 
 Fixes:
