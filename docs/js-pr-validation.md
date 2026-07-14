@@ -37,6 +37,8 @@ The `frontend-analysis` and `security` pipelines each have a `*-gate` aggregator
 | `audit_level` | npm audit severity level (`low`, `moderate`, `high`, `critical`) | string | `high` |
 | `coverage_threshold` | Minimum coverage percentage (0-100) | number | `80` |
 | `fail_on_coverage_threshold` | Fail when coverage is below threshold | boolean | `false` |
+| `filter_paths` | JSON array of paths to monitor for changes (e.g. `["ui"]`), passed through to `frontend-pr-analysis.yml` only | string | `''` |
+| `path_level` | Directory depth level to extract app name, passed through to `frontend-pr-analysis.yml` only | number | `2` |
 | `app_name_prefix` | Prefix used to namespace coverage/build artifacts | string | `''` |
 | `enable_lint` | Enable ESLint | boolean | `true` |
 | `enable_typecheck` | Enable TypeScript type checking | boolean | `true` |
@@ -56,7 +58,7 @@ The `frontend-analysis` and `security` pipelines each have a `*-gate` aggregator
 | `ignore_file` | Path to Trivy ignore file (e.g. `.trivyignore.yaml`) | string | `''` |
 | `trivy_skip_dirs` | Comma-separated directories to skip in every Trivy filesystem scan | string | `''` |
 
-> **Monorepo note:** `filter_paths` is not exposed at the umbrella level because `frontend-pr-analysis.yml` and `pr-security-scan.yml` use different formats for that input. For monorepo setups with per-component scanning, call the individual primitives directly.
+> **Monorepo note:** `filter_paths`/`path_level` scope the `frontend-analysis` job only. They are not passed to the `security` job because `frontend-pr-analysis.yml` and `pr-security-scan.yml` use different formats for that input (JSON array vs. newline-separated). For a path-scoped security scan too, call `pr-security-scan.yml` directly.
 
 ## Secrets
 

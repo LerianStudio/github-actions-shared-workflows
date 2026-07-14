@@ -77,6 +77,7 @@ Mirrors the [`go-release`](./go-release-workflow.md) umbrella for Go services â€
 |--------|-------------|----------|
 | `MANAGE_TOKEN` | Token for release commits, tags and private module access | No |
 | `SLACK_WEBHOOK_URL` | Slack webhook for pipeline notifications | No |
+| `NPM_TOKEN` | npm registry auth token, forwarded to the `release` job. Only needed when the caller's own `.releaserc` includes `@semantic-release/npm` (a component with independent semver that publishes to an npm registry) | No |
 | `AWS_E2E_ARTIFACTS_ROLE_ARN` | IAM role ARN assumed via OIDC to upload the Playwright report to the `lerian-e2e-artifacts` S3 bucket (`s3://lerian-e2e-artifacts/<repo>/<channel>/<tag>/<e2e_s3_artifact_path>/`). Unset â†’ S3 upload step is skipped, only the GitHub Actions artifact is produced | No |
 | `UNGOLIANT_WEBHOOK_TOKEN` | Token sent as the `X-Ungoliant-Token` header (used when `enable_ungoliant_release_diff`) | No |
 
