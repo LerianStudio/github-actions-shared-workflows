@@ -193,6 +193,8 @@ jobs:
       - name: Set up pnpm
         if: inputs.package_manager == 'pnpm'
         uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+        with:
+          package_json_file: ${{ matrix.app.working_dir }}/package.json
 
       - name: Setup Node.js
         uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6
@@ -238,6 +240,8 @@ jobs:
       - name: Set up pnpm
         if: inputs.package_manager == 'pnpm'
         uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+        with:
+          package_json_file: ${{ matrix.app.working_dir }}/package.json
 
       - name: Setup Node.js
         uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6
@@ -278,6 +282,8 @@ jobs:
       - name: Set up pnpm
         if: inputs.package_manager == 'pnpm'
         uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+        with:
+          package_json_file: ${{ matrix.app.working_dir }}/package.json
 
       - name: Setup Node.js
         uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6
@@ -323,6 +329,8 @@ jobs:
       - name: Set up pnpm
         if: inputs.package_manager == 'pnpm'
         uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+        with:
+          package_json_file: ${{ matrix.app.working_dir }}/package.json
 
       - name: Setup Node.js
         uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6
@@ -520,6 +528,8 @@ jobs:
       - name: Set up pnpm
         if: inputs.package_manager == 'pnpm'
         uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+        with:
+          package_json_file: ${{ matrix.app.working_dir }}/package.json
 
       - name: Setup Node.js
         uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6
@@ -565,6 +575,8 @@ jobs:
       - name: Set up pnpm
         if: inputs.package_manager == 'pnpm'
         uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+        with:
+          package_json_file: ${{ matrix.app.working_dir }}/package.json
 
       - name: Setup Node.js
         uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6
@@ -640,6 +652,8 @@ jobs:
       - name: Set up pnpm
         if: inputs.package_manager == 'pnpm'
         uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+        with:
+          package_json_file: ${{ matrix.app.working_dir }}/package.json
 
       - name: Setup Node.js
         uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6
@@ -690,6 +704,8 @@ jobs:
       - name: Set up pnpm
         if: inputs.package_manager == 'pnpm'
         uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+        with:
+          package_json_file: ${{ matrix.app.working_dir }}/package.json
 
       - name: Setup Node.js
         uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6
@@ -740,6 +756,8 @@ jobs:
       - name: Set up pnpm
         if: inputs.package_manager == 'pnpm'
         uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+        with:
+          package_json_file: ${{ matrix.app.working_dir }}/package.json
 
       - name: Setup Node.js
         uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6
