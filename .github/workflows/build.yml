@@ -65,6 +65,10 @@ on:
         type: string
         required: false
         default: ''
+      tag_prefix:
+        description: 'Skip this build entirely (has_builds=false) when triggered by a tag that does not start with this prefix. Used by callers with multiple independently-tagged components sharing one workflow_call chain. Empty = build on every tag, as before.'
+        type: string
+        default: ''
       app_name_prefix:
         description: 'Prefix for app names in monorepo (e.g., "midaz" results in "midaz-agent")'
         type: string
@@ -203,7 +207,17 @@ jobs:
           REPO_NAME: ${{ github.event.repository.name }}
           FILTER_PATHS: ${{ inputs.filter_paths }}
           CHANGED_MATRIX: ${{ steps.changed-paths.outputs.matrix }}
+          TAG_PREFIX: ${{ inputs.tag_prefix }}
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
         run: |
+          if [ -n "$TAG_PREFIX" ] && [ "$REF_TYPE" == "tag" ] && [[ "$REF_NAME" != "$TAG_PREFIX"* ]]; then
+            echo "matrix=[]" >> "$GITHUB_OUTPUT"
+            echo "has_builds=false" >> "$GITHUB_OUTPUT"
+            echo "Skipping: ref '$REF_NAME' does not match tag_prefix '$TAG_PREFIX'"
+            exit 0
+          fi
+
           if [ -z "$FILTER_PATHS" ]; then
             # Single app mode - build from root
             APP_NAME="${APP_NAME_INPUT:-$REPO_NAME}"
