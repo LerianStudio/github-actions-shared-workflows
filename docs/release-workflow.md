@@ -221,10 +221,11 @@ plugins:
 1. **Create GitHub App Token**: Generate authentication token with higher rate limits
 2. **Checkout Repository**: Clone with full history for versioning
 3. **Sync with Remote**: Ensure latest changes are pulled
-4. **Import GPG Key**: Import and configure GPG key for signing
-5. **Initialize package.json**: Create if doesn't exist
-6. **Install Plugins**: Install semantic-release plugins
-7. **Run Semantic Release**: Calculate version and create release using `.releaserc.yml`
+4. **Fetch git notes**: Fetch `refs/notes/*` so semantic-release can resolve which prerelease channels each tag was published to (required to promote a prerelease to stable on the release branch)
+5. **Import GPG Key**: Import and configure GPG key for signing
+6. **Initialize package.json**: Create if doesn't exist
+7. **Install Plugins**: Install semantic-release plugins
+8. **Run Semantic Release**: Calculate version and create release using `.releaserc.yml`
 
 ## GPG Signing
 
