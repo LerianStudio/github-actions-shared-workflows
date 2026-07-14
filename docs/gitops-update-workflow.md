@@ -415,9 +415,9 @@ The workflow uses a matrix strategy for ArgoCD sync:
 
 ### Sync Command Behavior
 
-The `argocd app sync` call uses `--async --timeout 180`, dispatching the sync without blocking on completion. On failure, the sync step retries up to 5 times with a 30s interval between attempts.
+The `argocd app sync` call uses `--async --timeout 180`, dispatching the sync without blocking on completion. On failure, the sync step makes up to 5 attempts with a 30s interval between attempts.
 
-A subsequent `argocd app wait --timeout` (configurable via `argocd_sync_timeout`, default `600`) confirms the rollout. On failure, the wait step retries up to 3 times with exponential backoff (30s, then 60s between attempts).
+A subsequent `argocd app wait --timeout` (configurable via `argocd_sync_timeout`, default `600`) confirms the rollout. On failure, the wait step makes up to 3 attempts with exponential backoff (30s, then 60s between attempts).
 
 When `argocd_prune` is `true`, `--prune` is appended so orphaned resources left behind by previous renames/removals are cleaned up automatically. Keep this disabled by default in production and enable per-caller when you knowingly need cleanup.
 
