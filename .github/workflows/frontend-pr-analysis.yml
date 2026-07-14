@@ -622,8 +622,10 @@ jobs:
 
       - name: Install dependencies
         working-directory: ${{ matrix.app.working_dir }}
+        env:
+          PKG_MANAGER: ${{ inputs.package_manager }}
         run: |
-          case "${{ inputs.package_manager }}" in
+          case "$PKG_MANAGER" in
             yarn) yarn install --frozen-lockfile ;;
             pnpm) pnpm install --frozen-lockfile ;;
             *) npm ci ;;
@@ -666,8 +668,10 @@ jobs:
 
       - name: Install dependencies
         working-directory: ${{ matrix.app.working_dir }}
+        env:
+          PKG_MANAGER: ${{ inputs.package_manager }}
         run: |
-          case "${{ inputs.package_manager }}" in
+          case "$PKG_MANAGER" in
             yarn) yarn install --frozen-lockfile ;;
             pnpm) pnpm install --frozen-lockfile ;;
             *) npm ci ;;
@@ -710,8 +714,10 @@ jobs:
 
       - name: Install dependencies
         working-directory: ${{ matrix.app.working_dir }}
+        env:
+          PKG_MANAGER: ${{ inputs.package_manager }}
         run: |
-          case "${{ inputs.package_manager }}" in
+          case "$PKG_MANAGER" in
             yarn) yarn install --frozen-lockfile ;;
             pnpm) pnpm install --frozen-lockfile ;;
             *) npm ci ;;
