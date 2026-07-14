@@ -725,6 +725,17 @@ jobs:
             *) npm ci ;;
           esac
 
+      - name: Install Playwright browsers
+        working-directory: ${{ matrix.app.working_dir }}
+        env:
+          PKG_MANAGER: ${{ inputs.package_manager }}
+        run: |
+          case "$PKG_MANAGER" in
+            yarn) yarn playwright install --with-deps chromium ;;
+            pnpm) pnpm exec playwright install --with-deps chromium ;;
+            *) npx playwright install --with-deps chromium ;;
+          esac
+
       - name: Check performance budget
         working-directory: ${{ matrix.app.working_dir }}
         env:
@@ -775,6 +786,17 @@ jobs:
             yarn) yarn install --frozen-lockfile ;;
             pnpm) pnpm install --frozen-lockfile ;;
             *) npm ci ;;
+          esac
+
+      - name: Install Playwright browsers
+        working-directory: ${{ matrix.app.working_dir }}
+        env:
+          PKG_MANAGER: ${{ inputs.package_manager }}
+        run: |
+          case "$PKG_MANAGER" in
+            yarn) yarn playwright install --with-deps chromium ;;
+            pnpm) pnpm exec playwright install --with-deps chromium ;;
+            *) npx playwright install --with-deps chromium ;;
           esac
 
       - name: Run visual regression tests
