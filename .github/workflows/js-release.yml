@@ -231,6 +231,9 @@ on:
         required: false
       SLACK_WEBHOOK_URL:
         required: false
+      NPM_TOKEN:
+        description: 'npm registry auth token, forwarded to the release job. Only used when the caller''s own .releaserc includes @semantic-release/npm (a package with independent semver that publishes to an npm registry). Optional — omit for repos that do not publish to npm.'
+        required: false
       AWS_E2E_ARTIFACTS_ROLE_ARN:
         description: 'IAM role ARN assumed via OIDC to upload the E2E (Playwright) report to the lerian-e2e-artifacts S3 bucket. Optional — when unset, the S3 upload step is skipped and only the GitHub Actions artifact is produced.'
         required: false
