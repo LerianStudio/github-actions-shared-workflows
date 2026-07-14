@@ -497,7 +497,10 @@ jobs:
     if: >-
       !cancelled() &&
       inputs.extra_builds != '' && inputs.extra_builds != '[]' &&
-      (matrix.group.tag_prefix == '' || matrix.group.tag_prefix == null || startsWith(github.ref_name, matrix.group.tag_prefix)) &&
+      (github.ref_type != 'tag' ||
+        matrix.group.tag_prefix == '' ||
+        matrix.group.tag_prefix == null ||
+        startsWith(github.ref_name, matrix.group.tag_prefix)) &&
       (
         (github.ref_type == 'tag' &&
           (!inputs.build_on_release || contains(github.ref, '-beta.') || contains(github.ref, '-rc.'))) ||
