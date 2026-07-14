@@ -147,6 +147,26 @@ on:
         description: 'Seconds to wait for the health check to succeed before failing the smoke test'
         type: number
         default: 60
+      docker_smoke_test_script:
+        description: 'npm script run against the running container after the health check passes (PLAYWRIGHT_BASE_URL=http://localhost:<docker_smoke_port> and PLAYWRIGHT_SKIP_WEB_SERVER=true are injected). Empty = skip (default).'
+        type: string
+        default: ''
+      enable_accessibility:
+        description: 'Enable an accessibility check (runs accessibility_script)'
+        type: boolean
+        default: false
+      accessibility_script:
+        description: 'npm script name that runs accessibility tests (should exit non-zero on a violation)'
+        type: string
+        default: 'test:a11y'
+      enable_custom_checks:
+        description: 'Enable arbitrary caller-owned checks beyond the named gates above (runs each script in custom_checks)'
+        type: boolean
+        default: false
+      custom_checks:
+        description: 'Newline-separated npm script names to run as additional checks (e.g. repo-specific guards). Each runs independently; a non-zero exit on any of them fails the job.'
+        type: string
+        default: ''
 
 permissions:
   contents: read
@@ -636,6 +656,137 @@ jobs:
   # ============================================
   # BUNDLE BUDGET
   # ============================================
+  # ============================================
+  # ACCESSIBILITY
+  # ============================================
+  accessibility:
+    name: Accessibility (${{ matrix.app.name }})
+    needs: detect-changes
+    if: needs.detect-changes.outputs.has_changes == 'true' && inputs.enable_accessibility
+    runs-on: ${{ inputs.runner_type }}
+    strategy:
+      fail-fast: false
+      matrix:
+        app: ${{ fromJson(needs.detect-changes.outputs.matrix) }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+
+      - name: Set up pnpm
+        if: inputs.package_manager == 'pnpm'
+        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+        with:
+          package_json_file: ${{ matrix.app.working_dir }}/package.json
+
+      - name: Setup Node.js
+        uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6
+        with:
+          node-version: ${{ inputs.node_version }}
+          cache: ${{ inputs.package_manager }}
+          cache-dependency-path: ${{ matrix.app.working_dir }}/${{ inputs.package_manager == 'yarn' && 'yarn.lock' || (inputs.package_manager == 'pnpm' && 'pnpm-lock.yaml' || 'package-lock.json') }}
+
+      - name: Install dependencies
+        working-directory: ${{ matrix.app.working_dir }}
+        env:
+          PKG_MANAGER: ${{ inputs.package_manager }}
+        run: |
+          case "$PKG_MANAGER" in
+            yarn) yarn install --frozen-lockfile ;;
+            pnpm) pnpm install --frozen-lockfile ;;
+            *) npm ci ;;
+          esac
+
+      - name: Check accessibility
+        working-directory: ${{ matrix.app.working_dir }}
+        env:
+          PKG_MANAGER: ${{ inputs.package_manager }}
+          ACCESSIBILITY_SCRIPT: ${{ inputs.accessibility_script }}
+        run: |
+          case "$PKG_MANAGER" in
+            yarn) yarn run "$ACCESSIBILITY_SCRIPT" ;;
+            pnpm) pnpm run "$ACCESSIBILITY_SCRIPT" ;;
+            *) npm run "$ACCESSIBILITY_SCRIPT" ;;
+          esac
+
+  # ============================================
+  # CUSTOM CHECKS
+  # ============================================
+  custom-checks:
+    name: Custom Checks (${{ matrix.app.name }})
+    needs: detect-changes
+    if: needs.detect-changes.outputs.has_changes == 'true' && inputs.enable_custom_checks
+    runs-on: ${{ inputs.runner_type }}
+    strategy:
+      fail-fast: false
+      matrix:
+        app: ${{ fromJson(needs.detect-changes.outputs.matrix) }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+
+      - name: Set up pnpm
+        if: inputs.package_manager == 'pnpm'
+        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+        with:
+          package_json_file: ${{ matrix.app.working_dir }}/package.json
+
+      - name: Setup Node.js
+        uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6
+        with:
+          node-version: ${{ inputs.node_version }}
+          cache: ${{ inputs.package_manager }}
+          cache-dependency-path: ${{ matrix.app.working_dir }}/${{ inputs.package_manager == 'yarn' && 'yarn.lock' || (inputs.package_manager == 'pnpm' && 'pnpm-lock.yaml' || 'package-lock.json') }}
+
+      - name: Install dependencies
+        working-directory: ${{ matrix.app.working_dir }}
+        env:
+          PKG_MANAGER: ${{ inputs.package_manager }}
+        run: |
+          case "$PKG_MANAGER" in
+            yarn) yarn install --frozen-lockfile ;;
+            pnpm) pnpm install --frozen-lockfile ;;
+            *) npm ci ;;
+          esac
+
+      - name: Install Playwright browsers
+        working-directory: ${{ matrix.app.working_dir }}
+        env:
+          PKG_MANAGER: ${{ inputs.package_manager }}
+        run: |
+          case "$PKG_MANAGER" in
+            yarn) yarn playwright install --with-deps chromium ;;
+            pnpm) pnpm exec playwright install --with-deps chromium ;;
+            *) npx playwright install --with-deps chromium ;;
+          esac
+
+      - name: Run custom checks
+        working-directory: ${{ matrix.app.working_dir }}
+        env:
+          PKG_MANAGER: ${{ inputs.package_manager }}
+          CUSTOM_CHECKS: ${{ inputs.custom_checks }}
+        run: |
+          set +e
+          failures=0
+          while IFS= read -r script; do
+            [ -z "$script" ] && continue
+            echo "::group::Running $script"
+            case "$PKG_MANAGER" in
+              yarn) yarn run "$script" ;;
+              pnpm) pnpm run "$script" ;;
+              *) npm run "$script" ;;
+            esac
+            status=$?
+            echo "::endgroup::"
+            if [ "$status" -ne 0 ]; then
+              echo "::error::Custom check '$script' failed (exit $status)"
+              failures=$((failures + 1))
+            fi
+          done <<< "$CUSTOM_CHECKS"
+          if [ "$failures" -gt 0 ]; then
+            echo "::error::$failures custom check(s) failed"
+            exit 1
+          fi
+
   bundle-budget:
     name: Bundle Budget (${{ matrix.app.name }})
     needs: detect-changes
@@ -865,16 +1016,21 @@ jobs:
           load: true
           build-args: ${{ inputs.docker_smoke_build_args }}
 
-      - name: Run container and poll health endpoint
+      - name: Run container
+        id: run
         env:
           IMAGE: smoke-test:${{ matrix.app.name }}
+          PORT: ${{ inputs.docker_smoke_port }}
+        run: |
+          CONTAINER_ID=$(docker run -d -p "${PORT}:${PORT}" "$IMAGE")
+          echo "container_id=$CONTAINER_ID" >> "$GITHUB_OUTPUT"
+
+      - name: Poll health endpoint
+        env:
           PORT: ${{ inputs.docker_smoke_port }}
           HEALTH_PATH: ${{ inputs.docker_smoke_health_path }}
           TIMEOUT: ${{ inputs.docker_smoke_timeout }}
         run: |
-          CONTAINER_ID=$(docker run -d -p "${PORT}:${PORT}" "$IMAGE")
-          trap 'docker logs "$CONTAINER_ID" || true; docker rm -f "$CONTAINER_ID" >/dev/null 2>&1 || true' EXIT
-
           for _ in $(seq 1 "$TIMEOUT"); do
             if curl -sf "http://localhost:${PORT}${HEALTH_PATH}" >/dev/null; then
               echo "Health check passed"
@@ -885,6 +1041,68 @@ jobs:
 
           echo "::error::Health check at ${HEALTH_PATH}:${PORT} did not pass within ${TIMEOUT}s"
           exit 1
+
+      - name: Set up pnpm
+        if: inputs.docker_smoke_test_script != '' && inputs.package_manager == 'pnpm'
+        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+        with:
+          package_json_file: ${{ matrix.app.working_dir }}/package.json
+
+      - name: Setup Node.js
+        if: inputs.docker_smoke_test_script != ''
+        uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6
+        with:
+          node-version: ${{ inputs.node_version }}
+          cache: ${{ inputs.package_manager }}
+          cache-dependency-path: ${{ matrix.app.working_dir }}/${{ inputs.package_manager == 'yarn' && 'yarn.lock' || (inputs.package_manager == 'pnpm' && 'pnpm-lock.yaml' || 'package-lock.json') }}
+
+      - name: Install dependencies
+        if: inputs.docker_smoke_test_script != ''
+        working-directory: ${{ matrix.app.working_dir }}
+        env:
+          PKG_MANAGER: ${{ inputs.package_manager }}
+        run: |
+          case "$PKG_MANAGER" in
+            yarn) yarn install --frozen-lockfile ;;
+            pnpm) pnpm install --frozen-lockfile ;;
+            *) npm ci ;;
+          esac
+
+      - name: Install Playwright browsers
+        if: inputs.docker_smoke_test_script != ''
+        working-directory: ${{ matrix.app.working_dir }}
+        env:
+          PKG_MANAGER: ${{ inputs.package_manager }}
+        run: |
+          case "$PKG_MANAGER" in
+            yarn) yarn playwright install --with-deps chromium ;;
+            pnpm) pnpm exec playwright install --with-deps chromium ;;
+            *) npx playwright install --with-deps chromium ;;
+          esac
+
+      - name: Run test script against container
+        if: inputs.docker_smoke_test_script != ''
+        working-directory: ${{ matrix.app.working_dir }}
+        env:
+          PKG_MANAGER: ${{ inputs.package_manager }}
+          TEST_SCRIPT: ${{ inputs.docker_smoke_test_script }}
+          PLAYWRIGHT_BASE_URL: http://localhost:${{ inputs.docker_smoke_port }}
+          PLAYWRIGHT_SKIP_WEB_SERVER: 'true'
+        run: |
+          case "$PKG_MANAGER" in
+            yarn) yarn run "$TEST_SCRIPT" ;;
+            pnpm) pnpm run "$TEST_SCRIPT" ;;
+            *) npm run "$TEST_SCRIPT" ;;
+          esac
+
+      - name: Container logs and cleanup
+        if: always()
+        env:
+          CONTAINER_ID: ${{ steps.run.outputs.container_id }}
+        run: |
+          [ -n "$CONTAINER_ID" ] || exit 0
+          docker logs "$CONTAINER_ID" || true
+          docker rm -f "$CONTAINER_ID" >/dev/null 2>&1 || true
 
   # ============================================
   # NO CHANGES DETECTED
@@ -905,12 +1123,12 @@ jobs:
   # ============================================
   notify:
     name: Notify
-    needs: [detect-changes, lint, typecheck, security, tests, build, i18n-check, bundle-budget, performance-budget, visual-regression, docker-smoke]
+    needs: [detect-changes, lint, typecheck, security, tests, build, i18n-check, bundle-budget, performance-budget, visual-regression, docker-smoke, accessibility, custom-checks]
     if: always() && needs.detect-changes.outputs.has_changes == 'true'
     uses: ./.github/workflows/slack-notify.yml
     with:
-      status: ${{ (needs.lint.result == 'failure' || needs.typecheck.result == 'failure' || needs.security.result == 'failure' || needs.tests.result == 'failure' || needs.build.result == 'failure' || needs.i18n-check.result == 'failure' || needs.bundle-budget.result == 'failure' || needs.performance-budget.result == 'failure' || needs.visual-regression.result == 'failure' || needs.docker-smoke.result == 'failure') && 'failure' || 'success' }}
+      status: ${{ (needs.lint.result == 'failure' || needs.typecheck.result == 'failure' || needs.security.result == 'failure' || needs.tests.result == 'failure' || needs.build.result == 'failure' || needs.i18n-check.result == 'failure' || needs.bundle-budget.result == 'failure' || needs.performance-budget.result == 'failure' || needs.visual-regression.result == 'failure' || needs.docker-smoke.result == 'failure' || needs.accessibility.result == 'failure' || needs.custom-checks.result == 'failure') && 'failure' || 'success' }}
       workflow_name: "Frontend PR Analysis"
-      failed_jobs: ${{ needs.lint.result == 'failure' && 'Lint, ' || '' }}${{ needs.typecheck.result == 'failure' && 'TypeCheck, ' || '' }}${{ needs.security.result == 'failure' && 'Security, ' || '' }}${{ needs.tests.result == 'failure' && 'Tests, ' || '' }}${{ needs.build.result == 'failure' && 'Build, ' || '' }}${{ needs.i18n-check.result == 'failure' && 'i18n Check, ' || '' }}${{ needs.bundle-budget.result == 'failure' && 'Bundle Budget, ' || '' }}${{ needs.performance-budget.result == 'failure' && 'Performance Budget, ' || '' }}${{ needs.visual-regression.result == 'failure' && 'Visual Regression, ' || '' }}${{ needs.docker-smoke.result == 'failure' && 'Docker Smoke Test' || '' }}
+      failed_jobs: ${{ needs.lint.result == 'failure' && 'Lint, ' || '' }}${{ needs.typecheck.result == 'failure' && 'TypeCheck, ' || '' }}${{ needs.security.result == 'failure' && 'Security, ' || '' }}${{ needs.tests.result == 'failure' && 'Tests, ' || '' }}${{ needs.build.result == 'failure' && 'Build, ' || '' }}${{ needs.i18n-check.result == 'failure' && 'i18n Check, ' || '' }}${{ needs.bundle-budget.result == 'failure' && 'Bundle Budget, ' || '' }}${{ needs.performance-budget.result == 'failure' && 'Performance Budget, ' || '' }}${{ needs.visual-regression.result == 'failure' && 'Visual Regression, ' || '' }}${{ needs.docker-smoke.result == 'failure' && 'Docker Smoke Test, ' || '' }}${{ needs.accessibility.result == 'failure' && 'Accessibility, ' || '' }}${{ needs.custom-checks.result == 'failure' && 'Custom Checks' || '' }}
     secrets:
       SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}

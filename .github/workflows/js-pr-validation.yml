@@ -205,6 +205,26 @@ on:
         description: 'Seconds to wait for the health check to succeed before failing the smoke test'
         type: number
         default: 60
+      docker_smoke_test_script:
+        description: 'npm script run against the running container after the health check passes (PLAYWRIGHT_BASE_URL/PLAYWRIGHT_SKIP_WEB_SERVER are injected). Empty = skip (default).'
+        type: string
+        default: ''
+      enable_accessibility:
+        description: 'Enable an accessibility check (runs accessibility_script)'
+        type: boolean
+        default: false
+      accessibility_script:
+        description: 'npm script name that runs accessibility tests'
+        type: string
+        default: 'test:a11y'
+      enable_custom_checks:
+        description: 'Enable arbitrary caller-owned checks beyond the named gates above (runs each script in custom_checks)'
+        type: boolean
+        default: false
+      custom_checks:
+        description: 'Newline-separated npm script names to run as additional checks'
+        type: string
+        default: ''
 
       # ----------------- Security (pr-security-scan.yml) -----------------
       prerelease_block_branches:
@@ -324,6 +344,11 @@ jobs:
       docker_smoke_port: ${{ inputs.docker_smoke_port }}
       docker_smoke_health_path: ${{ inputs.docker_smoke_health_path }}
       docker_smoke_timeout: ${{ inputs.docker_smoke_timeout }}
+      docker_smoke_test_script: ${{ inputs.docker_smoke_test_script }}
+      enable_accessibility: ${{ inputs.enable_accessibility }}
+      accessibility_script: ${{ inputs.accessibility_script }}
+      enable_custom_checks: ${{ inputs.enable_custom_checks }}
+      custom_checks: ${{ inputs.custom_checks }}
     secrets: inherit
 
   frontend-analysis-gate:
