@@ -67,6 +67,10 @@ on:
         description: 'Override app/image name. Used by the build (single-app mode) and as the gitops-update deploy name; when empty the gitops deploy name falls back to app_name_prefix, then the repository name.'
         type: string
         default: ''
+      tag_prefix:
+        description: 'Restrict the primary release/build jobs to tags starting with this prefix (e.g. "v"). Use when the repository also pushes tags for an unrelated component (e.g. via an extra_builds group with its own tag_prefix) so the primary jobs do not react to that component''s tags. Empty = react to every tag, preserving current behavior.'
+        type: string
+        default: ''
       docker_build_args:
         description: 'Newline-separated Docker build arguments (e.g., "APP_NAME=spi"). Use BuildKit secrets for sensitive values.'
         type: string
@@ -112,7 +116,7 @@ on:
         type: string
         default: ''
       extra_builds:
-        description: 'JSON array of additional build groups, each forwarded to build.yml with its own config (filter_paths, path_level, normalize_to_filter, app_name_overrides, build_context_from_working_dir, helm_*). Runs alongside the primary build on tag push; all groups feed the single gitops-update. Empty = one build only (default).'
+        description: 'JSON array of additional build groups, each forwarded to build.yml with its own config (filter_paths, path_level, normalize_to_filter, app_name_overrides, build_context_from_working_dir, helm_*, tag_prefix). Runs alongside the primary build on tag push; all groups feed the single gitops-update. A group with tag_prefix set only builds when the triggering tag starts with that prefix (e.g. a component with its own independent semver and tag scheme); omit tag_prefix to build on every tag push, as before. Empty = one build only (default).'
         type: string
         default: ''
       force_full_matrix:
@@ -316,6 +320,7 @@ jobs:
       !cancelled() &&
       (
         (github.ref_type == 'tag' &&
+          (inputs.tag_prefix == '' || startsWith(github.ref_name, inputs.tag_prefix)) &&
           (!inputs.build_on_release || contains(github.ref, '-beta.') || contains(github.ref, '-rc.'))) ||
         (inputs.build_on_release && github.ref_type == 'branch' &&
           needs.release.result == 'success' &&
@@ -492,6 +497,7 @@ jobs:
     if: >-
       !cancelled() &&
       inputs.extra_builds != '' && inputs.extra_builds != '[]' &&
+      (matrix.group.tag_prefix == '' || matrix.group.tag_prefix == null || startsWith(github.ref_name, matrix.group.tag_prefix)) &&
       (
         (github.ref_type == 'tag' &&
           (!inputs.build_on_release || contains(github.ref, '-beta.') || contains(github.ref, '-rc.'))) ||

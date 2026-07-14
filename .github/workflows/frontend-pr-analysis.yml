@@ -99,6 +99,54 @@ on:
         description: 'Fail the workflow if any i18n check reports violations. Set false to surface as warning only during rollout.'
         type: boolean
         default: true
+      enable_bundle_budget:
+        description: 'Enable a bundle-size budget check (runs bundle_budget_script)'
+        type: boolean
+        default: false
+      bundle_budget_script:
+        description: 'npm script name that enforces the bundle-size budget (should exit non-zero on violation)'
+        type: string
+        default: 'check:bundle-budget'
+      enable_performance_budget:
+        description: 'Enable a performance budget check, e.g. Lighthouse/Core Web Vitals (runs performance_budget_script)'
+        type: boolean
+        default: false
+      performance_budget_script:
+        description: 'npm script name that enforces the performance budget (should exit non-zero on violation)'
+        type: string
+        default: 'check:performance'
+      enable_visual_regression:
+        description: 'Enable visual regression testing (runs visual_regression_script)'
+        type: boolean
+        default: false
+      visual_regression_script:
+        description: 'npm script name that runs visual regression tests (should exit non-zero on a diff/violation)'
+        type: string
+        default: 'test:visual'
+      enable_docker_smoke:
+        description: 'Enable a Docker image smoke test: build the image, run it, and poll a health endpoint'
+        type: boolean
+        default: false
+      docker_smoke_dockerfile_path:
+        description: 'Path to the Dockerfile to build for the smoke test. Empty = "<working_dir>/Dockerfile" ("./Dockerfile" for single-app repos).'
+        type: string
+        default: ''
+      docker_smoke_build_args:
+        description: 'Newline-separated Docker build arguments for the smoke-test image (e.g. "KEY=value")'
+        type: string
+        default: ''
+      docker_smoke_port:
+        description: 'Container port to publish and probe for the smoke test'
+        type: number
+        default: 3000
+      docker_smoke_health_path:
+        description: 'HTTP path polled on the running container to confirm it started successfully'
+        type: string
+        default: '/health'
+      docker_smoke_timeout:
+        description: 'Seconds to wait for the health check to succeed before failing the smoke test'
+        type: number
+        default: 60
 
 permissions:
   contents: read
@@ -550,6 +598,213 @@ jobs:
           exit 1
 
   # ============================================
+  # BUNDLE BUDGET
+  # ============================================
+  bundle-budget:
+    name: Bundle Budget (${{ matrix.app.name }})
+    needs: detect-changes
+    if: needs.detect-changes.outputs.has_changes == 'true' && inputs.enable_bundle_budget
+    runs-on: ${{ inputs.runner_type }}
+    strategy:
+      fail-fast: false
+      matrix:
+        app: ${{ fromJson(needs.detect-changes.outputs.matrix) }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6
+        with:
+          node-version: ${{ inputs.node_version }}
+          cache: ${{ inputs.package_manager }}
+          cache-dependency-path: ${{ matrix.app.working_dir }}/package-lock.json
+
+      - name: Install dependencies
+        working-directory: ${{ matrix.app.working_dir }}
+        run: |
+          case "${{ inputs.package_manager }}" in
+            yarn) yarn install --frozen-lockfile ;;
+            pnpm) pnpm install --frozen-lockfile ;;
+            *) npm ci ;;
+          esac
+
+      - name: Check bundle budget
+        working-directory: ${{ matrix.app.working_dir }}
+        env:
+          PKG_MANAGER: ${{ inputs.package_manager }}
+          BUNDLE_BUDGET_SCRIPT: ${{ inputs.bundle_budget_script }}
+        run: |
+          case "$PKG_MANAGER" in
+            yarn) yarn run "$BUNDLE_BUDGET_SCRIPT" ;;
+            pnpm) pnpm run "$BUNDLE_BUDGET_SCRIPT" ;;
+            *) npm run "$BUNDLE_BUDGET_SCRIPT" ;;
+          esac
+
+  # ============================================
+  # PERFORMANCE BUDGET
+  # ============================================
+  performance-budget:
+    name: Performance Budget (${{ matrix.app.name }})
+    needs: detect-changes
+    if: needs.detect-changes.outputs.has_changes == 'true' && inputs.enable_performance_budget
+    runs-on: ${{ inputs.runner_type }}
+    strategy:
+      fail-fast: false
+      matrix:
+        app: ${{ fromJson(needs.detect-changes.outputs.matrix) }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6
+        with:
+          node-version: ${{ inputs.node_version }}
+          cache: ${{ inputs.package_manager }}
+          cache-dependency-path: ${{ matrix.app.working_dir }}/package-lock.json
+
+      - name: Install dependencies
+        working-directory: ${{ matrix.app.working_dir }}
+        run: |
+          case "${{ inputs.package_manager }}" in
+            yarn) yarn install --frozen-lockfile ;;
+            pnpm) pnpm install --frozen-lockfile ;;
+            *) npm ci ;;
+          esac
+
+      - name: Check performance budget
+        working-directory: ${{ matrix.app.working_dir }}
+        env:
+          PKG_MANAGER: ${{ inputs.package_manager }}
+          PERFORMANCE_BUDGET_SCRIPT: ${{ inputs.performance_budget_script }}
+        run: |
+          case "$PKG_MANAGER" in
+            yarn) yarn run "$PERFORMANCE_BUDGET_SCRIPT" ;;
+            pnpm) pnpm run "$PERFORMANCE_BUDGET_SCRIPT" ;;
+            *) npm run "$PERFORMANCE_BUDGET_SCRIPT" ;;
+          esac
+
+  # ============================================
+  # VISUAL REGRESSION
+  # ============================================
+  visual-regression:
+    name: Visual Regression (${{ matrix.app.name }})
+    needs: detect-changes
+    if: needs.detect-changes.outputs.has_changes == 'true' && inputs.enable_visual_regression
+    runs-on: ${{ inputs.runner_type }}
+    strategy:
+      fail-fast: false
+      matrix:
+        app: ${{ fromJson(needs.detect-changes.outputs.matrix) }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6
+        with:
+          node-version: ${{ inputs.node_version }}
+          cache: ${{ inputs.package_manager }}
+          cache-dependency-path: ${{ matrix.app.working_dir }}/package-lock.json
+
+      - name: Install dependencies
+        working-directory: ${{ matrix.app.working_dir }}
+        run: |
+          case "${{ inputs.package_manager }}" in
+            yarn) yarn install --frozen-lockfile ;;
+            pnpm) pnpm install --frozen-lockfile ;;
+            *) npm ci ;;
+          esac
+
+      - name: Run visual regression tests
+        working-directory: ${{ matrix.app.working_dir }}
+        env:
+          PKG_MANAGER: ${{ inputs.package_manager }}
+          VISUAL_REGRESSION_SCRIPT: ${{ inputs.visual_regression_script }}
+        run: |
+          case "$PKG_MANAGER" in
+            yarn) yarn run "$VISUAL_REGRESSION_SCRIPT" ;;
+            pnpm) pnpm run "$VISUAL_REGRESSION_SCRIPT" ;;
+            *) npm run "$VISUAL_REGRESSION_SCRIPT" ;;
+          esac
+
+      - name: Upload visual regression report
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: visual-regression-report-${{ matrix.app.name }}
+          path: |
+            ${{ matrix.app.working_dir }}/playwright-report/
+            ${{ matrix.app.working_dir }}/test-results/
+          retention-days: 7
+          if-no-files-found: ignore
+
+  # ============================================
+  # DOCKER SMOKE TEST
+  # ============================================
+  docker-smoke:
+    name: Docker Smoke Test (${{ matrix.app.name }})
+    needs: detect-changes
+    if: needs.detect-changes.outputs.has_changes == 'true' && inputs.enable_docker_smoke
+    runs-on: ${{ inputs.runner_type }}
+    strategy:
+      fail-fast: false
+      matrix:
+        app: ${{ fromJson(needs.detect-changes.outputs.matrix) }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+
+      - name: Resolve Dockerfile path
+        id: dockerfile
+        env:
+          WORKING_DIR: ${{ matrix.app.working_dir }}
+          DOCKERFILE_PATH: ${{ inputs.docker_smoke_dockerfile_path }}
+        run: |
+          if [ -n "$DOCKERFILE_PATH" ]; then
+            echo "path=$DOCKERFILE_PATH" >> "$GITHUB_OUTPUT"
+          elif [ "$WORKING_DIR" == "." ]; then
+            echo "path=./Dockerfile" >> "$GITHUB_OUTPUT"
+          else
+            echo "path=${WORKING_DIR}/Dockerfile" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4
+
+      - name: Build smoke-test image
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
+        with:
+          context: ${{ matrix.app.working_dir }}
+          file: ${{ steps.dockerfile.outputs.path }}
+          tags: smoke-test:${{ matrix.app.name }}
+          push: false
+          load: true
+          build-args: ${{ inputs.docker_smoke_build_args }}
+
+      - name: Run container and poll health endpoint
+        env:
+          IMAGE: smoke-test:${{ matrix.app.name }}
+          PORT: ${{ inputs.docker_smoke_port }}
+          HEALTH_PATH: ${{ inputs.docker_smoke_health_path }}
+          TIMEOUT: ${{ inputs.docker_smoke_timeout }}
+        run: |
+          CONTAINER_ID=$(docker run -d -p "${PORT}:${PORT}" "$IMAGE")
+          trap 'docker logs "$CONTAINER_ID" || true; docker rm -f "$CONTAINER_ID" >/dev/null 2>&1 || true' EXIT
+
+          for _ in $(seq 1 "$TIMEOUT"); do
+            if curl -sf "http://localhost:${PORT}${HEALTH_PATH}" >/dev/null; then
+              echo "Health check passed"
+              exit 0
+            fi
+            sleep 1
+          done
+
+          echo "::error::Health check at ${HEALTH_PATH}:${PORT} did not pass within ${TIMEOUT}s"
+          exit 1
+
+  # ============================================
   # NO CHANGES DETECTED
   # ============================================
   no-changes:
@@ -568,12 +823,12 @@ jobs:
   # ============================================
   notify:
     name: Notify
-    needs: [detect-changes, lint, typecheck, security, tests, build, i18n-check]
+    needs: [detect-changes, lint, typecheck, security, tests, build, i18n-check, bundle-budget, performance-budget, visual-regression, docker-smoke]
     if: always() && needs.detect-changes.outputs.has_changes == 'true'
     uses: ./.github/workflows/slack-notify.yml
     with:
-      status: ${{ (needs.lint.result == 'failure' || needs.typecheck.result == 'failure' || needs.security.result == 'failure' || needs.tests.result == 'failure' || needs.build.result == 'failure' || needs.i18n-check.result == 'failure') && 'failure' || 'success' }}
+      status: ${{ (needs.lint.result == 'failure' || needs.typecheck.result == 'failure' || needs.security.result == 'failure' || needs.tests.result == 'failure' || needs.build.result == 'failure' || needs.i18n-check.result == 'failure' || needs.bundle-budget.result == 'failure' || needs.performance-budget.result == 'failure' || needs.visual-regression.result == 'failure' || needs.docker-smoke.result == 'failure') && 'failure' || 'success' }}
       workflow_name: "Frontend PR Analysis"
-      failed_jobs: ${{ needs.lint.result == 'failure' && 'Lint, ' || '' }}${{ needs.typecheck.result == 'failure' && 'TypeCheck, ' || '' }}${{ needs.security.result == 'failure' && 'Security, ' || '' }}${{ needs.tests.result == 'failure' && 'Tests, ' || '' }}${{ needs.build.result == 'failure' && 'Build, ' || '' }}${{ needs.i18n-check.result == 'failure' && 'i18n Check' || '' }}
+      failed_jobs: ${{ needs.lint.result == 'failure' && 'Lint, ' || '' }}${{ needs.typecheck.result == 'failure' && 'TypeCheck, ' || '' }}${{ needs.security.result == 'failure' && 'Security, ' || '' }}${{ needs.tests.result == 'failure' && 'Tests, ' || '' }}${{ needs.build.result == 'failure' && 'Build, ' || '' }}${{ needs.i18n-check.result == 'failure' && 'i18n Check, ' || '' }}${{ needs.bundle-budget.result == 'failure' && 'Bundle Budget, ' || '' }}${{ needs.performance-budget.result == 'failure' && 'Performance Budget, ' || '' }}${{ needs.visual-regression.result == 'failure' && 'Visual Regression, ' || '' }}${{ needs.docker-smoke.result == 'failure' && 'Docker Smoke Test' || '' }}
     secrets:
       SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
