@@ -90,7 +90,7 @@ apps:
     - backoffice-console
     - cs-platform
     - forge
-    - gestao-acessos-console
+    - severino
     - lerian-map
     - tenant-manager
 
@@ -145,7 +145,7 @@ clusters:
       backoffice-console: cross
       cs-platform: cross
       forge: cross
-      gestao-acessos-console: cross
+      severino: cross
       lerian-map: cross
       rosiehr: cross
       tenant-manager: cross
@@ -171,7 +171,7 @@ clusters:
       - backoffice-console
       - cs-platform
       - forge
-      - gestao-acessos-console
+      - severino
       - lerian-map
       - tenant-manager
       - notifications
