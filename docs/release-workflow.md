@@ -104,6 +104,12 @@ jobs:
 | `lerian_ci_cd_user_name` | Git committer name |
 | `lerian_ci_cd_user_email` | Git committer email |
 
+### Optional Secrets
+
+| Secret | Description |
+|--------|-------------|
+| `NPM_TOKEN` | npm registry auth token, forwarded to the `Semantic Release` step. Only needed when the caller's own `.releaserc` includes `@semantic-release/npm` (a package with independent semver that publishes to an npm registry). Omit for repos that do not publish to npm. |
+
 ## Outputs
 
 | Output | Description |

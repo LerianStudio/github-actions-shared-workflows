@@ -104,6 +104,15 @@ on:
         description: 'Fail the workflow if coverage is below threshold'
         type: boolean
         default: false
+      filter_paths:
+        description: 'JSON array of paths to monitor for changes (e.g., ["apps/web", "apps/console"]), passed through to frontend-pr-analysis.yml. If empty, treats repo as single-app and runs against root directory. Not passed to the security scan (pr-security-scan.yml uses a different, newline-separated format for its own filter_paths) — call it directly for path-scoped security scans.'
+        type: string
+        required: false
+        default: ''
+      path_level:
+        description: 'Directory depth level to extract app name, passed through to frontend-pr-analysis.yml.'
+        type: number
+        default: 2
       app_name_prefix:
         description: 'Prefix used to namespace coverage/build artifacts'
         type: string
@@ -242,6 +251,8 @@ jobs:
       audit_level: ${{ inputs.audit_level }}
       coverage_threshold: ${{ inputs.coverage_threshold }}
       fail_on_coverage_threshold: ${{ inputs.fail_on_coverage_threshold }}
+      filter_paths: ${{ inputs.filter_paths }}
+      path_level: ${{ inputs.path_level }}
       app_name_prefix: ${{ inputs.app_name_prefix }}
       enable_lint: ${{ inputs.enable_lint }}
       enable_typecheck: ${{ inputs.enable_typecheck }}
