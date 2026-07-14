@@ -139,6 +139,7 @@ update_gitops:
 | `kustomize_environments` | string | - | Optional space-separated env list overriding the default tag-based env loop when `gitops_layout=kustomize`. Leave empty for layouts without env split |
 | `kustomize_version` | string | `v5.4.3` | Version of kustomize CLI to install (only when `gitops_layout=kustomize`) |
 | `argocd_app_name_template` | string | `{server}-{app}-{env}` | Template for the ArgoCD application name. Supports `{server}`, `{app}`, `{env}`. For kustomize layouts without env split, use e.g. `{server}-{app}` |
+| `argocd_sync_timeout` | number | `600` | Timeout in seconds for `argocd app wait` after sync. Increase for larger applications or clusters under load. |
 | `beta_environments` | string | `dev` | Space-separated environments updated by a beta release (`develop` branch) |
 | `rc_environments` | string | `stg` | Space-separated environments updated by an rc release (`release-candidate` branch) |
 | `stable_environments` | string | `prd` | Space-separated environments updated by a stable release (`main` branch). Default `prd` so a hotfix does not overwrite features still in dev/stg. Set to `dev stg prd` to refresh lower environments too. Sandbox is controlled separately by `update_sandbox` |
@@ -414,7 +415,9 @@ The workflow uses a matrix strategy for ArgoCD sync:
 
 ### Sync Command Behavior
 
-The `argocd app sync` call uses `--async --timeout 180`, dispatching the sync without blocking on completion. A subsequent `argocd app wait --timeout 180` confirms the rollout. On failure, the step retries up to 5 times with a 30s interval between attempts.
+The `argocd app sync` call uses `--async --timeout 180`, dispatching the sync without blocking on completion. On failure, the sync step retries up to 5 times with a 30s interval between attempts.
+
+A subsequent `argocd app wait --timeout` (configurable via `argocd_sync_timeout`, default `600`) confirms the rollout. On failure, the wait step retries up to 3 times with exponential backoff (30s, then 60s between attempts).
 
 When `argocd_prune` is `true`, `--prune` is appended so orphaned resources left behind by previous renames/removals are cleaned up automatically. Keep this disabled by default in production and enable per-caller when you knowingly need cleanup.
 
