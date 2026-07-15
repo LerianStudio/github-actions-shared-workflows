@@ -636,6 +636,15 @@ jobs:
     # build/extra_build run on a branch push, and this job needs to run there
     # too, not just on the tag push (which may never arrive — see
     # build_on_release_include_prerelease).
+    #
+    # Ungoliant only cares that the anacleto (chaos/fuzzing) environments it
+    # actually targets deployed cleanly — a sync failure on an unrelated
+    # server (e.g. benedita) shouldn't block it. needs.update_gitops.result
+    # rolls up EVERY argocd_sync target into one pass/fail, so it can't tell
+    # the two apart; gitops-update.yml's anacleto_sync_ok output can (see its
+    # aggregate_sync_status job). Still require update_gitops.result to not
+    # be a hard failure/cancellation UNLESS anacleto specifically came out ok
+    # despite that (i.e. the only failure was a non-anacleto sync target).
     if: >-
       !cancelled()
       && (
@@ -645,8 +654,11 @@ jobs:
       && inputs.enable_ungoliant_release_diff
       && inputs.enable_gitops_update
       && needs.build.outputs.has_builds == 'true'
-      && needs.update_gitops.result != 'failure'
       && needs.update_gitops.result != 'cancelled'
+      && (
+        needs.update_gitops.result != 'failure' ||
+        needs.update_gitops.outputs.anacleto_sync_ok == 'true'
+      )
     runs-on: ${{ vars.UNGOLIANT_RUNNERS || inputs.ungoliant_runner_type }}
     permissions:
       contents: read

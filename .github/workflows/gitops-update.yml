@@ -112,6 +112,10 @@ on:
         description: 'Space-separated environments updated by a stable release (main branch). Default "prd" so a hotfix does not overwrite features still in dev/stg. Set to "dev stg prd" to refresh lower environments too. Sandbox is controlled separately by update_sandbox.'
         type: string
         default: 'prd'
+    outputs:
+      anacleto_sync_ok:
+        description: 'true if every argocd_sync target with server=="anacleto" synced successfully (or none ran), false if any anacleto target failed. Ignores non-anacleto targets (e.g. benedita) entirely — use to gate steps that only care about the anacleto/chaos-fuzzing environments without being blocked by an unrelated server failure.'
+        value: ${{ jobs.aggregate_sync_status.outputs.anacleto_sync_ok }}
 
 jobs:
   update_gitops:
@@ -934,6 +938,7 @@ jobs:
           echo "Resolved ArgoCD app name: $NAME"
 
       - name: Sync ArgoCD application
+        id: sync
         shell: bash
         env:
           ARGOCD_URL: ${{ vars.ARGOCD_URL }}
@@ -989,6 +994,87 @@ jobs:
             wait_delay=$((wait_delay * 2))
           done
           echo "::endgroup::"
+
+      # Per-leg sync result, uploaded so a downstream job can compute a
+      # per-server status (e.g. "did every anacleto target sync ok") — a
+      # matrix job's own needs.<job>.outputs only ever surfaces one arbitrary
+      # leg's value to the caller, never all of them, so this can't be a
+      # plain job output.
+      - name: Record sync result
+        if: always()
+        shell: bash
+        env:
+          SERVER: ${{ matrix.target.server }}
+          ENV_NAME: ${{ matrix.target.env }}
+          OUTCOME: ${{ steps.sync.outcome }}
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/argocd-sync-result
+          echo "$OUTCOME" > "/tmp/argocd-sync-result/result.txt"
+          echo "$SERVER" > "/tmp/argocd-sync-result/server.txt"
+
+      - name: Upload sync result artifact
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v5
+        with:
+          name: argocd-sync-result-${{ matrix.target.server }}-${{ matrix.target.env }}
+          path: /tmp/argocd-sync-result/
+          retention-days: 1
+
+  # Aggregate per-target sync results (server=anacleto only) into a single
+  # pass/fail output, so callers like ungoliant_release_diff can gate on
+  # "anacleto synced ok" without being blocked by an unrelated server's
+  # (e.g. benedita) sync failure.
+  aggregate_sync_status:
+    name: Aggregate ArgoCD Sync Status
+    needs: [update_gitops, argocd_sync]
+    if: always()
+    runs-on: ${{ vars.GITOPS_RUNNERS || 'blacksmith-4vcpu-ubuntu-2404' }}
+    outputs:
+      anacleto_sync_ok: ${{ steps.aggregate.outputs.anacleto_sync_ok }}
+    steps:
+      - name: Download all sync result artifacts
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          pattern: argocd-sync-result-anacleto-*
+          path: .sync-results
+          merge-multiple: false
+          if-no-artifact-found: ignore
+
+      - name: Aggregate anacleto sync results
+        id: aggregate
+        shell: bash
+        env:
+          UPDATE_GITOPS_RESULT: ${{ needs.update_gitops.result }}
+        run: |
+          set -euo pipefail
+
+          if [ ! -d .sync-results ]; then
+            if [ "$UPDATE_GITOPS_RESULT" == "failure" ] || [ "$UPDATE_GITOPS_RESULT" == "cancelled" ]; then
+              echo "No anacleto sync artifacts, and the update_gitops config job itself $UPDATE_GITOPS_RESULT — treating as not ok (nothing legitimately skipped this)."
+              echo "anacleto_sync_ok=false" >> "$GITHUB_OUTPUT"
+            else
+              echo "No anacleto sync targets ran — nothing to aggregate, treating as ok."
+              echo "anacleto_sync_ok=true" >> "$GITHUB_OUTPUT"
+            fi
+            exit 0
+          fi
+
+          OK=true
+          for dir in .sync-results/*/; do
+            [ -d "$dir" ] || continue
+            result_file="${dir}result.txt"
+            server_file="${dir}server.txt"
+            [ -f "$result_file" ] || continue
+            outcome=$(cat "$result_file")
+            server=$(cat "$server_file" 2>/dev/null || echo "unknown")
+            echo "  $dir -> server=$server outcome=$outcome"
+            if [ "$outcome" != "success" ]; then
+              OK=false
+            fi
+          done
+
+          echo "anacleto_sync_ok=$OK" >> "$GITHUB_OUTPUT"
 
   # Slack notification
   notify:
