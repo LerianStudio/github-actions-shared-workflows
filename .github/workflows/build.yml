@@ -211,11 +211,19 @@ jobs:
           REF_TYPE: ${{ github.ref_type }}
           REF_NAME: ${{ github.ref_name }}
         run: |
-          if [ -n "$TAG_PREFIX" ] && [ "$REF_TYPE" == "tag" ] && [[ "$REF_NAME" != "$TAG_PREFIX"* ]]; then
-            echo "matrix=[]" >> "$GITHUB_OUTPUT"
-            echo "has_builds=false" >> "$GITHUB_OUTPUT"
-            echo "Skipping: ref '$REF_NAME' does not match tag_prefix '$TAG_PREFIX'"
-            exit 0
+          if [ -n "$TAG_PREFIX" ]; then
+            if [ "$REF_TYPE" != "tag" ]; then
+              echo "matrix=[]" >> "$GITHUB_OUTPUT"
+              echo "has_builds=false" >> "$GITHUB_OUTPUT"
+              echo "Skipping: tag_prefix '$TAG_PREFIX' is set, but this run is not a tag push (ref_type=$REF_TYPE) — a tag_prefix-scoped build only runs on its own matching tag, never on a branch-push rescue (build_on_release)."
+              exit 0
+            fi
+            if [[ "$REF_NAME" != "$TAG_PREFIX"* ]]; then
+              echo "matrix=[]" >> "$GITHUB_OUTPUT"
+              echo "has_builds=false" >> "$GITHUB_OUTPUT"
+              echo "Skipping: ref '$REF_NAME' does not match tag_prefix '$TAG_PREFIX'"
+              exit 0
+            fi
           fi
 
           if [ -z "$FILTER_PATHS" ]; then
