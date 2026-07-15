@@ -627,14 +627,21 @@ jobs:
   # candidate, stable<-main) per .releaserc conventions.
   ungoliant_release_diff:
     name: Ungoliant Release Diff
-    needs: [build, update_gitops]
+    needs: [release, build, update_gitops]
     # Gate on build's has_builds output (which propagates reliably and proves a
     # real deploy happened) rather than needs.update_gitops.result == 'success':
     # update_gitops wraps a reusable workflow with a dynamic matrix, and its
     # caller result does not reliably surface as 'success' to dependents.
+    # Also mirrors update_gitops' branch-rescue allowance: build_on_release lets
+    # build/extra_build run on a branch push, and this job needs to run there
+    # too, not just on the tag push (which may never arrive — see
+    # build_on_release_include_prerelease).
     if: >-
       !cancelled()
-      && github.ref_type == 'tag'
+      && (
+        github.ref_type == 'tag' ||
+        (inputs.build_on_release && github.ref_type == 'branch')
+      )
       && inputs.enable_ungoliant_release_diff
       && inputs.enable_gitops_update
       && needs.build.outputs.has_builds == 'true'
@@ -646,20 +653,29 @@ jobs:
       pull-requests: write
       issues: write
     steps:
-      - name: Resolve release channel and base env
+      - name: Resolve release tag, channel and base env
         id: target
         env:
+          REF_TYPE: ${{ github.ref_type }}
           REF_NAME: ${{ github.ref_name }}
+          RELEASE_GIT_TAG: ${{ needs.release.outputs.new_release_git_tag }}
         run: |
           set -euo pipefail
-          if [[ "$REF_NAME" == *-beta.* ]]; then
+
+          TAG="$REF_NAME"
+          if [[ "$REF_TYPE" == "branch" ]]; then
+            TAG="$RELEASE_GIT_TAG"
+          fi
+
+          if [[ "$TAG" == *-beta.* ]]; then
             RELEASE_ENV="beta"; BASE_ENV="dev"
-          elif [[ "$REF_NAME" == *-rc.* ]]; then
+          elif [[ "$TAG" == *-rc.* ]]; then
             RELEASE_ENV="rc"; BASE_ENV="stg"
           else
             RELEASE_ENV="stable"; BASE_ENV="prd"
           fi
           {
+            echo "tag=$TAG"
             echo "release_env=$RELEASE_ENV"
             echo "base_env=$BASE_ENV"
           } >> "$GITHUB_OUTPUT"
@@ -668,7 +684,7 @@ jobs:
         uses: LerianStudio/github-actions-shared-workflows/src/validate/ungoliant-release-diff@v1
         with:
           app: ${{ inputs.ungoliant_app || inputs.app_name || inputs.app_name_prefix || github.event.repository.name }}
-          version: ${{ github.ref_name }}
+          version: ${{ steps.target.outputs.tag }}
           env: ${{ steps.target.outputs.release_env }}
           env-type: ${{ inputs.ungoliant_env_type }}
           tenancy: ${{ inputs.ungoliant_tenancy }}
