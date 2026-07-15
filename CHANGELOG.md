@@ -1,5 +1,27 @@
 # Github-actions-shared-workflows Changelog
 
+## [1.46.2](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.46.2)
+
+Features:
+- Added npm publish support and configured JavaScript project validation paths for monorepos. (@bedatty)
+
+Fixes:
+- Corrected the release process to ensure the transition from `develop` to `main`. (@bedatty)
+- Forwarded `dockerfile_name` and `extra_builds` parameters for stable releases in the Go release workflow. (@fredcamaral)
+- Enabled fetching of git notes to allow `semantic-release` to promote prereleases to stable versions. (@bedatty)
+- Implemented sorting of tags using `versionsort.suffix` to prioritize stable releases over prereleases. (@bedatty)
+- Made the ArgoCD application wait timeout configurable with retry backoff in the GitOps update process. (@bedatty)
+- Increased the default `curl-timeout` from 300 seconds to 900 seconds in the Ungoliant workflow. (@bedatty)
+
+Improvements:
+- Renamed the matrix entry from `gestao-acessos-console` to `severino`. (@prymax10)
+- Clarified the wording regarding retry attempts in the GitOps update documentation. (@bedatty)
+- Documented the `curl-timeout` lockstep requirement in the Ungoliant README. (@bedatty)
+
+[Compare changes](https://github.com/LerianStudio/github-actions-shared-workflows/compare/v1.46.1...v1.46.2)
+
+---
+
 ## [1.46.1](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.46.1)
 
 Fixes:
