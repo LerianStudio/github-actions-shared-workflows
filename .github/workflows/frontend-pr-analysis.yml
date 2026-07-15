@@ -27,6 +27,11 @@ on:
         type: string
         required: false
         default: ''
+      shared_paths:
+        description: 'Newline-separated list of path patterns (e.g., "package.json\nshared/") that, when matched by any changed file, trigger analysis for ALL components in filter_paths — mirrors the same input in build.yml/go-pr-analysis.yml.'
+        type: string
+        required: false
+        default: ''
       path_level:
         description: 'Directory depth level to extract app name'
         type: number
@@ -197,6 +202,7 @@ jobs:
         uses: LerianStudio/github-actions-shared-workflows/src/config/changed-paths@v1
         with:
           filter-paths: ${{ inputs.filter_paths }}
+          shared-paths: ${{ inputs.shared_paths }}
           path-level: ${{ inputs.path_level }}
           get-app-name: 'true'
           app-name-prefix: ${{ inputs.app_name_prefix }}

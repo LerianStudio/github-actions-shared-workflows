@@ -109,6 +109,11 @@ on:
         type: string
         required: false
         default: ''
+      shared_paths:
+        description: 'Newline-separated list of path patterns that, when matched by any changed file, trigger analysis for ALL components in filter_paths, passed through to frontend-pr-analysis.yml. Not passed to the security scan — call it directly with its own shared_paths for path-scoped security scans.'
+        type: string
+        required: false
+        default: ''
       path_level:
         description: 'Directory depth level to extract app name, passed through to frontend-pr-analysis.yml.'
         type: number
@@ -328,6 +333,7 @@ jobs:
       coverage_threshold: ${{ inputs.coverage_threshold }}
       fail_on_coverage_threshold: ${{ inputs.fail_on_coverage_threshold }}
       filter_paths: ${{ inputs.filter_paths }}
+      shared_paths: ${{ inputs.shared_paths }}
       path_level: ${{ inputs.path_level }}
       normalize_to_filter: ${{ inputs.normalize_to_filter }}
       app_name_prefix: ${{ inputs.app_name_prefix }}
