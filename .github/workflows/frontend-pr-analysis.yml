@@ -31,6 +31,10 @@ on:
         description: 'Directory depth level to extract app name'
         type: number
         default: 2
+      normalize_to_filter:
+        description: 'Collapse every changed file under a filter_paths entry into that one app (working_dir = the filter itself), instead of the path_level-trimmed directory. Default true: without it, a change deeper than path_level segments inside a filtered directory (e.g. "ui/tests/visual/README.md" trimmed to "ui/tests" at the default path_level 2) spawns a second, bogus matrix entry with no package.json of its own, and every job for it fails.'
+        type: boolean
+        default: true
       app_name_prefix:
         description: 'Prefix for app names in matrix output'
         type: string
@@ -196,6 +200,7 @@ jobs:
           path-level: ${{ inputs.path_level }}
           get-app-name: 'true'
           app-name-prefix: ${{ inputs.app_name_prefix }}
+          normalize-to-filter: ${{ inputs.normalize_to_filter }}
           fallback-app-name: ${{ inputs.app_name_prefix != '' && inputs.app_name_prefix || 'app' }}
 
   # ============================================

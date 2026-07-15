@@ -113,6 +113,10 @@ on:
         description: 'Directory depth level to extract app name, passed through to frontend-pr-analysis.yml.'
         type: number
         default: 2
+      normalize_to_filter:
+        description: 'Collapse every changed file under a filter_paths entry into that one app, passed through to frontend-pr-analysis.yml. Default true — see that workflow for why.'
+        type: boolean
+        default: true
       app_name_prefix:
         description: 'Prefix used to namespace coverage/build artifacts'
         type: string
@@ -325,6 +329,7 @@ jobs:
       fail_on_coverage_threshold: ${{ inputs.fail_on_coverage_threshold }}
       filter_paths: ${{ inputs.filter_paths }}
       path_level: ${{ inputs.path_level }}
+      normalize_to_filter: ${{ inputs.normalize_to_filter }}
       app_name_prefix: ${{ inputs.app_name_prefix }}
       enable_lint: ${{ inputs.enable_lint }}
       enable_typecheck: ${{ inputs.enable_typecheck }}
