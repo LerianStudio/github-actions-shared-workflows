@@ -127,10 +127,18 @@ on:
         description: 'Publish container images (and run gitops-update) for STABLE releases in the same run as semantic-release, gated on the release output, instead of on the [skip ci]-suppressed stable tag push. Beta/rc still build on their tag push. Any extra_builds groups build in the same stable run too. Default false preserves the tag-push build path for all consumers.'
         type: boolean
         default: false
+      build_on_release_include_prerelease:
+        description: 'When build_on_release is true, also rescue beta/rc releases via the same-run branch-push path, not just stable. Use when the tag-push trigger is unreliable for prerelease tags too (e.g. tags created via a GitHub App/bot token do not always fire a push event, regardless of channel). update_gitops derives the right environment (beta->dev, rc->stg, stable->prd) from the computed release version instead of forcing production. Default false preserves the existing stable-only rescue.'
+        type: boolean
+        default: false
       dockerfile_name:
         description: 'Dockerfile name for the primary build and every extra_builds group (per-group override via matrix.group.dockerfile_name). Forwarded to build.yml, which resolves the path as {working_dir}/{dockerfile_name}. Lets a repo build a non-default Dockerfile (e.g. Dockerfile.mcp, Dockerfile.migrations) through the release umbrella.'
         type: string
         default: 'Dockerfile'
+      on_existing_tag:
+        description: 'Behaviour when the target image tag already exists in an enabled registry, forwarded to build.yml for the primary build and every extra_builds group: "fail" (abort early, default), "skip" (skip build/push, still emit GitOps artifacts for an idempotent re-run), or "warn" (warn and build anyway). Set to "skip" when build_on_release_include_prerelease is on and the tag-push trigger might also fire for the same release, to make the second attempt a no-op instead of a hard failure.'
+        type: string
+        default: 'fail'
 
       # ----------------- GitOps Update (gitops-update.yml) -----------------
       enable_gitops_update:
@@ -325,7 +333,7 @@ jobs:
         (inputs.build_on_release && github.ref_type == 'branch' &&
           needs.release.result == 'success' &&
           needs.release.outputs.new_release_published == 'true' &&
-          !contains(needs.release.outputs.new_release_version, '-'))
+          (inputs.build_on_release_include_prerelease || !contains(needs.release.outputs.new_release_version, '-')))
       )
     permissions:
       id-token: write
@@ -356,6 +364,7 @@ jobs:
       filter_paths: ${{ inputs.filter_paths }}
       force_full_matrix: ${{ inputs.force_full_matrix }}
       dockerfile_name: ${{ inputs.dockerfile_name }}
+      on_existing_tag: ${{ inputs.on_existing_tag }}
     secrets: inherit
 
   # ----------------- S3 Upload (tag push, post-build, opt-in) -----------------
@@ -503,7 +512,7 @@ jobs:
         (inputs.build_on_release && github.ref_type == 'branch' &&
           needs.release.result == 'success' &&
           needs.release.outputs.new_release_published == 'true' &&
-          !contains(needs.release.outputs.new_release_version, '-'))
+          (inputs.build_on_release_include_prerelease || !contains(needs.release.outputs.new_release_version, '-')))
       )
     permissions:
       id-token: write
@@ -519,6 +528,7 @@ jobs:
       release_version: ${{ github.ref_type == 'branch' && needs.release.outputs.new_release_version || '' }}
       checkout_ref: ${{ github.ref_type == 'branch' && needs.release.outputs.new_release_git_tag || '' }}
       dockerfile_name: ${{ matrix.group.dockerfile_name || inputs.dockerfile_name }}
+      on_existing_tag: ${{ inputs.on_existing_tag }}
       tag_prefix: ${{ matrix.group.tag_prefix }}
       runner_type: ${{ inputs.runner_type }}
       enable_dockerhub: ${{ inputs.enable_dockerhub }}
@@ -550,7 +560,7 @@ jobs:
   # component deployed as a separate ArgoCD Application) should add a
   # dedicated gitops-update.yml job of their own, independent of this one.
   update_gitops:
-    needs: [build, extra_build]
+    needs: [release, build, extra_build]
     if: >-
       inputs.enable_gitops_update && !cancelled() &&
       needs.build.result != 'failure' && needs.extra_build.result != 'failure' &&
@@ -581,7 +591,7 @@ jobs:
       use_dynamic_mapping: ${{ inputs.use_dynamic_mapping }}
       configmap_updates: ${{ inputs.configmap_updates }}
       enable_docker_login: ${{ inputs.enable_docker_login }}
-      force_env: ${{ github.ref_type == 'branch' && inputs.build_on_release && 'production' || '' }}
+      force_env: ${{ github.ref_type == 'branch' && inputs.build_on_release && (contains(needs.release.outputs.new_release_version, '-beta.') && 'development' || contains(needs.release.outputs.new_release_version, '-rc.') && 'staging' || 'production') || '' }}
     secrets: inherit
 
   # ----------------- API Dog E2E Tests (tag push, post-gitops, opt-in) -----------------
