@@ -95,7 +95,7 @@ on:
       argocd_sync_timeout:
         description: 'Timeout in seconds for argocd app wait after sync. Increase for larger applications or clusters under load.'
         type: number
-        default: 480
+        default: 600
       force_env:
         description: 'Override tag-based environment detection with development|staging|production|sandbox. Set when running on a branch (no tag in GITHUB_REF), e.g. same-run gitops update after a stable release. Empty = detect from the tag.'
         type: string
@@ -974,11 +974,20 @@ jobs:
           echo "::endgroup::"
 
           echo "::group::argocd app wait $APP_NAME"
-          if ! argocd app wait "$APP_NAME" --server "$ARGOCD_URL" --auth-token "$ARGOCD_TOKEN" --grpc-web --timeout "$ARGOCD_SYNC_TIMEOUT"; then
-            echo "::endgroup::"
-            echo "::error::Timeout waiting for sync completion of $APP_NAME"
-            exit 1
-          fi
+          wait_delay=30
+          for attempt in 1 2 3; do
+            if argocd app wait "$APP_NAME" --server "$ARGOCD_URL" --auth-token "$ARGOCD_TOKEN" --grpc-web --timeout "$ARGOCD_SYNC_TIMEOUT"; then
+              break
+            fi
+            if [[ "$attempt" == "3" ]]; then
+              echo "::endgroup::"
+              echo "::error::Timeout waiting for sync completion of $APP_NAME after 3 attempts"
+              exit 1
+            fi
+            echo "Wait attempt $attempt failed, retrying in ${wait_delay}s..."
+            sleep "$wait_delay"
+            wait_delay=$((wait_delay * 2))
+          done
           echo "::endgroup::"
 
   # Slack notification

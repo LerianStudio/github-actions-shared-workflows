@@ -48,9 +48,9 @@ inputs:
     required: false
     default: "262144"
   curl-timeout:
-    description: Timeout for the webhook POST in seconds (LLM inference can take 60-120s)
+    description: Timeout for the webhook POST in seconds (LLM inference can take 60-120s, longer for large/complex diffs). Must stay in lockstep with ungoliant-controller's NEMOCLAW_TIMEOUT_SECONDS and its ingress proxy timeouts.
     required: false
-    default: "300"
+    default: "900"
   dry-run:
     description: Resolve and preview the payload without firing the webhook
     required: false

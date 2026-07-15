@@ -34,7 +34,7 @@ This is the CI equivalent of `ungoliant-controller/docs/testing/cluster/test-rel
 | `github-token`   | GitHub token used to read tags, compare and diff via the API.                   | Yes      |                                                      |
 | `webhook-token`  | Ungoliant webhook token sent as the `X-Ungoliant-Token` header.                 | No       | `""`                                                 |
 | `max-diff-bytes` | Maximum diff size forwarded to the controller (bytes).                          | No       | `262144`                                             |
-| `curl-timeout`   | Timeout for the webhook POST in seconds.                                         | No       | `300`                                                |
+| `curl-timeout`   | Timeout for the webhook POST in seconds. Must stay in lockstep with `ungoliant-controller`'s `NEMOCLAW_TIMEOUT_SECONDS` and its ingress proxy timeouts — don't change this in isolation. | No | `900` |
 | `dry-run`        | Resolve and preview the payload without firing the webhook.                     | No       | `false`                                              |
 
 ## Outputs

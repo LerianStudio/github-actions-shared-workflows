@@ -104,6 +104,12 @@ jobs:
 | `lerian_ci_cd_user_name` | Git committer name |
 | `lerian_ci_cd_user_email` | Git committer email |
 
+### Optional Secrets
+
+| Secret | Description |
+|--------|-------------|
+| `NPM_TOKEN` | npm registry auth token, forwarded to the `Semantic Release` step. Only needed when the caller's own `.releaserc` includes `@semantic-release/npm` (a package with independent semver that publishes to an npm registry). Omit for repos that do not publish to npm. |
+
 ## Outputs
 
 | Output | Description |
@@ -221,10 +227,11 @@ plugins:
 1. **Create GitHub App Token**: Generate authentication token with higher rate limits
 2. **Checkout Repository**: Clone with full history for versioning
 3. **Sync with Remote**: Ensure latest changes are pulled
-4. **Import GPG Key**: Import and configure GPG key for signing
-5. **Initialize package.json**: Create if doesn't exist
-6. **Install Plugins**: Install semantic-release plugins
-7. **Run Semantic Release**: Calculate version and create release using `.releaserc.yml`
+4. **Fetch git notes**: Fetch `refs/notes/*` so semantic-release can resolve which prerelease channels each tag was published to (required to promote a prerelease to stable on the release branch)
+5. **Import GPG Key**: Import and configure GPG key for signing
+6. **Initialize package.json**: Create if doesn't exist
+7. **Install Plugins**: Install semantic-release plugins
+8. **Run Semantic Release**: Calculate version and create release using `.releaserc.yml`
 
 ## GPG Signing
 

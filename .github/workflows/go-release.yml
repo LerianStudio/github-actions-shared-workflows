@@ -120,9 +120,13 @@ on:
         type: boolean
         default: false
       build_on_release:
-        description: 'Publish container images (and run gitops-update) for STABLE releases in the same run as semantic-release, gated on the release output, instead of on the [skip ci]-suppressed stable tag push. Beta/rc still build on their tag push. Single-app repos only. Default false preserves the tag-push build path for all consumers.'
+        description: 'Publish container images (and run gitops-update) for STABLE releases in the same run as semantic-release, gated on the release output, instead of on the [skip ci]-suppressed stable tag push. Beta/rc still build on their tag push. Any extra_builds groups build in the same stable run too. Default false preserves the tag-push build path for all consumers.'
         type: boolean
         default: false
+      dockerfile_name:
+        description: 'Dockerfile name for the primary build and every extra_builds group (per-group override via matrix.group.dockerfile_name). Forwarded to build.yml, which resolves the path as {working_dir}/{dockerfile_name}. Lets a repo build a non-default Dockerfile (e.g. Dockerfile.mcp, Dockerfile.migrations) through the release umbrella.'
+        type: string
+        default: 'Dockerfile'
 
       # ----------------- GitOps Update (gitops-update.yml) -----------------
       enable_gitops_update:
@@ -346,6 +350,7 @@ jobs:
       shared_paths: ${{ inputs.shared_paths }}
       filter_paths: ${{ inputs.filter_paths }}
       force_full_matrix: ${{ inputs.force_full_matrix }}
+      dockerfile_name: ${{ inputs.dockerfile_name }}
     secrets: inherit
 
   # ----------------- S3 Upload (tag push, post-build, opt-in) -----------------
@@ -483,7 +488,18 @@ jobs:
 
   # ----------------- Extra Builds (tag push, opt-in) -----------------
   extra_build:
-    if: github.ref_type == 'tag' && inputs.extra_builds != '' && inputs.extra_builds != '[]'
+    needs: [release]
+    if: >-
+      !cancelled() &&
+      inputs.extra_builds != '' && inputs.extra_builds != '[]' &&
+      (
+        (github.ref_type == 'tag' &&
+          (!inputs.build_on_release || contains(github.ref, '-beta.') || contains(github.ref, '-rc.'))) ||
+        (inputs.build_on_release && github.ref_type == 'branch' &&
+          needs.release.result == 'success' &&
+          needs.release.outputs.new_release_published == 'true' &&
+          !contains(needs.release.outputs.new_release_version, '-'))
+      )
     permissions:
       id-token: write
       contents: read
@@ -495,6 +511,9 @@ jobs:
         group: ${{ fromJson(inputs.extra_builds) }}
     uses: ./.github/workflows/build.yml
     with:
+      release_version: ${{ github.ref_type == 'branch' && needs.release.outputs.new_release_version || '' }}
+      checkout_ref: ${{ github.ref_type == 'branch' && needs.release.outputs.new_release_git_tag || '' }}
+      dockerfile_name: ${{ matrix.group.dockerfile_name || inputs.dockerfile_name }}
       runner_type: ${{ inputs.runner_type }}
       enable_dockerhub: ${{ inputs.enable_dockerhub }}
       enable_ghcr: ${{ inputs.enable_ghcr }}
