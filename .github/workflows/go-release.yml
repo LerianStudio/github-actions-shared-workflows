@@ -116,7 +116,7 @@ on:
         type: string
         default: ''
       extra_builds:
-        description: 'JSON array of additional build groups, each forwarded to build.yml with its own config (filter_paths, path_level, normalize_to_filter, app_name_overrides, build_context_from_working_dir, helm_*, tag_prefix). Runs alongside the primary build on tag push; all groups feed the single gitops-update. A group with tag_prefix set only builds when the triggering tag starts with that prefix (e.g. a component with its own independent semver and tag scheme); omit tag_prefix to build on every tag push, as before. Empty = one build only (default).'
+        description: 'JSON array of additional build groups, each forwarded to build.yml with its own config (filter_paths, path_level, normalize_to_filter, app_name_overrides, build_context_from_working_dir, helm_*, tag_prefix, enable_dockerhub, enable_ghcr, enable_gitops_artifacts). Runs alongside the primary build on tag push; all groups feed the single gitops-update. A group with tag_prefix set only builds when the triggering tag starts with that prefix (e.g. a component with its own independent semver and tag scheme); omit tag_prefix to build on every tag push, as before. enable_dockerhub/enable_ghcr default to the top-level inputs of the same name when omitted (explicit true/false on the group always wins, including false) — use to publish a group to only one registry regardless of the primary build''s registries. enable_gitops_artifacts defaults to true when omitted. Empty = one build only (default).'
         type: string
         default: ''
       force_full_matrix:
@@ -531,11 +531,11 @@ jobs:
       on_existing_tag: ${{ inputs.on_existing_tag }}
       tag_prefix: ${{ matrix.group.tag_prefix }}
       runner_type: ${{ inputs.runner_type }}
-      enable_dockerhub: ${{ inputs.enable_dockerhub }}
-      enable_ghcr: ${{ inputs.enable_ghcr }}
+      enable_dockerhub: ${{ matrix.group.enable_dockerhub == null && inputs.enable_dockerhub || matrix.group.enable_dockerhub }}
+      enable_ghcr: ${{ matrix.group.enable_ghcr == null && inputs.enable_ghcr || matrix.group.enable_ghcr }}
       dockerhub_org: ${{ inputs.dockerhub_org }}
       enable_cosign_sign: ${{ inputs.enable_cosign_sign }}
-      enable_gitops_artifacts: ${{ matrix.group.enable_gitops_artifacts || true }}
+      enable_gitops_artifacts: ${{ matrix.group.enable_gitops_artifacts == null && true || matrix.group.enable_gitops_artifacts }}
       filter_paths: ${{ matrix.group.filter_paths }}
       shared_paths: ${{ matrix.group.shared_paths || inputs.shared_paths }}
       path_level: ${{ matrix.group.path_level || inputs.path_level }}
