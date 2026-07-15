@@ -209,6 +209,10 @@ on:
         description: 'npm script run against the running container after the health check passes (PLAYWRIGHT_BASE_URL/PLAYWRIGHT_SKIP_WEB_SERVER are injected). Empty = skip (default).'
         type: string
         default: ''
+      docker_smoke_env:
+        description: 'Newline-separated runtime environment variables passed to `docker run` (e.g. "AUTH_DISABLED=true")'
+        type: string
+        default: ''
       enable_accessibility:
         description: 'Enable an accessibility check (runs accessibility_script)'
         type: boolean
@@ -345,6 +349,7 @@ jobs:
       docker_smoke_health_path: ${{ inputs.docker_smoke_health_path }}
       docker_smoke_timeout: ${{ inputs.docker_smoke_timeout }}
       docker_smoke_test_script: ${{ inputs.docker_smoke_test_script }}
+      docker_smoke_env: ${{ inputs.docker_smoke_env }}
       enable_accessibility: ${{ inputs.enable_accessibility }}
       accessibility_script: ${{ inputs.accessibility_script }}
       enable_custom_checks: ${{ inputs.enable_custom_checks }}

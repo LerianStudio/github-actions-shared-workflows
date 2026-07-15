@@ -151,6 +151,10 @@ on:
         description: 'npm script run against the running container after the health check passes (PLAYWRIGHT_BASE_URL=http://localhost:<docker_smoke_port> and PLAYWRIGHT_SKIP_WEB_SERVER=true are injected). Empty = skip (default).'
         type: string
         default: ''
+      docker_smoke_env:
+        description: 'Newline-separated runtime environment variables passed to `docker run` (e.g. "AUTH_DISABLED=true"), distinct from docker_smoke_build_args which are build-time only.'
+        type: string
+        default: ''
       enable_accessibility:
         description: 'Enable an accessibility check (runs accessibility_script)'
         type: boolean
@@ -368,26 +372,32 @@ jobs:
             *) npm ci ;;
           esac
 
-      - name: Run tests with coverage
+      - name: Run tests
         working-directory: ${{ matrix.app.working_dir }}
+        env:
+          ENABLE_COVERAGE: ${{ inputs.enable_coverage }}
         run: |
-          # Vitest 3+ removed --coverageReporters CLI flag (use --coverage.reporter instead)
-          # Jest and Vitest 2 still support --coverageReporters
-          VITEST_MAJOR=$(node -e "try{console.log(require('vitest/package.json').version.split('.')[0])}catch{console.log('0')}" 2>/dev/null)
+          COVERAGE_FLAGS=()
+          if [[ "$ENABLE_COVERAGE" == "true" ]]; then
+            # Vitest 3+ removed --coverageReporters CLI flag (use --coverage.reporter instead)
+            # Jest and Vitest 2 still support --coverageReporters
+            VITEST_MAJOR=$(node -e "try{console.log(require('vitest/package.json').version.split('.')[0])}catch{console.log('0')}" 2>/dev/null)
 
-          if [[ "$VITEST_MAJOR" -ge 3 ]]; then
-            COVERAGE_FLAGS=(--coverage.reporter=text --coverage.reporter=json-summary --coverage.reporter=lcov)
-          else
-            COVERAGE_FLAGS=(--coverageReporters=text --coverageReporters=json-summary --coverageReporters=lcov)
+            if [[ "$VITEST_MAJOR" -ge 3 ]]; then
+              COVERAGE_FLAGS=(--coverage --coverage.reporter=text --coverage.reporter=json-summary --coverage.reporter=lcov)
+            else
+              COVERAGE_FLAGS=(--coverage --coverageReporters=text --coverageReporters=json-summary --coverageReporters=lcov)
+            fi
           fi
 
           case "${{ inputs.package_manager }}" in
-            yarn) yarn test --coverage "${COVERAGE_FLAGS[@]}" ;;
-            pnpm) pnpm test --coverage "${COVERAGE_FLAGS[@]}" ;;
-            *) npm test -- --coverage "${COVERAGE_FLAGS[@]}" ;;
+            yarn) yarn test "${COVERAGE_FLAGS[@]}" ;;
+            pnpm) pnpm test "${COVERAGE_FLAGS[@]}" ;;
+            *) npm test -- "${COVERAGE_FLAGS[@]}" ;;
           esac
 
       - name: Upload coverage artifact
+        if: inputs.enable_coverage
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: coverage-${{ matrix.app.name }}
@@ -1021,8 +1031,15 @@ jobs:
         env:
           IMAGE: smoke-test:${{ matrix.app.name }}
           PORT: ${{ inputs.docker_smoke_port }}
+          DOCKER_SMOKE_ENV: ${{ inputs.docker_smoke_env }}
         run: |
-          CONTAINER_ID=$(docker run -d -p "${PORT}:${PORT}" "$IMAGE")
+          ENV_ARGS=()
+          while IFS= read -r entry; do
+            [ -z "$entry" ] && continue
+            ENV_ARGS+=(-e "$entry")
+          done <<< "$DOCKER_SMOKE_ENV"
+
+          CONTAINER_ID=$(docker run -d -p "${PORT}:${PORT}" "${ENV_ARGS[@]}" "$IMAGE")
           echo "container_id=$CONTAINER_ID" >> "$GITHUB_OUTPUT"
 
       - name: Poll health endpoint
