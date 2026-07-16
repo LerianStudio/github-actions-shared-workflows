@@ -303,18 +303,20 @@ jobs:
           role-to-assume: ${{ env.AWS_E2E_ARTIFACTS_ROLE_ARN }}
           aws-region: us-east-2
 
-      # Gate the copy on OIDC auth actually succeeding: with always(), a failed
-      # configure step would otherwise let `aws s3 cp` run against whatever
-      # ambient/stale AWS credentials linger on the persistent runner. In
-      # dry-run the auth step is skipped, so allow the (write-free) preview.
+      # Runs for a real upload (role set AND OIDC auth succeeded) OR for any
+      # dry-run (independent of the role, so the plan is always printed). The
+      # real-upload path requires successful auth so a failed configure step
+      # cannot fall back to stale ambient AWS credentials on the persistent
+      # runner; the dry-run path never touches AWS.
       - name: Upload Allure reports to S3
-        if: always() && steps.select.outputs.has_modules == 'true' && env.AWS_E2E_ARTIFACTS_ROLE_ARN != '' && (inputs.dry_run || steps.aws_auth.outcome == 'success')
+        if: always() && steps.select.outputs.has_modules == 'true' && (inputs.dry_run || (env.AWS_E2E_ARTIFACTS_ROLE_ARN != '' && steps.aws_auth.outcome == 'success'))
         env:
           REPO_NAME: ${{ github.event.repository.name }}
           TAG_NAME: ${{ github.ref_name }}
           MODULES: ${{ steps.select.outputs.modules }}
           S3_BUCKET: ${{ inputs.s3_bucket }}
           DRY_RUN: ${{ inputs.dry_run }}
+          HAS_ROLE: ${{ env.AWS_E2E_ARTIFACTS_ROLE_ARN != '' }}
         run: |
           set -euo pipefail
           # Channel derived from the tag's prerelease identifier, same
@@ -328,18 +330,21 @@ jobs:
           elif [[ "$TAG_NAME" == *-rc.* ]]; then
             CHANNEL="rc"
           fi
+          if [[ "$DRY_RUN" == "true" && "$HAS_ROLE" != "true" ]]; then
+            echo "::notice::[dry-run] no AWS role configured — real runs would skip the S3 upload; printing the plan anyway."
+          fi
           IFS=',' read -ra MODULE_LIST <<< "$MODULES"
           for MODULE in "${MODULE_LIST[@]}"; do
             MODULE="$(echo -n "$MODULE" | xargs)"
             [[ -z "$MODULE" ]] && continue
             REPORT_DIR="reports/allure-report-${MODULE}"
             S3_PATH="s3://${S3_BUCKET}/${REPO_NAME}/${CHANNEL}/${TAG_NAME}/${MODULE}/"
-            if [[ ! -d "$REPORT_DIR" ]]; then
-              echo "::warning::${REPORT_DIR} not found — skipping S3 upload for ${MODULE}"
-              continue
-            fi
             if [[ "$DRY_RUN" == "true" ]]; then
               echo "::notice::[dry-run] would upload ${REPORT_DIR}/ to ${S3_PATH}"
+              continue
+            fi
+            if [[ ! -d "$REPORT_DIR" ]]; then
+              echo "::warning::${REPORT_DIR} not found — skipping S3 upload for ${MODULE}"
               continue
             fi
             aws s3 cp "$REPORT_DIR/" "$S3_PATH" --recursive
