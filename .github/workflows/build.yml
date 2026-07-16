@@ -324,24 +324,31 @@ jobs:
 
       - name: Set image names
         id: image-names
+        env:
+          GHCR_ORG_INPUT: ${{ inputs.ghcr_org }}
+          OWNER_LOWER: ${{ steps.normalize.outputs.owner_lower }}
+          ENABLE_DOCKERHUB: ${{ inputs.enable_dockerhub }}
+          ENABLE_GHCR: ${{ inputs.enable_ghcr }}
+          DOCKERHUB_ORG: ${{ inputs.dockerhub_org }}
+          APP_NAME: ${{ matrix.app.name }}
         run: |
           IMAGES=""
-          GHCR_ORG="${{ inputs.ghcr_org }}"
+          GHCR_ORG="$GHCR_ORG_INPUT"
           if [ -z "$GHCR_ORG" ]; then
-            GHCR_ORG="${{ steps.normalize.outputs.owner_lower }}"
+            GHCR_ORG="$OWNER_LOWER"
           else
             GHCR_ORG=$(echo "$GHCR_ORG" | tr '[:upper:]' '[:lower:]')
           fi
 
-          if [ "${{ inputs.enable_dockerhub }}" == "true" ]; then
-            IMAGES="${{ inputs.dockerhub_org }}/${{ matrix.app.name }}"
+          if [ "$ENABLE_DOCKERHUB" == "true" ]; then
+            IMAGES="${DOCKERHUB_ORG}/${APP_NAME}"
           fi
 
-          if [ "${{ inputs.enable_ghcr }}" == "true" ]; then
+          if [ "$ENABLE_GHCR" == "true" ]; then
             if [ -n "$IMAGES" ]; then
-              IMAGES="${IMAGES},ghcr.io/${GHCR_ORG}/${{ matrix.app.name }}"
+              IMAGES="${IMAGES},ghcr.io/${GHCR_ORG}/${APP_NAME}"
             else
-              IMAGES="ghcr.io/${GHCR_ORG}/${{ matrix.app.name }}"
+              IMAGES="ghcr.io/${GHCR_ORG}/${APP_NAME}"
             fi
           fi
 
