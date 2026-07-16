@@ -289,6 +289,7 @@ jobs:
       # build_on_release feature) sources it from needs.release.outputs.new_release_git_tag
       # — a tag semantic-release just created earlier in the SAME run, never
       # from pull_request/fork-controlled data (CodeQL: actions/untrusted-checkout).
+      # codeql[actions/untrusted-checkout] -- see trust-model comment above.
       - name: Checkout repository
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
