@@ -1058,41 +1058,66 @@ jobs:
         shell: bash
         env:
           UPDATE_GITOPS_RESULT: ${{ needs.update_gitops.result }}
-          ARGOCD_SYNC_RESULT: ${{ needs.argocd_sync.result }}
+          SYNC_MATRIX: ${{ needs.update_gitops.outputs.sync_matrix }}
         run: |
           set -euo pipefail
 
-          if [[ "$UPDATE_GITOPS_RESULT" =~ ^(failure|cancelled)$ ]] || [[ "$ARGOCD_SYNC_RESULT" =~ ^(failure|cancelled)$ ]]; then
-            echo "update_gitops=$UPDATE_GITOPS_RESULT, argocd_sync=$ARGOCD_SYNC_RESULT — treating as not ok."
+          # update_gitops is the single config job that produces sync_matrix —
+          # its own failure/cancellation is a real blocker regardless of
+          # anacleto. needs.argocd_sync.result is deliberately NOT checked
+          # here: it rolls up the WHOLE matrix (anacleto + any other server,
+          # e.g. benedita), so a non-anacleto leg failing there must not flip
+          # this output — that's the entire point of this job existing.
+          if [[ "$UPDATE_GITOPS_RESULT" =~ ^(failure|cancelled)$ ]]; then
+            echo "update_gitops=$UPDATE_GITOPS_RESULT — treating as not ok."
             echo "anacleto_sync_ok=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
-          if [ ! -d .sync-results ]; then
-            echo "No anacleto sync targets ran — nothing to aggregate, treating as ok."
+          EXPECTED=$(echo "$SYNC_MATRIX" | jq '[.[] | select(.server == "anacleto")] | length')
+
+          if [ "$EXPECTED" -eq 0 ]; then
+            echo "No anacleto sync targets were scheduled — nothing to aggregate, treating as ok."
             echo "anacleto_sync_ok=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
           OK=true
           RESULT_COUNT=0
-          for dir in .sync-results/*/; do
-            [ -d "$dir" ] || continue
-            result_file="${dir}result.txt"
-            server_file="${dir}server.txt"
+
+          process_result() {
+            local result_file="$1" server_file="$2" label="$3"
             if [ ! -f "$result_file" ] || [ ! -f "$server_file" ]; then
-              echo "  $dir -> missing result.txt/server.txt, treating as not ok"
+              echo "  $label -> missing result.txt/server.txt, treating as not ok"
               OK=false
-              continue
+              return
             fi
             RESULT_COUNT=$((RESULT_COUNT + 1))
+            local outcome server
             outcome=$(cat "$result_file")
             server=$(cat "$server_file")
-            echo "  $dir -> server=$server outcome=$outcome"
+            echo "  $label -> server=$server outcome=$outcome"
             if [ "$outcome" != "success" ]; then
               OK=false
             fi
+          }
+
+          # A single matching artifact is downloaded flat, straight into
+          # .sync-results/ (no subdirectory) — actions/download-artifact only
+          # creates one subdirectory per artifact when there's more than one.
+          if [ -f .sync-results/result.txt ]; then
+            process_result .sync-results/result.txt .sync-results/server.txt ".sync-results (single artifact)"
+          fi
+
+          for dir in .sync-results/*/; do
+            [ -d "$dir" ] || continue
+            process_result "${dir}result.txt" "${dir}server.txt" "$dir"
           done
+
+          if [ "$RESULT_COUNT" -ne "$EXPECTED" ]; then
+            echo "Expected $EXPECTED anacleto result(s) but found $RESULT_COUNT — treating as not ok."
+            OK=false
+          fi
 
           [ "$RESULT_COUNT" -gt 0 ] || OK=false
           echo "anacleto_sync_ok=$OK" >> "$GITHUB_OUTPUT"

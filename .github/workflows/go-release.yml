@@ -535,7 +535,7 @@ jobs:
       checkout_ref: ${{ github.ref_type == 'branch' && needs.release.outputs.new_release_git_tag || '' }}
       dockerfile_name: ${{ matrix.group.dockerfile_name || inputs.dockerfile_name }}
       on_existing_tag: ${{ inputs.on_existing_tag }}
-      tag_prefix: ${{ matrix.group.tag_prefix }}
+      tag_prefix: ${{ github.ref_type == 'tag' && matrix.group.tag_prefix || '' }}
       runner_type: ${{ inputs.runner_type }}
       enable_dockerhub: ${{ (matrix.group.enable_dockerhub == null && inputs.enable_dockerhub == true) || matrix.group.enable_dockerhub == true }}
       enable_ghcr: ${{ (matrix.group.enable_ghcr == null && inputs.enable_ghcr == true) || matrix.group.enable_ghcr == true }}
