@@ -37,10 +37,6 @@ on:
         description: 'Per-run Go test timeout, forwarded to make test TIMEOUT=...'
         type: string
         default: '600s'
-      e2e_s3_artifact_path:
-        description: 'Subpath under s3://lerian-e2e-artifacts/<repo>/<channel>/<tag>/ where each module Allure report is uploaded (module name is appended).'
-        type: string
-        default: 'e2e'
     secrets:
       e2e_repo_token:
         description: 'Token with read access to the private LerianStudio/end-to-end repository.'
@@ -201,12 +197,14 @@ jobs:
         env:
           REPO_NAME: ${{ github.event.repository.name }}
           TAG_NAME: ${{ github.ref_name }}
-          ARTIFACT_PATH: ${{ inputs.e2e_s3_artifact_path }}
           MODULES: ${{ inputs.modules }}
         run: |
           set -euo pipefail
           # Channel derived from the tag's prerelease identifier, same
-          # convention as the JS products' e2e_tests job.
+          # convention as the JS products' e2e_tests job. Path shape mirrors
+          # it too: s3://lerian-e2e-artifacts/<repo>/<channel>/<tag>/<leaf>/ —
+          # playwright's <leaf> is the fixed "playwright-report"; ours is the
+          # module name, since one run covers several modules.
           CHANNEL="main"
           if [[ "$TAG_NAME" == *-beta.* ]]; then
             CHANNEL="beta"
@@ -219,7 +217,7 @@ jobs:
             [[ -z "$MODULE" ]] && continue
             REPORT_DIR="reports/allure-report-${MODULE}"
             if [[ -d "$REPORT_DIR" ]]; then
-              S3_PATH="s3://lerian-e2e-artifacts/${REPO_NAME}/${CHANNEL}/${TAG_NAME}/${ARTIFACT_PATH}/${MODULE}/"
+              S3_PATH="s3://lerian-e2e-artifacts/${REPO_NAME}/${CHANNEL}/${TAG_NAME}/${MODULE}/"
               aws s3 cp "$REPORT_DIR/" "$S3_PATH" --recursive
               echo "::notice::Uploaded ${MODULE} Allure report to ${S3_PATH}"
             else
