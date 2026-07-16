@@ -38,7 +38,9 @@ The `frontend-analysis` and `security` pipelines each have a `*-gate` aggregator
 | `coverage_threshold` | Minimum coverage percentage (0-100) | number | `80` |
 | `fail_on_coverage_threshold` | Fail when coverage is below threshold | boolean | `false` |
 | `filter_paths` | JSON array of paths to monitor for changes (e.g. `["ui"]`), passed through to `frontend-pr-analysis.yml` only | string | `''` |
+| `shared_paths` | Newline-separated path patterns that trigger analysis for ALL components in `filter_paths`, passed through to `frontend-pr-analysis.yml` only | string | `''` |
 | `path_level` | Directory depth level to extract app name, passed through to `frontend-pr-analysis.yml` only | number | `2` |
+| `normalize_to_filter` | Collapse every changed file under a `filter_paths` entry into that one app, passed through to `frontend-pr-analysis.yml` only | boolean | `true` |
 | `app_name_prefix` | Prefix used to namespace coverage/build artifacts | string | `''` |
 | `enable_lint` | Enable ESLint | boolean | `true` |
 | `enable_typecheck` | Enable TypeScript type checking | boolean | `true` |
@@ -50,6 +52,25 @@ The `frontend-analysis` and `security` pipelines each have a `*-gate` aggregator
 | `i18n_check_script` | npm script for extraction-parity check | string | `check:i18n` |
 | `i18n_keys_check_script` | npm script for locale-parity check | string | `check:i18n:keys` |
 | `i18n_check_fail_on_violation` | Fail when any i18n check reports violations | boolean | `true` |
+| `enable_bundle_budget` | Enable a bundle-size budget check (runs `bundle_budget_script`) | boolean | `false` |
+| `bundle_budget_script` | npm script that enforces the bundle-size budget | string | `check:bundle-budget` |
+| `enable_performance_budget` | Enable a performance budget check (runs `performance_budget_script`) | boolean | `false` |
+| `performance_budget_script` | npm script that enforces the performance budget | string | `check:performance` |
+| `enable_visual_regression` | Enable visual regression testing (runs `visual_regression_script`) | boolean | `false` |
+| `visual_regression_script` | npm script that runs visual regression tests | string | `test:visual` |
+| `enable_docker_smoke` | Enable a Docker image smoke test (build, run, poll health endpoint) | boolean | `false` |
+| `docker_smoke_dockerfile_path` | Path to the Dockerfile for the smoke test. Empty = `<working_dir>/Dockerfile` | string | `''` |
+| `docker_smoke_build_args` | Newline-separated Docker build args for the smoke-test image | string | `''` |
+| `docker_smoke_port` | Container port to publish and probe for the smoke test | number | `3000` |
+| `docker_smoke_health_path` | HTTP path polled on the running container to confirm startup | string | `/health` |
+| `docker_smoke_timeout` | Seconds to wait for the health check before failing the smoke test | number | `60` |
+| `docker_smoke_test_script` | npm script run against the running container after the health check passes | string | `''` |
+| `docker_smoke_env` | Newline-separated runtime env vars passed to `docker run`, distinct from `docker_smoke_build_args` | string | `''` |
+| `enable_accessibility` | Enable an accessibility check (runs `accessibility_script`) | boolean | `false` |
+| `accessibility_script` | npm script that runs accessibility tests | string | `test:a11y` |
+| `enable_custom_checks` | Enable arbitrary caller-owned checks beyond the named gates above (runs each script in `custom_checks`) | boolean | `false` |
+| `custom_checks` | Newline-separated npm script names to run as additional checks | string | `''` |
+| `custom_checks_needs_browsers` | Install Playwright browsers before running `custom_checks` | boolean | `false` |
 | `prerelease_block_branches` | Target branches where pre-release versions are hard failures (comma-separated) | string | `release-candidate,main` |
 | `enable_docker_scan` | Build and scan a Docker image with Trivy; set `false` for repos without a Dockerfile (CLIs, libraries) | boolean | `true` |
 | `dockerfile_path` | Explicit path to a single Dockerfile to build and scan (e.g. `Dockerfile`) | string | `''` |
@@ -58,7 +79,7 @@ The `frontend-analysis` and `security` pipelines each have a `*-gate` aggregator
 | `ignore_file` | Path to Trivy ignore file (e.g. `.trivyignore.yaml`) | string | `''` |
 | `trivy_skip_dirs` | Comma-separated directories to skip in every Trivy filesystem scan | string | `''` |
 
-> **Monorepo note:** `filter_paths`/`path_level` scope the `frontend-analysis` job only. They are not passed to the `security` job because `frontend-pr-analysis.yml` and `pr-security-scan.yml` use different formats for that input (JSON array vs. newline-separated). For a path-scoped security scan too, call `pr-security-scan.yml` directly.
+> **Monorepo note:** `filter_paths`/`shared_paths`/`path_level`/`normalize_to_filter` scope the `frontend-analysis` job only. They are not passed to the `security` job because `frontend-pr-analysis.yml` and `pr-security-scan.yml` use different formats for that input (JSON array vs. newline-separated). For a path-scoped security scan too, call `pr-security-scan.yml` directly.
 
 ## Secrets
 
