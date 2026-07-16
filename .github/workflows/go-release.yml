@@ -222,10 +222,6 @@ on:
         description: 'Runner for the End-to-End Tests job. Needs reach to the deployed environment, so it defaults to eveo-lxc-runners rather than the build runner.'
         type: string
         default: 'eveo-lxc-runners'
-      e2e_auto_detect_environment:
-        description: 'Auto-detect the e2e target environment from the tag (beta -> dev, rc -> stg, else -> prd).'
-        type: boolean
-        default: true
 
       # ----------------- Ungoliant Release Diff (ungoliant-release-diff composite) -----------------
       enable_ungoliant_release_diff:
@@ -654,13 +650,16 @@ jobs:
       && needs.build.outputs.has_builds == 'true'
       && needs.update_gitops.result != 'failure'
       && needs.update_gitops.result != 'cancelled'
+    permissions:
+      id-token: write
+      contents: read
     uses: ./.github/workflows/end-to-end-tests.yml
     with:
       modules: ${{ inputs.e2e_modules }}
       built_apps: ${{ needs.build.outputs.matrix }}
       tenancy: ${{ inputs.e2e_tenancy }}
       runner_type: ${{ inputs.e2e_runner_type }}
-      auto_detect_environment: ${{ inputs.e2e_auto_detect_environment }}
+      dry_run: ${{ inputs.dry_run }}
     secrets:
       e2e_repo_token: ${{ secrets.E2E_REPO_TOKEN }}
       aws_e2e_artifacts_role_arn: ${{ secrets.AWS_E2E_ARTIFACTS_ROLE_ARN }}
