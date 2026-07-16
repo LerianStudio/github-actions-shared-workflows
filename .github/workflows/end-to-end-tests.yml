@@ -21,10 +21,6 @@ on:
         description: 'Tenancy mode targeted by the deployed environment — st (single-tenant) | mt (multi-tenant).'
         type: string
         default: 'st'
-      e2e_repository:
-        description: 'Repository holding the end-to-end suite to check out and run (owner/repo).'
-        type: string
-        default: 'LerianStudio/end-to-end'
       service_domain:
         description: 'Base domain the deployed services live under. URLs are built as https://<app>.<base_env>-<tenancy>.<service_domain>.'
         type: string
@@ -88,10 +84,15 @@ jobs:
     env:
       AWS_E2E_ARTIFACTS_ROLE_ARN: ${{ secrets.aws_e2e_artifacts_role_arn }}
     steps:
+      # The executed suite is pinned to a static, trusted internal repository —
+      # NOT a caller-supplied input — so a compromised caller cannot redirect
+      # `make test` execution at an attacker-controlled repo (CodeQL
+      # actions/untrusted-checkout). Non-executed strings (domain, bucket) stay
+      # configurable via inputs.
       - name: Checkout end-to-end suite
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
-          repository: ${{ inputs.e2e_repository }}
+          repository: LerianStudio/end-to-end
           token: ${{ secrets.e2e_repo_token }}
           persist-credentials: false
 

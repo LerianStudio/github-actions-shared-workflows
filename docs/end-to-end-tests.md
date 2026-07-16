@@ -27,7 +27,6 @@ Palantir (self-service-testing)'s E2E page.
 | `modules` | string | yes | — | Comma-separated candidate modules (e.g. `midaz-ledger,midaz-crm`). Each maps to `./cases/<module>/...`. Narrowed to `built_apps` when set. |
 | `built_apps` | string | no | `[]` | JSON array of components built this run (`build.yml`'s matrix output). Only candidates whose name appears here run. Empty runs every candidate. |
 | `tenancy` | string | no | `st` | Tenancy mode of the deployed environment — `st` or `mt`. |
-| `e2e_repository` | string | no | `LerianStudio/end-to-end` | Repository holding the e2e suite (owner/repo). |
 | `service_domain` | string | no | `lerian.net` | Base domain; URLs are `https://<app>.<base_env>-<tenancy>.<service_domain>`. |
 | `s3_bucket` | string | no | `lerian-e2e-artifacts` | S3 bucket the Allure report is uploaded to. |
 | `go_version` | string | no | `1.25` | Go version (should match the e2e repo `go.mod`). |
