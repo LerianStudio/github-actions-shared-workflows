@@ -50,6 +50,18 @@ The `frontend-analysis` and `security` pipelines each have a `*-gate` aggregator
 | `i18n_check_script` | npm script for extraction-parity check | string | `check:i18n` |
 | `i18n_keys_check_script` | npm script for locale-parity check | string | `check:i18n:keys` |
 | `i18n_check_fail_on_violation` | Fail when any i18n check reports violations | boolean | `true` |
+| `enable_bundle_budget` | Enable a bundle-size budget check (runs `bundle_budget_script`) | boolean | `false` |
+| `bundle_budget_script` | npm script that enforces the bundle-size budget | string | `check:bundle-budget` |
+| `enable_performance_budget` | Enable a performance budget check (runs `performance_budget_script`) | boolean | `false` |
+| `performance_budget_script` | npm script that enforces the performance budget | string | `check:performance` |
+| `enable_visual_regression` | Enable visual regression testing (runs `visual_regression_script`) | boolean | `false` |
+| `visual_regression_script` | npm script that runs visual regression tests | string | `test:visual` |
+| `enable_docker_smoke` | Enable a Docker image smoke test (build, run, poll health endpoint) | boolean | `false` |
+| `docker_smoke_dockerfile_path` | Path to the Dockerfile for the smoke test. Empty = `<working_dir>/Dockerfile` | string | `''` |
+| `docker_smoke_build_args` | Newline-separated Docker build args for the smoke-test image | string | `''` |
+| `docker_smoke_port` | Container port to publish and probe for the smoke test | number | `3000` |
+| `docker_smoke_health_path` | HTTP path polled on the running container to confirm startup | string | `/health` |
+| `docker_smoke_timeout` | Seconds to wait for the health check before failing the smoke test | number | `60` |
 | `prerelease_block_branches` | Target branches where pre-release versions are hard failures (comma-separated) | string | `release-candidate,main` |
 | `enable_docker_scan` | Build and scan a Docker image with Trivy; set `false` for repos without a Dockerfile (CLIs, libraries) | boolean | `true` |
 | `dockerfile_path` | Explicit path to a single Dockerfile to build and scan (e.g. `Dockerfile`) | string | `''` |

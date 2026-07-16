@@ -164,6 +164,18 @@ jobs:
 | `i18n_check_script` | npm script for extraction-parity check | No | `check:i18n` |
 | `i18n_keys_check_script` | npm script for locale-parity check | No | `check:i18n:keys` |
 | `i18n_check_fail_on_violation` | Fail the workflow on i18n violations (set `false` for warning-only rollout) | No | `true` |
+| `enable_bundle_budget` | Enable a bundle-size budget check (runs `bundle_budget_script`) | No | `false` |
+| `bundle_budget_script` | npm script that enforces the bundle-size budget (exit non-zero on violation) | No | `check:bundle-budget` |
+| `enable_performance_budget` | Enable a performance budget check, e.g. Lighthouse/Core Web Vitals (runs `performance_budget_script`) | No | `false` |
+| `performance_budget_script` | npm script that enforces the performance budget (exit non-zero on violation) | No | `check:performance` |
+| `enable_visual_regression` | Enable visual regression testing (runs `visual_regression_script`) | No | `false` |
+| `visual_regression_script` | npm script that runs visual regression tests (exit non-zero on a diff/violation) | No | `test:visual` |
+| `enable_docker_smoke` | Enable a Docker image smoke test: build the image, run it, poll a health endpoint | No | `false` |
+| `docker_smoke_dockerfile_path` | Path to the Dockerfile for the smoke test. Empty = `<working_dir>/Dockerfile` | No | `''` |
+| `docker_smoke_build_args` | Newline-separated Docker build args for the smoke-test image | No | `''` |
+| `docker_smoke_port` | Container port to publish and probe for the smoke test | No | `3000` |
+| `docker_smoke_health_path` | HTTP path polled on the running container to confirm startup | No | `/health` |
+| `docker_smoke_timeout` | Seconds to wait for the health check before failing the smoke test | No | `60` |
 
 ## Secrets
 
@@ -215,6 +227,22 @@ Optional. Validates internationalization keys per changed app by running two npm
 - `i18n_keys_check_script` (default `check:i18n:keys`) — locale parity: catches keys present in some locale files but missing from others.
 
 Gated by `enable_i18n_check` (default `false`). When `i18n_check_fail_on_violation: false`, violations are reported but do not fail the workflow — useful during initial rollout in noisy codebases.
+
+### bundle-budget
+
+Optional (`enable_bundle_budget`, default `false`). Runs `bundle_budget_script` (default `check:bundle-budget`) per changed app — the caller owns the actual budget tool (e.g. `size-limit`, `bundlesize`) and script; the job just runs it and fails if it exits non-zero.
+
+### performance-budget
+
+Optional (`enable_performance_budget`, default `false`). Runs `performance_budget_script` (default `check:performance`) per changed app — same pattern as bundle-budget, for a Lighthouse/Core Web Vitals-style check owned by the caller.
+
+### visual-regression
+
+Optional (`enable_visual_regression`, default `false`). Runs `visual_regression_script` (default `test:visual`) per changed app. On failure, uploads `playwright-report/` and `test-results/` (if present under the app's `working_dir`) as an artifact for review.
+
+### docker-smoke
+
+Optional (`enable_docker_smoke`, default `false`). Builds the app's Docker image (`docker_smoke_dockerfile_path`, default `<working_dir>/Dockerfile`), runs it, and polls `docker_smoke_health_path` on `docker_smoke_port` until it responds or `docker_smoke_timeout` elapses. On failure, prints the container logs before failing.
 
 ### no-changes
 Runs when no frontend changes are detected - outputs skip message.
