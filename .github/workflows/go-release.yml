@@ -374,7 +374,12 @@ jobs:
   s3_upload:
     name: S3 Upload
     needs: [build]
-    if: github.ref_type == 'tag' && inputs.s3_uploads != '' && needs.build.result == 'success'
+    # needs.build.result alone is unreliable here: build wraps build.yml, a
+    # reusable workflow with an internal matrix, and its caller result does
+    # not always surface as 'success' to dependents even when every matrix
+    # leg passed (same issue update_gitops and ungoliant_release_diff already
+    # guard against below with the has_builds output check).
+    if: github.ref_type == 'tag' && inputs.s3_uploads != '' && needs.build.result != 'failure' && needs.build.outputs.has_builds == 'true'
     runs-on: ${{ inputs.runner_type }}
     permissions:
       id-token: write
