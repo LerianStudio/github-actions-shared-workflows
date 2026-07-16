@@ -1002,6 +1002,7 @@ jobs:
       # plain job output.
       - name: Record sync result
         if: always()
+        id: record
         shell: bash
         env:
           SERVER: ${{ matrix.target.server }}
@@ -1012,12 +1013,15 @@ jobs:
           mkdir -p /tmp/argocd-sync-result
           echo "$OUTCOME" > "/tmp/argocd-sync-result/result.txt"
           echo "$SERVER" > "/tmp/argocd-sync-result/server.txt"
+          # Artifact names can't contain "/" (env can be "chaos/dev-mt").
+          SAFE_ENV="${ENV_NAME//\//-}"
+          echo "safe_env=$SAFE_ENV" >> "$GITHUB_OUTPUT"
 
       - name: Upload sync result artifact
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v5
         with:
-          name: argocd-sync-result-${{ matrix.target.server }}-${{ matrix.target.env }}
+          name: argocd-sync-result-${{ matrix.target.server }}-${{ steps.record.outputs.safe_env }}
           path: /tmp/argocd-sync-result/
           retention-days: 1
 
