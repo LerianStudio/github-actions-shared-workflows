@@ -38,7 +38,9 @@ The `frontend-analysis` and `security` pipelines each have a `*-gate` aggregator
 | `coverage_threshold` | Minimum coverage percentage (0-100) | number | `80` |
 | `fail_on_coverage_threshold` | Fail when coverage is below threshold | boolean | `false` |
 | `filter_paths` | JSON array of paths to monitor for changes (e.g. `["ui"]`), passed through to `frontend-pr-analysis.yml` only | string | `''` |
+| `shared_paths` | Newline-separated path patterns that trigger analysis for ALL components in `filter_paths`, passed through to `frontend-pr-analysis.yml` only | string | `''` |
 | `path_level` | Directory depth level to extract app name, passed through to `frontend-pr-analysis.yml` only | number | `2` |
+| `normalize_to_filter` | Collapse every changed file under a `filter_paths` entry into that one app, passed through to `frontend-pr-analysis.yml` only | boolean | `true` |
 | `app_name_prefix` | Prefix used to namespace coverage/build artifacts | string | `''` |
 | `enable_lint` | Enable ESLint | boolean | `true` |
 | `enable_typecheck` | Enable TypeScript type checking | boolean | `true` |
@@ -62,6 +64,13 @@ The `frontend-analysis` and `security` pipelines each have a `*-gate` aggregator
 | `docker_smoke_port` | Container port to publish and probe for the smoke test | number | `3000` |
 | `docker_smoke_health_path` | HTTP path polled on the running container to confirm startup | string | `/health` |
 | `docker_smoke_timeout` | Seconds to wait for the health check before failing the smoke test | number | `60` |
+| `docker_smoke_test_script` | npm script run against the running container after the health check passes | string | `''` |
+| `docker_smoke_env` | Newline-separated runtime env vars passed to `docker run`, distinct from `docker_smoke_build_args` | string | `''` |
+| `enable_accessibility` | Enable an accessibility check (runs `accessibility_script`) | boolean | `false` |
+| `accessibility_script` | npm script that runs accessibility tests | string | `test:a11y` |
+| `enable_custom_checks` | Enable arbitrary caller-owned checks beyond the named gates above (runs each script in `custom_checks`) | boolean | `false` |
+| `custom_checks` | Newline-separated npm script names to run as additional checks | string | `''` |
+| `custom_checks_needs_browsers` | Install Playwright browsers before running `custom_checks` | boolean | `false` |
 | `prerelease_block_branches` | Target branches where pre-release versions are hard failures (comma-separated) | string | `release-candidate,main` |
 | `enable_docker_scan` | Build and scan a Docker image with Trivy; set `false` for repos without a Dockerfile (CLIs, libraries) | boolean | `true` |
 | `dockerfile_path` | Explicit path to a single Dockerfile to build and scan (e.g. `Dockerfile`) | string | `''` |

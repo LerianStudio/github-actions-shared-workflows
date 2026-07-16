@@ -146,7 +146,9 @@ jobs:
 |-------|-------------|----------|---------|
 | `runner_type` | GitHub runner type | No | `blacksmith-4vcpu-ubuntu-2404` |
 | `filter_paths` | JSON array of paths to monitor for changes. If empty, treats repo as single-app. | No | `''` |
+| `shared_paths` | Newline-separated path patterns (e.g. `package.json`) that, when matched by any changed file, trigger analysis for ALL components in `filter_paths` | No | `''` |
 | `path_level` | Directory depth level to extract app name | No | `2` |
+| `normalize_to_filter` | Collapse every changed file under a `filter_paths` entry into that one app instead of the `path_level`-trimmed directory | No | `true` |
 | `app_name_prefix` | Prefix for app names in matrix output | No | `''` |
 | `node_version` | Node.js version to use | No | `22` |
 | `package_manager` | Package manager (npm, yarn, pnpm) | No | `npm` |
@@ -176,6 +178,13 @@ jobs:
 | `docker_smoke_port` | Container port to publish and probe for the smoke test | No | `3000` |
 | `docker_smoke_health_path` | HTTP path polled on the running container to confirm startup | No | `/health` |
 | `docker_smoke_timeout` | Seconds to wait for the health check before failing the smoke test | No | `60` |
+| `docker_smoke_test_script` | npm script run against the running container after the health check passes (`PLAYWRIGHT_BASE_URL`/`PLAYWRIGHT_SKIP_WEB_SERVER` injected). Empty = skip | No | `''` |
+| `docker_smoke_env` | Newline-separated runtime env vars passed to `docker run` (e.g. `AUTH_DISABLED=true`), distinct from `docker_smoke_build_args` | No | `''` |
+| `enable_accessibility` | Enable an accessibility check (runs `accessibility_script`) | No | `false` |
+| `accessibility_script` | npm script that runs accessibility tests (exit non-zero on a violation) | No | `test:a11y` |
+| `enable_custom_checks` | Enable arbitrary caller-owned checks beyond the named gates above (runs each script in `custom_checks`) | No | `false` |
+| `custom_checks` | Newline-separated npm script names to run as additional checks; each runs independently, a non-zero exit on any fails the job | No | `''` |
+| `custom_checks_needs_browsers` | Install Playwright browsers before running `custom_checks` — only enable if a custom check drives a browser (e.g. a Playwright-based smoke test) | No | `false` |
 
 ## Secrets
 
@@ -242,7 +251,15 @@ Optional (`enable_visual_regression`, default `false`). Runs `visual_regression_
 
 ### docker-smoke
 
-Optional (`enable_docker_smoke`, default `false`). Builds the app's Docker image (`docker_smoke_dockerfile_path`, default `<working_dir>/Dockerfile`), runs it, and polls `docker_smoke_health_path` on `docker_smoke_port` until it responds or `docker_smoke_timeout` elapses. On failure, prints the container logs before failing.
+Optional (`enable_docker_smoke`, default `false`). Builds the app's Docker image (`docker_smoke_dockerfile_path`, default `<working_dir>/Dockerfile`), runs it, and polls `docker_smoke_health_path` on `docker_smoke_port` until it responds or `docker_smoke_timeout` elapses. Optionally runs `docker_smoke_test_script` against the running container (with `docker_smoke_env` runtime env vars injected). On failure, prints the container logs before failing.
+
+### accessibility
+
+Optional (`enable_accessibility`, default `false`). Runs `accessibility_script` (default `test:a11y`) per changed app — the caller owns the actual accessibility tool (e.g. `axe-core`, Playwright + `axe-playwright`) and script; the job just runs it and fails if it exits non-zero.
+
+### custom-checks
+
+Optional (`enable_custom_checks`, default `false`). Runs each npm script listed in `custom_checks` (newline-separated) independently per changed app — for arbitrary, repo-specific guard scripts that don't fit the named gates above. A non-zero exit on any of them fails the job. Set `custom_checks_needs_browsers: true` if any of the scripts drives a browser (e.g. a Playwright-based smoke test) so Chromium gets installed first — most custom checks are plain lint/guard scripts and don't need this.
 
 ### no-changes
 Runs when no frontend changes are detected - outputs skip message.

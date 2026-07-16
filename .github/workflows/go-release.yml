@@ -667,6 +667,7 @@ jobs:
       && inputs.enable_gitops_update
       && needs.build.outputs.has_builds == 'true'
       && needs.update_gitops.result != 'cancelled'
+      && needs.update_gitops.result != 'skipped'
       && (
         needs.update_gitops.result != 'failure' ||
         needs.update_gitops.outputs.anacleto_sync_ok == 'true'
