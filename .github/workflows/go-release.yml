@@ -211,7 +211,7 @@ on:
         type: boolean
         default: false
       e2e_modules:
-        description: 'Comma-separated end-to-end test modules to run (e.g. "midaz-ledger,midaz-crm"). Required when enable_e2e_tests is true.'
+        description: 'Comma-separated candidate end-to-end test modules (e.g. "midaz-ledger,midaz-crm"), one per possible built component. Required when enable_e2e_tests is true. Each run is further scoped down to only the component(s) build actually rebuilt this tag (via the build job matrix output) — module names must match the built app names.'
         type: string
         default: ''
       e2e_tenancy:
@@ -657,6 +657,7 @@ jobs:
     uses: ./.github/workflows/end-to-end-tests.yml
     with:
       modules: ${{ inputs.e2e_modules }}
+      built_apps: ${{ needs.build.outputs.matrix }}
       tenancy: ${{ inputs.e2e_tenancy }}
       runner_type: ${{ inputs.e2e_runner_type }}
       auto_detect_environment: ${{ inputs.e2e_auto_detect_environment }}

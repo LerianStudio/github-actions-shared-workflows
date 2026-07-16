@@ -10,9 +10,13 @@ on:
   workflow_call:
     inputs:
       modules:
-        description: 'Comma-separated list of end-to-end test modules to run (e.g. "midaz-ledger,midaz-crm"). Each maps to ./cases/<module>/... and .env.<module>.<env>.'
+        description: 'Comma-separated list of candidate end-to-end test modules (e.g. "midaz-ledger,midaz-crm"). Each maps to ./cases/<module>/... and .env.<module>.<env>. Narrowed down to built_apps below when that input is set.'
         type: string
         required: true
+      built_apps:
+        description: 'JSON array of the components actually built this run (each entry {"name": ...}, as produced by build.yml''s matrix output). When set, only candidates in `modules` whose name also appears here are run — e.g. a ledger-only change runs only the midaz-ledger module. Empty/unset ("[]") runs every candidate in `modules` (back-compat).'
+        type: string
+        default: '[]'
       tenancy:
         description: 'Tenancy mode targeted by the deployed environment — st (single-tenant) | mt (multi-tenant).'
         type: string
@@ -113,6 +117,47 @@ jobs:
           } >> "$GITHUB_OUTPUT"
           echo "Resolved environment: ${ENV_NAME}"
 
+      # ----------------- Select modules to run -----------------
+      # Scope the run to only the component(s) this tag actually rebuilt: a
+      # ledger-only change runs only midaz-ledger, a crm-only change runs only
+      # midaz-crm, and a change touching both (or shared_paths) runs both.
+      # built_apps carries the build job's matrix output; matching is by name
+      # against `modules`, so module names must equal the built app names.
+      - name: Select modules to run
+        id: select
+        env:
+          MODULES: ${{ inputs.modules }}
+          BUILT_APPS: ${{ inputs.built_apps }}
+        run: |
+          set -euo pipefail
+          IFS=',' read -ra CANDIDATES <<< "$MODULES"
+          BUILT_NAMES=()
+          if [[ -n "$BUILT_APPS" && "$BUILT_APPS" != "[]" && "$BUILT_APPS" != "null" ]]; then
+            mapfile -t BUILT_NAMES < <(printf '%s' "$BUILT_APPS" | jq -r '.[].name')
+          fi
+          SELECTED=()
+          for MODULE in "${CANDIDATES[@]}"; do
+            MODULE="$(echo -n "$MODULE" | xargs)"
+            [[ -z "$MODULE" ]] && continue
+            if [[ ${#BUILT_NAMES[@]} -eq 0 ]]; then
+              SELECTED+=("$MODULE")
+              continue
+            fi
+            for BUILT in "${BUILT_NAMES[@]}"; do
+              if [[ "$BUILT" == "$MODULE" ]]; then
+                SELECTED+=("$MODULE")
+                break
+              fi
+            done
+          done
+          JOINED=$(IFS=,; echo "${SELECTED[*]:-}")
+          echo "modules=${JOINED}" >> "$GITHUB_OUTPUT"
+          if [[ ${#SELECTED[@]} -eq 0 ]]; then
+            echo "::warning::No candidate module in '${MODULES}' matched the built components (${BUILT_NAMES[*]:-none}); e2e run will be a no-op."
+          else
+            echo "Selected modules: ${JOINED}"
+          fi
+
       # ----------------- Run each module -----------------
       # Each module gets its own .env.<module>.<env> file (written here, never
       # committed) and its own ALLURE_RESULTS_DIR/ALLURE_REPORT_DIR so a second
@@ -124,7 +169,7 @@ jobs:
           ENV_NAME: ${{ steps.target.outputs.env_name }}
           BASE_ENV: ${{ steps.target.outputs.base_env }}
           TENANCY: ${{ inputs.tenancy }}
-          MODULES: ${{ inputs.modules }}
+          MODULES: ${{ steps.select.outputs.modules }}
           TIMEOUT: ${{ inputs.timeout }}
           AUTH_URL: https://auth.${{ steps.target.outputs.base_env }}-${{ inputs.tenancy }}.lerian.net
           ADMIN_TENANT_1_USERNAME: ${{ secrets.admin_tenant_1_username }}
@@ -197,7 +242,7 @@ jobs:
         env:
           REPO_NAME: ${{ github.event.repository.name }}
           TAG_NAME: ${{ github.ref_name }}
-          MODULES: ${{ inputs.modules }}
+          MODULES: ${{ steps.select.outputs.modules }}
         run: |
           set -euo pipefail
           # Channel derived from the tag's prerelease identifier, same

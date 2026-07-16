@@ -17,6 +17,9 @@ on:
       has_builds:
         description: 'Whether any components were detected for building (true/false). Use this to skip downstream jobs when no paths changed.'
         value: ${{ jobs.prepare.outputs.has_builds }}
+      matrix:
+        description: 'JSON array of the app matrix that was actually built this run (each entry {"name": ..., "working_dir": ...}). Empty array ("[]") when has_builds is false. Lets downstream jobs (e.g. per-component e2e) scope themselves to only what changed.'
+        value: ${{ jobs.prepare.outputs.matrix }}
     inputs:
       runner_type:
         description: 'Runner to use for the workflow'
