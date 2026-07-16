@@ -535,7 +535,13 @@ jobs:
       checkout_ref: ${{ github.ref_type == 'branch' && needs.release.outputs.new_release_git_tag || '' }}
       dockerfile_name: ${{ matrix.group.dockerfile_name || inputs.dockerfile_name }}
       on_existing_tag: ${{ inputs.on_existing_tag }}
-      tag_prefix: ${{ github.ref_type == 'tag' && matrix.group.tag_prefix || '' }}
+      # Always forwarded, including on the branch-rescue path (unlike
+      # release_version/checkout_ref above): build.yml's own tag_prefix guard
+      # is what excludes a tag-prefixed group (its own independent version
+      # line, e.g. mcp) from the branch rescue on purpose — that group's
+      # build_on_release build should ride its OWN tag push, never the main
+      # app's version. Do not make this conditional on ref_type.
+      tag_prefix: ${{ matrix.group.tag_prefix }}
       runner_type: ${{ inputs.runner_type }}
       enable_dockerhub: ${{ (matrix.group.enable_dockerhub == null && inputs.enable_dockerhub == true) || matrix.group.enable_dockerhub == true }}
       enable_ghcr: ${{ (matrix.group.enable_ghcr == null && inputs.enable_ghcr == true) || matrix.group.enable_ghcr == true }}
