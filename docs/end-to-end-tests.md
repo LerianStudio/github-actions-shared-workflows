@@ -1,4 +1,9 @@
-# End-to-End Tests Workflow
+<table border="0" cellspacing="0" cellpadding="0">
+  <tr>
+    <td><img src="https://github.com/LerianStudio.png" width="72" alt="Lerian" /></td>
+    <td><h1>end-to-end-tests</h1></td>
+  </tr>
+</table>
 
 Reusable workflow that runs the [`LerianStudio/end-to-end`](https://github.com/LerianStudio/end-to-end)
 gray-box/black-box suite (Go + Allure 3) against an already-deployed environment,

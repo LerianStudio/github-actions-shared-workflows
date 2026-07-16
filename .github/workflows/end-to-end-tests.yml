@@ -158,6 +158,19 @@ jobs:
         run: |
           set -euo pipefail
           IFS=',' read -ra CANDIDATES <<< "$MODULES"
+          # Distinguish two cases that must NOT be conflated:
+          #   * no candidate module supplied at all -> misconfiguration, fail
+          #     fast so a tagged release cannot go green without running e2e.
+          #   * candidates supplied but none matched built_apps -> intentional
+          #     no-op (has_modules=false), handled below.
+          CANDIDATE_COUNT=0
+          for MODULE in "${CANDIDATES[@]}"; do
+            [[ -n "$(echo -n "$MODULE" | xargs)" ]] && CANDIDATE_COUNT=$((CANDIDATE_COUNT + 1))
+          done
+          if [[ "$CANDIDATE_COUNT" -eq 0 ]]; then
+            echo "::error::No e2e modules supplied — set 'modules' (e.g. midaz-ledger,midaz-crm) when enabling e2e tests."
+            exit 1
+          fi
           BUILT_NAMES=()
           if [[ -n "$BUILT_APPS" && "$BUILT_APPS" != "[]" && "$BUILT_APPS" != "null" ]]; then
             mapfile -t BUILT_NAMES < <(printf '%s' "$BUILT_APPS" | jq -r '.[].name')
@@ -215,7 +228,12 @@ jobs:
           ADMIN_TENANT_2_PASSWORD: ${{ secrets.admin_tenant_2_password }}
         run: |
           set -euo pipefail
+          # Generated .env files hold plaintext tenant credentials; create them
+          # 0600 so no other process on a shared/persistent runner can read them
+          # in the window before the EXIT trap removes them.
+          umask 077
           GENERATED_ENV_FILES=()
+          # shellcheck disable=SC2317  # invoked indirectly via `trap ... EXIT`
           cleanup() {
             if [[ ${#GENERATED_ENV_FILES[@]} -gt 0 ]]; then
               rm -f "${GENERATED_ENV_FILES[@]}"
@@ -249,6 +267,7 @@ jobs:
               case "$MODULE" in
                 midaz-ledger) echo "LEDGER_URL=${SERVICE_URL}" ;;
                 midaz-crm) echo "CRM_URL=${SERVICE_URL}" ;;
+                *) echo "SERVICE_URL=${SERVICE_URL}" ;;
               esac
             } > "$ENV_FILE"
             echo "::endgroup::"
@@ -277,14 +296,19 @@ jobs:
 
       # ----------------- S3 Upload (optional, Palantir reads this bucket) -----------------
       - name: Configure AWS credentials for E2E artifacts upload
+        id: aws_auth
         if: always() && steps.select.outputs.has_modules == 'true' && env.AWS_E2E_ARTIFACTS_ROLE_ARN != '' && !inputs.dry_run
         uses: aws-actions/configure-aws-credentials@e7f100cf4c008499ea8adda475de1042d6975c7b # v6.2.0
         with:
           role-to-assume: ${{ env.AWS_E2E_ARTIFACTS_ROLE_ARN }}
           aws-region: us-east-2
 
+      # Gate the copy on OIDC auth actually succeeding: with always(), a failed
+      # configure step would otherwise let `aws s3 cp` run against whatever
+      # ambient/stale AWS credentials linger on the persistent runner. In
+      # dry-run the auth step is skipped, so allow the (write-free) preview.
       - name: Upload Allure reports to S3
-        if: always() && steps.select.outputs.has_modules == 'true' && env.AWS_E2E_ARTIFACTS_ROLE_ARN != ''
+        if: always() && steps.select.outputs.has_modules == 'true' && env.AWS_E2E_ARTIFACTS_ROLE_ARN != '' && (inputs.dry_run || steps.aws_auth.outcome == 'success')
         env:
           REPO_NAME: ${{ github.event.repository.name }}
           TAG_NAME: ${{ github.ref_name }}
