@@ -353,6 +353,7 @@ jobs:
           fi
 
           echo "images=$IMAGES" >> "$GITHUB_OUTPUT"
+          echo "ghcr_org=$GHCR_ORG" >> "$GITHUB_OUTPUT"
 
       - name: Extract version from tag
         id: version
@@ -381,7 +382,7 @@ jobs:
           ENABLE_DOCKERHUB: ${{ inputs.enable_dockerhub }}
           ENABLE_GHCR: ${{ inputs.enable_ghcr }}
           DOCKERHUB_ORG: ${{ inputs.dockerhub_org }}
-          GHCR_ORG: ${{ inputs.ghcr_org || steps.normalize.outputs.owner_lower }}
+          GHCR_ORG: ${{ steps.image-names.outputs.ghcr_org }}
           APP_NAME: ${{ matrix.app.name }}
           VERSION: ${{ steps.version.outputs.version }}
         run: |
@@ -471,7 +472,7 @@ jobs:
           ENABLE_GHCR: ${{ inputs.enable_ghcr }}
           DOCKERHUB_ORG: ${{ inputs.dockerhub_org }}
           APP_NAME: ${{ matrix.app.name }}
-          GHCR_ORG: ${{ inputs.ghcr_org || steps.normalize.outputs.owner_lower }}
+          GHCR_ORG: ${{ steps.image-names.outputs.ghcr_org }}
         run: |
           REFS=""
 
