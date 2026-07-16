@@ -282,8 +282,6 @@ on:
         required: false
       UNGOLIANT_WEBHOOK_TOKEN:
         required: false
-      E2E_REPO_TOKEN:
-        required: false
       AWS_E2E_ARTIFACTS_ROLE_ARN:
         required: false
       E2E_ADMIN_TENANT_1_USERNAME:
@@ -661,7 +659,10 @@ jobs:
       runner_type: ${{ inputs.e2e_runner_type }}
       dry_run: ${{ inputs.dry_run }}
     secrets:
-      e2e_repo_token: ${{ secrets.E2E_REPO_TOKEN }}
+      # Reuses the same org token gitops-update uses for cross-repo access —
+      # it already has read access to the private end-to-end suite repo, so no
+      # dedicated e2e token secret is needed.
+      e2e_repo_token: ${{ secrets.MANAGE_TOKEN }}
       aws_e2e_artifacts_role_arn: ${{ secrets.AWS_E2E_ARTIFACTS_ROLE_ARN }}
       admin_tenant_1_username: ${{ secrets.E2E_ADMIN_TENANT_1_USERNAME }}
       admin_tenant_1_password: ${{ secrets.E2E_ADMIN_TENANT_1_PASSWORD }}
