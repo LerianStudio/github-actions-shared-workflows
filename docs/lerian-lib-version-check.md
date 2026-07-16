@@ -16,6 +16,7 @@ This workflow turns those expectations into a CI gate.
 ## Features
 
 - **Strict latest-stable enforcement** — every direct Lerian dep must be on the latest stable GitHub release.
+- **Major-bump grace window** — major-version bumps are tolerated while the latest release is younger than the grace window (default 3 days); minor and patch bumps are always enforced immediately. Configured org-wide via a GitHub variable.
 - **Standards gate** — services with no Lerian libs in `go.mod` fail the check.
 - **Sticky PR comment** — a single comment is created and updated in place with a status table.
 - **`.lerianstudiolibignore`** — gitignore-style exemption file for temporary skips or version pins.
@@ -34,6 +35,7 @@ src/validate/lerian-lib-version (composite action)
    2. Load .lerianstudiolibignore (if present)
    3. For each lib: GET /repos/LerianStudio/<repo>/releases (paged, stable only)
    4. Compare current vs latest using semver (sort -V)
+   4b. Apply the major-bump grace window (unpinned libs only)
    5. Build markdown report, write step summary
    6. Upsert sticky PR comment (via actions/github-script)
    7. Exit non-zero if outdated or no Lerian libs detected
@@ -100,6 +102,19 @@ jobs:
 | `comment_on_pr`  | boolean | `true`                      | Post / update a sticky comment on the PR with the result table                               |
 | `dry_run`        | boolean | `false`                     | Verbose log of all resolved versions; never fails the build                                  |
 
+## Major-bump grace window
+
+Major-version bumps (a higher major on an unpinned, API-resolved lib) are tolerated while the latest release is younger than the grace window. Minor and patch bumps are always enforced immediately. This gives teams a short buffer to plan the import-path migration a major bump requires, without letting it linger.
+
+The window is configured org-wide through the GitHub Actions variable `LERIAN_LIB_MAJOR_BUMP_GRACE_DAYS` (repository, environment, or organization scope). When unset it defaults to `3`. Set it to `0` to disable the grace window and enforce major bumps immediately.
+
+- The window is measured from the release's `published_at` date. A lib in grace shows `Grace (major bump, expires <date>)` in the report and does **not** fail the check.
+- The window **auto-expires**: once the release is at least `N` days old, the lib falls back to `Outdated` on the next run and the check fails — no manual cleanup needed.
+- Grace applies only to libs resolved from the releases API. Libs pinned via `.lerianstudiolibignore` (`lib@vX.Y.Z`) keep comparing against the pin as before.
+- If the release date cannot be determined, the lib is enforced immediately (conservative default).
+
+Because it is a GitHub variable rather than a workflow input, no caller change is needed to roll a new value out across every consumer repo.
+
 ## Secrets
 
 | Name                    | Required | Description                                                                                                                                                                       |
@@ -126,6 +141,7 @@ Without the secret, the workflow still runs and enforces freshness on all **publ
 |-------------------|----------------------------------------------------------------------|
 | `has_outdated`    | `true` if at least one direct Lerian lib is behind latest stable     |
 | `outdated_count`  | Number of outdated direct Lerian libs                                |
+| `grace_count`     | Number of direct Lerian libs within the major-bump grace window      |
 | `has_lerian_libs` | `true` if at least one Lerian lib was detected in `go.mod`           |
 
 ## Required permissions
@@ -141,7 +157,8 @@ permissions:
 | Condition                                                | Behavior                                            |
 |----------------------------------------------------------|-----------------------------------------------------|
 | App has no Lerian libs in `go.mod`                       | Fail — violates company standards                   |
-| One or more direct Lerian libs are outdated              | Fail — bump or add to ignore file                   |
+| One or more direct Lerian libs are outdated (minor/patch, or expired major) | Fail — bump or add to ignore file        |
+| Major bump with latest release younger than the grace window | Tolerated — marked _grace_, does not fail       |
 | `.lerianstudiolibignore` does not exist                  | Warning in log, proceed normally                    |
 | Lib matched by ignore-skip rule                          | Skipped, marked _skipped_ in the report             |
 | Lib matched by ignore-pin rule (`lib@vX.Y.Z`)            | Compared against the pin, marked _pinned_           |
@@ -177,9 +194,10 @@ Example:
 | `lib-commons/v5`     | `v5.1.0`| `v5.5.0`| Outdated   |
 | `lib-auth/v2`        | `v2.7.0`| `v2.8.0`| Outdated   |
 | `lib-license-go/v2`  | `v2.3.5`| `v2.3.5`| Current    |
-| `lib-foo/v1`         | `v1.0.0`| _skipped_ | Skipped (ignore file) |
+| `lib-foo/v1`         | `v1.0.0`| `v2.0.0`| Grace (major bump, expires 2026-07-19) |
+| `lib-bar/v2`         | `v2.0.0`| _skipped_ | Skipped (ignore file) |
 
-**2 outdated** | **1 current** | **1 skipped** | **0 unknown**
+**2 outdated** | **1 in grace** | **1 current** | **1 skipped** | **0 unknown**
 
 > Bump the outdated libraries, or add temporary entries to `.lerianstudiolibignore`.
 ```

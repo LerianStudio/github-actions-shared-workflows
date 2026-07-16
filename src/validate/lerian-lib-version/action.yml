@@ -22,6 +22,10 @@ inputs:
     description: Also check transitive (// indirect) dependencies. Off by default.
     required: false
     default: "false"
+  major-bump-grace-days:
+    description: Grace window (in days) for major-version bumps. A major bump is tolerated while the latest release is younger than this many days; minor and patch bumps are always enforced immediately. Set to "0" to disable and enforce major bumps immediately.
+    required: false
+    default: "3"
   comment-on-pr:
     description: Post or update a sticky comment on the PR with the result table.
     required: false
@@ -42,6 +46,9 @@ outputs:
   outdated_count:
     description: Number of outdated direct Lerian libs.
     value: ${{ steps.check.outputs.outdated_count }}
+  grace_count:
+    description: Number of direct Lerian libs within the major-bump grace window (not counted as outdated).
+    value: ${{ steps.check.outputs.grace_count }}
   has_lerian_libs:
     description: "true if at least one Lerian lib was detected in go.mod."
     value: ${{ steps.check.outputs.has_lerian_libs }}
@@ -69,6 +76,7 @@ runs:
         GO_MOD_PATH: ${{ inputs.go-mod-path }}
         IGNORE_FILE: ${{ inputs.ignore-file }}
         CHECK_INDIRECT: ${{ inputs.check-indirect }}
+        GRACE_DAYS: ${{ inputs.major-bump-grace-days }}
         DRY_RUN: ${{ inputs.dry-run }}
         GH_TOKEN: ${{ inputs.github-token }}
       run: |
@@ -79,6 +87,11 @@ runs:
 
         log() { echo "$@"; }
         debug() { if [[ "${DRY_RUN}" == "true" ]]; then echo "::debug::$*"; fi; }
+
+        # Empty / non-numeric grace value disables the major-bump grace window.
+        if ! [[ "${GRACE_DAYS:-}" =~ ^[0-9]+$ ]]; then
+          GRACE_DAYS=0
+        fi
 
         # ---------- 1. Parse go.mod ----------
         # Collect lines like:
@@ -103,6 +116,7 @@ runs:
           echo "has_lerian_libs=false" >> "${GITHUB_OUTPUT}"
           echo "has_outdated=false" >> "${GITHUB_OUTPUT}"
           echo "outdated_count=0" >> "${GITHUB_OUTPUT}"
+          echo "grace_count=0" >> "${GITHUB_OUTPUT}"
           echo "report_path=${REPORT_PATH}" >> "${GITHUB_OUTPUT}"
 
           {
@@ -213,6 +227,7 @@ runs:
 
         # ---------- 3. Resolve latest stable release per repo (cache by repo name) ----------
         declare -A LATEST_CACHE=()
+        declare -A LATEST_DATE=()
 
         resolve_latest() {
           local repo="$1"
@@ -286,6 +301,15 @@ runs:
           if [[ -n "${latest}" ]]; then
             latest="v${latest}"
           fi
+
+          # Record the publish date (YYYY-MM-DD) of the chosen tag so the caller
+          # can measure release age for the major-bump grace window.
+          local latest_date
+          latest_date=$(echo "${releases_json}" | jq -r --arg t "${latest}" '
+            [ .[]? | select(.tag_name == $t or ("v" + .tag_name) == $t) | .published_at ] | .[0] // ""
+          ' 2>/dev/null || echo "")
+          LATEST_DATE[${cache_key}]="${latest_date%%T*}"
+
           LATEST_CACHE[${cache_key}]="${latest}"
           echo "${latest}"
         }
@@ -304,6 +328,7 @@ runs:
         CURRENT=0
         SKIPPED=0
         UNKNOWN=0
+        GRACE=0
 
         # Use a temp file for the table rows so we control ordering and avoid heredoc quoting traps.
         ROWS_FILE="${RUNNER_TEMP:-/tmp}/lerian-rows.txt"
@@ -371,10 +396,34 @@ runs:
           if ver_ge "${current}" "${target}"; then
             CURRENT=$((CURRENT+1))
             printf '| `%s` | `%s` | `%s` | Current%s |\n' "${short_path}" "${current}" "${latest}" "${marker_suffix}" >> "${ROWS_FILE}"
-          else
-            OUTDATED=$((OUTDATED+1))
-            printf '| `%s` | `%s` | `%s` | Outdated%s |\n' "${short_path}" "${current}" "${latest}" "${marker_suffix}" >> "${ROWS_FILE}"
+            continue
           fi
+
+          # Outdated. Major bumps (higher major on an unpinned, API-resolved lib)
+          # are tolerated while the latest release is younger than GRACE_DAYS;
+          # minor/patch bumps are always enforced immediately.
+          cur_major="${current#v}"; cur_major="${cur_major%%.*}"
+          tgt_major="${target#v}"; tgt_major="${tgt_major%%.*}"
+          rel_date="${LATEST_DATE["${repo}::${major_filter}"]:-}"
+          if [[ "${cur_major}" =~ ^[0-9]+$ && "${tgt_major}" =~ ^[0-9]+$ ]] \
+             && (( tgt_major > cur_major )) \
+             && [[ "${GRACE_DAYS}" -gt 0 && -n "${rel_date}" ]]; then
+            pub_epoch=$(date -u -d "${rel_date}" +%s 2>/dev/null || echo "")
+            today_epoch=$(date -u -d "${TODAY}" +%s 2>/dev/null || echo "")
+            if [[ -n "${pub_epoch}" && -n "${today_epoch}" ]]; then
+              age_days=$(( (today_epoch - pub_epoch) / 86400 ))
+              if (( age_days < GRACE_DAYS )); then
+                GRACE=$((GRACE+1))
+                expires=$(date -u -d "${rel_date} +${GRACE_DAYS} days" +%Y-%m-%d 2>/dev/null || echo "${rel_date}")
+                printf '| `%s` | `%s` | `%s` | Grace (major bump, expires %s) |\n' "${short_path}" "${current}" "${latest}" "${expires}" >> "${ROWS_FILE}"
+                debug "grace: ${short_path} ${current} -> ${latest} (released ${rel_date}, age ${age_days}d, expires ${expires})"
+                continue
+              fi
+            fi
+          fi
+
+          OUTDATED=$((OUTDATED+1))
+          printf '| `%s` | `%s` | `%s` | Outdated%s |\n' "${short_path}" "${current}" "${latest}" "${marker_suffix}" >> "${ROWS_FILE}"
         done <<< "${DEPS_RAW}"
 
         # ---------- 5. Build markdown report ----------
@@ -385,10 +434,13 @@ runs:
           echo "|---------|---------|--------|--------|"
           cat "${ROWS_FILE}"
           echo
-          echo "**${OUTDATED} outdated** | **${CURRENT} current** | **${SKIPPED} skipped** | **${UNKNOWN} unknown**"
+          echo "**${OUTDATED} outdated** | **${GRACE} in grace** | **${CURRENT} current** | **${SKIPPED} skipped** | **${UNKNOWN} unknown**"
           echo
           if [[ "${OUTDATED}" -gt 0 ]]; then
             echo "> Bump the outdated libraries, or add temporary entries to \`${IGNORE_FILE}\`."
+          fi
+          if [[ "${GRACE}" -gt 0 ]]; then
+            echo "> ${GRACE} major bump(s) within the ${GRACE_DAYS}-day grace window — bump them before the window expires or the check will start failing."
           fi
         } >> "${REPORT_PATH}"
 
@@ -398,6 +450,7 @@ runs:
         # Outputs
         {
           echo "outdated_count=${OUTDATED}"
+          echo "grace_count=${GRACE}"
           if [[ "${OUTDATED}" -gt 0 ]]; then
             echo "has_outdated=true"
           else

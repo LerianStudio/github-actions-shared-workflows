@@ -59,6 +59,9 @@ on:
       outdated_count:
         description: 'Number of outdated direct Lerian libs'
         value: ${{ jobs.check.outputs.outdated_count }}
+      grace_count:
+        description: 'Number of direct Lerian libs within the major-bump grace window'
+        value: ${{ jobs.check.outputs.grace_count }}
       has_lerian_libs:
         description: 'true if at least one Lerian lib was detected in go.mod'
         value: ${{ jobs.check.outputs.has_lerian_libs }}
@@ -74,6 +77,7 @@ jobs:
     outputs:
       has_outdated: ${{ steps.check.outputs.has_outdated }}
       outdated_count: ${{ steps.check.outputs.outdated_count }}
+      grace_count: ${{ steps.check.outputs.grace_count }}
       has_lerian_libs: ${{ steps.check.outputs.has_lerian_libs }}
     steps:
       - name: Checkout
@@ -91,4 +95,5 @@ jobs:
           ignore-file: ${{ inputs.ignore_file }}
           check-indirect: ${{ inputs.check_indirect && 'true' || 'false' }}
           comment-on-pr: ${{ inputs.comment_on_pr && 'true' || 'false' }}
+          major-bump-grace-days: ${{ vars.LERIAN_LIB_MAJOR_BUMP_GRACE_DAYS || '3' }}
           dry-run: ${{ inputs.dry_run && 'true' || 'false' }}
