@@ -79,7 +79,7 @@ The `frontend-analysis` and `security` pipelines each have a `*-gate` aggregator
 | `ignore_file` | Path to Trivy ignore file (e.g. `.trivyignore.yaml`) | string | `''` |
 | `trivy_skip_dirs` | Comma-separated directories to skip in every Trivy filesystem scan | string | `''` |
 
-> **Monorepo note:** `filter_paths`/`path_level` scope the `frontend-analysis` job only. They are not passed to the `security` job because `frontend-pr-analysis.yml` and `pr-security-scan.yml` use different formats for that input (JSON array vs. newline-separated). For a path-scoped security scan too, call `pr-security-scan.yml` directly.
+> **Monorepo note:** `filter_paths`/`shared_paths`/`path_level`/`normalize_to_filter` scope the `frontend-analysis` job only. They are not passed to the `security` job because `frontend-pr-analysis.yml` and `pr-security-scan.yml` use different formats for that input (JSON array vs. newline-separated). For a path-scoped security scan too, call `pr-security-scan.yml` directly.
 
 ## Secrets
 
