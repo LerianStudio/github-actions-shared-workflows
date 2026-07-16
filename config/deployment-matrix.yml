@@ -81,6 +81,7 @@ apps:
     - plugin-bc-correios
     - underwriter
     - br-sta
+    - br-slc
     - br-ccs
 
     # Test/mock infrastructure
@@ -166,6 +167,7 @@ clusters:
       - plugin-bc-correios
       - underwriter
       - br-sta
+      - br-slc
       - br-ccs
       - mock-btg-server
       - backoffice-console
