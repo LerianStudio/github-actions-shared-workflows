@@ -1,0 +1,228 @@
+name: "End-to-End Tests"
+
+# This reusable workflow runs the LerianStudio/end-to-end gray-box/black-box
+# suite (Go + Allure 3) against an already-deployed environment, then uploads
+# the static Allure report to the lerian-e2e-artifacts S3 bucket — the same
+# bucket/role the JS products (e.g. product-console) already use, read by
+# Palantir (self-service-testing)'s E2E page.
+
+on:
+  workflow_call:
+    inputs:
+      modules:
+        description: 'Comma-separated list of end-to-end test modules to run (e.g. "midaz-ledger,midaz-crm"). Each maps to ./cases/<module>/... and .env.<module>.<env>.'
+        type: string
+        required: true
+      tenancy:
+        description: 'Tenancy mode targeted by the deployed environment — st (single-tenant) | mt (multi-tenant).'
+        type: string
+        default: 'st'
+      go_version:
+        description: 'Go version to use (should match the end-to-end repo go.mod).'
+        type: string
+        default: '1.25'
+      node_version:
+        description: 'Node.js version to use (for the Allure 3 CLI).'
+        type: string
+        default: '20'
+      runner_type:
+        description: 'GitHub runner type to use. Needs reach to the deployed environment, so it defaults to eveo-lxc-runners rather than the build runner.'
+        type: string
+        default: 'eveo-lxc-runners'
+      auto_detect_environment:
+        description: 'Auto-detect the target environment from the tag (beta -> dev, rc -> stg, else -> prd).'
+        type: boolean
+        default: true
+      timeout:
+        description: 'Per-run Go test timeout, forwarded to make test TIMEOUT=...'
+        type: string
+        default: '600s'
+      e2e_s3_artifact_path:
+        description: 'Subpath under s3://lerian-e2e-artifacts/<repo>/<channel>/<tag>/ where each module Allure report is uploaded (module name is appended).'
+        type: string
+        default: 'e2e'
+    secrets:
+      e2e_repo_token:
+        description: 'Token with read access to the private LerianStudio/end-to-end repository.'
+        required: true
+      aws_e2e_artifacts_role_arn:
+        description: 'IAM role ARN assumed via OIDC to upload the Allure report to the lerian-e2e-artifacts S3 bucket. Optional — when unset, the S3 upload step is skipped and only the GitHub Actions artifact is produced.'
+        required: false
+      admin_tenant_1_username:
+        required: false
+      admin_tenant_1_password:
+        required: false
+      admin_tenant_2_username:
+        required: false
+      admin_tenant_2_password:
+        required: false
+
+jobs:
+  end-to-end-tests:
+    name: End-to-End Tests
+    runs-on: ${{ inputs.runner_type }}
+    permissions:
+      id-token: write
+      contents: read
+    env:
+      AWS_E2E_ARTIFACTS_ROLE_ARN: ${{ secrets.aws_e2e_artifacts_role_arn }}
+    steps:
+      - name: Checkout end-to-end suite
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          repository: LerianStudio/end-to-end
+          token: ${{ secrets.e2e_repo_token }}
+          persist-credentials: false
+
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: ${{ inputs.go_version }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6
+        with:
+          node-version: ${{ inputs.node_version }}
+
+      - name: Install Allure 3 CLI
+        run: make install-allure
+
+      # ----------------- Resolve target environment -----------------
+      # Same beta->dev / rc->stg / else->prd mapping as ungoliant_release_diff,
+      # combined with the caller's tenancy to match the end-to-end repo's
+      # .env.<module>.benedita-<env>-<tenancy> naming and the products'
+      # https://<app>.<env>-<tenancy>.lerian.net URL convention.
+      - name: Resolve target environment
+        id: target
+        env:
+          REF_NAME: ${{ github.ref_name }}
+          TENANCY: ${{ inputs.tenancy }}
+        run: |
+          set -euo pipefail
+          if [[ "${{ inputs.auto_detect_environment }}" != "true" ]]; then
+            echo "::error::auto_detect_environment=false is not supported yet — no manual environment override input exists."
+            exit 1
+          fi
+          if [[ "$REF_NAME" == *-beta.* ]]; then
+            BASE_ENV="dev"
+          elif [[ "$REF_NAME" == *-rc.* ]]; then
+            BASE_ENV="stg"
+          else
+            BASE_ENV="prd"
+          fi
+          ENV_NAME="benedita-${BASE_ENV}-${TENANCY}"
+          {
+            echo "base_env=${BASE_ENV}"
+            echo "env_name=${ENV_NAME}"
+          } >> "$GITHUB_OUTPUT"
+          echo "Resolved environment: ${ENV_NAME}"
+
+      # ----------------- Run each module -----------------
+      # Each module gets its own .env.<module>.<env> file (written here, never
+      # committed) and its own ALLURE_RESULTS_DIR/ALLURE_REPORT_DIR so a second
+      # module's `make test` does not wipe the first module's report (the
+      # Makefile's `test` target rm -rf's those dirs unless KEEP_RESULTS is set).
+      - name: Run end-to-end suites
+        id: run
+        env:
+          ENV_NAME: ${{ steps.target.outputs.env_name }}
+          BASE_ENV: ${{ steps.target.outputs.base_env }}
+          TENANCY: ${{ inputs.tenancy }}
+          MODULES: ${{ inputs.modules }}
+          TIMEOUT: ${{ inputs.timeout }}
+          AUTH_URL: https://auth.${{ steps.target.outputs.base_env }}-${{ inputs.tenancy }}.lerian.net
+          ADMIN_TENANT_1_USERNAME: ${{ secrets.admin_tenant_1_username }}
+          ADMIN_TENANT_1_PASSWORD: ${{ secrets.admin_tenant_1_password }}
+          ADMIN_TENANT_2_USERNAME: ${{ secrets.admin_tenant_2_username }}
+          ADMIN_TENANT_2_PASSWORD: ${{ secrets.admin_tenant_2_password }}
+        run: |
+          set -euo pipefail
+          IFS=',' read -ra MODULE_LIST <<< "$MODULES"
+          FAILED=0
+          for MODULE in "${MODULE_LIST[@]}"; do
+            MODULE="$(echo -n "$MODULE" | xargs)"
+            [[ -z "$MODULE" ]] && continue
+
+            case "$MODULE" in
+              midaz-ledger) APP=ledger ;;
+              midaz-crm) APP=midaz-crm ;;
+              *) APP="$MODULE" ;;
+            esac
+            SERVICE_URL="https://${APP}.${BASE_ENV}-${TENANCY}.lerian.net"
+
+            ENV_FILE=".env.${MODULE}.${ENV_NAME}"
+            echo "::group::Writing ${ENV_FILE}"
+            {
+              echo "MULTI_TENANT=$([[ "$TENANCY" == "mt" ]] && echo 1 || echo 0)"
+              echo "AUTH_URL=${AUTH_URL}"
+              echo "ADMIN_TENANT_1_USERNAME=${ADMIN_TENANT_1_USERNAME}"
+              echo "ADMIN_TENANT_1_PASSWORD=${ADMIN_TENANT_1_PASSWORD}"
+              echo "ADMIN_TENANT_2_USERNAME=${ADMIN_TENANT_2_USERNAME}"
+              echo "ADMIN_TENANT_2_PASSWORD=${ADMIN_TENANT_2_PASSWORD}"
+              case "$MODULE" in
+                midaz-ledger) echo "LEDGER_URL=${SERVICE_URL}" ;;
+                midaz-crm) echo "CRM_URL=${SERVICE_URL}" ;;
+              esac
+            } > "$ENV_FILE"
+            echo "::endgroup::"
+
+            RESULTS_DIR="reports/allure-results-${MODULE}"
+            REPORT_DIR="reports/allure-report-${MODULE}"
+            echo "::group::make test ENV=${ENV_NAME} PACKAGE=./cases/${MODULE}/..."
+            make test \
+              ENV_FILE="${ENV_FILE}" \
+              PACKAGE="./cases/${MODULE}/..." \
+              TIMEOUT="${TIMEOUT}" \
+              ALLURE_RESULTS_DIR="${RESULTS_DIR}" \
+              ALLURE_REPORT_DIR="${REPORT_DIR}" \
+              || FAILED=1
+            echo "::endgroup::"
+          done
+          exit "$FAILED"
+
+      - name: Upload Allure reports (GitHub artifact)
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: e2e-allure-reports
+          path: reports/allure-report-*
+          retention-days: 30
+
+      # ----------------- S3 Upload (optional, Palantir reads this bucket) -----------------
+      - name: Configure AWS credentials for E2E artifacts upload
+        if: always() && env.AWS_E2E_ARTIFACTS_ROLE_ARN != ''
+        uses: aws-actions/configure-aws-credentials@e7f100cf4c008499ea8adda475de1042d6975c7b # v6.2.0
+        with:
+          role-to-assume: ${{ env.AWS_E2E_ARTIFACTS_ROLE_ARN }}
+          aws-region: us-east-2
+
+      - name: Upload Allure reports to S3
+        if: always() && env.AWS_E2E_ARTIFACTS_ROLE_ARN != ''
+        env:
+          REPO_NAME: ${{ github.event.repository.name }}
+          TAG_NAME: ${{ github.ref_name }}
+          ARTIFACT_PATH: ${{ inputs.e2e_s3_artifact_path }}
+          MODULES: ${{ inputs.modules }}
+        run: |
+          set -euo pipefail
+          # Channel derived from the tag's prerelease identifier, same
+          # convention as the JS products' e2e_tests job.
+          CHANNEL="main"
+          if [[ "$TAG_NAME" == *-beta.* ]]; then
+            CHANNEL="beta"
+          elif [[ "$TAG_NAME" == *-rc.* ]]; then
+            CHANNEL="rc"
+          fi
+          IFS=',' read -ra MODULE_LIST <<< "$MODULES"
+          for MODULE in "${MODULE_LIST[@]}"; do
+            MODULE="$(echo -n "$MODULE" | xargs)"
+            [[ -z "$MODULE" ]] && continue
+            REPORT_DIR="reports/allure-report-${MODULE}"
+            if [[ -d "$REPORT_DIR" ]]; then
+              S3_PATH="s3://lerian-e2e-artifacts/${REPO_NAME}/${CHANNEL}/${TAG_NAME}/${ARTIFACT_PATH}/${MODULE}/"
+              aws s3 cp "$REPORT_DIR/" "$S3_PATH" --recursive
+              echo "::notice::Uploaded ${MODULE} Allure report to ${S3_PATH}"
+            else
+              echo "::warning::${REPORT_DIR} not found — skipping S3 upload for ${MODULE}"
+            fi
+          done
