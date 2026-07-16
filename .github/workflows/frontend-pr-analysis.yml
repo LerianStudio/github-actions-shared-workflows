@@ -180,6 +180,10 @@ on:
         description: 'Newline-separated npm script names to run as additional checks (e.g. repo-specific guards). Each runs independently; a non-zero exit on any of them fails the job.'
         type: string
         default: ''
+      custom_checks_needs_browsers:
+        description: 'Install Playwright browsers (Chromium) before running custom_checks. Only enable if at least one of your custom_checks scripts drives a browser (e.g. a Playwright-based smoke test) — most repo-specific guard scripts do not need this and installing browsers unconditionally wastes CI time/bandwidth.'
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -240,8 +244,10 @@ jobs:
 
       - name: Install dependencies
         working-directory: ${{ matrix.app.working_dir }}
+        env:
+          PKG_MANAGER: ${{ inputs.package_manager }}
         run: |
-          case "${{ inputs.package_manager }}" in
+          case "$PKG_MANAGER" in
             yarn) yarn install --frozen-lockfile ;;
             pnpm) pnpm install --frozen-lockfile ;;
             *) npm ci ;;
@@ -249,8 +255,10 @@ jobs:
 
       - name: Run ESLint
         working-directory: ${{ matrix.app.working_dir }}
+        env:
+          PKG_MANAGER: ${{ inputs.package_manager }}
         run: |
-          case "${{ inputs.package_manager }}" in
+          case "$PKG_MANAGER" in
             yarn) yarn eslint . ${{ inputs.eslint_args }} ;;
             pnpm) pnpm eslint . ${{ inputs.eslint_args }} ;;
             *) npx eslint . ${{ inputs.eslint_args }} ;;
@@ -287,8 +295,10 @@ jobs:
 
       - name: Install dependencies
         working-directory: ${{ matrix.app.working_dir }}
+        env:
+          PKG_MANAGER: ${{ inputs.package_manager }}
         run: |
-          case "${{ inputs.package_manager }}" in
+          case "$PKG_MANAGER" in
             yarn) yarn install --frozen-lockfile ;;
             pnpm) pnpm install --frozen-lockfile ;;
             *) npm ci ;;
@@ -329,8 +339,10 @@ jobs:
 
       - name: Install dependencies
         working-directory: ${{ matrix.app.working_dir }}
+        env:
+          PKG_MANAGER: ${{ inputs.package_manager }}
         run: |
-          case "${{ inputs.package_manager }}" in
+          case "$PKG_MANAGER" in
             yarn) yarn install --frozen-lockfile ;;
             pnpm) pnpm install --frozen-lockfile ;;
             *) npm ci ;;
@@ -338,8 +350,10 @@ jobs:
 
       - name: Run npm audit
         working-directory: ${{ matrix.app.working_dir }}
+        env:
+          PKG_MANAGER: ${{ inputs.package_manager }}
         run: |
-          case "${{ inputs.package_manager }}" in
+          case "$PKG_MANAGER" in
             yarn) yarn audit --level ${{ inputs.audit_level }} || true ;;
             pnpm) pnpm audit --audit-level ${{ inputs.audit_level }} || true ;;
             *) npm audit --omit=dev --audit-level ${{ inputs.audit_level }} ;;
@@ -376,8 +390,10 @@ jobs:
 
       - name: Install dependencies
         working-directory: ${{ matrix.app.working_dir }}
+        env:
+          PKG_MANAGER: ${{ inputs.package_manager }}
         run: |
-          case "${{ inputs.package_manager }}" in
+          case "$PKG_MANAGER" in
             yarn) yarn install --frozen-lockfile ;;
             pnpm) pnpm install --frozen-lockfile ;;
             *) npm ci ;;
@@ -387,6 +403,7 @@ jobs:
         working-directory: ${{ matrix.app.working_dir }}
         env:
           ENABLE_COVERAGE: ${{ inputs.enable_coverage }}
+          PKG_MANAGER: ${{ inputs.package_manager }}
         run: |
           COVERAGE_FLAGS=()
           if [[ "$ENABLE_COVERAGE" == "true" ]]; then
@@ -401,7 +418,7 @@ jobs:
             fi
           fi
 
-          case "${{ inputs.package_manager }}" in
+          case "$PKG_MANAGER" in
             yarn) yarn test "${COVERAGE_FLAGS[@]}" ;;
             pnpm) pnpm test "${COVERAGE_FLAGS[@]}" ;;
             *) npm test -- "${COVERAGE_FLAGS[@]}" ;;
@@ -581,8 +598,10 @@ jobs:
 
       - name: Install dependencies
         working-directory: ${{ matrix.app.working_dir }}
+        env:
+          PKG_MANAGER: ${{ inputs.package_manager }}
         run: |
-          case "${{ inputs.package_manager }}" in
+          case "$PKG_MANAGER" in
             yarn) yarn install --frozen-lockfile ;;
             pnpm) pnpm install --frozen-lockfile ;;
             *) npm ci ;;
@@ -590,8 +609,10 @@ jobs:
 
       - name: Build
         working-directory: ${{ matrix.app.working_dir }}
+        env:
+          PKG_MANAGER: ${{ inputs.package_manager }}
         run: |
-          case "${{ inputs.package_manager }}" in
+          case "$PKG_MANAGER" in
             yarn) yarn build ;;
             pnpm) pnpm build ;;
             *) npm run build ;;
@@ -770,6 +791,7 @@ jobs:
           esac
 
       - name: Install Playwright browsers
+        if: inputs.custom_checks_needs_browsers
         working-directory: ${{ matrix.app.working_dir }}
         env:
           PKG_MANAGER: ${{ inputs.package_manager }}

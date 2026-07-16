@@ -238,6 +238,10 @@ on:
         description: 'Newline-separated npm script names to run as additional checks'
         type: string
         default: ''
+      custom_checks_needs_browsers:
+        description: 'Install Playwright browsers before running custom_checks. Only enable if a custom_checks script drives a browser (e.g. a Playwright-based smoke test).'
+        type: boolean
+        default: false
 
       # ----------------- Security (pr-security-scan.yml) -----------------
       prerelease_block_branches:
@@ -365,6 +369,7 @@ jobs:
       accessibility_script: ${{ inputs.accessibility_script }}
       enable_custom_checks: ${{ inputs.enable_custom_checks }}
       custom_checks: ${{ inputs.custom_checks }}
+      custom_checks_needs_browsers: ${{ inputs.custom_checks_needs_browsers }}
     secrets: inherit
 
   frontend-analysis-gate:
