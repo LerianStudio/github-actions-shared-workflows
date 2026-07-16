@@ -1,5 +1,19 @@
 # Github-actions-shared-workflows Changelog
 
+## [1.46.4](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.46.4)
+
+Fixes:
+- Merged changes from `develop` to `main` to address release issues. (@bedatty)
+- Added explicit `!cancelled()` condition to the `s3_upload` gate in the go-release workflow to prevent premature cancellations. (@bedatty)
+- Removed reliance on unreliable build results for gating `s3_upload` in the go-release workflow. (@bedatty)
+
+Improvements:
+- Included `br-slc` in the deployment matrix to enhance deployment coverage. (@bedatty, @gandalf-at-lerian)
+
+[Compare changes](https://github.com/LerianStudio/github-actions-shared-workflows/compare/v1.46.3...v1.46.4)
+
+---
+
 ## [1.46.3](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.46.3)
 
 Fixes:
