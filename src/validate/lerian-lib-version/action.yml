@@ -227,12 +227,17 @@ runs:
 
         # ---------- 3. Resolve latest stable release per repo (cache by repo name) ----------
         declare -A LATEST_CACHE=()
-        declare -A LATEST_DATE=()
+
+        # resolve_latest runs inside command substitution (a subshell), so it cannot
+        # export the resolved publish date via a shell variable. It writes the date of
+        # the chosen release to this file instead; the caller reads it right after.
+        LATEST_DATE_FILE="${RUNNER_TEMP:-/tmp}/lerian-latest-date.txt"
 
         resolve_latest() {
           local repo="$1"
           local major_filter="$2"   # e.g. "v5" or "" for v0/v1 modules
           local cache_key="${repo}::${major_filter}"
+          : > "${LATEST_DATE_FILE}"
           if [[ -n "${LATEST_CACHE[${cache_key}]:-}" ]]; then
             echo "${LATEST_CACHE[${cache_key}]}"
             return 0
@@ -308,7 +313,7 @@ runs:
           latest_date=$(echo "${releases_json}" | jq -r --arg t "${latest}" '
             [ .[]? | select(.tag_name == $t or ("v" + .tag_name) == $t) | .published_at ] | .[0] // ""
           ' 2>/dev/null || echo "")
-          LATEST_DATE[${cache_key}]="${latest_date%%T*}"
+          printf '%s' "${latest_date%%T*}" > "${LATEST_DATE_FILE}"
 
           LATEST_CACHE[${cache_key}]="${latest}"
           echo "${latest}"
@@ -378,6 +383,7 @@ runs:
           # degraded (non-200). Only unpinned libs depend on resolve_latest.
           is_pinned="false"
           pin_note=""
+          rel_date=""
           if [[ -n "${IGNORE_PIN[${short_path}]:-}" ]]; then
             target="${IGNORE_PIN[${short_path}]}"
             latest="${target}"
@@ -386,6 +392,7 @@ runs:
             pin_note="${pin_note} · [why?](${IGNORE_DOCS_URL})"
           else
             latest=$(resolve_latest "${repo}" "${major_filter}")
+            rel_date=$(cat "${LATEST_DATE_FILE}" 2>/dev/null || true)
 
             if [[ -z "${latest}" ]]; then
               UNKNOWN=$((UNKNOWN+1))
@@ -412,7 +419,6 @@ runs:
           # minor/patch bumps are always enforced immediately.
           cur_major="${current#v}"; cur_major="${cur_major%%.*}"
           tgt_major="${target#v}"; tgt_major="${tgt_major%%.*}"
-          rel_date="${LATEST_DATE["${repo}::${major_filter}"]:-}"
           if [[ "${cur_major}" =~ ^[0-9]+$ && "${tgt_major}" =~ ^[0-9]+$ ]] \
              && (( tgt_major > cur_major )) \
              && [[ "${GRACE_DAYS}" -gt 0 && -n "${rel_date}" ]]; then
@@ -461,7 +467,7 @@ runs:
             echo "> Bump the outdated libraries, or add temporary entries to \`${IGNORE_FILE}\`."
           fi
           if [[ "${GRACE}" -gt 0 ]]; then
-            echo "> ${GRACE} major bump(s) within the ${GRACE_DAYS}-day grace window — bump them before the window expires or the check will start failing."
+            echo "> 🕒 ${GRACE} major bump(s) are within the grace period. The grace period applies to major bumps only and lasts ${GRACE_DAYS} days — bump them before it expires, or the check will start failing."
           fi
         } >> "${REPORT_PATH}"
 
