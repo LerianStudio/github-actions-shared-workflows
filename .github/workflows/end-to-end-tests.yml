@@ -295,6 +295,26 @@ jobs:
           retention-days: 30
 
       # ----------------- S3 Upload (optional, Palantir reads this bucket) -----------------
+      # Self-hosted runners don't ship the AWS CLI (GitHub-hosted ones do), so
+      # install it on demand. $HOME persists between jobs on a self-hosted
+      # runner, so this downloads once and is a no-op on later runs.
+      - name: Ensure AWS CLI
+        if: always() && steps.select.outputs.has_modules == 'true' && env.AWS_E2E_ARTIFACTS_ROLE_ARN != '' && !inputs.dry_run
+        run: |
+          set -euo pipefail
+          if command -v aws >/dev/null 2>&1; then
+            echo "aws already present: $(aws --version 2>&1)"
+            exit 0
+          fi
+          echo "Installing AWS CLI v2 (user-local)..."
+          tmp="$(mktemp -d)"
+          curl -sSL "https://awscli.amazonaws.com/awscli-exe-linux-$(uname -m).zip" -o "$tmp/awscliv2.zip"
+          unzip -q "$tmp/awscliv2.zip" -d "$tmp"
+          "$tmp/aws/install" -i "$HOME/.local/aws-cli" -b "$HOME/.local/bin" --update
+          rm -rf "$tmp"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          "$HOME/.local/bin/aws" --version
+
       - name: Configure AWS credentials for E2E artifacts upload
         id: aws_auth
         if: always() && steps.select.outputs.has_modules == 'true' && env.AWS_E2E_ARTIFACTS_ROLE_ARN != '' && !inputs.dry_run
