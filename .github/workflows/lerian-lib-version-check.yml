@@ -91,7 +91,7 @@ jobs:
 
       - name: Validate Lerian library versions
         id: check
-        uses: LerianStudio/github-actions-shared-workflows/src/validate/lerian-lib-version@feat/lib-version-major-bump-grace
+        uses: LerianStudio/github-actions-shared-workflows/src/validate/lerian-lib-version@v1
         with:
           github-token: ${{ secrets.LERIAN_LIB_READ_TOKEN || github.token }}
           comment-token: ${{ secrets.MANAGE_TOKEN || github.token }}
