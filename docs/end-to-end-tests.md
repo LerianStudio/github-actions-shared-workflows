@@ -71,8 +71,8 @@ e2e:
   secrets:
     e2e_repo_token: ${{ secrets.E2E_REPO_TOKEN }}   # dedicated read-only token for the suite repo
     aws_e2e_artifacts_role_arn: ${{ secrets.AWS_E2E_ARTIFACTS_ROLE_ARN }}
-    admin_tenant_1_username: ${{ secrets.E2E_ADMIN_TENANT_1_USERNAME }}
-    admin_tenant_1_password: ${{ secrets.E2E_ADMIN_TENANT_1_PASSWORD }}
+    admin_tenant_1_username: ${{ secrets.ADMIN_TENANT_1_USERNAME }}
+    admin_tenant_1_password: ${{ secrets.ADMIN_TENANT_1_PASSWORD }}
 ```
 
 ### Via `go-release.yml`

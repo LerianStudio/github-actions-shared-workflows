@@ -298,13 +298,13 @@ on:
         required: false
       AWS_E2E_ARTIFACTS_ROLE_ARN:
         required: false
-      E2E_ADMIN_TENANT_1_USERNAME:
+      ADMIN_TENANT_1_USERNAME:
         required: false
-      E2E_ADMIN_TENANT_1_PASSWORD:
+      ADMIN_TENANT_1_PASSWORD:
         required: false
-      E2E_ADMIN_TENANT_2_USERNAME:
+      ADMIN_TENANT_2_USERNAME:
         required: false
-      E2E_ADMIN_TENANT_2_PASSWORD:
+      ADMIN_TENANT_2_PASSWORD:
         required: false
 
 permissions:
@@ -705,10 +705,10 @@ jobs:
       # checkout carries the least privilege it needs.
       e2e_repo_token: ${{ secrets.E2E_REPO_TOKEN }}
       aws_e2e_artifacts_role_arn: ${{ secrets.AWS_E2E_ARTIFACTS_ROLE_ARN }}
-      admin_tenant_1_username: ${{ secrets.E2E_ADMIN_TENANT_1_USERNAME }}
-      admin_tenant_1_password: ${{ secrets.E2E_ADMIN_TENANT_1_PASSWORD }}
-      admin_tenant_2_username: ${{ secrets.E2E_ADMIN_TENANT_2_USERNAME }}
-      admin_tenant_2_password: ${{ secrets.E2E_ADMIN_TENANT_2_PASSWORD }}
+      admin_tenant_1_username: ${{ secrets.ADMIN_TENANT_1_USERNAME }}
+      admin_tenant_1_password: ${{ secrets.ADMIN_TENANT_1_PASSWORD }}
+      admin_tenant_2_username: ${{ secrets.ADMIN_TENANT_2_USERNAME }}
+      admin_tenant_2_password: ${{ secrets.ADMIN_TENANT_2_PASSWORD }}
 
   # ----------------- Ungoliant Release Diff (tag push, post-gitops, opt-in) -----------------
   # Runs only after a successful gitops-update (i.e. the release was deployed).
