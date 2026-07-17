@@ -107,7 +107,7 @@ jobs:
 
 Major-version bumps (a higher major on an unpinned, API-resolved lib) are tolerated while the latest release is younger than the grace window. Minor and patch bumps are always enforced immediately. This gives teams a short buffer to plan the import-path migration a major bump requires, without letting it linger.
 
-The window is resolved in this order: the per-invocation `major_bump_grace_days` input wins when set, otherwise the org-wide GitHub Actions variable `LERIAN_LIB_MAJOR_BUMP_GRACE_DAYS` (repository, environment, or organization scope), falling back to `3` when both are unset. Set it to `0` to disable the grace window and enforce major bumps immediately.
+The window is resolved in this order: the per-invocation `major_bump_grace_days` input wins when set, otherwise the org-wide GitHub Actions variable `LERIAN_LIB_MAJOR_BUMP_GRACE_DAYS` (repository, environment, or organisation scope), falling back to `3` when both are unset. Set it to `0` to disable the grace window and enforce major bumps immediately.
 
 > **Scope:** for a Go module with a `/vN` suffix (e.g. `lib-commons/v5`), the major is fixed by the import path — the checker only ever compares against `v5.*` releases, so no major bump is ever detected there (upgrading to `/v6` is a manual import-path change). The grace window therefore applies to `v0`/`v1` modules and to libraries that publish a higher major without a `/vN` module-path suffix.
 
@@ -116,7 +116,7 @@ The window is resolved in this order: the per-invocation `major_bump_grace_days`
 - Grace applies only to libs resolved from the releases API. Libs pinned via `.lerianstudiolibignore` (`lib@vX.Y.Z`) keep comparing against the pin as before.
 - If the release date cannot be determined, the lib is enforced immediately (conservative default).
 
-Because it is a GitHub variable rather than a workflow input, no caller change is needed to roll a new value out across every consumer repo.
+Setting the `LERIAN_LIB_MAJOR_BUMP_GRACE_DAYS` variable at organisation scope rolls a new value out across every consumer repo without touching any caller. When a specific caller needs a different window, it passes `major_bump_grace_days`, which takes precedence over the variable for that invocation.
 
 ## Secrets
 
