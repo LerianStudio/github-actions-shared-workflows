@@ -230,6 +230,10 @@ on:
         description: 'Tenancy mode of the deployed environment targeted by the e2e suite — st (single-tenant) | mt (multi-tenant).'
         type: string
         default: 'st'
+      e2e_service_domain:
+        description: 'Base domain of the deployed environment the e2e suite targets. URLs are built as https://<app>.<base_env>-<tenancy>.<e2e_service_domain>. Use e.g. fuzzing.lerian.net to target the fuzzing environment.'
+        type: string
+        default: 'lerian.net'
       e2e_runner_type:
         description: 'Runner for the End-to-End Tests job. Needs reach to the deployed environment, so it defaults to eveo-lxc-runners rather than the build runner.'
         type: string
@@ -697,6 +701,7 @@ jobs:
       modules: ${{ inputs.e2e_modules }}
       built_apps: ${{ needs.build.outputs.matrix }}
       tenancy: ${{ inputs.e2e_tenancy }}
+      service_domain: ${{ inputs.e2e_service_domain }}
       runner_type: ${{ inputs.e2e_runner_type }}
       dry_run: ${{ inputs.dry_run }}
     secrets:
