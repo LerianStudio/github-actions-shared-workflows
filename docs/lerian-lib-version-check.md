@@ -100,13 +100,16 @@ jobs:
 | `ignore_file`    | string  | `.lerianstudiolibignore`    | Path to the optional ignore file. Missing file produces a warning, not a failure.            |
 | `check_indirect` | boolean | `false`                     | Also check transitive (`// indirect`) deps                                                   |
 | `comment_on_pr`  | boolean | `true`                      | Post / update a sticky comment on the PR with the result table                               |
+| `major_bump_grace_days` | string | `''`                | Per-invocation override for the major-bump grace window. Takes precedence over the `LERIAN_LIB_MAJOR_BUMP_GRACE_DAYS` variable; empty uses the variable, then defaults to `3`. |
 | `dry_run`        | boolean | `false`                     | Verbose log of all resolved versions; never fails the build                                  |
 
 ## Major-bump grace window
 
 Major-version bumps (a higher major on an unpinned, API-resolved lib) are tolerated while the latest release is younger than the grace window. Minor and patch bumps are always enforced immediately. This gives teams a short buffer to plan the import-path migration a major bump requires, without letting it linger.
 
-The window is configured org-wide through the GitHub Actions variable `LERIAN_LIB_MAJOR_BUMP_GRACE_DAYS` (repository, environment, or organization scope). When unset it defaults to `3`. Set it to `0` to disable the grace window and enforce major bumps immediately.
+The window is resolved in this order: the per-invocation `major_bump_grace_days` input wins when set, otherwise the org-wide GitHub Actions variable `LERIAN_LIB_MAJOR_BUMP_GRACE_DAYS` (repository, environment, or organization scope), falling back to `3` when both are unset. Set it to `0` to disable the grace window and enforce major bumps immediately.
+
+> **Scope:** for a Go module with a `/vN` suffix (e.g. `lib-commons/v5`), the major is fixed by the import path — the checker only ever compares against `v5.*` releases, so no major bump is ever detected there (upgrading to `/v6` is a manual import-path change). The grace window therefore applies to `v0`/`v1` modules and to libraries that publish a higher major without a `/vN` module-path suffix.
 
 - The window is measured from the release's `published_at` date. A lib in grace shows `Grace (major bump, expires <date>)` in the report and does **not** fail the check.
 - The window **auto-expires**: once the release is at least `N` days old, the lib falls back to `Outdated` on the next run and the check fails — no manual cleanup needed.
