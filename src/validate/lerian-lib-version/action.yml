@@ -120,7 +120,7 @@ runs:
           echo "report_path=${REPORT_PATH}" >> "${GITHUB_OUTPUT}"
 
           {
-            echo "## Lerian Library Version Check"
+            echo "## 🔴 Lerian Library Version Check — action required"
             echo
             echo "**No \`github.com/LerianStudio/*\` dependencies found in \`${GO_MOD_PATH}\`.**"
             echo
@@ -334,6 +334,8 @@ runs:
         ROWS_FILE="${RUNNER_TEMP:-/tmp}/lerian-rows.txt"
         : > "${ROWS_FILE}"
 
+        IGNORE_DOCS_URL="https://github.com/LerianStudio/github-actions-shared-workflows/blob/main/docs/lerian-lib-version-check.md#lerianstudiolibignore-format"
+
         while IFS= read -r dep_line; do
           [[ -z "${dep_line}" ]] && continue
           # split: <module> <version> [// indirect]
@@ -366,7 +368,7 @@ runs:
             SKIPPED=$((SKIPPED+1))
             ttl_suffix=""
             [[ -n "${IGNORE_TTL[${short_path}]:-}" ]] && ttl_suffix=", expires ${IGNORE_TTL[${short_path}]}"
-            printf '| `%s` | `%s` | _skipped_ | Skipped (ignore file%s) |\n' "${short_path}" "${current}" "${ttl_suffix}" >> "${ROWS_FILE}"
+            printf '| `%s` | `%s` | _skipped_ | ⏭️ Skipped — ignore file%s · [why?](%s) |\n' "${short_path}" "${current}" "${ttl_suffix}" "${IGNORE_DOCS_URL}" >> "${ROWS_FILE}"
             continue
           fi
 
@@ -374,18 +376,20 @@ runs:
           # via .lerianstudiolibignore, compare against the pin and skip the API
           # call entirely, so the pin is still honoured even if the API is
           # degraded (non-200). Only unpinned libs depend on resolve_latest.
-          marker_suffix=""
+          is_pinned="false"
+          pin_note=""
           if [[ -n "${IGNORE_PIN[${short_path}]:-}" ]]; then
             target="${IGNORE_PIN[${short_path}]}"
             latest="${target}"
-            marker_suffix=" (pinned)"
-            [[ -n "${IGNORE_TTL[${short_path}]:-}" ]] && marker_suffix=" (pinned, expires ${IGNORE_TTL[${short_path}]})"
+            is_pinned="true"
+            [[ -n "${IGNORE_TTL[${short_path}]:-}" ]] && pin_note=" (expires ${IGNORE_TTL[${short_path}]})"
+            pin_note="${pin_note} · [why?](${IGNORE_DOCS_URL})"
           else
             latest=$(resolve_latest "${repo}" "${major_filter}")
 
             if [[ -z "${latest}" ]]; then
               UNKNOWN=$((UNKNOWN+1))
-              printf '| `%s` | `%s` | _unknown_ | Could not resolve latest release |\n' "${short_path}" "${current}" >> "${ROWS_FILE}"
+              printf '| `%s` | `%s` | _unknown_ | ⚠️ Unknown — could not resolve latest release |\n' "${short_path}" "${current}" >> "${ROWS_FILE}"
               log "::warning title=Could not resolve latest release::Failed to fetch latest stable release for LerianStudio/${repo}"
               continue
             fi
@@ -395,7 +399,11 @@ runs:
 
           if ver_ge "${current}" "${target}"; then
             CURRENT=$((CURRENT+1))
-            printf '| `%s` | `%s` | `%s` | Current%s |\n' "${short_path}" "${current}" "${latest}" "${marker_suffix}" >> "${ROWS_FILE}"
+            if [[ "${is_pinned}" == "true" ]]; then
+              printf '| `%s` | `%s` | `%s` | 📌 Pinned%s |\n' "${short_path}" "${current}" "${latest}" "${pin_note}" >> "${ROWS_FILE}"
+            else
+              printf '| `%s` | `%s` | `%s` | ✅ Current |\n' "${short_path}" "${current}" "${latest}" >> "${ROWS_FILE}"
+            fi
             continue
           fi
 
@@ -415,7 +423,7 @@ runs:
               if (( age_days < GRACE_DAYS )); then
                 GRACE=$((GRACE+1))
                 expires=$(date -u -d "${rel_date} +${GRACE_DAYS} days" +%Y-%m-%d 2>/dev/null || echo "${rel_date}")
-                printf '| `%s` | `%s` | `%s` | Grace (major bump, expires %s) |\n' "${short_path}" "${current}" "${latest}" "${expires}" >> "${ROWS_FILE}"
+                printf '| `%s` | `%s` | `%s` | 🕒 Grace (major bump, expires %s) |\n' "${short_path}" "${current}" "${latest}" "${expires}" >> "${ROWS_FILE}"
                 debug "grace: ${short_path} ${current} -> ${latest} (released ${rel_date}, age ${age_days}d, expires ${expires})"
                 continue
               fi
@@ -423,18 +431,31 @@ runs:
           fi
 
           OUTDATED=$((OUTDATED+1))
-          printf '| `%s` | `%s` | `%s` | Outdated%s |\n' "${short_path}" "${current}" "${latest}" "${marker_suffix}" >> "${ROWS_FILE}"
+          if [[ "${is_pinned}" == "true" ]]; then
+            printf '| `%s` | `%s` | `%s` | 🔴 Needs update — below pin%s |\n' "${short_path}" "${current}" "${latest}" "${pin_note}" >> "${ROWS_FILE}"
+          else
+            printf '| `%s` | `%s` | `%s` | 🔴 Needs update |\n' "${short_path}" "${current}" "${latest}" >> "${ROWS_FILE}"
+          fi
         done <<< "${DEPS_RAW}"
 
         # ---------- 5. Build markdown report ----------
+        # Header reflects the overall outcome at a glance.
+        if [[ "${OUTDATED}" -gt 0 ]]; then
+          HEADER="## 🔴 Lerian Library Version Check — action required"
+        elif [[ "${GRACE}" -gt 0 || "${SKIPPED}" -gt 0 || "${UNKNOWN}" -gt 0 ]]; then
+          HEADER="## ⚠️ Lerian Library Version Check — review needed"
+        else
+          HEADER="## ✅ Lerian Library Version Check — all up to date"
+        fi
+
         {
-          echo "## Lerian Library Version Check"
+          echo "${HEADER}"
           echo
           echo "| Library | Current | Latest | Status |"
           echo "|---------|---------|--------|--------|"
           cat "${ROWS_FILE}"
           echo
-          echo "**${OUTDATED} outdated** | **${GRACE} in grace** | **${CURRENT} current** | **${SKIPPED} skipped** | **${UNKNOWN} unknown**"
+          echo "✅ ${CURRENT} current · 🔴 ${OUTDATED} needs update · 🕒 ${GRACE} in grace · ⏭️ ${SKIPPED} skipped · ⚠️ ${UNKNOWN} unknown"
           echo
           if [[ "${OUTDATED}" -gt 0 ]]; then
             echo "> Bump the outdated libraries, or add temporary entries to \`${IGNORE_FILE}\`."
@@ -486,7 +507,7 @@ runs:
           }
           const marker = '<!-- lerian-lib-version-check -->';
           const dryRunBanner = process.env.DRY_RUN === 'true'
-            ? '> _Dry run — no failures enforced._\n\n'
+            ? '> 🧪 _Dry run — no failures enforced._\n\n'
             : '';
           const body = `${marker}\n${dryRunBanner}${fs.readFileSync(path, 'utf8')}`;
 

@@ -44,14 +44,14 @@ A sticky PR comment summarises the result. An optional `.lerianstudiolibignore` 
 | `go.mod` not found at `go-mod-path`                      | **Fail** with `::error`                                   |
 | No `github.com/LerianStudio/*` deps in `go.mod`          | **Fail** — service must use at least one Lerian library    |
 | One or more direct Lerian libs are outdated (minor/patch, or expired major) | **Fail** unless `dry-run: true`         |
-| Major bump with latest release younger than `major-bump-grace-days` | Tolerated — marked _grace_, does not fail       |
+| Major bump with latest release younger than `major-bump-grace-days` | Tolerated — marked `🕒 Grace`, does not fail    |
 | `.lerianstudiolibignore` does not exist                  | `::warning` — proceed normally                             |
-| A lib is matched by an ignore-skip rule                  | Skipped, marked _skipped_ in the report                    |
-| A lib is matched by an ignore-pin rule (`lib@vX.Y.Z`)    | Compared against the pin instead of latest, marked _pinned_ |
+| A lib is matched by an ignore-skip rule                  | Skipped, marked `⏭️ Skipped` in the report                 |
+| A lib is matched by an ignore-pin rule (`lib@vX.Y.Z`)    | Compared against the pin instead of latest, marked `📌 Pinned` |
 | A lib has an active TTL (`lib\|ttl:YYYY-MM-DD`)          | Rule honored; expiry date shown in the report column        |
 | A lib's TTL has expired (today ≥ TTL date)               | `::warning` — rule ignored, version check enforced         |
 | TTL date format is invalid                               | `::warning` — treated as expired, version check enforced   |
-| Latest stable release cannot be resolved (API error)     | `::warning` — marked _unknown_, does not fail              |
+| Latest stable release cannot be resolved (API error)     | `::warning` — marked `⚠️ Unknown`, does not fail            |
 
 ## `.lerianstudiolibignore` format
 

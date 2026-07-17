@@ -187,23 +187,36 @@ lib-foo
 
 The action posts (and updates) a single comment marked with `<!-- lerian-lib-version-check -->`. Re-runs update the same comment in place — no duplicate threads accumulate across pushes.
 
+Each row is prefixed with a status emoji, the header reflects the overall outcome (`✅ all up to date`, `🔴 action required`, or `⚠️ review needed`), and skipped/pinned rows link to the ignore-file docs so reviewers see the reason without leaving the PR.
+
+| Status | Rendered as |
+|--------|-------------|
+| Up to date | `✅ Current` |
+| Behind latest | `🔴 Needs update` |
+| Pinned via ignore file | `📌 Pinned` |
+| Skipped via ignore file | `⏭️ Skipped` |
+| Latest release unresolved | `⚠️ Unknown` |
+| Major bump within grace window | `🕒 Grace` |
+
 Example:
 
 ```
-## Lerian Library Version Check
+## 🔴 Lerian Library Version Check — action required
 
 | Library              | Current | Latest | Status      |
 |----------------------|---------|--------|-------------|
-| `lib-commons/v5`     | `v5.1.0`| `v5.5.0`| Outdated   |
-| `lib-auth/v2`        | `v2.7.0`| `v2.8.0`| Outdated   |
-| `lib-license-go/v2`  | `v2.3.5`| `v2.3.5`| Current    |
-| `lib-foo/v1`         | `v1.0.0`| `v2.0.0`| Grace (major bump, expires 2026-07-19) |
-| `lib-bar/v2`         | `v2.0.0`| _skipped_ | Skipped (ignore file) |
+| `lib-commons/v5`     | `v5.1.0`| `v5.5.0`| 🔴 Needs update |
+| `lib-auth/v2`        | `v2.7.0`| `v2.8.0`| 🔴 Needs update |
+| `lib-license-go/v2`  | `v2.3.5`| `v2.3.5`| ✅ Current |
+| `lib-foo/v1`         | `v1.0.0`| `v2.0.0`| 🕒 Grace (major bump, expires 2026-07-19) |
+| `lib-bar/v2`         | `v2.0.0`| _skipped_ | ⏭️ Skipped — ignore file, expires 2026-08-01 · [why?](https://github.com/LerianStudio/github-actions-shared-workflows/blob/main/docs/lerian-lib-version-check.md#lerianstudiolibignore-format) |
 
-**2 outdated** | **1 in grace** | **1 current** | **1 skipped** | **0 unknown**
+✅ 1 current · 🔴 2 needs update · 🕒 1 in grace · ⏭️ 1 skipped · ⚠️ 0 unknown
 
 > Bump the outdated libraries, or add temporary entries to `.lerianstudiolibignore`.
 ```
+
+Under `dry_run: true` the comment is prefixed with a `> 🧪 _Dry run — no failures enforced._` banner.
 
 ## Limitations
 
