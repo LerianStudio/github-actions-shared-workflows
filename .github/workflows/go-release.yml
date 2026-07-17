@@ -67,6 +67,10 @@ on:
         description: 'Override app/image name. Used by the build (single-app mode) and as the gitops-update deploy name; when empty the gitops deploy name falls back to app_name_prefix, then the repository name.'
         type: string
         default: ''
+      tag_prefix:
+        description: 'Restrict the primary release/build jobs to tags starting with this prefix (e.g. "v"). Use when the repository also pushes tags for an unrelated component (e.g. via an extra_builds group with its own tag_prefix) so the primary jobs do not react to that component''s tags. Empty = react to every tag, preserving current behavior.'
+        type: string
+        default: ''
       docker_build_args:
         description: 'Newline-separated Docker build arguments (e.g., "APP_NAME=spi"). Use BuildKit secrets for sensitive values.'
         type: string
@@ -112,7 +116,7 @@ on:
         type: string
         default: ''
       extra_builds:
-        description: 'JSON array of additional build groups, each forwarded to build.yml with its own config (filter_paths, path_level, normalize_to_filter, app_name_overrides, build_context_from_working_dir, helm_*). Runs alongside the primary build on tag push; all groups feed the single gitops-update. Empty = one build only (default).'
+        description: 'JSON array of additional build groups, each forwarded to build.yml with its own config (filter_paths, path_level, normalize_to_filter, app_name_overrides, build_context_from_working_dir, helm_*, tag_prefix, enable_dockerhub, enable_ghcr, enable_gitops_artifacts, force_full_matrix). Runs alongside the primary build on tag push; groups with enable_gitops_artifacts enabled (the default) feed the single gitops-update. A group with tag_prefix set only builds when the triggering tag starts with that prefix (e.g. a component with its own independent semver and tag scheme); omit tag_prefix to build on every tag push, as before. enable_dockerhub/enable_ghcr default to the top-level inputs of the same name when omitted (explicit true/false on the group always wins, including false) — use to publish a group to only one registry regardless of the primary build''s registries. enable_gitops_artifacts defaults to true when omitted. force_full_matrix (default false) skips change detection for this group entirely and always builds/publishes it in lockstep with the release version — use when a downstream consumer (e.g. a Helm chart defaulting every subcomponent to one shared version tag) expects this component''s image to exist at every release, not only releases that touched its own filter_paths. Empty = one build only (default).'
         type: string
         default: ''
       force_full_matrix:
@@ -123,10 +127,18 @@ on:
         description: 'Publish container images (and run gitops-update) for STABLE releases in the same run as semantic-release, gated on the release output, instead of on the [skip ci]-suppressed stable tag push. Beta/rc still build on their tag push. Any extra_builds groups build in the same stable run too. Default false preserves the tag-push build path for all consumers.'
         type: boolean
         default: false
+      build_on_release_include_prerelease:
+        description: 'When build_on_release is true, also rescue beta/rc releases via the same-run branch-push path, not just stable. Use when the tag-push trigger is unreliable for prerelease tags too (e.g. tags created via a GitHub App/bot token do not always fire a push event, regardless of channel). update_gitops derives the right environment (beta->dev, rc->stg, stable->prd) from the computed release version instead of forcing production. Default false preserves the existing stable-only rescue.'
+        type: boolean
+        default: false
       dockerfile_name:
         description: 'Dockerfile name for the primary build and every extra_builds group (per-group override via matrix.group.dockerfile_name). Forwarded to build.yml, which resolves the path as {working_dir}/{dockerfile_name}. Lets a repo build a non-default Dockerfile (e.g. Dockerfile.mcp, Dockerfile.migrations) through the release umbrella.'
         type: string
         default: 'Dockerfile'
+      on_existing_tag:
+        description: 'Behaviour when the target image tag already exists in an enabled registry, forwarded to build.yml for the primary build and every extra_builds group: "fail" (abort early, default), "skip" (skip build/push, still emit GitOps artifacts for an idempotent re-run), or "warn" (warn and build anyway). Set to "skip" when build_on_release_include_prerelease is on and the tag-push trigger might also fire for the same release, to make the second attempt a no-op instead of a hard failure.'
+        type: string
+        default: 'fail'
 
       # ----------------- GitOps Update (gitops-update.yml) -----------------
       enable_gitops_update:
@@ -344,11 +356,15 @@ jobs:
       !cancelled() &&
       (
         (github.ref_type == 'tag' &&
+          (inputs.tag_prefix == '' || startsWith(github.ref_name, inputs.tag_prefix)) &&
           (!inputs.build_on_release || contains(github.ref, '-beta.') || contains(github.ref, '-rc.'))) ||
         (inputs.build_on_release && github.ref_type == 'branch' &&
           needs.release.result == 'success' &&
           needs.release.outputs.new_release_published == 'true' &&
-          !contains(needs.release.outputs.new_release_version, '-'))
+          (!contains(needs.release.outputs.new_release_version, '-') ||
+            (inputs.build_on_release_include_prerelease &&
+              (contains(needs.release.outputs.new_release_version, '-beta.') ||
+                contains(needs.release.outputs.new_release_version, '-rc.')))))
       )
     permissions:
       id-token: write
@@ -379,13 +395,24 @@ jobs:
       filter_paths: ${{ inputs.filter_paths }}
       force_full_matrix: ${{ inputs.force_full_matrix }}
       dockerfile_name: ${{ inputs.dockerfile_name }}
+      on_existing_tag: ${{ inputs.on_existing_tag }}
     secrets: inherit
 
   # ----------------- S3 Upload (tag push, post-build, opt-in) -----------------
   s3_upload:
     name: S3 Upload
     needs: [build]
-    if: github.ref_type == 'tag' && inputs.s3_uploads != '' && needs.build.result == 'success'
+    # needs.build.result alone is unreliable here: build wraps build.yml, a
+    # reusable workflow with an internal matrix, and its caller result does
+    # not always surface as 'success' to dependents even when every matrix
+    # leg passed (same issue update_gitops and ungoliant_release_diff already
+    # guard against below with the has_builds output check). !cancelled() is
+    # required too: without an explicit status-check function, GitHub Actions
+    # implicitly prepends success() to this condition, which re-imposes the
+    # exact unreliable needs.build status check this fix works around.
+    if: >-
+      !cancelled() && github.ref_type == 'tag' && inputs.s3_uploads != '' &&
+      needs.build.result != 'failure' && needs.build.outputs.has_builds == 'true'
     runs-on: ${{ inputs.runner_type }}
     permissions:
       id-token: write
@@ -526,7 +553,10 @@ jobs:
         (inputs.build_on_release && github.ref_type == 'branch' &&
           needs.release.result == 'success' &&
           needs.release.outputs.new_release_published == 'true' &&
-          !contains(needs.release.outputs.new_release_version, '-'))
+          (!contains(needs.release.outputs.new_release_version, '-') ||
+            (inputs.build_on_release_include_prerelease &&
+              (contains(needs.release.outputs.new_release_version, '-beta.') ||
+                contains(needs.release.outputs.new_release_version, '-rc.')))))
       )
     permissions:
       id-token: write
@@ -542,16 +572,25 @@ jobs:
       release_version: ${{ github.ref_type == 'branch' && needs.release.outputs.new_release_version || '' }}
       checkout_ref: ${{ github.ref_type == 'branch' && needs.release.outputs.new_release_git_tag || '' }}
       dockerfile_name: ${{ matrix.group.dockerfile_name || inputs.dockerfile_name }}
+      on_existing_tag: ${{ inputs.on_existing_tag }}
+      # Always forwarded, including on the branch-rescue path (unlike
+      # release_version/checkout_ref above): build.yml's own tag_prefix guard
+      # is what excludes a tag-prefixed group (its own independent version
+      # line, e.g. mcp) from the branch rescue on purpose — that group's
+      # build_on_release build should ride its OWN tag push, never the main
+      # app's version. Do not make this conditional on ref_type.
+      tag_prefix: ${{ matrix.group.tag_prefix }}
       runner_type: ${{ inputs.runner_type }}
-      enable_dockerhub: ${{ inputs.enable_dockerhub }}
-      enable_ghcr: ${{ inputs.enable_ghcr }}
+      enable_dockerhub: ${{ (matrix.group.enable_dockerhub == null && inputs.enable_dockerhub == true) || matrix.group.enable_dockerhub == true }}
+      enable_ghcr: ${{ (matrix.group.enable_ghcr == null && inputs.enable_ghcr == true) || matrix.group.enable_ghcr == true }}
       dockerhub_org: ${{ inputs.dockerhub_org }}
       enable_cosign_sign: ${{ inputs.enable_cosign_sign }}
-      enable_gitops_artifacts: ${{ matrix.group.enable_gitops_artifacts || true }}
+      enable_gitops_artifacts: ${{ matrix.group.enable_gitops_artifacts == null && true || matrix.group.enable_gitops_artifacts }}
       filter_paths: ${{ matrix.group.filter_paths }}
       shared_paths: ${{ matrix.group.shared_paths || inputs.shared_paths }}
       path_level: ${{ matrix.group.path_level || inputs.path_level }}
       normalize_to_filter: ${{ toJSON(matrix.group.normalize_to_filter) != 'false' }}
+      force_full_matrix: ${{ matrix.group.force_full_matrix || false }}
       app_name: ${{ matrix.group.app_name }}
       app_name_prefix: ${{ matrix.group.app_name_prefix }}
       app_name_overrides: ${{ matrix.group.app_name_overrides }}
@@ -572,7 +611,7 @@ jobs:
   # component deployed as a separate ArgoCD Application) should add a
   # dedicated gitops-update.yml job of their own, independent of this one.
   update_gitops:
-    needs: [build, extra_build]
+    needs: [release, build, extra_build]
     if: >-
       inputs.enable_gitops_update && !cancelled() &&
       needs.build.result != 'failure' && needs.extra_build.result != 'failure' &&
@@ -603,7 +642,7 @@ jobs:
       use_dynamic_mapping: ${{ inputs.use_dynamic_mapping }}
       configmap_updates: ${{ inputs.configmap_updates }}
       enable_docker_login: ${{ inputs.enable_docker_login }}
-      force_env: ${{ github.ref_type == 'branch' && inputs.build_on_release && 'production' || '' }}
+      force_env: ${{ github.ref_type == 'branch' && inputs.build_on_release && (contains(needs.release.outputs.new_release_version, '-beta.') && 'development' || contains(needs.release.outputs.new_release_version, '-rc.') && 'staging' || 'production') || '' }}
     secrets: inherit
 
   # ----------------- API Dog E2E Tests (tag push, post-gitops, opt-in) -----------------
@@ -677,39 +716,68 @@ jobs:
   # candidate, stable<-main) per .releaserc conventions.
   ungoliant_release_diff:
     name: Ungoliant Release Diff
-    needs: [build, update_gitops]
+    needs: [release, build, update_gitops]
     # Gate on build's has_builds output (which propagates reliably and proves a
     # real deploy happened) rather than needs.update_gitops.result == 'success':
     # update_gitops wraps a reusable workflow with a dynamic matrix, and its
     # caller result does not reliably surface as 'success' to dependents.
+    # Also mirrors update_gitops' branch-rescue allowance: build_on_release lets
+    # build/extra_build run on a branch push, and this job needs to run there
+    # too, not just on the tag push (which may never arrive — see
+    # build_on_release_include_prerelease).
+    #
+    # Ungoliant only cares that the anacleto (chaos/fuzzing) environments it
+    # actually targets deployed cleanly — a sync failure on an unrelated
+    # server (e.g. benedita) shouldn't block it. needs.update_gitops.result
+    # rolls up EVERY argocd_sync target into one pass/fail, so it can't tell
+    # the two apart; gitops-update.yml's anacleto_sync_ok output can (see its
+    # aggregate_sync_status job). Still require update_gitops.result to not
+    # be a hard failure/cancellation UNLESS anacleto specifically came out ok
+    # despite that (i.e. the only failure was a non-anacleto sync target).
     if: >-
       !cancelled()
-      && github.ref_type == 'tag'
+      && (
+        github.ref_type == 'tag' ||
+        (inputs.build_on_release && github.ref_type == 'branch')
+      )
       && inputs.enable_ungoliant_release_diff
       && inputs.enable_gitops_update
       && needs.build.outputs.has_builds == 'true'
-      && needs.update_gitops.result != 'failure'
       && needs.update_gitops.result != 'cancelled'
+      && needs.update_gitops.result != 'skipped'
+      && (
+        needs.update_gitops.result != 'failure' ||
+        needs.update_gitops.outputs.anacleto_sync_ok == 'true'
+      )
     runs-on: ${{ vars.UNGOLIANT_RUNNERS || inputs.ungoliant_runner_type }}
     permissions:
       contents: read
       pull-requests: write
       issues: write
     steps:
-      - name: Resolve release channel and base env
+      - name: Resolve release tag, channel and base env
         id: target
         env:
+          REF_TYPE: ${{ github.ref_type }}
           REF_NAME: ${{ github.ref_name }}
+          RELEASE_GIT_TAG: ${{ needs.release.outputs.new_release_git_tag }}
         run: |
           set -euo pipefail
-          if [[ "$REF_NAME" == *-beta.* ]]; then
+
+          TAG="$REF_NAME"
+          if [[ "$REF_TYPE" == "branch" ]]; then
+            TAG="$RELEASE_GIT_TAG"
+          fi
+
+          if [[ "$TAG" == *-beta.* ]]; then
             RELEASE_ENV="beta"; BASE_ENV="dev"
-          elif [[ "$REF_NAME" == *-rc.* ]]; then
+          elif [[ "$TAG" == *-rc.* ]]; then
             RELEASE_ENV="rc"; BASE_ENV="stg"
           else
             RELEASE_ENV="stable"; BASE_ENV="prd"
           fi
           {
+            echo "tag=$TAG"
             echo "release_env=$RELEASE_ENV"
             echo "base_env=$BASE_ENV"
           } >> "$GITHUB_OUTPUT"
@@ -718,7 +786,7 @@ jobs:
         uses: LerianStudio/github-actions-shared-workflows/src/validate/ungoliant-release-diff@v1
         with:
           app: ${{ inputs.ungoliant_app || inputs.app_name || inputs.app_name_prefix || github.event.repository.name }}
-          version: ${{ github.ref_name }}
+          version: ${{ steps.target.outputs.tag }}
           env: ${{ steps.target.outputs.release_env }}
           env-type: ${{ inputs.ungoliant_env_type }}
           tenancy: ${{ inputs.ungoliant_tenancy }}

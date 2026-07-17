@@ -68,6 +68,10 @@ on:
         type: string
         required: false
         default: ''
+      tag_prefix:
+        description: 'Skip this build entirely (has_builds=false) when triggered by a tag that does not start with this prefix. Used by callers with multiple independently-tagged components sharing one workflow_call chain. Empty = build on every tag, as before.'
+        type: string
+        default: ''
       app_name_prefix:
         description: 'Prefix for app names in monorepo (e.g., "midaz" results in "midaz-agent")'
         type: string
@@ -206,7 +210,25 @@ jobs:
           REPO_NAME: ${{ github.event.repository.name }}
           FILTER_PATHS: ${{ inputs.filter_paths }}
           CHANGED_MATRIX: ${{ steps.changed-paths.outputs.matrix }}
+          TAG_PREFIX: ${{ inputs.tag_prefix }}
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
         run: |
+          if [ -n "$TAG_PREFIX" ]; then
+            if [ "$REF_TYPE" != "tag" ]; then
+              echo "matrix=[]" >> "$GITHUB_OUTPUT"
+              echo "has_builds=false" >> "$GITHUB_OUTPUT"
+              echo "Skipping: tag_prefix '$TAG_PREFIX' is set, but this run is not a tag push (ref_type=$REF_TYPE) — a tag_prefix-scoped build only runs on its own matching tag, never on a branch-push rescue (build_on_release)."
+              exit 0
+            fi
+            if [[ "$REF_NAME" != "$TAG_PREFIX"* ]]; then
+              echo "matrix=[]" >> "$GITHUB_OUTPUT"
+              echo "has_builds=false" >> "$GITHUB_OUTPUT"
+              echo "Skipping: ref '$REF_NAME' does not match tag_prefix '$TAG_PREFIX'"
+              exit 0
+            fi
+          fi
+
           if [ -z "$FILTER_PATHS" ]; then
             # Single app mode - build from root
             APP_NAME="${APP_NAME_INPUT:-$REPO_NAME}"
@@ -270,6 +292,7 @@ jobs:
       # build_on_release feature) sources it from needs.release.outputs.new_release_git_tag
       # — a tag semantic-release just created earlier in the SAME run, never
       # from pull_request/fork-controlled data (CodeQL: actions/untrusted-checkout).
+      # codeql[actions/untrusted-checkout] -- see trust-model comment above.
       - name: Checkout repository
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
@@ -305,28 +328,36 @@ jobs:
 
       - name: Set image names
         id: image-names
+        env:
+          GHCR_ORG_INPUT: ${{ inputs.ghcr_org }}
+          OWNER_LOWER: ${{ steps.normalize.outputs.owner_lower }}
+          ENABLE_DOCKERHUB: ${{ inputs.enable_dockerhub }}
+          ENABLE_GHCR: ${{ inputs.enable_ghcr }}
+          DOCKERHUB_ORG: ${{ inputs.dockerhub_org }}
+          APP_NAME: ${{ matrix.app.name }}
         run: |
           IMAGES=""
-          GHCR_ORG="${{ inputs.ghcr_org }}"
+          GHCR_ORG="$GHCR_ORG_INPUT"
           if [ -z "$GHCR_ORG" ]; then
-            GHCR_ORG="${{ steps.normalize.outputs.owner_lower }}"
+            GHCR_ORG="$OWNER_LOWER"
           else
             GHCR_ORG=$(echo "$GHCR_ORG" | tr '[:upper:]' '[:lower:]')
           fi
 
-          if [ "${{ inputs.enable_dockerhub }}" == "true" ]; then
-            IMAGES="${{ inputs.dockerhub_org }}/${{ matrix.app.name }}"
+          if [ "$ENABLE_DOCKERHUB" == "true" ]; then
+            IMAGES="${DOCKERHUB_ORG}/${APP_NAME}"
           fi
 
-          if [ "${{ inputs.enable_ghcr }}" == "true" ]; then
+          if [ "$ENABLE_GHCR" == "true" ]; then
             if [ -n "$IMAGES" ]; then
-              IMAGES="${IMAGES},ghcr.io/${GHCR_ORG}/${{ matrix.app.name }}"
+              IMAGES="${IMAGES},ghcr.io/${GHCR_ORG}/${APP_NAME}"
             else
-              IMAGES="ghcr.io/${GHCR_ORG}/${{ matrix.app.name }}"
+              IMAGES="ghcr.io/${GHCR_ORG}/${APP_NAME}"
             fi
           fi
 
           echo "images=$IMAGES" >> "$GITHUB_OUTPUT"
+          echo "ghcr_org=$GHCR_ORG" >> "$GITHUB_OUTPUT"
 
       - name: Extract version from tag
         id: version
@@ -355,7 +386,7 @@ jobs:
           ENABLE_DOCKERHUB: ${{ inputs.enable_dockerhub }}
           ENABLE_GHCR: ${{ inputs.enable_ghcr }}
           DOCKERHUB_ORG: ${{ inputs.dockerhub_org }}
-          GHCR_ORG: ${{ inputs.ghcr_org || steps.normalize.outputs.owner_lower }}
+          GHCR_ORG: ${{ steps.image-names.outputs.ghcr_org }}
           APP_NAME: ${{ matrix.app.name }}
           VERSION: ${{ steps.version.outputs.version }}
         run: |
@@ -445,7 +476,7 @@ jobs:
           ENABLE_GHCR: ${{ inputs.enable_ghcr }}
           DOCKERHUB_ORG: ${{ inputs.dockerhub_org }}
           APP_NAME: ${{ matrix.app.name }}
-          GHCR_ORG: ${{ inputs.ghcr_org || steps.normalize.outputs.owner_lower }}
+          GHCR_ORG: ${{ steps.image-names.outputs.ghcr_org }}
         run: |
           REFS=""
 

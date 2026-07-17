@@ -109,10 +109,19 @@ on:
         type: string
         required: false
         default: ''
+      shared_paths:
+        description: 'Newline-separated list of path patterns that, when matched by any changed file, trigger analysis for ALL components in filter_paths, passed through to frontend-pr-analysis.yml. Not passed to the security scan — call it directly with its own shared_paths for path-scoped security scans.'
+        type: string
+        required: false
+        default: ''
       path_level:
         description: 'Directory depth level to extract app name, passed through to frontend-pr-analysis.yml.'
         type: number
         default: 2
+      normalize_to_filter:
+        description: 'Collapse every changed file under a filter_paths entry into that one app, passed through to frontend-pr-analysis.yml. Default true — see that workflow for why.'
+        type: boolean
+        default: true
       app_name_prefix:
         description: 'Prefix used to namespace coverage/build artifacts'
         type: string
@@ -157,6 +166,82 @@ on:
         description: 'Fail the workflow if any i18n check reports violations'
         type: boolean
         default: true
+      enable_bundle_budget:
+        description: 'Enable a bundle-size budget check (runs bundle_budget_script)'
+        type: boolean
+        default: false
+      bundle_budget_script:
+        description: 'npm script name that enforces the bundle-size budget (should exit non-zero on violation)'
+        type: string
+        default: 'check:bundle-budget'
+      enable_performance_budget:
+        description: 'Enable a performance budget check, e.g. Lighthouse/Core Web Vitals (runs performance_budget_script)'
+        type: boolean
+        default: false
+      performance_budget_script:
+        description: 'npm script name that enforces the performance budget (should exit non-zero on violation)'
+        type: string
+        default: 'check:performance'
+      enable_visual_regression:
+        description: 'Enable visual regression testing (runs visual_regression_script)'
+        type: boolean
+        default: false
+      visual_regression_script:
+        description: 'npm script name that runs visual regression tests (should exit non-zero on a diff/violation)'
+        type: string
+        default: 'test:visual'
+      enable_docker_smoke:
+        description: 'Enable a Docker image smoke test: build the image, run it, and poll a health endpoint'
+        type: boolean
+        default: false
+      docker_smoke_dockerfile_path:
+        description: 'Path to the Dockerfile to build for the smoke test. Empty = "<working_dir>/Dockerfile" ("./Dockerfile" for single-app repos).'
+        type: string
+        default: ''
+      docker_smoke_build_args:
+        description: 'Newline-separated Docker build arguments for the smoke-test image (e.g. "KEY=value")'
+        type: string
+        default: ''
+      docker_smoke_port:
+        description: 'Container port to publish and probe for the smoke test'
+        type: number
+        default: 3000
+      docker_smoke_health_path:
+        description: 'HTTP path polled on the running container to confirm it started successfully'
+        type: string
+        default: '/health'
+      docker_smoke_timeout:
+        description: 'Seconds to wait for the health check to succeed before failing the smoke test'
+        type: number
+        default: 60
+      docker_smoke_test_script:
+        description: 'npm script run against the running container after the health check passes (PLAYWRIGHT_BASE_URL/PLAYWRIGHT_SKIP_WEB_SERVER are injected). Empty = skip (default).'
+        type: string
+        default: ''
+      docker_smoke_env:
+        description: 'Newline-separated runtime environment variables passed to `docker run` (e.g. "AUTH_DISABLED=true")'
+        type: string
+        default: ''
+      enable_accessibility:
+        description: 'Enable an accessibility check (runs accessibility_script)'
+        type: boolean
+        default: false
+      accessibility_script:
+        description: 'npm script name that runs accessibility tests'
+        type: string
+        default: 'test:a11y'
+      enable_custom_checks:
+        description: 'Enable arbitrary caller-owned checks beyond the named gates above (runs each script in custom_checks)'
+        type: boolean
+        default: false
+      custom_checks:
+        description: 'Newline-separated npm script names to run as additional checks'
+        type: string
+        default: ''
+      custom_checks_needs_browsers:
+        description: 'Install Playwright browsers before running custom_checks. Only enable if a custom_checks script drives a browser (e.g. a Playwright-based smoke test).'
+        type: boolean
+        default: false
 
       # ----------------- Security (pr-security-scan.yml) -----------------
       prerelease_block_branches:
@@ -252,7 +337,9 @@ jobs:
       coverage_threshold: ${{ inputs.coverage_threshold }}
       fail_on_coverage_threshold: ${{ inputs.fail_on_coverage_threshold }}
       filter_paths: ${{ inputs.filter_paths }}
+      shared_paths: ${{ inputs.shared_paths }}
       path_level: ${{ inputs.path_level }}
+      normalize_to_filter: ${{ inputs.normalize_to_filter }}
       app_name_prefix: ${{ inputs.app_name_prefix }}
       enable_lint: ${{ inputs.enable_lint }}
       enable_typecheck: ${{ inputs.enable_typecheck }}
@@ -264,6 +351,25 @@ jobs:
       i18n_check_script: ${{ inputs.i18n_check_script }}
       i18n_keys_check_script: ${{ inputs.i18n_keys_check_script }}
       i18n_check_fail_on_violation: ${{ inputs.i18n_check_fail_on_violation }}
+      enable_bundle_budget: ${{ inputs.enable_bundle_budget }}
+      bundle_budget_script: ${{ inputs.bundle_budget_script }}
+      enable_performance_budget: ${{ inputs.enable_performance_budget }}
+      performance_budget_script: ${{ inputs.performance_budget_script }}
+      enable_visual_regression: ${{ inputs.enable_visual_regression }}
+      visual_regression_script: ${{ inputs.visual_regression_script }}
+      enable_docker_smoke: ${{ inputs.enable_docker_smoke }}
+      docker_smoke_dockerfile_path: ${{ inputs.docker_smoke_dockerfile_path }}
+      docker_smoke_build_args: ${{ inputs.docker_smoke_build_args }}
+      docker_smoke_port: ${{ inputs.docker_smoke_port }}
+      docker_smoke_health_path: ${{ inputs.docker_smoke_health_path }}
+      docker_smoke_timeout: ${{ inputs.docker_smoke_timeout }}
+      docker_smoke_test_script: ${{ inputs.docker_smoke_test_script }}
+      docker_smoke_env: ${{ inputs.docker_smoke_env }}
+      enable_accessibility: ${{ inputs.enable_accessibility }}
+      accessibility_script: ${{ inputs.accessibility_script }}
+      enable_custom_checks: ${{ inputs.enable_custom_checks }}
+      custom_checks: ${{ inputs.custom_checks }}
+      custom_checks_needs_browsers: ${{ inputs.custom_checks_needs_browsers }}
     secrets: inherit
 
   frontend-analysis-gate:

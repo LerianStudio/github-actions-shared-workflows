@@ -1,5 +1,33 @@
 # Github-actions-shared-workflows Changelog
 
+## [1.46.4](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.46.4)
+
+Fixes:
+- Merged changes from `develop` to `main` to address release issues. (@bedatty)
+- Added explicit `!cancelled()` condition to the `s3_upload` gate in the go-release workflow to prevent premature cancellations. (@bedatty)
+- Removed reliance on unreliable build results for gating `s3_upload` in the go-release workflow. (@bedatty)
+
+Improvements:
+- Included `br-slc` in the deployment matrix to enhance deployment coverage. (@bedatty, @gandalf-at-lerian)
+
+[Compare changes](https://github.com/LerianStudio/github-actions-shared-workflows/compare/v1.46.3...v1.46.4)
+
+---
+
+## [1.46.3](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.46.3)
+
+Fixes:
+- Merged changes from `develop` to `main` to ensure the latest updates are reflected in the primary branch. (@bedatty)
+- Addressed findings from CodeRabbit on the pull request merging `develop` to `main`. (@bedatty)
+- Added `tag_prefix` for `extra_builds` and frontend quality gates to improve the release process. (@bedatty)
+
+Improvements:
+- Updated documentation to include `shared_paths/normalize_to_filter` in the monorepo scope note, ensuring clarity on its inclusion. (@bedatty)
+
+[Compare changes](https://github.com/LerianStudio/github-actions-shared-workflows/compare/v1.46.2...v1.46.3)
+
+---
+
 ## [1.46.2](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.46.2)
 
 Features:
