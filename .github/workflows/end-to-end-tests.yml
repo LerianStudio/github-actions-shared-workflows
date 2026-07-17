@@ -247,12 +247,12 @@ jobs:
             MODULE="$(echo -n "$MODULE" | xargs)"
             [[ -z "$MODULE" ]] && continue
 
-            case "$MODULE" in
-              midaz-ledger) APP=ledger ;;
-              midaz-crm) APP=midaz-crm ;;
-              *) APP="$MODULE" ;;
-            esac
-            SERVICE_URL="https://${APP}.${BASE_ENV}-${TENANCY}.${SERVICE_DOMAIN}"
+            # Always provide both service URLs regardless of which module runs:
+            # the midaz-crm suite provisions its org/account scaffolding through
+            # the ledger API, so it needs LEDGER_URL too (otherwise it falls back
+            # to the localhost default and setup fails with connection refused).
+            LEDGER_URL="https://ledger.${BASE_ENV}-${TENANCY}.${SERVICE_DOMAIN}"
+            CRM_URL="https://midaz-crm.${BASE_ENV}-${TENANCY}.${SERVICE_DOMAIN}"
 
             ENV_FILE=".env.${MODULE}.${ENV_NAME}"
             GENERATED_ENV_FILES+=("$ENV_FILE")
@@ -264,11 +264,8 @@ jobs:
               echo "ADMIN_TENANT_1_PASSWORD=${ADMIN_TENANT_1_PASSWORD}"
               echo "ADMIN_TENANT_2_USERNAME=${ADMIN_TENANT_2_USERNAME}"
               echo "ADMIN_TENANT_2_PASSWORD=${ADMIN_TENANT_2_PASSWORD}"
-              case "$MODULE" in
-                midaz-ledger) echo "LEDGER_URL=${SERVICE_URL}" ;;
-                midaz-crm) echo "CRM_URL=${SERVICE_URL}" ;;
-                *) echo "SERVICE_URL=${SERVICE_URL}" ;;
-              esac
+              echo "LEDGER_URL=${LEDGER_URL}"
+              echo "CRM_URL=${CRM_URL}"
             } > "$ENV_FILE"
             echo "::endgroup::"
 
