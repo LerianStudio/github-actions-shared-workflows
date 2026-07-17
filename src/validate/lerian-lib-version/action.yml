@@ -225,9 +225,7 @@ runs:
           echo "::warning title=Ignore file not found::Optional ignore file '${IGNORE_FILE}' not found. Proceeding without ignore rules."
         fi
 
-        # ---------- 3. Resolve latest stable release per repo (cache by repo name) ----------
-        declare -A LATEST_CACHE=()
-
+        # ---------- 3. Resolve latest stable release per repo ----------
         # resolve_latest runs inside command substitution (a subshell), so it cannot
         # export the resolved publish date via a shell variable. It writes the date of
         # the chosen release to this file instead; the caller reads it right after.
@@ -236,12 +234,7 @@ runs:
         resolve_latest() {
           local repo="$1"
           local major_filter="$2"   # e.g. "v5" or "" for v0/v1 modules
-          local cache_key="${repo}::${major_filter}"
           : > "${LATEST_DATE_FILE}"
-          if [[ -n "${LATEST_CACHE[${cache_key}]:-}" ]]; then
-            echo "${LATEST_CACHE[${cache_key}]}"
-            return 0
-          fi
 
           # We page through up to 100 releases and pick the highest stable tag that
           # matches the requested major (when set). Pre-releases are excluded both by
@@ -266,14 +259,12 @@ runs:
 
           if [[ "${http_code}" == "404" ]]; then
             log "::warning title=Cannot read LerianStudio/${repo}::Repository is private and not accessible. Provide the LERIAN_LIB_READ_TOKEN secret."
-            LATEST_CACHE[${cache_key}]=""
             echo ""
             return 0
           fi
 
           if [[ "${http_code}" != "200" ]]; then
             log "::warning title=Cannot read LerianStudio/${repo}::Releases API returned HTTP ${http_code}. Check that LERIAN_LIB_READ_TOKEN has Contents:read and is approved by the org."
-            LATEST_CACHE[${cache_key}]=""
             echo ""
             return 0
           fi
@@ -287,7 +278,6 @@ runs:
           tags=$(printf '%s\n' "${tags}" | grep -E '^v?[0-9]+\.[0-9]+\.[0-9]+$' || true)
 
           if [[ -z "${tags}" ]]; then
-            LATEST_CACHE[${cache_key}]=""
             echo ""
             return 0
           fi
@@ -315,7 +305,6 @@ runs:
           ' 2>/dev/null || echo "")
           printf '%s' "${latest_date%%T*}" > "${LATEST_DATE_FILE}"
 
-          LATEST_CACHE[${cache_key}]="${latest}"
           echo "${latest}"
         }
 
