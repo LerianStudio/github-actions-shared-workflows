@@ -50,7 +50,7 @@ Palantir (self-service-testing)'s E2E page.
 
 | Name | Required | Description |
 |------|----------|-------------|
-| `e2e_repo_token` | yes | Token with read access to the private e2e repository. The `go-release.yml` caller feeds it the org `MANAGE_TOKEN` (the same token gitops-update uses), so no dedicated e2e token is needed. |
+| `e2e_repo_token` | yes | Token with read access to the private e2e repository. The `go-release.yml` caller feeds it a dedicated, minimally-scoped `E2E_REPO_TOKEN` (read-only on the suite repo), kept separate from the broad `MANAGE_TOKEN`. |
 | `aws_e2e_artifacts_role_arn` | no | IAM role assumed via OIDC to upload to S3. Unset — S3 upload skipped, only the GitHub artifact is produced. |
 | `admin_tenant_1_username` / `admin_tenant_1_password` | no | Tenant 1 login for the deployed environment. |
 | `admin_tenant_2_username` / `admin_tenant_2_password` | no | Tenant 2 login (multi-tenant only). |
@@ -69,7 +69,7 @@ e2e:
     modules: "midaz-ledger,midaz-crm"
     tenancy: st
   secrets:
-    e2e_repo_token: ${{ secrets.MANAGE_TOKEN }}   # any token with read access to the suite repo
+    e2e_repo_token: ${{ secrets.E2E_REPO_TOKEN }}   # dedicated read-only token for the suite repo
     aws_e2e_artifacts_role_arn: ${{ secrets.AWS_E2E_ARTIFACTS_ROLE_ARN }}
     admin_tenant_1_username: ${{ secrets.E2E_ADMIN_TENANT_1_USERNAME }}
     admin_tenant_1_password: ${{ secrets.E2E_ADMIN_TENANT_1_PASSWORD }}
