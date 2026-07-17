@@ -231,9 +231,9 @@ on:
         type: string
         default: 'st'
       e2e_service_domain:
-        description: 'Base domain of the deployed environment the e2e suite targets. URLs are built as https://<app>.<base_env>-<tenancy>.<e2e_service_domain>. Use e.g. fuzzing.lerian.net to target the fuzzing environment.'
+        description: 'Base domain of the deployed environment the e2e suite targets. URLs are built as https://<app>.<base_env>-<tenancy>.<e2e_service_domain>. Defaults to the fuzzing environment; override only to target a different one.'
         type: string
-        default: 'lerian.net'
+        default: 'fuzzing.lerian.net'
       e2e_runner_type:
         description: 'Runner for the End-to-End Tests job. Needs reach to the deployed environment, so it defaults to eveo-lxc-runners rather than the build runner.'
         type: string

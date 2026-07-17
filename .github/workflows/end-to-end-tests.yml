@@ -22,9 +22,9 @@ on:
         type: string
         default: 'st'
       service_domain:
-        description: 'Base domain the deployed services live under. URLs are built as https://<app>.<base_env>-<tenancy>.<service_domain>.'
+        description: 'Base domain the deployed services live under. URLs are built as https://<app>.<base_env>-<tenancy>.<service_domain>. Defaults to the fuzzing environment; override to target a different one.'
         type: string
-        default: 'lerian.net'
+        default: 'fuzzing.lerian.net'
       s3_bucket:
         description: 'S3 bucket the Allure report is uploaded to (read by Palantir). Uploaded under <bucket>/<repo>/<channel>/<tag>/<module>/.'
         type: string
