@@ -10,14 +10,6 @@ inputs:
     description: Full fingerprint of the AWS CLI team signing key, imported from a keyserver to verify the installer before running it.
     required: false
     default: "FB5DB77FD5C118B80511ADA8A6310ACC4672475C"
-  install-dir:
-    description: Directory passed to the AWS installer's -i flag. Empty = $HOME/.local/aws-cli.
-    required: false
-    default: ""
-  bin-dir:
-    description: Directory passed to the AWS installer's -b flag and appended to PATH. Empty = $HOME/.local/bin.
-    required: false
-    default: ""
 
 runs:
   using: composite
@@ -26,17 +18,17 @@ runs:
     # persists between jobs on a self-hosted runner, so a prior install is reused
     # (and re-added to PATH) instead of re-downloaded. A fresh install pins an
     # immutable version and verifies the vendor GnuPG signature before executing.
+    # Install dirs are fixed (not inputs) so the value appended to $GITHUB_PATH is
+    # never derived from caller-controlled data (CodeQL actions/envpath-injection).
     - name: Install AWS CLI
       shell: bash
       env:
         AWS_CLI_VERSION: ${{ inputs.version }}
         AWS_CLI_GPG_FPR: ${{ inputs.gpg-fingerprint }}
-        INSTALL_DIR: ${{ inputs.install-dir }}
-        BIN_DIR: ${{ inputs.bin-dir }}
       run: |
         set -euo pipefail
-        install_dir="${INSTALL_DIR:-$HOME/.local/aws-cli}"
-        bin_dir="${BIN_DIR:-$HOME/.local/bin}"
+        install_dir="$HOME/.local/aws-cli"
+        bin_dir="$HOME/.local/bin"
         if command -v aws >/dev/null 2>&1; then
           echo "aws already present: $(aws --version 2>&1)"
           exit 0

@@ -17,8 +17,10 @@ installer. Designed for self-hosted runners, which do not ship the AWS CLI.
 |-------|-------------|----------|---------|
 | `version` | AWS CLI v2 version to install (pinned — bump to update) | No | `2.36.2` |
 | `gpg-fingerprint` | Full fingerprint of the AWS CLI team signing key used to verify the installer | No | `FB5DB77FD5C118B80511ADA8A6310ACC4672475C` |
-| `install-dir` | Directory passed to the AWS installer `-i` flag (empty = `$HOME/.local/aws-cli`) | No | `""` |
-| `bin-dir` | Directory passed to `-b` and appended to `PATH` (empty = `$HOME/.local/bin`) | No | `""` |
+
+Installs to `$HOME/.local/aws-cli` with the launcher in `$HOME/.local/bin`
+(added to `PATH`). These are fixed, not inputs, so the value written to
+`$GITHUB_PATH` is never caller-controlled.
 
 ## Outputs
 
