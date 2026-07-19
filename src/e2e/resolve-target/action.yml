@@ -1,0 +1,122 @@
+name: Resolve E2E Target
+description: Resolve the deployed environment from the release tag + tenancy and select which candidate modules to run.
+
+inputs:
+  ref-name:
+    description: Git ref name (e.g. github.ref_name) — its prerelease identifier maps to dev/stg/prd.
+    required: true
+  tenancy:
+    description: Tenancy mode — st (single-tenant) | mt (multi-tenant).
+    required: false
+    default: "st"
+  modules:
+    description: Comma-separated candidate modules (e.g. "midaz-ledger,midaz-crm"). Each must be a valid cases/<module> directory.
+    required: true
+  built-apps:
+    description: JSON array of components actually built ([{"name":...}]). When non-empty, candidates are intersected with it. Empty/"[]" keeps every candidate.
+    required: false
+    default: "[]"
+
+outputs:
+  base_env:
+    description: Resolved base environment — dev | stg | prd.
+    value: ${{ steps.resolve.outputs.base_env }}
+  env_name:
+    description: Resolved env-file suffix — benedita-<base_env>-<tenancy>.
+    value: ${{ steps.resolve.outputs.env_name }}
+  modules:
+    description: Comma-separated selected modules (after the built-apps intersection).
+    value: ${{ steps.select.outputs.modules }}
+  has_modules:
+    description: '"true"/"false" — whether at least one module was selected. "false" means the run is a no-op.'
+    value: ${{ steps.select.outputs.has_modules }}
+
+runs:
+  using: composite
+  steps:
+    # beta->dev / rc->stg / else->prd, combined with tenancy to match the
+    # end-to-end repo's .env.<module>.benedita-<env>-<tenancy> naming.
+    - name: Resolve target environment
+      id: resolve
+      shell: bash
+      env:
+        REF_NAME: ${{ inputs.ref-name }}
+        TENANCY: ${{ inputs.tenancy }}
+      run: |
+        set -euo pipefail
+        case "$TENANCY" in
+          st|mt) ;;
+          *)
+            echo "::error::tenancy must be 'st' or 'mt' (got '${TENANCY}')"
+            exit 1
+            ;;
+        esac
+        if [[ "$REF_NAME" == *-beta.* ]]; then
+          BASE_ENV="dev"
+        elif [[ "$REF_NAME" == *-rc.* ]]; then
+          BASE_ENV="stg"
+        else
+          BASE_ENV="prd"
+        fi
+        ENV_NAME="benedita-${BASE_ENV}-${TENANCY}"
+        {
+          echo "base_env=${BASE_ENV}"
+          echo "env_name=${ENV_NAME}"
+        } >> "$GITHUB_OUTPUT"
+        echo "Resolved environment: ${ENV_NAME}"
+
+    # Scope the run to only the component(s) this tag rebuilt. Each candidate is
+    # validated (safe identifier + known cases/ dir — requires the end-to-end
+    # repo checked out) before it is ever used as a Go package or path.
+    - name: Select modules to run
+      id: select
+      shell: bash
+      env:
+        MODULES: ${{ inputs.modules }}
+        BUILT_APPS: ${{ inputs.built-apps }}
+      run: |
+        set -euo pipefail
+        IFS=',' read -ra CANDIDATES <<< "$MODULES"
+        # No candidate at all -> misconfiguration, fail fast so a tagged release
+        # cannot go green without running e2e. Candidates present but none built
+        # -> intentional no-op (has_modules=false), handled below.
+        CANDIDATE_COUNT=0
+        for MODULE in "${CANDIDATES[@]}"; do
+          [[ -n "$(echo -n "$MODULE" | xargs)" ]] && CANDIDATE_COUNT=$((CANDIDATE_COUNT + 1))
+        done
+        if [[ "$CANDIDATE_COUNT" -eq 0 ]]; then
+          echo "::error::No e2e modules supplied — set 'modules' (e.g. midaz-ledger,midaz-crm)."
+          exit 1
+        fi
+        BUILT_NAMES=()
+        if [[ -n "$BUILT_APPS" && "$BUILT_APPS" != "[]" && "$BUILT_APPS" != "null" ]]; then
+          mapfile -t BUILT_NAMES < <(printf '%s' "$BUILT_APPS" | jq -r '.[].name')
+        fi
+        SELECTED=()
+        for MODULE in "${CANDIDATES[@]}"; do
+          MODULE="$(echo -n "$MODULE" | xargs)"
+          [[ -z "$MODULE" ]] && continue
+          if [[ ! "$MODULE" =~ ^[a-z0-9][a-z0-9_-]*$ ]] || [[ ! -d "cases/$MODULE" ]]; then
+            echo "::error::Invalid or unknown E2E module: '${MODULE}'"
+            exit 1
+          fi
+          if [[ ${#BUILT_NAMES[@]} -eq 0 ]]; then
+            SELECTED+=("$MODULE")
+            continue
+          fi
+          for BUILT in "${BUILT_NAMES[@]}"; do
+            if [[ "$BUILT" == "$MODULE" ]]; then
+              SELECTED+=("$MODULE")
+              break
+            fi
+          done
+        done
+        JOINED=$(IFS=,; echo "${SELECTED[*]:-}")
+        echo "modules=${JOINED}" >> "$GITHUB_OUTPUT"
+        if [[ ${#SELECTED[@]} -eq 0 ]]; then
+          echo "has_modules=false" >> "$GITHUB_OUTPUT"
+          echo "::warning::No candidate module in '${MODULES}' matched the built components (${BUILT_NAMES[*]:-none}); e2e run is a no-op."
+        else
+          echo "has_modules=true" >> "$GITHUB_OUTPUT"
+          echo "Selected modules: ${JOINED}"
+        fi

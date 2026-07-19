@@ -1,0 +1,62 @@
+name: Setup AWS CLI
+description: Install and GnuPG-verify a pinned AWS CLI v2, idempotently (reuses a cached user-local install).
+
+inputs:
+  version:
+    description: AWS CLI v2 version to install (pinned — bump to update).
+    required: false
+    default: "2.36.2"
+  gpg-fingerprint:
+    description: Full fingerprint of the AWS CLI team signing key, imported from a keyserver to verify the installer before running it.
+    required: false
+    default: "FB5DB77FD5C118B80511ADA8A6310ACC4672475C"
+  install-dir:
+    description: Directory passed to the AWS installer's -i flag. Empty = $HOME/.local/aws-cli.
+    required: false
+    default: ""
+  bin-dir:
+    description: Directory passed to the AWS installer's -b flag and appended to PATH. Empty = $HOME/.local/bin.
+    required: false
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    # Self-hosted runners don't ship the AWS CLI (GitHub-hosted ones do). $HOME
+    # persists between jobs on a self-hosted runner, so a prior install is reused
+    # (and re-added to PATH) instead of re-downloaded. A fresh install pins an
+    # immutable version and verifies the vendor GnuPG signature before executing.
+    - name: Install AWS CLI
+      shell: bash
+      env:
+        AWS_CLI_VERSION: ${{ inputs.version }}
+        AWS_CLI_GPG_FPR: ${{ inputs.gpg-fingerprint }}
+        INSTALL_DIR: ${{ inputs.install-dir }}
+        BIN_DIR: ${{ inputs.bin-dir }}
+      run: |
+        set -euo pipefail
+        install_dir="${INSTALL_DIR:-$HOME/.local/aws-cli}"
+        bin_dir="${BIN_DIR:-$HOME/.local/bin}"
+        if command -v aws >/dev/null 2>&1; then
+          echo "aws already present: $(aws --version 2>&1)"
+          exit 0
+        fi
+        if [ -x "$bin_dir/aws" ]; then
+          echo "aws already installed (cached): $("$bin_dir/aws" --version 2>&1)"
+          echo "$bin_dir" >> "$GITHUB_PATH"
+          exit 0
+        fi
+        arch="$(uname -m)"
+        base="https://awscli.amazonaws.com/awscli-exe-linux-${arch}-${AWS_CLI_VERSION}.zip"
+        echo "Installing AWS CLI v2 ${AWS_CLI_VERSION} (user-local)..."
+        tmp="$(mktemp -d)"
+        curl --fail --silent --show-error --location "$base" -o "$tmp/awscliv2.zip"
+        curl --fail --silent --show-error --location "${base}.sig" -o "$tmp/awscliv2.sig"
+        export GNUPGHOME="$tmp/gnupg"; mkdir -p "$GNUPGHOME"; chmod 700 "$GNUPGHOME"
+        gpg --batch --keyserver hkps://keyserver.ubuntu.com --recv-keys "$AWS_CLI_GPG_FPR"
+        gpg --batch --verify "$tmp/awscliv2.sig" "$tmp/awscliv2.zip"
+        unzip -q "$tmp/awscliv2.zip" -d "$tmp"
+        "$tmp/aws/install" -i "$install_dir" -b "$bin_dir" --update
+        rm -rf "$tmp"
+        echo "$bin_dir" >> "$GITHUB_PATH"
+        "$bin_dir/aws" --version
