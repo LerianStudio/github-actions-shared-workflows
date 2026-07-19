@@ -47,6 +47,10 @@ inputs:
     description: Maximum diff size forwarded to the controller (bytes)
     required: false
     default: "262144"
+  skip-globs:
+    description: 'Space-separated glob patterns. When every file in the diff matches one of these, the release is CI/meta-only and the controller is never contacted. Empty disables the check.'
+    required: false
+    default: ".releaserc.yml .github/*"
   curl-timeout:
     description: Timeout for the webhook POST in seconds (LLM inference can take 60-120s, longer for large/complex diffs). Must stay in lockstep with ungoliant-controller's NEMOCLAW_TIMEOUT_SECONDS and its ingress proxy timeouts.
     required: false
@@ -73,8 +77,8 @@ outputs:
     description: Composed target env forwarded to the controller
     value: ${{ steps.resolve.outputs.target_env }}
   outcome:
-    description: High-level outcome — executed (smoke/chaos ran) | skipped (no tests warranted)
-    value: ${{ steps.webhook.outputs.outcome }}
+    description: High-level outcome — executed (smoke/chaos ran) | skipped (no tests warranted) | skipped_ci_only (diff matched skip-globs; controller was never contacted)
+    value: ${{ steps.diff.outputs.ci_only == 'true' && 'skipped_ci_only' || steps.webhook.outputs.outcome }}
   k6:
     description: Number of k6 smoke scenarios selected by the controller
     value: ${{ steps.webhook.outputs.k6 }}
@@ -125,18 +129,6 @@ runs:
           echo "target_env=$TARGET_ENV"
         } >> "$GITHUB_OUTPUT"
 
-    # ----------------- Health Check (fail fast before GitHub API calls) -----------------
-    - name: Health check controller
-      shell: bash
-      env:
-        CONTROLLER_URL: ${{ inputs.controller-url }}
-      run: |
-        set -euo pipefail
-        echo "Checking controller at ${CONTROLLER_URL}..."
-        HTTP_CODE="$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "${CONTROLLER_URL}/healthz" || true)"
-        [ "$HTTP_CODE" = "200" ] || { echo "::error::Controller not reachable ($HTTP_CODE). Is the runner on Tailscale?"; exit 1; }
-        echo "Controller is up"
-
     # ----------------- Resolve Previous Tag -----------------
     - name: Resolve previous tag
       id: previous
@@ -183,15 +175,18 @@ runs:
 
         echo "previous=$PREV" >> "$GITHUB_OUTPUT"
 
-    # ----------------- Fetch Compare & Diff -----------------
-    - name: Fetch compare and diff
+    # ----------------- Fetch Compare Metadata & CI-only Detection -----------------
+    # Cheap JSON-only compare, done before the health check / heavy diff fetch
+    # so a release limited to skip-globs (workflow/config changes) never
+    # contacts the controller at all — not even a health-check ping.
+    - name: Fetch compare metadata
       id: diff
       shell: bash
       env:
         REPO: ${{ steps.resolve.outputs.repo }}
         VERSION: ${{ inputs.version }}
         PREVIOUS: ${{ steps.previous.outputs.previous }}
-        MAX_DIFF_BYTES: ${{ inputs.max-diff-bytes }}
+        SKIP_GLOBS: ${{ inputs.skip-globs }}
         GH_TOKEN: ${{ inputs.github-token }}
       run: |
         set -euo pipefail
@@ -220,6 +215,79 @@ runs:
         FILES="$(printf '%s' "$COMPARE" | jq -r '.files | length')"
         echo "Revision: $REVISION  |  Previous: $PREV_SHA  |  Files changed: $FILES"
 
+        # ----------------- CI-only change detection -----------------
+        # When every changed file matches a skip-glob, this release is
+        # CI/meta-only (e.g. workflow bumps under .github/*): skip Ungoliant
+        # entirely instead of spending a chaos/fuzz analysis on it.
+        #
+        # GitHub's compare API caps .files at 300 entries — FILES == 300 could
+        # mean there are more, unlisted files past the cap. Treat that as
+        # indeterminate and never skip Ungoliant on it, rather than risk
+        # classifying a real code change as CI-only from a truncated list.
+        read -ra skip_patterns <<< "$SKIP_GLOBS"
+        CI_ONLY=false
+        if [ "$FILES" -gt 0 ] && [ "$FILES" -lt 300 ] && [ "${#skip_patterns[@]}" -gt 0 ]; then
+          CI_ONLY=true
+          while IFS= read -r file; do
+            [ -z "$file" ] && continue
+            matched=false
+            for glob in "${skip_patterns[@]}"; do
+              # shellcheck disable=SC2254
+              case "$file" in
+                $glob) matched=true; break ;;
+              esac
+            done
+            if [ "$matched" = false ]; then
+              CI_ONLY=false
+              break
+            fi
+          done < <(printf '%s' "$COMPARE" | jq -r '.files[].filename')
+        fi
+
+        if [ "$CI_ONLY" = "true" ]; then
+          echo "::notice::All ${FILES} changed file(s) match skip-globs (${SKIP_GLOBS}) — release is CI/meta-only, Ungoliant will not be contacted"
+        elif [ "$FILES" -ge 300 ]; then
+          echo "CI-only check: ${FILES} files changed — at/above the compare API's 300-file cap, treating as indeterminate — proceeding with Ungoliant"
+        else
+          echo "CI-only check: not all files match skip-globs (${SKIP_GLOBS:-<none>}) — proceeding with Ungoliant"
+        fi
+
+        {
+          echo "revision=$REVISION"
+          echo "prev_sha=$PREV_SHA"
+          echo "files=$FILES"
+          echo "ci_only=$CI_ONLY"
+        } >> "$GITHUB_OUTPUT"
+
+    # ----------------- Health Check (fail fast before the heavy diff fetch) -----------------
+    - name: Health check controller
+      if: steps.diff.outputs.ci_only != 'true'
+      shell: bash
+      env:
+        CONTROLLER_URL: ${{ inputs.controller-url }}
+      run: |
+        set -euo pipefail
+        echo "Checking controller at ${CONTROLLER_URL}..."
+        HTTP_CODE="$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "${CONTROLLER_URL}/healthz" || true)"
+        [ "$HTTP_CODE" = "200" ] || { echo "::error::Controller not reachable ($HTTP_CODE). Is the runner on Tailscale?"; exit 1; }
+        echo "Controller is up"
+
+    # ----------------- Fetch Diff Text -----------------
+    - name: Fetch diff text
+      id: diff-text
+      if: steps.diff.outputs.ci_only != 'true'
+      shell: bash
+      env:
+        REPO: ${{ steps.resolve.outputs.repo }}
+        VERSION: ${{ inputs.version }}
+        PREVIOUS: ${{ steps.previous.outputs.previous }}
+        MAX_DIFF_BYTES: ${{ inputs.max-diff-bytes }}
+        GH_TOKEN: ${{ inputs.github-token }}
+      run: |
+        set -euo pipefail
+
+        API="https://api.github.com/repos/${REPO}"
+
         echo "Fetching diff (cap ${MAX_DIFF_BYTES} bytes)..."
         curl -sf --retry 2 --retry-delay 2 --max-time 120 \
           -H "Authorization: Bearer $GH_TOKEN" \
@@ -234,14 +302,9 @@ runs:
         echo "Diff size: ${DIFF_SIZE} bytes"
         [ "$DIFF_SIZE" -gt 0 ] || { echo "::error::Empty diff — check tags exist in $REPO"; exit 1; }
 
-        {
-          echo "revision=$REVISION"
-          echo "prev_sha=$PREV_SHA"
-          echo "files=$FILES"
-        } >> "$GITHUB_OUTPUT"
-
     # ----------------- Build Payload -----------------
     - name: Build payload
+      if: steps.diff.outputs.ci_only != 'true'
       shell: bash
       env:
         APP: ${{ inputs.app }}
@@ -267,7 +330,7 @@ runs:
 
     # ----------------- Dry Run -----------------
     - name: Dry run summary
-      if: inputs.dry-run == 'true'
+      if: inputs.dry-run == 'true' && steps.diff.outputs.ci_only != 'true'
       shell: bash
       env:
         APP: ${{ inputs.app }}
@@ -289,10 +352,34 @@ runs:
         echo "  target_env  : $TARGET_ENV"
         echo "  payload size: $(wc -c < payload.json | tr -d ' ') bytes"
 
+    # ----------------- CI-only Skip Summary -----------------
+    - name: CI-only skip summary
+      if: steps.diff.outputs.ci_only == 'true'
+      shell: bash
+      env:
+        APP: ${{ inputs.app }}
+        VERSION: ${{ inputs.version }}
+        SKIP_GLOBS: ${{ inputs.skip-globs }}
+        FILES: ${{ steps.diff.outputs.files }}
+      run: |
+        set -euo pipefail
+        echo "::notice::Ungoliant skipped — all ${FILES} changed file(s) in ${VERSION} matched skip-globs (${SKIP_GLOBS})"
+        {
+          echo "### Ungoliant release-diff — SKIPPED (CI-only change)"
+          echo ""
+          echo "| Field | Value |"
+          echo "| --- | --- |"
+          echo "| outcome | \`skipped_ci_only\` |"
+          echo "| app | \`$APP\` |"
+          echo "| version | \`$VERSION\` |"
+          echo "| files changed | \`$FILES\` |"
+          echo "| skip_globs | \`$SKIP_GLOBS\` |"
+        } >> "$GITHUB_STEP_SUMMARY"
+
     # ----------------- Fire Webhook -----------------
     - name: Send release-diff webhook
       id: webhook
-      if: inputs.dry-run != 'true'
+      if: inputs.dry-run != 'true' && steps.diff.outputs.ci_only != 'true'
       shell: bash
       env:
         CONTROLLER_URL: ${{ inputs.controller-url }}
@@ -391,10 +478,13 @@ runs:
 
     # ----------------- Comment on Originating PR -----------------
     # Best-effort: post/update a comment on the PR that produced this release
-    # stating whether Ungoliant ran the full flow or skipped it. Never fails
-    # the release — an API/permission hiccup only logs a warning.
+    # stating whether Ungoliant ran the full flow, skipped it, or was never
+    # contacted (CI-only change). Never fails the release — an API/permission
+    # hiccup only logs a warning.
     - name: Comment ungoliant outcome on originating PR
-      if: inputs.dry-run != 'true' && (steps.webhook.outputs.outcome == 'executed' || steps.webhook.outputs.outcome == 'skipped')
+      if: >-
+        inputs.dry-run != 'true' &&
+        (steps.webhook.outputs.outcome == 'executed' || steps.webhook.outputs.outcome == 'skipped' || steps.diff.outputs.ci_only == 'true')
       shell: bash
       env:
         GH_TOKEN: ${{ inputs.github-token }}
@@ -405,6 +495,8 @@ runs:
         APP: ${{ inputs.app }}
         VERSION: ${{ inputs.version }}
         TARGET_ENV: ${{ steps.resolve.outputs.target_env }}
+        CI_ONLY: ${{ steps.diff.outputs.ci_only }}
+        SKIP_GLOBS: ${{ inputs.skip-globs }}
         OUTCOME: ${{ steps.webhook.outputs.outcome }}
         STATUS: ${{ steps.webhook.outputs.status }}
         SCHEMA: ${{ steps.webhook.outputs.schema }}
@@ -416,6 +508,10 @@ runs:
         set -uo pipefail
         API="https://api.github.com/repos/${RUN_REPO}"
         AUTH=(-H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json")
+
+        if [ "$CI_ONLY" = "true" ]; then
+          OUTCOME="skipped_ci_only"
+        fi
 
         # Resolve the PR behind this release commit. Primary: PRs GitHub
         # associates with the tagged commit. Fallback: the last (#NNN) in the
@@ -436,7 +532,10 @@ runs:
 
         RUN_URL="${SERVER_URL}/${RUN_REPO}/actions/runs/${RUN_ID_GH}"
         MARKER="<!-- ungoliant-release-diff:${VERSION} -->"
-        if [ "$OUTCOME" = "skipped" ]; then
+        if [ "$OUTCOME" = "skipped_ci_only" ]; then
+          HEADER="## Ungoliant Release Diff — Skipped (CI-only change)"
+          BLURB="This release only touched files matched by skip-globs (\`${SKIP_GLOBS}\`), so Ungoliant was never contacted — no health check and no webhook call were made."
+        elif [ "$OUTCOME" = "skipped" ]; then
           HEADER="## Ungoliant Release Diff — Skipped"
           BLURB="No smoke or chaos tests were run for this release. Ungoliant judged the diff low-risk / provably trivial (doc-only or CI/linter cosmetics), so test execution was skipped."
         else
@@ -457,11 +556,13 @@ runs:
         add "| app | \`${APP}\` |"
         add "| version | \`${VERSION}\` |"
         add "| target_env | \`${TARGET_ENV}\` |"
-        add "| risk_level | \`${RISK}\` |"
-        add "| k6 smoke scenarios | \`${K6_COUNT}\` |"
-        add "| chaos experiments | \`${CHAOS_COUNT}\` |"
-        add "| schema | \`${SCHEMA}\` |"
-        add "| run_id | \`${RUN_ID}\` |"
+        if [ "$OUTCOME" != "skipped_ci_only" ]; then
+          add "| risk_level | \`${RISK}\` |"
+          add "| k6 smoke scenarios | \`${K6_COUNT}\` |"
+          add "| chaos experiments | \`${CHAOS_COUNT}\` |"
+          add "| schema | \`${SCHEMA}\` |"
+          add "| run_id | \`${RUN_ID}\` |"
+        fi
         add ""
         add "[Workflow run](${RUN_URL})"
 
