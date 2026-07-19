@@ -50,6 +50,10 @@ runs:
         base="https://awscli.amazonaws.com/awscli-exe-linux-${arch}-${AWS_CLI_VERSION}.zip"
         echo "Installing AWS CLI v2 ${AWS_CLI_VERSION} (user-local)..."
         tmp="$(mktemp -d)"
+        # Remove the download/GnuPG scratch dir on every exit path — a failure
+        # under set -euo pipefail (curl, gpg --verify, unzip) would otherwise
+        # leave it behind and accumulate on the persistent runner.
+        trap 'rm -rf "$tmp"' EXIT
         curl --fail --silent --show-error --location "$base" -o "$tmp/awscliv2.zip"
         curl --fail --silent --show-error --location "${base}.sig" -o "$tmp/awscliv2.sig"
         export GNUPGHOME="$tmp/gnupg"; mkdir -p "$GNUPGHOME"; chmod 700 "$GNUPGHOME"
@@ -57,6 +61,5 @@ runs:
         gpg --batch --verify "$tmp/awscliv2.sig" "$tmp/awscliv2.zip"
         unzip -q "$tmp/awscliv2.zip" -d "$tmp"
         "$tmp/aws/install" -i "$install_dir" -b "$bin_dir" --update
-        rm -rf "$tmp"
         echo "$bin_dir" >> "$GITHUB_PATH"
         "$bin_dir/aws" --version
