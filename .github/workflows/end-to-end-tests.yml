@@ -141,7 +141,7 @@ jobs:
           admin-tenant-2-password: ${{ secrets.admin_tenant_2_password }}
 
       - name: Upload Allure reports (GitHub artifact)
-        if: always() && steps.plan.outputs.has_modules == 'true'
+        if: always() && steps.plan.outputs.has_modules == 'true' && !inputs.dry_run
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: e2e-allure-reports

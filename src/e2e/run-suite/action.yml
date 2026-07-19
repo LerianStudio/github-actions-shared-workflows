@@ -101,6 +101,12 @@ runs:
             echo "ADMIN_TENANT_2_PASSWORD=${ADMIN_TENANT_2_PASSWORD}"
             echo "LEDGER_URL=${LEDGER_URL}"
             echo "CRM_URL=${CRM_URL}"
+            # Generic self-endpoint for any module beyond ledger/crm, so a future
+            # cases/<module> gets an URL pointing at itself instead of nothing.
+            case "$MODULE" in
+              midaz-ledger|midaz-crm) ;;
+              *) echo "SERVICE_URL=https://${MODULE}.${BASE_ENV}-${TENANCY}.${SERVICE_DOMAIN}" ;;
+            esac
           } > "$ENV_FILE"
           echo "::endgroup::"
 

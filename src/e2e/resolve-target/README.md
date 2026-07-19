@@ -32,19 +32,23 @@ suite repository to be checked out first (it validates each module against a
 ## Usage as composite step
 
 ```yaml
-steps:
-  - uses: actions/checkout@v4
-    with:
-      repository: LerianStudio/end-to-end
-      token: ${{ secrets.e2e_repo_token }}
-  - name: Resolve E2E target
-    id: plan
-    uses: LerianStudio/github-actions-shared-workflows/src/e2e/resolve-target@v1
-    with:
-      ref-name: ${{ github.ref_name }}
-      tenancy: st
-      modules: "midaz-ledger,midaz-crm"
-      built-apps: ${{ needs.build.outputs.matrix }}
+jobs:
+  e2e:
+    needs: build                       # build.outputs.matrix drives module selection
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: LerianStudio/end-to-end
+          token: ${{ secrets.e2e_repo_token }}
+      - name: Resolve E2E target
+        id: plan
+        uses: LerianStudio/github-actions-shared-workflows/src/e2e/resolve-target@v1
+        with:
+          ref-name: ${{ github.ref_name }}
+          tenancy: st
+          modules: "midaz-ledger,midaz-crm"
+          built-apps: ${{ needs.build.outputs.matrix }}
 ```
 
 ## Usage via reusable workflow
