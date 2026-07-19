@@ -219,9 +219,14 @@ runs:
         # When every changed file matches a skip-glob, this release is
         # CI/meta-only (e.g. workflow bumps under .github/*): skip Ungoliant
         # entirely instead of spending a chaos/fuzz analysis on it.
+        #
+        # GitHub's compare API caps .files at 300 entries — FILES == 300 could
+        # mean there are more, unlisted files past the cap. Treat that as
+        # indeterminate and never skip Ungoliant on it, rather than risk
+        # classifying a real code change as CI-only from a truncated list.
         read -ra skip_patterns <<< "$SKIP_GLOBS"
         CI_ONLY=false
-        if [ "$FILES" -gt 0 ] && [ "${#skip_patterns[@]}" -gt 0 ]; then
+        if [ "$FILES" -gt 0 ] && [ "$FILES" -lt 300 ] && [ "${#skip_patterns[@]}" -gt 0 ]; then
           CI_ONLY=true
           while IFS= read -r file; do
             [ -z "$file" ] && continue
@@ -241,6 +246,8 @@ runs:
 
         if [ "$CI_ONLY" = "true" ]; then
           echo "::notice::All ${FILES} changed file(s) match skip-globs (${SKIP_GLOBS}) — release is CI/meta-only, Ungoliant will not be contacted"
+        elif [ "$FILES" -ge 300 ]; then
+          echo "CI-only check: ${FILES} files changed — at/above the compare API's 300-file cap, treating as indeterminate — proceeding with Ungoliant"
         else
           echo "CI-only check: not all files match skip-globs (${SKIP_GLOBS:-<none>}) — proceeding with Ungoliant"
         fi

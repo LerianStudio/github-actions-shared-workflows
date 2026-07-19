@@ -53,13 +53,14 @@ When the controller completes an analysis but selects neither smoke nor chaos
 (a low-risk / provably-trivial diff), the step reports `outcome: skipped` and
 succeeds — the run makes the skip explicit in its logs and step summary. When
 every changed file matches `skip-globs` instead, the step reports
-`outcome: skipped_ci_only` without ever calling the controller. In all three
-cases (`executed`, `skipped`, `skipped_ci_only`) the action also posts (or
-updates) a comment on the pull request that produced the release, so reviewers
-see whether the full Ungoliant flow ran, was skipped by the controller, or was
-never triggered because the change was CI/meta-only. Posting the comment
-requires the calling job to grant `pull-requests: write`; it is best-effort and
-never fails the release.
+`outcome: skipped_ci_only` without ever calling the controller. For non-dry-run
+invocations, in all three cases (`executed`, `skipped`, `skipped_ci_only`) the
+action also posts (or updates) a comment on the pull request that produced the
+release, so reviewers see whether the full Ungoliant flow ran, was skipped by
+the controller, or was never triggered because the change was CI/meta-only.
+`dry-run: true` skips this comment entirely, along with the webhook call.
+Posting the comment requires the calling job to grant `pull-requests: write`;
+it is best-effort and never fails the release.
 
 ## Usage as composite step
 
