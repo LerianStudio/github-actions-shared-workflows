@@ -242,6 +242,10 @@ on:
         description: 'Runner for the Ungoliant release-diff job. Needs Tailscale reach to the controller, so it defaults to eveo-anacleto-lxc-runners rather than the build runner.'
         type: string
         default: 'eveo-anacleto-lxc-runners'
+      ungoliant_skip_globs:
+        description: 'Space-separated glob patterns. When every changed file matches one, Ungoliant is never contacted. Default skips CI/workflow-only releases.'
+        type: string
+        default: '.releaserc.yml .github/*'
 
       # ----------------- Shared -----------------
       shared_paths:
@@ -725,6 +729,7 @@ jobs:
           tenancy: ${{ inputs.ungoliant_tenancy }}
           base-env: ${{ steps.target.outputs.base_env }}
           controller-url: ${{ vars.UNGOLIANT_CONTROLLER_URL || inputs.ungoliant_controller_url }}
+          skip-globs: ${{ inputs.ungoliant_skip_globs }}
           github-token: ${{ github.token }}
           webhook-token: ${{ secrets.UNGOLIANT_WEBHOOK_TOKEN }}
           dry-run: ${{ inputs.dry_run }}

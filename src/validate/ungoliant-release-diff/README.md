@@ -11,10 +11,8 @@ This is the CI equivalent of `ungoliant-controller/docs/testing/cluster/test-rel
 
 1. Resolves the target repository as `<repo-owner>/<app>` and composes `target_env = <env-type>-<base-env>-<tenancy>`.
 2. Auto-resolves the previous tag from the GitHub API when `previous` is empty.
-3. Fetches the `previous...version` compare (revision SHA, previous SHA, files changed) and the raw diff, capped at `max-diff-bytes`.
-4. Builds the JSON payload (`app, env, repository, version, revision, previous, diff, target_env`).
-5. Health-checks the controller `/healthz`.
-6. POSTs the payload to `/webhook/release-diff` with the `X-Ungoliant-Token` header and reports the analysis result.
+3. Fetches the `previous...version` compare metadata (revision SHA, previous SHA, changed files) and checks every changed file against `skip-globs`. When all of them match, the release is CI/meta-only: the controller is **never contacted** — no health check, no diff fetch, no webhook call — and the action reports `outcome: skipped_ci_only`.
+4. Otherwise: health-checks the controller `/healthz`, fetches the raw diff (capped at `max-diff-bytes`), builds the JSON payload (`app, env, repository, version, revision, previous, diff, target_env`), and POSTs it to `/webhook/release-diff` with the `X-Ungoliant-Token` header, reporting the analysis result.
 
 > The controller is only reachable over Tailscale, so the job must run on a Tailscale-connected self-hosted runner (e.g. `eveo-anacleto-lxc-runners`).
 
@@ -34,6 +32,7 @@ This is the CI equivalent of `ungoliant-controller/docs/testing/cluster/test-rel
 | `github-token`   | GitHub token used to read tags, compare and diff via the API.                   | Yes      |                                                      |
 | `webhook-token`  | Ungoliant webhook token sent as the `X-Ungoliant-Token` header.                 | No       | `""`                                                 |
 | `max-diff-bytes` | Maximum diff size forwarded to the controller (bytes).                          | No       | `262144`                                             |
+| `skip-globs`     | Space-separated glob patterns. When every changed file matches one, the release is CI/meta-only and the controller is never contacted. Empty disables the check. | No | `.releaserc.yml .github/*` |
 | `curl-timeout`   | Timeout for the webhook POST in seconds. Must stay in lockstep with `ungoliant-controller`'s `NEMOCLAW_TIMEOUT_SECONDS` and its ingress proxy timeouts — don't change this in isolation. | No | `900` |
 | `dry-run`        | Resolve and preview the payload without firing the webhook.                     | No       | `false`                                              |
 
@@ -46,17 +45,21 @@ This is the CI equivalent of `ungoliant-controller/docs/testing/cluster/test-rel
 | `schema`     | Response schema (`release-plan` \| `release-summary`).   |
 | `risk-level` | Risk level reported by the controller.                   |
 | `target-env` | Composed `target_env` forwarded to the controller.       |
-| `outcome`    | `executed` (smoke/chaos ran) \| `skipped` (no tests warranted). |
+| `outcome`    | `executed` (smoke/chaos ran) \| `skipped` (no tests warranted) \| `skipped_ci_only` (diff matched `skip-globs`; controller never contacted). |
 | `k6`         | Number of k6 smoke scenarios selected.                   |
 | `chaos`      | Number of chaos experiments selected.                    |
 
 When the controller completes an analysis but selects neither smoke nor chaos
 (a low-risk / provably-trivial diff), the step reports `outcome: skipped` and
-succeeds — the run makes the skip explicit in its logs and step summary. In both
-the `executed` and `skipped` cases the action also posts (or updates) a comment
-on the pull request that produced the release, so reviewers see whether the full
-Ungoliant flow ran or was skipped. Posting the comment requires the calling job
-to grant `pull-requests: write`; it is best-effort and never fails the release.
+succeeds — the run makes the skip explicit in its logs and step summary. When
+every changed file matches `skip-globs` instead, the step reports
+`outcome: skipped_ci_only` without ever calling the controller. In all three
+cases (`executed`, `skipped`, `skipped_ci_only`) the action also posts (or
+updates) a comment on the pull request that produced the release, so reviewers
+see whether the full Ungoliant flow ran, was skipped by the controller, or was
+never triggered because the change was CI/meta-only. Posting the comment
+requires the calling job to grant `pull-requests: write`; it is best-effort and
+never fails the release.
 
 ## Usage as composite step
 
@@ -103,6 +106,7 @@ permissions:
 ## Implementation notes
 
 - Pure Bash + `curl` + `jq` — no `gh` CLI or Python runtime is required on the runner.
+- The `skip-globs` check runs first, off a cheap JSON-only compare (no diff body), so a CI-only release never triggers the health check or the heavier diff fetch.
 - The diff is streamed to the controller via `--data-binary @payload.json`, avoiding the per-argument length limit (`E2BIG`) that a large diff hits when passed as an argv value.
 - The byte-level diff cap is UTF-8-sanitised with `iconv -c` so a truncated multi-byte sequence never breaks the JSON payload.
 - A `analysis_completed` status is required for the step to succeed; any other status fails the job.
