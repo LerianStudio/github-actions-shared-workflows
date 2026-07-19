@@ -303,9 +303,17 @@ jobs:
             echo "aws already present: $(aws --version 2>&1)"
             exit 0
           fi
+          # $HOME persists between jobs on a self-hosted runner but $HOME/.local/bin
+          # may not be on PATH at step start, so a cached install is missed by the
+          # command -v check above — detect it explicitly before re-downloading.
+          if [ -x "$HOME/.local/bin/aws" ]; then
+            echo "aws already installed (cached): $("$HOME/.local/bin/aws" --version 2>&1)"
+            echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+            exit 0
+          fi
           echo "Installing AWS CLI v2 (user-local)..."
           tmp="$(mktemp -d)"
-          curl -sSL "https://awscli.amazonaws.com/awscli-exe-linux-$(uname -m).zip" -o "$tmp/awscliv2.zip"
+          curl --fail --silent --show-error --location "https://awscli.amazonaws.com/awscli-exe-linux-$(uname -m).zip" -o "$tmp/awscliv2.zip"
           unzip -q "$tmp/awscliv2.zip" -d "$tmp"
           "$tmp/aws/install" -i "$HOME/.local/aws-cli" -b "$HOME/.local/bin" --update
           rm -rf "$tmp"
