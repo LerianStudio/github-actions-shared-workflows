@@ -311,9 +311,22 @@ jobs:
             echo "$HOME/.local/bin" >> "$GITHUB_PATH"
             exit 0
           fi
-          echo "Installing AWS CLI v2 (user-local)..."
+          # Pin an immutable version (not the mutable "latest" archive) and verify
+          # the installer's GnuPG signature against the AWS CLI team public key —
+          # imported by its full fingerprint from a keyserver, so no key material
+          # is embedded here and provenance is cryptographically checked before
+          # execution on the persistent runner. Bump AWS_CLI_VERSION to update.
+          AWS_CLI_VERSION="2.36.2"
+          AWS_CLI_GPG_FPR="FB5DB77FD5C118B80511ADA8A6310ACC4672475C"
+          arch="$(uname -m)"
+          base="https://awscli.amazonaws.com/awscli-exe-linux-${arch}-${AWS_CLI_VERSION}.zip"
+          echo "Installing AWS CLI v2 ${AWS_CLI_VERSION} (user-local)..."
           tmp="$(mktemp -d)"
-          curl --fail --silent --show-error --location "https://awscli.amazonaws.com/awscli-exe-linux-$(uname -m).zip" -o "$tmp/awscliv2.zip"
+          curl --fail --silent --show-error --location "$base" -o "$tmp/awscliv2.zip"
+          curl --fail --silent --show-error --location "${base}.sig" -o "$tmp/awscliv2.sig"
+          export GNUPGHOME="$tmp/gnupg"; mkdir -p "$GNUPGHOME"; chmod 700 "$GNUPGHOME"
+          gpg --batch --keyserver hkps://keyserver.ubuntu.com --recv-keys "$AWS_CLI_GPG_FPR"
+          gpg --batch --verify "$tmp/awscliv2.sig" "$tmp/awscliv2.zip"
           unzip -q "$tmp/awscliv2.zip" -d "$tmp"
           "$tmp/aws/install" -i "$HOME/.local/aws-cli" -b "$HOME/.local/bin" --update
           rm -rf "$tmp"
