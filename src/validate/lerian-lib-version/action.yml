@@ -22,6 +22,10 @@ inputs:
     description: Also check transitive (// indirect) dependencies. Off by default.
     required: false
     default: "false"
+  major-bump-grace-days:
+    description: Grace window (in days) for major-version bumps. A major bump is tolerated while the latest release is younger than this many days; minor and patch bumps are always enforced immediately. Set to "0" to disable and enforce major bumps immediately.
+    required: false
+    default: "3"
   comment-on-pr:
     description: Post or update a sticky comment on the PR with the result table.
     required: false
@@ -42,6 +46,9 @@ outputs:
   outdated_count:
     description: Number of outdated direct Lerian libs.
     value: ${{ steps.check.outputs.outdated_count }}
+  grace_count:
+    description: Number of direct Lerian libs within the major-bump grace window (not counted as outdated).
+    value: ${{ steps.check.outputs.grace_count }}
   has_lerian_libs:
     description: "true if at least one Lerian lib was detected in go.mod."
     value: ${{ steps.check.outputs.has_lerian_libs }}
@@ -69,6 +76,7 @@ runs:
         GO_MOD_PATH: ${{ inputs.go-mod-path }}
         IGNORE_FILE: ${{ inputs.ignore-file }}
         CHECK_INDIRECT: ${{ inputs.check-indirect }}
+        GRACE_DAYS: ${{ inputs.major-bump-grace-days }}
         DRY_RUN: ${{ inputs.dry-run }}
         GH_TOKEN: ${{ inputs.github-token }}
       run: |
@@ -79,6 +87,11 @@ runs:
 
         log() { echo "$@"; }
         debug() { if [[ "${DRY_RUN}" == "true" ]]; then echo "::debug::$*"; fi; }
+
+        # Empty / non-numeric grace value disables the major-bump grace window.
+        if ! [[ "${GRACE_DAYS:-}" =~ ^[0-9]+$ ]]; then
+          GRACE_DAYS=0
+        fi
 
         # ---------- 1. Parse go.mod ----------
         # Collect lines like:
@@ -103,10 +116,11 @@ runs:
           echo "has_lerian_libs=false" >> "${GITHUB_OUTPUT}"
           echo "has_outdated=false" >> "${GITHUB_OUTPUT}"
           echo "outdated_count=0" >> "${GITHUB_OUTPUT}"
+          echo "grace_count=0" >> "${GITHUB_OUTPUT}"
           echo "report_path=${REPORT_PATH}" >> "${GITHUB_OUTPUT}"
 
           {
-            echo "## Lerian Library Version Check"
+            echo "## 🔴 Lerian Library Version Check — action required"
             echo
             echo "**No \`github.com/LerianStudio/*\` dependencies found in \`${GO_MOD_PATH}\`.**"
             echo
@@ -116,11 +130,14 @@ runs:
           } >> "${REPORT_PATH}"
 
           echo "::error title=No Lerian libraries found::No github.com/LerianStudio/* dependencies in ${GO_MOD_PATH}. Every Lerian Go service must use at least one Lerian library."
+          # Terminate here either way — do NOT fall through to has_lerian_libs=true.
+          # Dry run: surface the failure report in the step summary and exit 0.
+          cat "${REPORT_PATH}" >> "${GITHUB_STEP_SUMMARY}"
           if [[ "${DRY_RUN}" == "true" ]]; then
-            log "DRY RUN: would fail. Continuing."
-          else
-            exit 1
+            log "DRY RUN: would fail (no Lerian libraries) — reporting and stopping."
+            exit 0
           fi
+          exit 1
         fi
 
         echo "has_lerian_libs=true" >> "${GITHUB_OUTPUT}"
@@ -211,17 +228,16 @@ runs:
           echo "::warning title=Ignore file not found::Optional ignore file '${IGNORE_FILE}' not found. Proceeding without ignore rules."
         fi
 
-        # ---------- 3. Resolve latest stable release per repo (cache by repo name) ----------
-        declare -A LATEST_CACHE=()
+        # ---------- 3. Resolve latest stable release per repo ----------
+        # resolve_latest runs inside command substitution (a subshell), so it cannot
+        # export the resolved publish date via a shell variable. It writes the date of
+        # the chosen release to this file instead; the caller reads it right after.
+        LATEST_DATE_FILE="${RUNNER_TEMP:-/tmp}/lerian-latest-date.txt"
 
         resolve_latest() {
           local repo="$1"
           local major_filter="$2"   # e.g. "v5" or "" for v0/v1 modules
-          local cache_key="${repo}::${major_filter}"
-          if [[ -n "${LATEST_CACHE[${cache_key}]:-}" ]]; then
-            echo "${LATEST_CACHE[${cache_key}]}"
-            return 0
-          fi
+          : > "${LATEST_DATE_FILE}"
 
           # We page through up to 100 releases and pick the highest stable tag that
           # matches the requested major (when set). Pre-releases are excluded both by
@@ -246,14 +262,12 @@ runs:
 
           if [[ "${http_code}" == "404" ]]; then
             log "::warning title=Cannot read LerianStudio/${repo}::Repository is private and not accessible. Provide the LERIAN_LIB_READ_TOKEN secret."
-            LATEST_CACHE[${cache_key}]=""
             echo ""
             return 0
           fi
 
           if [[ "${http_code}" != "200" ]]; then
             log "::warning title=Cannot read LerianStudio/${repo}::Releases API returned HTTP ${http_code}. Check that LERIAN_LIB_READ_TOKEN has Contents:read and is approved by the org."
-            LATEST_CACHE[${cache_key}]=""
             echo ""
             return 0
           fi
@@ -267,7 +281,6 @@ runs:
           tags=$(printf '%s\n' "${tags}" | grep -E '^v?[0-9]+\.[0-9]+\.[0-9]+$' || true)
 
           if [[ -z "${tags}" ]]; then
-            LATEST_CACHE[${cache_key}]=""
             echo ""
             return 0
           fi
@@ -286,7 +299,15 @@ runs:
           if [[ -n "${latest}" ]]; then
             latest="v${latest}"
           fi
-          LATEST_CACHE[${cache_key}]="${latest}"
+
+          # Record the publish date (YYYY-MM-DD) of the chosen tag so the caller
+          # can measure release age for the major-bump grace window.
+          local latest_date
+          latest_date=$(echo "${releases_json}" | jq -r --arg t "${latest}" '
+            [ .[]? | select(.tag_name == $t or ("v" + .tag_name) == $t) | .published_at ] | .[0] // ""
+          ' 2>/dev/null || echo "")
+          printf '%s' "${latest_date%%T*}" > "${LATEST_DATE_FILE}"
+
           echo "${latest}"
         }
 
@@ -304,10 +325,13 @@ runs:
         CURRENT=0
         SKIPPED=0
         UNKNOWN=0
+        GRACE=0
 
         # Use a temp file for the table rows so we control ordering and avoid heredoc quoting traps.
         ROWS_FILE="${RUNNER_TEMP:-/tmp}/lerian-rows.txt"
         : > "${ROWS_FILE}"
+
+        IGNORE_DOCS_URL="https://github.com/LerianStudio/github-actions-shared-workflows/blob/main/docs/lerian-lib-version-check.md#lerianstudiolibignore-format"
 
         while IFS= read -r dep_line; do
           [[ -z "${dep_line}" ]] && continue
@@ -341,7 +365,7 @@ runs:
             SKIPPED=$((SKIPPED+1))
             ttl_suffix=""
             [[ -n "${IGNORE_TTL[${short_path}]:-}" ]] && ttl_suffix=", expires ${IGNORE_TTL[${short_path}]}"
-            printf '| `%s` | `%s` | _skipped_ | Skipped (ignore file%s) |\n' "${short_path}" "${current}" "${ttl_suffix}" >> "${ROWS_FILE}"
+            printf '| `%s` | `%s` | _skipped_ | ⏭️ Skipped — ignore file%s · [why?](%s) |\n' "${short_path}" "${current}" "${ttl_suffix}" "${IGNORE_DOCS_URL}" >> "${ROWS_FILE}"
             continue
           fi
 
@@ -349,18 +373,22 @@ runs:
           # via .lerianstudiolibignore, compare against the pin and skip the API
           # call entirely, so the pin is still honoured even if the API is
           # degraded (non-200). Only unpinned libs depend on resolve_latest.
-          marker_suffix=""
+          is_pinned="false"
+          pin_note=""
+          rel_date=""
           if [[ -n "${IGNORE_PIN[${short_path}]:-}" ]]; then
             target="${IGNORE_PIN[${short_path}]}"
             latest="${target}"
-            marker_suffix=" (pinned)"
-            [[ -n "${IGNORE_TTL[${short_path}]:-}" ]] && marker_suffix=" (pinned, expires ${IGNORE_TTL[${short_path}]})"
+            is_pinned="true"
+            [[ -n "${IGNORE_TTL[${short_path}]:-}" ]] && pin_note=" (expires ${IGNORE_TTL[${short_path}]})"
+            pin_note="${pin_note} · [why?](${IGNORE_DOCS_URL})"
           else
             latest=$(resolve_latest "${repo}" "${major_filter}")
+            rel_date=$(cat "${LATEST_DATE_FILE}" 2>/dev/null || true)
 
             if [[ -z "${latest}" ]]; then
               UNKNOWN=$((UNKNOWN+1))
-              printf '| `%s` | `%s` | _unknown_ | Could not resolve latest release |\n' "${short_path}" "${current}" >> "${ROWS_FILE}"
+              printf '| `%s` | `%s` | _unknown_ | ⚠️ Unknown — could not resolve latest release |\n' "${short_path}" "${current}" >> "${ROWS_FILE}"
               log "::warning title=Could not resolve latest release::Failed to fetch latest stable release for LerianStudio/${repo}"
               continue
             fi
@@ -370,25 +398,68 @@ runs:
 
           if ver_ge "${current}" "${target}"; then
             CURRENT=$((CURRENT+1))
-            printf '| `%s` | `%s` | `%s` | Current%s |\n' "${short_path}" "${current}" "${latest}" "${marker_suffix}" >> "${ROWS_FILE}"
+            if [[ "${is_pinned}" == "true" ]]; then
+              printf '| `%s` | `%s` | `%s` | 📌 Pinned%s |\n' "${short_path}" "${current}" "${latest}" "${pin_note}" >> "${ROWS_FILE}"
+            else
+              printf '| `%s` | `%s` | `%s` | ✅ Current |\n' "${short_path}" "${current}" "${latest}" >> "${ROWS_FILE}"
+            fi
+            continue
+          fi
+
+          # Outdated. Major bumps (higher major on an unpinned, API-resolved lib)
+          # are tolerated while the latest release is younger than GRACE_DAYS;
+          # minor/patch bumps are always enforced immediately.
+          cur_major="${current#v}"; cur_major="${cur_major%%.*}"
+          tgt_major="${target#v}"; tgt_major="${tgt_major%%.*}"
+          if [[ "${cur_major}" =~ ^[0-9]+$ && "${tgt_major}" =~ ^[0-9]+$ ]] \
+             && (( tgt_major > cur_major )) \
+             && [[ "${GRACE_DAYS}" -gt 0 && -n "${rel_date}" ]]; then
+            pub_epoch=$(date -u -d "${rel_date}" +%s 2>/dev/null || echo "")
+            today_epoch=$(date -u -d "${TODAY}" +%s 2>/dev/null || echo "")
+            if [[ -n "${pub_epoch}" && -n "${today_epoch}" ]]; then
+              age_days=$(( (today_epoch - pub_epoch) / 86400 ))
+              if (( age_days < GRACE_DAYS )); then
+                GRACE=$((GRACE+1))
+                expires=$(date -u -d "${rel_date} +${GRACE_DAYS} days" +%Y-%m-%d 2>/dev/null || echo "${rel_date}")
+                printf '| `%s` | `%s` | `%s` | 🕒 Grace (major bump, expires %s) |\n' "${short_path}" "${current}" "${latest}" "${expires}" >> "${ROWS_FILE}"
+                debug "grace: ${short_path} ${current} -> ${latest} (released ${rel_date}, age ${age_days}d, expires ${expires})"
+                continue
+              fi
+            fi
+          fi
+
+          OUTDATED=$((OUTDATED+1))
+          if [[ "${is_pinned}" == "true" ]]; then
+            printf '| `%s` | `%s` | `%s` | 🔴 Needs update — below pin%s |\n' "${short_path}" "${current}" "${latest}" "${pin_note}" >> "${ROWS_FILE}"
           else
-            OUTDATED=$((OUTDATED+1))
-            printf '| `%s` | `%s` | `%s` | Outdated%s |\n' "${short_path}" "${current}" "${latest}" "${marker_suffix}" >> "${ROWS_FILE}"
+            printf '| `%s` | `%s` | `%s` | 🔴 Needs update |\n' "${short_path}" "${current}" "${latest}" >> "${ROWS_FILE}"
           fi
         done <<< "${DEPS_RAW}"
 
         # ---------- 5. Build markdown report ----------
+        # Header reflects the overall outcome at a glance.
+        if [[ "${OUTDATED}" -gt 0 ]]; then
+          HEADER="## 🔴 Lerian Library Version Check — action required"
+        elif [[ "${GRACE}" -gt 0 || "${SKIPPED}" -gt 0 || "${UNKNOWN}" -gt 0 ]]; then
+          HEADER="## ⚠️ Lerian Library Version Check — review needed"
+        else
+          HEADER="## ✅ Lerian Library Version Check — all up to date"
+        fi
+
         {
-          echo "## Lerian Library Version Check"
+          echo "${HEADER}"
           echo
           echo "| Library | Current | Latest | Status |"
           echo "|---------|---------|--------|--------|"
           cat "${ROWS_FILE}"
           echo
-          echo "**${OUTDATED} outdated** | **${CURRENT} current** | **${SKIPPED} skipped** | **${UNKNOWN} unknown**"
+          echo "✅ ${CURRENT} current · 🔴 ${OUTDATED} needs update · 🕒 ${GRACE} in grace · ⏭️ ${SKIPPED} skipped · ⚠️ ${UNKNOWN} unknown"
           echo
           if [[ "${OUTDATED}" -gt 0 ]]; then
             echo "> Bump the outdated libraries, or add temporary entries to \`${IGNORE_FILE}\`."
+          fi
+          if [[ "${GRACE}" -gt 0 ]]; then
+            echo "> 🕒 ${GRACE} major bump(s) are within the grace period. The grace period applies to major bumps only and lasts ${GRACE_DAYS} days — bump them before it expires, or the check will start failing."
           fi
         } >> "${REPORT_PATH}"
 
@@ -398,6 +469,7 @@ runs:
         # Outputs
         {
           echo "outdated_count=${OUTDATED}"
+          echo "grace_count=${GRACE}"
           if [[ "${OUTDATED}" -gt 0 ]]; then
             echo "has_outdated=true"
           else
@@ -433,7 +505,7 @@ runs:
           }
           const marker = '<!-- lerian-lib-version-check -->';
           const dryRunBanner = process.env.DRY_RUN === 'true'
-            ? '> _Dry run — no failures enforced._\n\n'
+            ? '> 🧪 _Dry run — no failures enforced._\n\n'
             : '';
           const body = `${marker}\n${dryRunBanner}${fs.readFileSync(path, 'utf8')}`;
 

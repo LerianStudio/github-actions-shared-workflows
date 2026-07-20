@@ -32,6 +32,10 @@ on:
         description: 'Post / update a sticky comment on the PR with the result table'
         type: boolean
         default: true
+      major_bump_grace_days:
+        description: 'Grace window (days) for major-version bumps, for this invocation. Takes precedence over the LERIAN_LIB_MAJOR_BUMP_GRACE_DAYS repository variable; when empty the variable is used, falling back to 3. Set to "0" to disable.'
+        type: string
+        default: ''
       dry_run:
         description: 'Verbose log of all resolved versions; never fails the build'
         type: boolean
@@ -59,6 +63,9 @@ on:
       outdated_count:
         description: 'Number of outdated direct Lerian libs'
         value: ${{ jobs.check.outputs.outdated_count }}
+      grace_count:
+        description: 'Number of direct Lerian libs within the major-bump grace window'
+        value: ${{ jobs.check.outputs.grace_count }}
       has_lerian_libs:
         description: 'true if at least one Lerian lib was detected in go.mod'
         value: ${{ jobs.check.outputs.has_lerian_libs }}
@@ -74,6 +81,7 @@ jobs:
     outputs:
       has_outdated: ${{ steps.check.outputs.has_outdated }}
       outdated_count: ${{ steps.check.outputs.outdated_count }}
+      grace_count: ${{ steps.check.outputs.grace_count }}
       has_lerian_libs: ${{ steps.check.outputs.has_lerian_libs }}
     steps:
       - name: Checkout
@@ -83,7 +91,7 @@ jobs:
 
       - name: Validate Lerian library versions
         id: check
-        uses: LerianStudio/github-actions-shared-workflows/src/validate/lerian-lib-version@develop
+        uses: LerianStudio/github-actions-shared-workflows/src/validate/lerian-lib-version@v1
         with:
           github-token: ${{ secrets.LERIAN_LIB_READ_TOKEN || github.token }}
           comment-token: ${{ secrets.MANAGE_TOKEN || github.token }}
@@ -91,4 +99,5 @@ jobs:
           ignore-file: ${{ inputs.ignore_file }}
           check-indirect: ${{ inputs.check_indirect && 'true' || 'false' }}
           comment-on-pr: ${{ inputs.comment_on_pr && 'true' || 'false' }}
+          major-bump-grace-days: ${{ inputs.major_bump_grace_days || vars.LERIAN_LIB_MAJOR_BUMP_GRACE_DAYS || '3' }}
           dry-run: ${{ inputs.dry_run && 'true' || 'false' }}

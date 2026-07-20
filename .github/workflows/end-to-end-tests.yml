@@ -1,0 +1,178 @@
+name: "End-to-End Tests"
+
+# This reusable workflow runs the LerianStudio/end-to-end gray-box/black-box
+# suite (Go + Allure 3) against an already-deployed environment, then uploads
+# the static Allure report to the lerian-e2e-artifacts S3 bucket — the same
+# bucket/role the JS products (e.g. product-console) already use, read by
+# Palantir (self-service-testing)'s E2E page.
+
+on:
+  workflow_call:
+    inputs:
+      modules:
+        description: 'Comma-separated list of candidate end-to-end test modules (e.g. "midaz-ledger,midaz-crm"). Each maps to ./cases/<module>/... and .env.<module>.<env>. Narrowed down to built_apps below when that input is set.'
+        type: string
+        required: true
+      built_apps:
+        description: 'JSON array of the components actually built this run (each entry {"name": ...}, as produced by build.yml''s matrix output). When set, only candidates in `modules` whose name also appears here are run — e.g. a ledger-only change runs only the midaz-ledger module. Empty/unset ("[]") runs every candidate in `modules` (back-compat).'
+        type: string
+        default: '[]'
+      tenancy:
+        description: 'Tenancy mode targeted by the deployed environment — st (single-tenant) | mt (multi-tenant).'
+        type: string
+        default: 'st'
+      service_domain:
+        description: 'Base domain the deployed services live under. URLs are built as https://<app>.<base_env>-<tenancy>.<service_domain>. Defaults to the fuzzing environment; override to target a different one.'
+        type: string
+        default: 'fuzzing.lerian.net'
+      s3_bucket:
+        description: 'S3 bucket the Allure report is uploaded to (read by Palantir). Uploaded under <bucket>/<repo>/<channel>/<tag>/<module>/.'
+        type: string
+        default: 'lerian-e2e-artifacts'
+      go_version:
+        description: 'Go version to use (should match the end-to-end repo go.mod).'
+        type: string
+        default: '1.25'
+      node_version:
+        description: 'Node.js version to use (for the Allure 3 CLI).'
+        type: string
+        default: '20'
+      runner_type:
+        description: 'GitHub runner type to use. Needs reach to the deployed environment, so it defaults to eveo-lxc-runners rather than the build runner (matches api-dog-e2e-tests and the ungoliant job).'
+        type: string
+        default: 'eveo-lxc-runners'
+      timeout:
+        description: 'Per-run Go test timeout, forwarded to make test TIMEOUT=...'
+        type: string
+        default: '600s'
+      dry_run:
+        description: 'Preview mode: resolve and print the target environment, selected modules, and S3 destinations without uploading anything to S3. Tests still run.'
+        type: boolean
+        default: false
+    outputs:
+      has_modules:
+        description: 'Whether at least one candidate module was selected to run this call (string "true"/"false"). "false" means no built component matched a candidate module and the run was a no-op.'
+        value: ${{ jobs.end-to-end-tests.outputs.has_modules }}
+    secrets:
+      e2e_repo_token:
+        description: 'Token with read access to the private end-to-end repository.'
+        required: true
+      aws_e2e_artifacts_role_arn:
+        description: 'IAM role ARN assumed via OIDC to upload the Allure report to the S3 bucket. Optional — when unset, the S3 upload step is skipped and only the GitHub Actions artifact is produced.'
+        required: false
+      admin_tenant_1_username:
+        required: false
+      admin_tenant_1_password:
+        required: false
+      admin_tenant_2_username:
+        required: false
+      admin_tenant_2_password:
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  end-to-end-tests:
+    name: End-to-End Tests
+    runs-on: ${{ inputs.runner_type }}
+    permissions:
+      id-token: write
+      contents: read
+    outputs:
+      has_modules: ${{ steps.plan.outputs.has_modules }}
+    env:
+      AWS_E2E_ARTIFACTS_ROLE_ARN: ${{ secrets.aws_e2e_artifacts_role_arn }}
+    # NOTE: composites in src/ are referenced by external ref pinned to the
+    # floating major tag (@v1) — a reusable workflow's `./src/...` resolves to
+    # the CALLER's workspace, not this repo. The v1 tag advances on each release,
+    # so these resolve once this PR ships (and the release moves v1 forward).
+    steps:
+      # The executed suite is pinned to a static, trusted internal repository —
+      # NOT a caller-supplied input — so a compromised caller cannot redirect
+      # `make test` execution at an attacker-controlled repo (CodeQL
+      # actions/untrusted-checkout). Non-executed strings (domain, bucket) stay
+      # configurable via inputs.
+      - name: Checkout end-to-end suite
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          repository: LerianStudio/end-to-end
+          token: ${{ secrets.e2e_repo_token }}
+          persist-credentials: false
+
+      - name: Setup Go
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version: ${{ inputs.go_version }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6
+        with:
+          node-version: ${{ inputs.node_version }}
+
+      - name: Install Allure 3 CLI
+        run: make install-allure
+
+      # ----------------- Plan: resolve environment + select modules -----------------
+      - name: Resolve E2E target
+        id: plan
+        uses: LerianStudio/github-actions-shared-workflows/src/e2e/resolve-target@v1
+        with:
+          ref-name: ${{ github.ref_name }}
+          tenancy: ${{ inputs.tenancy }}
+          modules: ${{ inputs.modules }}
+          built-apps: ${{ inputs.built_apps }}
+
+      # ----------------- Run the suite -----------------
+      - name: Run E2E suite
+        if: steps.plan.outputs.has_modules == 'true'
+        uses: LerianStudio/github-actions-shared-workflows/src/e2e/run-suite@v1
+        with:
+          modules: ${{ steps.plan.outputs.modules }}
+          env-name: ${{ steps.plan.outputs.env_name }}
+          base-env: ${{ steps.plan.outputs.base_env }}
+          tenancy: ${{ inputs.tenancy }}
+          service-domain: ${{ inputs.service_domain }}
+          auth-url: https://auth.${{ steps.plan.outputs.base_env }}-${{ inputs.tenancy }}.${{ inputs.service_domain }}
+          timeout: ${{ inputs.timeout }}
+          admin-tenant-1-username: ${{ secrets.admin_tenant_1_username }}
+          admin-tenant-1-password: ${{ secrets.admin_tenant_1_password }}
+          admin-tenant-2-username: ${{ secrets.admin_tenant_2_username }}
+          admin-tenant-2-password: ${{ secrets.admin_tenant_2_password }}
+
+      - name: Upload Allure reports (GitHub artifact)
+        if: always() && steps.plan.outputs.has_modules == 'true' && !inputs.dry_run
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: e2e-allure-reports
+          path: reports/allure-report-*
+          retention-days: 30
+
+      # ----------------- S3 Upload (optional, Palantir reads this bucket) -----------------
+      - name: Ensure AWS CLI
+        if: always() && steps.plan.outputs.has_modules == 'true' && env.AWS_E2E_ARTIFACTS_ROLE_ARN != '' && !inputs.dry_run
+        uses: LerianStudio/github-actions-shared-workflows/src/setup/aws-cli@v1
+
+      - name: Configure AWS credentials for E2E artifacts upload
+        id: aws_auth
+        if: always() && steps.plan.outputs.has_modules == 'true' && env.AWS_E2E_ARTIFACTS_ROLE_ARN != '' && !inputs.dry_run
+        uses: aws-actions/configure-aws-credentials@e7f100cf4c008499ea8adda475de1042d6975c7b # v6.2.0
+        with:
+          role-to-assume: ${{ env.AWS_E2E_ARTIFACTS_ROLE_ARN }}
+          aws-region: us-east-2
+
+      # Runs for a real upload (role set AND OIDC auth succeeded) OR for any
+      # dry-run (independent of the role, so the plan is always printed). The
+      # real-upload path requires successful auth so a failed configure step
+      # cannot fall back to stale ambient AWS credentials on the persistent
+      # runner; the dry-run path never touches AWS (handled inside the composite).
+      - name: Publish E2E report to S3
+        if: always() && steps.plan.outputs.has_modules == 'true' && (inputs.dry_run || (env.AWS_E2E_ARTIFACTS_ROLE_ARN != '' && steps.aws_auth.outcome == 'success'))
+        uses: LerianStudio/github-actions-shared-workflows/src/e2e/publish-report@v1
+        with:
+          modules: ${{ steps.plan.outputs.modules }}
+          s3-bucket: ${{ inputs.s3_bucket }}
+          repo-name: ${{ github.event.repository.name }}
+          tag-name: ${{ github.ref_name }}
+          dry-run: ${{ inputs.dry_run }}
+          has-role: ${{ env.AWS_E2E_ARTIFACTS_ROLE_ARN != '' }}
