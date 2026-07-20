@@ -83,10 +83,10 @@ jobs:
       has_modules: ${{ steps.plan.outputs.has_modules }}
     env:
       AWS_E2E_ARTIFACTS_ROLE_ARN: ${{ secrets.aws_e2e_artifacts_role_arn }}
-    # NOTE: composites in src/ are referenced by external ref
-    # (LerianStudio/github-actions-shared-workflows/src/...@<ref>) — a reusable
-    # workflow's `./src/...` resolves to the CALLER's workspace, not this repo.
-    # On @feat/midaz-e2e-tests for testing; pin to the release tag once it ships.
+    # NOTE: composites in src/ are referenced by external ref pinned to the
+    # floating major tag (@v1) — a reusable workflow's `./src/...` resolves to
+    # the CALLER's workspace, not this repo. The v1 tag advances on each release,
+    # so these resolve once this PR ships (and the release moves v1 forward).
     steps:
       # The executed suite is pinned to a static, trusted internal repository —
       # NOT a caller-supplied input — so a compromised caller cannot redirect
@@ -116,7 +116,7 @@ jobs:
       # ----------------- Plan: resolve environment + select modules -----------------
       - name: Resolve E2E target
         id: plan
-        uses: LerianStudio/github-actions-shared-workflows/src/e2e/resolve-target@feat/midaz-e2e-tests
+        uses: LerianStudio/github-actions-shared-workflows/src/e2e/resolve-target@v1
         with:
           ref-name: ${{ github.ref_name }}
           tenancy: ${{ inputs.tenancy }}
@@ -126,7 +126,7 @@ jobs:
       # ----------------- Run the suite -----------------
       - name: Run E2E suite
         if: steps.plan.outputs.has_modules == 'true'
-        uses: LerianStudio/github-actions-shared-workflows/src/e2e/run-suite@feat/midaz-e2e-tests
+        uses: LerianStudio/github-actions-shared-workflows/src/e2e/run-suite@v1
         with:
           modules: ${{ steps.plan.outputs.modules }}
           env-name: ${{ steps.plan.outputs.env_name }}
@@ -151,7 +151,7 @@ jobs:
       # ----------------- S3 Upload (optional, Palantir reads this bucket) -----------------
       - name: Ensure AWS CLI
         if: always() && steps.plan.outputs.has_modules == 'true' && env.AWS_E2E_ARTIFACTS_ROLE_ARN != '' && !inputs.dry_run
-        uses: LerianStudio/github-actions-shared-workflows/src/setup/aws-cli@feat/midaz-e2e-tests
+        uses: LerianStudio/github-actions-shared-workflows/src/setup/aws-cli@v1
 
       - name: Configure AWS credentials for E2E artifacts upload
         id: aws_auth
@@ -168,7 +168,7 @@ jobs:
       # runner; the dry-run path never touches AWS (handled inside the composite).
       - name: Publish E2E report to S3
         if: always() && steps.plan.outputs.has_modules == 'true' && (inputs.dry_run || (env.AWS_E2E_ARTIFACTS_ROLE_ARN != '' && steps.aws_auth.outcome == 'success'))
-        uses: LerianStudio/github-actions-shared-workflows/src/e2e/publish-report@feat/midaz-e2e-tests
+        uses: LerianStudio/github-actions-shared-workflows/src/e2e/publish-report@v1
         with:
           modules: ${{ steps.plan.outputs.modules }}
           s3-bucket: ${{ inputs.s3_bucket }}
