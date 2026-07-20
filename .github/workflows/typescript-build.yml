@@ -51,7 +51,7 @@ on:
       enable_dockerhub:
         description: 'Enable pushing to DockerHub'
         type: boolean
-        default: false
+        default: true
       enable_ghcr:
         description: 'Enable pushing to GitHub Container Registry'
         type: boolean
