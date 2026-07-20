@@ -130,11 +130,14 @@ runs:
           } >> "${REPORT_PATH}"
 
           echo "::error title=No Lerian libraries found::No github.com/LerianStudio/* dependencies in ${GO_MOD_PATH}. Every Lerian Go service must use at least one Lerian library."
+          # Terminate here either way — do NOT fall through to has_lerian_libs=true.
+          # Dry run: surface the failure report in the step summary and exit 0.
+          cat "${REPORT_PATH}" >> "${GITHUB_STEP_SUMMARY}"
           if [[ "${DRY_RUN}" == "true" ]]; then
-            log "DRY RUN: would fail. Continuing."
-          else
-            exit 1
+            log "DRY RUN: would fail (no Lerian libraries) — reporting and stopping."
+            exit 0
           fi
+          exit 1
         fi
 
         echo "has_lerian_libs=true" >> "${GITHUB_OUTPUT}"

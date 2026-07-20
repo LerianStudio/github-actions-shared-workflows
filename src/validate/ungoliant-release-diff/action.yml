@@ -241,7 +241,7 @@ runs:
               CI_ONLY=false
               break
             fi
-          done < <(printf '%s' "$COMPARE" | jq -r '.files[].filename')
+          done < <(printf '%s' "$COMPARE" | jq -r '.files[] | .filename, (.previous_filename // empty)')
         fi
 
         if [ "$CI_ONLY" = "true" ]; then
