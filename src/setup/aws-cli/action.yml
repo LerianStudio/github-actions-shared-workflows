@@ -46,10 +46,14 @@ runs:
         # under set -euo pipefail (curl, gpg --verify, unzip) would otherwise
         # leave it behind and accumulate on the persistent runner.
         trap 'rm -rf "$tmp"' EXIT
-        curl --fail --silent --show-error --location "$base" -o "$tmp/awscliv2.zip"
-        curl --fail --silent --show-error --location "${base}.sig" -o "$tmp/awscliv2.sig"
+        # Bound every network fetch (connect/total timeouts + retries) so a
+        # stalled CDN or keyserver can't pin the self-hosted runner until the
+        # job-level timeout.
+        curl_opts=(--fail --silent --show-error --location --connect-timeout 15 --max-time 180 --retry 3 --retry-delay 5)
+        curl "${curl_opts[@]}" "$base" -o "$tmp/awscliv2.zip"
+        curl "${curl_opts[@]}" "${base}.sig" -o "$tmp/awscliv2.sig"
         export GNUPGHOME="$tmp/gnupg"; mkdir -p "$GNUPGHOME"; chmod 700 "$GNUPGHOME"
-        gpg --batch --keyserver hkps://keyserver.ubuntu.com --recv-keys "$AWS_CLI_GPG_FINGERPRINT"
+        timeout 60 gpg --batch --keyserver hkps://keyserver.ubuntu.com --keyserver-options timeout=20 --recv-keys "$AWS_CLI_GPG_FINGERPRINT"
         gpg --batch --verify "$tmp/awscliv2.sig" "$tmp/awscliv2.zip"
         unzip -q "$tmp/awscliv2.zip" -d "$tmp"
         "$tmp/aws/install" -i "$install_dir" -b "$bin_dir" --update
