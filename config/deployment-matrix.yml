@@ -83,6 +83,7 @@ apps:
     - br-sta
     - br-slc
     - br-ccs
+    - br-sisbajud
 
     # Test/mock infrastructure
     - mock-btg-server             # benedita only (-st variant); companion to plugin-br-pix-indirect-btg
@@ -123,6 +124,7 @@ clusters:
       - plugin-fees
       - plugin-br-pix-indirect-btg
       - plugin-br-pix-switch
+      - br-sisbajud
       - ungoliant-controller
 
   benedita:
@@ -169,6 +171,7 @@ clusters:
       - br-sta
       - br-slc
       - br-ccs
+      - br-sisbajud
       - mock-btg-server
       - backoffice-console
       - cs-platform
