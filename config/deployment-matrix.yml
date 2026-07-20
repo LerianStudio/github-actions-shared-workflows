@@ -80,6 +80,7 @@ apps:
     - plugin-br-payments
     - plugin-bc-correios
     - underwriter
+    - lender                      # credit journey engine (Underwriter family); UI console pin (lenderConsole.image.tag) is bumped manually, not by this workflow
     - br-sta
     - br-slc
     - br-ccs
@@ -125,6 +126,7 @@ clusters:
       - plugin-br-pix-indirect-btg
       - plugin-br-pix-switch
       - br-sisbajud
+      - lender
       - ungoliant-controller
 
   benedita:
@@ -168,6 +170,7 @@ clusters:
       - plugin-br-payments
       - plugin-bc-correios
       - underwriter
+      - lender
       - br-sta
       - br-slc
       - br-ccs
