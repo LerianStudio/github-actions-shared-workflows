@@ -217,6 +217,28 @@ on:
         type: boolean
         default: true
 
+      # ----------------- End-to-End Tests (end-to-end-tests.yml) -----------------
+      enable_e2e_tests:
+        description: 'Run the LerianStudio/end-to-end suite on tag push after a successful gitops-update, uploading the Allure report to lerian-e2e-artifacts (read by Palantir).'
+        type: boolean
+        default: false
+      e2e_modules:
+        description: 'Comma-separated candidate end-to-end test modules (e.g. "midaz-ledger,midaz-crm"), one per possible built component. Required when enable_e2e_tests is true. Each run is further scoped down to only the component(s) build actually rebuilt this tag (via the build job matrix output) — module names must match the built app names.'
+        type: string
+        default: ''
+      e2e_tenancy:
+        description: 'Tenancy mode of the deployed environment targeted by the e2e suite — st (single-tenant) | mt (multi-tenant).'
+        type: string
+        default: 'st'
+      e2e_service_domain:
+        description: 'Base domain of the deployed environment the e2e suite targets. URLs are built as https://<app>.<base_env>-<tenancy>.<e2e_service_domain>. Defaults to the fuzzing environment; override only to target a different one.'
+        type: string
+        default: 'fuzzing.lerian.net'
+      e2e_runner_type:
+        description: 'Runner for the End-to-End Tests job. Needs reach to the deployed environment, so it defaults to eveo-lxc-runners rather than the build runner.'
+        type: string
+        default: 'eveo-lxc-runners'
+
       # ----------------- Ungoliant Release Diff (ungoliant-release-diff composite) -----------------
       enable_ungoliant_release_diff:
         description: 'Fire the Ungoliant release-diff webhook on tag push after a successful gitops-update to trigger chaos/fuzz analysis for the release.'
@@ -279,6 +301,18 @@ on:
       APIDOG_ENVIRONMENT_ID:
         required: false
       UNGOLIANT_WEBHOOK_TOKEN:
+        required: false
+      E2E_REPO_TOKEN:
+        required: false
+      AWS_E2E_ARTIFACTS_ROLE_ARN:
+        required: false
+      ADMIN_TENANT_1_USERNAME:
+        required: false
+      ADMIN_TENANT_1_PASSWORD:
+        required: false
+      ADMIN_TENANT_2_USERNAME:
+        required: false
+      ADMIN_TENANT_2_PASSWORD:
         required: false
 
 permissions:
@@ -644,6 +678,46 @@ jobs:
       dev_environment_id: ${{ secrets.APIDOG_DEV_ENVIRONMENT_ID }}
       stg_environment_id: ${{ secrets.APIDOG_STG_ENVIRONMENT_ID }}
       environment_id: ${{ secrets.APIDOG_ENVIRONMENT_ID }}
+
+  # ----------------- End-to-End Tests (tag push, post-gitops, opt-in) -----------------
+  # Runs the LerianStudio/end-to-end suite against the just-deployed
+  # environment and uploads the Allure report to lerian-e2e-artifacts, the
+  # same S3 bucket the JS products (e.g. product-console) already upload to
+  # and that Palantir (self-service-testing) reads for its E2E page. Gated
+  # like api_dog_e2e_tests: on build's has_builds output rather than the
+  # unreliable needs.update_gitops.result == 'success'.
+  e2e_tests:
+    name: End-to-End Tests
+    needs: [build, update_gitops]
+    if: >-
+      !cancelled()
+      && github.ref_type == 'tag'
+      && inputs.enable_e2e_tests
+      && inputs.enable_gitops_update
+      && needs.build.outputs.has_builds == 'true'
+      && needs.update_gitops.result != 'failure'
+      && needs.update_gitops.result != 'cancelled'
+    permissions:
+      id-token: write
+      contents: read
+    uses: ./.github/workflows/end-to-end-tests.yml
+    with:
+      modules: ${{ inputs.e2e_modules }}
+      built_apps: ${{ needs.build.outputs.matrix }}
+      tenancy: ${{ inputs.e2e_tenancy }}
+      service_domain: ${{ inputs.e2e_service_domain }}
+      runner_type: ${{ inputs.e2e_runner_type }}
+      dry_run: ${{ inputs.dry_run }}
+    secrets:
+      # Dedicated, minimally-scoped token (read-only on the private end-to-end
+      # suite repo) — kept separate from the broad MANAGE_TOKEN so the e2e
+      # checkout carries the least privilege it needs.
+      e2e_repo_token: ${{ secrets.E2E_REPO_TOKEN }}
+      aws_e2e_artifacts_role_arn: ${{ secrets.AWS_E2E_ARTIFACTS_ROLE_ARN }}
+      admin_tenant_1_username: ${{ secrets.ADMIN_TENANT_1_USERNAME }}
+      admin_tenant_1_password: ${{ secrets.ADMIN_TENANT_1_PASSWORD }}
+      admin_tenant_2_username: ${{ secrets.ADMIN_TENANT_2_USERNAME }}
+      admin_tenant_2_password: ${{ secrets.ADMIN_TENANT_2_PASSWORD }}
 
   # ----------------- Ungoliant Release Diff (tag push, post-gitops, opt-in) -----------------
   # Runs only after a successful gitops-update (i.e. the release was deployed).

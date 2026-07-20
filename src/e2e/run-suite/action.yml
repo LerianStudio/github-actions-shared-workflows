@@ -1,0 +1,125 @@
+name: Run E2E Suite
+description: Write a per-module env file from the resolved config + tenant credentials and run the Allure test suite for each selected module.
+
+inputs:
+  modules:
+    description: Comma-separated selected modules to run (each maps to ./cases/<module>/...).
+    required: true
+  env-name:
+    description: Env-file suffix (benedita-<base_env>-<tenancy>) used to name .env.<module>.<env-name>.
+    required: true
+  base-env:
+    description: Base environment (dev|stg|prd) used to build the service URLs.
+    required: true
+  tenancy:
+    description: Tenancy mode — st | mt. mt sets MULTI_TENANT=1.
+    required: false
+    default: "st"
+  service-domain:
+    description: Base domain for service URLs — https://<app>.<base-env>-<tenancy>.<service-domain>.
+    required: true
+  auth-url:
+    description: Full auth URL written to the env file (AUTH_URL).
+    required: true
+  timeout:
+    description: Per-run Go test timeout, forwarded to make test TIMEOUT=...
+    required: false
+    default: "600s"
+  admin-tenant-1-username:
+    description: Tenant 1 admin username.
+    required: false
+    default: ""
+  admin-tenant-1-password:
+    description: Tenant 1 admin password.
+    required: false
+    default: ""
+  admin-tenant-2-username:
+    description: Tenant 2 admin username (multi-tenant only).
+    required: false
+    default: ""
+  admin-tenant-2-password:
+    description: Tenant 2 admin password (multi-tenant only).
+    required: false
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    # Each module gets its own .env.<module>.<env> file and its own
+    # ALLURE_RESULTS_DIR/ALLURE_REPORT_DIR so a second module's `make test`
+    # does not wipe the first module's report. Generated env files hold
+    # plaintext tenant credentials — created 0600 (umask) and removed by an
+    # EXIT trap before the (persistent) runner is released, pass or fail.
+    - name: Run end-to-end suites
+      shell: bash
+      env:
+        ENV_NAME: ${{ inputs.env-name }}
+        BASE_ENV: ${{ inputs.base-env }}
+        TENANCY: ${{ inputs.tenancy }}
+        SERVICE_DOMAIN: ${{ inputs.service-domain }}
+        MODULES: ${{ inputs.modules }}
+        TIMEOUT: ${{ inputs.timeout }}
+        AUTH_URL: ${{ inputs.auth-url }}
+        ADMIN_TENANT_1_USERNAME: ${{ inputs.admin-tenant-1-username }}
+        ADMIN_TENANT_1_PASSWORD: ${{ inputs.admin-tenant-1-password }}
+        ADMIN_TENANT_2_USERNAME: ${{ inputs.admin-tenant-2-username }}
+        ADMIN_TENANT_2_PASSWORD: ${{ inputs.admin-tenant-2-password }}
+      run: |
+        set -euo pipefail
+        umask 077
+        GENERATED_ENV_FILES=()
+        # shellcheck disable=SC2317  # invoked indirectly via `trap ... EXIT`
+        cleanup() {
+          if [[ ${#GENERATED_ENV_FILES[@]} -gt 0 ]]; then
+            rm -f "${GENERATED_ENV_FILES[@]}"
+          fi
+        }
+        trap cleanup EXIT
+
+        IFS=',' read -ra MODULE_LIST <<< "$MODULES"
+        FAILED=0
+        for MODULE in "${MODULE_LIST[@]}"; do
+          MODULE="$(echo -n "$MODULE" | xargs)"
+          [[ -z "$MODULE" ]] && continue
+
+          # Always provide both service URLs regardless of which module runs:
+          # the midaz-crm suite provisions its org/account scaffolding through
+          # the ledger API, so it needs LEDGER_URL too (otherwise it falls back
+          # to the localhost default and setup fails with connection refused).
+          LEDGER_URL="https://ledger.${BASE_ENV}-${TENANCY}.${SERVICE_DOMAIN}"
+          CRM_URL="https://midaz-crm.${BASE_ENV}-${TENANCY}.${SERVICE_DOMAIN}"
+
+          ENV_FILE=".env.${MODULE}.${ENV_NAME}"
+          GENERATED_ENV_FILES+=("$ENV_FILE")
+          echo "::group::Writing ${ENV_FILE}"
+          {
+            echo "MULTI_TENANT=$([[ "$TENANCY" == "mt" ]] && echo 1 || echo 0)"
+            echo "AUTH_URL=${AUTH_URL}"
+            echo "ADMIN_TENANT_1_USERNAME=${ADMIN_TENANT_1_USERNAME}"
+            echo "ADMIN_TENANT_1_PASSWORD=${ADMIN_TENANT_1_PASSWORD}"
+            echo "ADMIN_TENANT_2_USERNAME=${ADMIN_TENANT_2_USERNAME}"
+            echo "ADMIN_TENANT_2_PASSWORD=${ADMIN_TENANT_2_PASSWORD}"
+            echo "LEDGER_URL=${LEDGER_URL}"
+            echo "CRM_URL=${CRM_URL}"
+            # Generic self-endpoint for any module beyond ledger/crm, so a future
+            # cases/<module> gets an URL pointing at itself instead of nothing.
+            case "$MODULE" in
+              midaz-ledger|midaz-crm) ;;
+              *) echo "SERVICE_URL=https://${MODULE}.${BASE_ENV}-${TENANCY}.${SERVICE_DOMAIN}" ;;
+            esac
+          } > "$ENV_FILE"
+          echo "::endgroup::"
+
+          RESULTS_DIR="reports/allure-results-${MODULE}"
+          REPORT_DIR="reports/allure-report-${MODULE}"
+          echo "::group::make test ENV=${ENV_NAME} PACKAGE=./cases/${MODULE}/..."
+          make test \
+            ENV_FILE="${ENV_FILE}" \
+            PACKAGE="./cases/${MODULE}/..." \
+            TIMEOUT="${TIMEOUT}" \
+            ALLURE_RESULTS_DIR="${RESULTS_DIR}" \
+            ALLURE_REPORT_DIR="${REPORT_DIR}" \
+            || FAILED=1
+          echo "::endgroup::"
+        done
+        exit "$FAILED"
