@@ -49,11 +49,14 @@ runs:
         # Bound every network fetch (connect/total timeouts + retries) so a
         # stalled CDN or keyserver can't pin the self-hosted runner until the
         # job-level timeout.
-        curl_opts=(--fail --silent --show-error --location --connect-timeout 15 --max-time 180 --retry 3 --retry-delay 5)
+        curl_opts=(--fail --silent --show-error --location --connect-timeout 15 --max-time 180 --retry 3 --retry-delay 5 --retry-max-time 300)
         curl "${curl_opts[@]}" "$base" -o "$tmp/awscliv2.zip"
         curl "${curl_opts[@]}" "${base}.sig" -o "$tmp/awscliv2.sig"
         export GNUPGHOME="$tmp/gnupg"; mkdir -p "$GNUPGHOME"; chmod 700 "$GNUPGHOME"
-        timeout 60 gpg --batch --keyserver hkps://keyserver.ubuntu.com --keyserver-options timeout=20 --recv-keys "$AWS_CLI_GPG_FINGERPRINT"
+        # dirmngr honors connect/resolver timeouts from its config, not from
+        # gpg --keyserver-options; the outer `timeout` is a hard belt-and-braces cap.
+        printf 'connect-timeout 20\nresolver-timeout 20\n' > "$GNUPGHOME/dirmngr.conf"
+        timeout 60 gpg --batch --keyserver hkps://keyserver.ubuntu.com --recv-keys "$AWS_CLI_GPG_FINGERPRINT"
         gpg --batch --verify "$tmp/awscliv2.sig" "$tmp/awscliv2.zip"
         unzip -q "$tmp/awscliv2.zip" -d "$tmp"
         "$tmp/aws/install" -i "$install_dir" -b "$bin_dir" --update
