@@ -1,5 +1,21 @@
 # Github-actions-shared-workflows Changelog
 
+## [1.46.5](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.46.5)
+
+Fixes:
+
+- Resolved an issue with the release process by merging changes from `develop` to `main`. (@bedatty)
+- Limited the retry wall-clock time for `aws-cli` and configured `dirmngr.conf` for keyserver timeout. (@bedatty)
+- Bounded the network fetches during the `aws-cli` installer process. (@bedatty)
+- Addressed findings from CodeRabbit on release PR `#590`. (@bedatty)
+- Added an end-to-end tests job with Allure/S3 report for Palantir in the `go-release` workflow. (@bedatty)
+- Skipped the `release-diff` trigger for CI/meta-only changes in the `ungoliant` workflow. (@bedatty)
+- Introduced a major-bump grace window in the `lib-version-check` workflow. (@bedatty)
+
+[Compare changes](https://github.com/LerianStudio/github-actions-shared-workflows/compare/v1.46.4...v1.46.5)
+
+---
+
 ## [1.46.4](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.46.4)
 
 Fixes:
