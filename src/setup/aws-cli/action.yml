@@ -24,7 +24,7 @@ runs:
       shell: bash
       env:
         AWS_CLI_VERSION: ${{ inputs.version }}
-        AWS_CLI_GPG_FPR: ${{ inputs.gpg-fingerprint }}
+        AWS_CLI_GPG_FINGERPRINT: ${{ inputs.gpg-fingerprint }}
       run: |
         set -euo pipefail
         install_dir="$HOME/.local/aws-cli"
@@ -49,7 +49,7 @@ runs:
         curl --fail --silent --show-error --location "$base" -o "$tmp/awscliv2.zip"
         curl --fail --silent --show-error --location "${base}.sig" -o "$tmp/awscliv2.sig"
         export GNUPGHOME="$tmp/gnupg"; mkdir -p "$GNUPGHOME"; chmod 700 "$GNUPGHOME"
-        gpg --batch --keyserver hkps://keyserver.ubuntu.com --recv-keys "$AWS_CLI_GPG_FPR"
+        gpg --batch --keyserver hkps://keyserver.ubuntu.com --recv-keys "$AWS_CLI_GPG_FINGERPRINT"
         gpg --batch --verify "$tmp/awscliv2.sig" "$tmp/awscliv2.zip"
         unzip -q "$tmp/awscliv2.zip" -d "$tmp"
         "$tmp/aws/install" -i "$install_dir" -b "$bin_dir" --update
