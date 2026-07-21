@@ -41,7 +41,7 @@ runs:
   using: composite
   steps:
     - name: Delete old workflow runs
-      uses: Mattraks/delete-workflow-runs@39f0bbed25d76b34de5594dceab824811479e5de # v2.0.6
+      uses: Mattraks/delete-workflow-runs@b3018382ca039b53d238908238bd35d1fb14f8ee # v2.1
       with:
         token: ${{ inputs.github-token }}
         repository: ${{ github.repository }}
