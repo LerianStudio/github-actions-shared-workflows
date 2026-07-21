@@ -97,7 +97,7 @@ on:
 jobs:
   prepare-and-dispatch:
     name: Prepare and Dispatch
-    runs-on: ${{ inputs.runner_type }}
+    runs-on: ${{ vars.RUNNER_LABEL || inputs.runner_type }}
     steps:
       - name: Checkout
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6

@@ -159,7 +159,7 @@ permissions:
 
 jobs:
   prepare:
-    runs-on: ${{ inputs.runner_type }}
+    runs-on: ${{ vars.RUNNER_LABEL || inputs.runner_type }}
     outputs:
       matrix: ${{ steps.set-matrix.outputs.matrix }}
       has_builds: ${{ steps.set-matrix.outputs.has_builds }}
@@ -256,7 +256,7 @@ jobs:
   build:
     needs: prepare
     if: needs.prepare.outputs.has_builds == 'true'
-    runs-on: ${{ inputs.runner_type }}
+    runs-on: ${{ vars.RUNNER_LABEL || inputs.runner_type }}
     name: Build ${{ matrix.app.name }}
     permissions:
       contents: read

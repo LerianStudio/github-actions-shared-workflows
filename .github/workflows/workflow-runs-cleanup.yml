@@ -40,7 +40,7 @@ permissions:
 jobs:
   cleanup:
     name: Delete old workflow runs
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ${{ vars.RUNNER_LABEL || 'blacksmith-4vcpu-ubuntu-2404' }}
     steps:
       - name: Delete old workflow runs
         uses: LerianStudio/github-actions-shared-workflows/src/config/workflow-runs-cleanup@v1

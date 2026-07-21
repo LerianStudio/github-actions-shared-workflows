@@ -44,7 +44,7 @@ on:
 
 jobs:
   prepare:
-    runs-on: ${{ inputs.runner_type }}
+    runs-on: ${{ vars.RUNNER_LABEL || inputs.runner_type }}
     outputs:
       matrix: ${{ steps.set-matrix.outputs.matrix }}
       has_changes: ${{ steps.set-matrix.outputs.has_changes }}
@@ -98,7 +98,7 @@ jobs:
   publish_release:
     needs: prepare
     if: needs.prepare.outputs.has_changes == 'true' && needs.prepare.outputs.should_skip != 'true'
-    runs-on: ${{ inputs.runner_type }}
+    runs-on: ${{ vars.RUNNER_LABEL || inputs.runner_type }}
     env:
       GH_PACKAGES_TOKEN: ${{ secrets.GH_PAT_FOR_PACKAGES }}
     environment:

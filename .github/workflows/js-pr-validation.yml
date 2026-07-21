@@ -308,7 +308,7 @@ jobs:
   changes:
     name: Detect non-doc changes
     if: contains(fromJSON('["opened","edited","synchronize","reopened","ready_for_review"]'), github.event.action)
-    runs-on: ${{ inputs.runner_type }}
+    runs-on: ${{ vars.RUNNER_LABEL || inputs.runner_type }}
     permissions:
       contents: read
       pull-requests: read
@@ -376,7 +376,7 @@ jobs:
     name: Frontend Analysis
     needs: [changes, frontend-analysis]
     if: always()
-    runs-on: ${{ inputs.runner_type }}
+    runs-on: ${{ vars.RUNNER_LABEL || inputs.runner_type }}
     permissions:
       contents: read
     steps:
@@ -407,7 +407,7 @@ jobs:
     name: Security
     needs: [changes, security]
     if: always()
-    runs-on: ${{ inputs.runner_type }}
+    runs-on: ${{ vars.RUNNER_LABEL || inputs.runner_type }}
     permissions:
       contents: read
     steps:
@@ -426,7 +426,7 @@ jobs:
   go-analysis-gate:
     name: Go Analysis
     if: ${{ github.event_name == 'none' }}
-    runs-on: ${{ inputs.runner_type }}
+    runs-on: ${{ vars.RUNNER_LABEL || inputs.runner_type }}
     permissions:
       contents: read
     steps:
@@ -435,7 +435,7 @@ jobs:
   lib-version-gate:
     name: Lib Version
     if: ${{ github.event_name == 'none' }}
-    runs-on: ${{ inputs.runner_type }}
+    runs-on: ${{ vars.RUNNER_LABEL || inputs.runner_type }}
     permissions:
       contents: read
     steps:

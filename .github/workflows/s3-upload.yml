@@ -124,7 +124,7 @@ permissions:
 
 jobs:
   upload:
-    runs-on: ${{ inputs.runner_type }}
+    runs-on: ${{ vars.RUNNER_LABEL || inputs.runner_type }}
     steps:
       - uses: actions/checkout@v6.0.3
 

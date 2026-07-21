@@ -72,7 +72,7 @@ permissions:
 jobs:
   fuzz:
     name: Fuzz Tests
-    runs-on: ${{ inputs.runner_type }}
+    runs-on: ${{ vars.RUNNER_LABEL || inputs.runner_type }}
     timeout-minutes: ${{ inputs.timeout_minutes }}
 
     steps:

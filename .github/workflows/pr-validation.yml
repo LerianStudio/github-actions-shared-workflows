@@ -76,7 +76,7 @@ jobs:
   # ----------------- Tier 1: Blocking Checks (no checkout, fail-fast) -----------------
   blocking-checks:
     name: Blocking Checks
-    runs-on: ${{ inputs.runner_type }}
+    runs-on: ${{ vars.RUNNER_LABEL || inputs.runner_type }}
     if: github.event.pull_request.draft != true
     outputs:
       source-branch-result: ${{ steps.collect.outputs.source_branch }}
@@ -122,7 +122,7 @@ jobs:
   # ----------------- Tier 2: Advisory Checks (shared checkout, depends on Tier 1) -----------------
   advisory-checks:
     name: Advisory Checks
-    runs-on: ${{ inputs.runner_type }}
+    runs-on: ${{ vars.RUNNER_LABEL || inputs.runner_type }}
     needs: [blocking-checks]
     if: always() && needs.blocking-checks.result == 'success' && github.event.pull_request.draft != true
     outputs:
@@ -174,7 +174,7 @@ jobs:
   # ----------------- PR Checks Summary -----------------
   pr-checks-summary:
     name: PR Checks Summary
-    runs-on: ${{ inputs.runner_type }}
+    runs-on: ${{ vars.RUNNER_LABEL || inputs.runner_type }}
     needs: [blocking-checks, advisory-checks]
     if: always()
 
@@ -193,7 +193,7 @@ jobs:
   # ----------------- PR Validation Summary Comment -----------------
   pr-validation-report:
     name: PR Validation Report
-    runs-on: ${{ inputs.runner_type }}
+    runs-on: ${{ vars.RUNNER_LABEL || inputs.runner_type }}
     needs: [blocking-checks, advisory-checks]
     if: always() && github.event.pull_request.draft != true
 

@@ -70,7 +70,7 @@ permissions:
 
 jobs:
   release:
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ${{ vars.RUNNER_LABEL || 'blacksmith-4vcpu-ubuntu-2404' }}
     permissions:
       id-token: write # AWS OIDC to assume the upload role
       contents: read

@@ -35,7 +35,7 @@ permissions:
 jobs:
   stale-pr:
     name: Flag and close stale PRs
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ${{ vars.RUNNER_LABEL || 'blacksmith-4vcpu-ubuntu-2404' }}
     steps:
       - name: Run stale PR scan
         uses: LerianStudio/github-actions-shared-workflows/src/config/stale@v1

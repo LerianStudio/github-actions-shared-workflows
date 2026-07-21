@@ -41,7 +41,7 @@ on:
 jobs:
   notify:
     name: Send Notification
-    runs-on: ${{ inputs.runner_type }}
+    runs-on: ${{ vars.RUNNER_LABEL || inputs.runner_type }}
     steps:
       - name: Check if Slack webhook is configured
         id: check_webhook

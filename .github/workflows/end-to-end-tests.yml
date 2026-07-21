@@ -75,7 +75,7 @@ permissions:
 jobs:
   end-to-end-tests:
     name: End-to-End Tests
-    runs-on: ${{ inputs.runner_type }}
+    runs-on: ${{ vars.RUNNER_LABEL || inputs.runner_type }}
     permissions:
       id-token: write
       contents: read

@@ -196,7 +196,7 @@ jobs:
   # ============================================
   detect-changes:
     name: Detect Changes
-    runs-on: ${{ inputs.runner_type }}
+    runs-on: ${{ vars.RUNNER_LABEL || inputs.runner_type }}
     outputs:
       matrix: ${{ steps.changed-paths.outputs.matrix }}
       has_changes: ${{ steps.changed-paths.outputs.has_changes }}
@@ -220,7 +220,7 @@ jobs:
     name: Lint (${{ matrix.app.name }})
     needs: detect-changes
     if: needs.detect-changes.outputs.has_changes == 'true' && inputs.enable_lint
-    runs-on: ${{ inputs.runner_type }}
+    runs-on: ${{ vars.RUNNER_LABEL || inputs.runner_type }}
     strategy:
       fail-fast: false
       matrix:
@@ -273,7 +273,7 @@ jobs:
     name: Type Check (${{ matrix.app.name }})
     needs: detect-changes
     if: needs.detect-changes.outputs.has_changes == 'true' && inputs.enable_typecheck
-    runs-on: ${{ inputs.runner_type }}
+    runs-on: ${{ vars.RUNNER_LABEL || inputs.runner_type }}
     strategy:
       fail-fast: false
       matrix:
@@ -319,7 +319,7 @@ jobs:
     name: Security (${{ matrix.app.name }})
     needs: detect-changes
     if: needs.detect-changes.outputs.has_changes == 'true' && inputs.enable_security
-    runs-on: ${{ inputs.runner_type }}
+    runs-on: ${{ vars.RUNNER_LABEL || inputs.runner_type }}
     strategy:
       fail-fast: false
       matrix:
@@ -373,7 +373,7 @@ jobs:
     name: Tests (${{ matrix.app.name }})
     needs: detect-changes
     if: needs.detect-changes.outputs.has_changes == 'true' && inputs.enable_tests
-    runs-on: ${{ inputs.runner_type }}
+    runs-on: ${{ vars.RUNNER_LABEL || inputs.runner_type }}
     strategy:
       fail-fast: false
       matrix:
@@ -449,7 +449,7 @@ jobs:
     name: Coverage (${{ matrix.app.name }})
     needs: [detect-changes, tests]
     if: needs.detect-changes.outputs.has_changes == 'true' && inputs.enable_coverage
-    runs-on: ${{ inputs.runner_type }}
+    runs-on: ${{ vars.RUNNER_LABEL || inputs.runner_type }}
     strategy:
       fail-fast: false
       matrix:
@@ -585,7 +585,7 @@ jobs:
     name: Build (${{ matrix.app.name }})
     needs: detect-changes
     if: needs.detect-changes.outputs.has_changes == 'true' && inputs.enable_build
-    runs-on: ${{ inputs.runner_type }}
+    runs-on: ${{ vars.RUNNER_LABEL || inputs.runner_type }}
     strategy:
       fail-fast: false
       matrix:
@@ -638,7 +638,7 @@ jobs:
     name: i18n Check (${{ matrix.app.name }})
     needs: detect-changes
     if: needs.detect-changes.outputs.has_changes == 'true' && inputs.enable_i18n_check
-    runs-on: ${{ inputs.runner_type }}
+    runs-on: ${{ vars.RUNNER_LABEL || inputs.runner_type }}
     strategy:
       fail-fast: false
       matrix:
@@ -720,7 +720,7 @@ jobs:
     name: Accessibility (${{ matrix.app.name }})
     needs: detect-changes
     if: needs.detect-changes.outputs.has_changes == 'true' && inputs.enable_accessibility
-    runs-on: ${{ inputs.runner_type }}
+    runs-on: ${{ vars.RUNNER_LABEL || inputs.runner_type }}
     strategy:
       fail-fast: false
       matrix:
@@ -774,7 +774,7 @@ jobs:
     name: Custom Checks (${{ matrix.app.name }})
     needs: detect-changes
     if: needs.detect-changes.outputs.has_changes == 'true' && inputs.enable_custom_checks
-    runs-on: ${{ inputs.runner_type }}
+    runs-on: ${{ vars.RUNNER_LABEL || inputs.runner_type }}
     strategy:
       fail-fast: false
       matrix:
@@ -853,7 +853,7 @@ jobs:
     name: Bundle Budget (${{ matrix.app.name }})
     needs: detect-changes
     if: needs.detect-changes.outputs.has_changes == 'true' && inputs.enable_bundle_budget
-    runs-on: ${{ inputs.runner_type }}
+    runs-on: ${{ vars.RUNNER_LABEL || inputs.runner_type }}
     strategy:
       fail-fast: false
       matrix:
@@ -907,7 +907,7 @@ jobs:
     name: Performance Budget (${{ matrix.app.name }})
     needs: detect-changes
     if: needs.detect-changes.outputs.has_changes == 'true' && inputs.enable_performance_budget
-    runs-on: ${{ inputs.runner_type }}
+    runs-on: ${{ vars.RUNNER_LABEL || inputs.runner_type }}
     strategy:
       fail-fast: false
       matrix:
@@ -972,7 +972,7 @@ jobs:
     name: Visual Regression (${{ matrix.app.name }})
     needs: detect-changes
     if: needs.detect-changes.outputs.has_changes == 'true' && inputs.enable_visual_regression
-    runs-on: ${{ inputs.runner_type }}
+    runs-on: ${{ vars.RUNNER_LABEL || inputs.runner_type }}
     strategy:
       fail-fast: false
       matrix:
@@ -1048,7 +1048,7 @@ jobs:
     name: Docker Smoke Test (${{ matrix.app.name }})
     needs: detect-changes
     if: needs.detect-changes.outputs.has_changes == 'true' && inputs.enable_docker_smoke
-    runs-on: ${{ inputs.runner_type }}
+    runs-on: ${{ vars.RUNNER_LABEL || inputs.runner_type }}
     strategy:
       fail-fast: false
       matrix:
@@ -1195,7 +1195,7 @@ jobs:
     name: No Frontend Changes
     needs: detect-changes
     if: needs.detect-changes.outputs.has_changes != 'true'
-    runs-on: ${{ inputs.runner_type }}
+    runs-on: ${{ vars.RUNNER_LABEL || inputs.runner_type }}
     steps:
       - name: Skip
         run: |
