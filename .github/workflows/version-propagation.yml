@@ -53,7 +53,7 @@ permissions:
 jobs:
   propagate:
     name: Propagate ${{ inputs.new_tag || 'latest stable' }}
-    runs-on: ${{ vars.GENERAL_RUNNERS || 'ubuntu-latest' }}
+    runs-on: ${{ vars.GENERAL_RUNNERS || 'blacksmith-4vcpu-ubuntu-2404' }}
     steps:
       # ----------------- Source Checkout -----------------
       # Pin to the immutable workflow-file SHA that originated this run.

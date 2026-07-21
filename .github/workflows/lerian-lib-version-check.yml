@@ -15,7 +15,7 @@ on:
       runner_type:
         description: 'GitHub runner type to use'
         type: string
-        default: 'ubuntu-latest'
+        default: 'blacksmith-4vcpu-ubuntu-2404'
       go_mod_path:
         description: 'Path to go.mod relative to the repo root'
         type: string

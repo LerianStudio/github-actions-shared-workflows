@@ -111,7 +111,7 @@ permissions:
 jobs:
   notify:
     name: Release Notification
-    runs-on: ${{ vars.GENERAL_RUNNERS || 'ubuntu-latest' }}
+    runs-on: ${{ vars.GENERAL_RUNNERS || 'blacksmith-4vcpu-ubuntu-2404' }}
     env:
       DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
       SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
@@ -149,6 +149,7 @@ jobs:
           ENABLE_DISCORD="${{ env.DISCORD_WEBHOOK_URL != '' && 'true' || 'false' }}"
           ENABLE_SLACK="${{ env.SLACK_WEBHOOK_URL != '' && inputs.slack_channel != '' && 'true' || 'false' }}"
           echo "::notice::DRY RUN — no notifications will be sent"
+          echo "  runner           : ${{ vars.GENERAL_RUNNERS || 'blacksmith-4vcpu-ubuntu-2404' }}"
           echo "  product_name     : ${{ inputs.product_name }}"
           echo "  release_tag      : ${{ steps.release.outputs.tag }}"
           echo "  discord_webhook  : ${{ env.DISCORD_WEBHOOK_URL != '' && 'configured' || 'not set' }}"

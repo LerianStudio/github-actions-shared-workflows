@@ -41,7 +41,7 @@ permissions:
 jobs:
   sync:
     name: Sync labels to repository
-    runs-on: ${{ vars.GENERAL_RUNNERS || 'ubuntu-latest' }}
+    runs-on: ${{ vars.GENERAL_RUNNERS || 'blacksmith-4vcpu-ubuntu-2404' }}
     steps:
       - name: Sync labels
         uses: LerianStudio/github-actions-shared-workflows/src/config/labels-sync@v1

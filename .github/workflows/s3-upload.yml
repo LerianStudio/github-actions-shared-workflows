@@ -33,7 +33,7 @@ on:
       runner_type:
         description: 'Runner to use for the workflow'
         type: string
-        default: 'ubuntu-latest'
+        default: 'blacksmith-4vcpu-ubuntu-2404'
       s3_bucket:
         description: 'S3 bucket name (without s3:// prefix)'
         type: string
@@ -80,7 +80,7 @@ on:
       runner_type:
         description: 'Runner to use for the workflow'
         type: string
-        default: 'ubuntu-latest'
+        default: 'blacksmith-4vcpu-ubuntu-2404'
       s3_bucket:
         description: 'S3 bucket name (without s3:// prefix)'
         type: string

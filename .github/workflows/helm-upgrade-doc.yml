@@ -21,7 +21,7 @@ on:
       runner_type:
         description: Runner to use for the workflow
         type: string
-        default: 'ubuntu-latest'
+        default: 'blacksmith-4vcpu-ubuntu-2404'
       charts_root:
         description: Root directory containing all charts
         type: string

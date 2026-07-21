@@ -40,7 +40,7 @@ on:
       runner_type:
         description: 'GitHub runner type to use'
         type: string
-        default: 'ubuntu-latest'
+        default: 'blacksmith-4vcpu-ubuntu-2404'
       gpg_sign_commits:
         description: 'Whether to sign commits with GPG (default: true)'
         type: boolean

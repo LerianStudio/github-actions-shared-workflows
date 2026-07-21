@@ -33,7 +33,7 @@ on:
       runner_type:
         description: 'Runner to use for the workflow'
         type: string
-        default: 'ubuntu-latest'
+        default: 'blacksmith-4vcpu-ubuntu-2404'
       slack_color:
         description: 'Sidebar color for the Slack message'
         type: string
@@ -66,7 +66,7 @@ on:
       runner_type:
         description: 'Runner to use for the workflow'
         type: string
-        default: 'ubuntu-latest'
+        default: 'blacksmith-4vcpu-ubuntu-2404'
       slack_color:
         description: 'Sidebar color for the Slack message'
         type: string
