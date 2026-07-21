@@ -462,6 +462,31 @@ jobs:
           echo "Running tests on $PACKAGE_COUNT packages (excluded /tests/, /api/)"
           echo "$PACKAGES" | xargs go test -v -race -coverprofile=coverage.txt -covermode=atomic
 
+      # OpenAPI spec drift gate (opt-in, auto-detected — same make -n probe style
+      # as "Detect Makefile test target" above).
+      # Probes exactly ONE target: check-api-spec, the canonical opt-in name. If it
+      #   exists it runs as a HARD GATE — a stale committed OpenAPI spec fails the job.
+      #   No such target (or no Makefile) => one log line and succeed.
+      # Only check-api-spec is probed, on purpose. Boilerplate-standard names such as
+      #   check-generated-artifacts and validate-api-docs are NOT probed: they exist in
+      #   many org repos with divergent, unverified bodies (swag-family targets that
+      #   exit 1 when swag is absent, which this job does not install), so auto-adopting
+      #   them would break PRs org-wide the moment the shared-workflow ref bumps. A repo
+      #   opts in by exposing check-api-spec — aliasing its own verified check into it.
+      - name: OpenAPI spec drift gate
+        working-directory: ${{ matrix.app.working_dir }}
+        run: |
+          if [[ -f "Makefile" ]] || [[ -f "makefile" ]] || [[ -f "GNUmakefile" ]]; then
+            if make -n check-api-spec >/dev/null 2>&1; then
+              echo "OpenAPI drift gate: running 'check-api-spec'"
+              make check-api-spec
+            else
+              echo "no OpenAPI drift-gate target found — skipping; add check-api-spec to opt in"
+            fi
+          else
+            echo "No Makefile found — skipping OpenAPI drift gate"
+          fi
+
       - name: Upload coverage artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
