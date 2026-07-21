@@ -1,5 +1,27 @@
 # Github-actions-shared-workflows Changelog
 
+## [1.47.0](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.47.0)
+
+Features:
+- Standardize runners via `vars.RUNNER_LABEL` across shared workflows. (@gandalf-at-lerian)
+
+Fixes:
+- Merge changes from develop to main. (@bedatty)
+- Standardize runner variables by renaming to `vars.GENERAL_RUNNERS` and ensure fallback to `ubuntu-latest` instead of blacksmith. (@bedatty)
+- Avoid shell injection in dry-run runner echo. (@bedatty)
+- Restore blacksmith fallback while keeping network runners authoritative. (@bedatty)
+- Default `enable_dockerhub` to true for JS/TS builds. (@bedatty)
+- Register lender (benedita + anacleto) in the deployment matrix. (@prymax10)
+- Register br-sisbajud (benedita + anacleto) in the deployment matrix. (@bedatty)
+- Add jitter and delay cap to cosign retry backoff and address CodeRabbit findings on the same. (@bedatty)
+
+Improvements:
+- Bump `Mattraks/delete-workflow-runs` to `v2.1`. (@bedatty)
+
+[Compare changes](https://github.com/LerianStudio/github-actions-shared-workflows/compare/v1.46.5...v1.47.0)
+
+---
+
 ## [1.46.5](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.46.5)
 
 Fixes:
