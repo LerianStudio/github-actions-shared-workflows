@@ -45,7 +45,7 @@ permissions:
 jobs:
   cleanup:
     name: Clean up branches
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ${{ vars.GENERAL_RUNNERS || 'blacksmith-4vcpu-ubuntu-2404' }}
     steps:
       - name: Run branch cleanup
         uses: LerianStudio/github-actions-shared-workflows/src/config/branch-cleanup@v1

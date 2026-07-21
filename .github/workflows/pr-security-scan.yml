@@ -127,7 +127,7 @@ permissions:
 
 jobs:
   prepare_matrix:
-    runs-on: ${{ inputs.runner_type }}
+    runs-on: ${{ vars.GENERAL_RUNNERS || inputs.runner_type }}
     outputs:
       matrix: ${{ steps.changed-paths.outputs.matrix }}
     steps:
@@ -161,7 +161,7 @@ jobs:
   security_scan:
     needs: prepare_matrix
     if: needs.prepare_matrix.outputs.matrix != '[]'
-    runs-on: ${{ inputs.runner_type }}
+    runs-on: ${{ vars.GENERAL_RUNNERS || inputs.runner_type }}
     strategy:
       max-parallel: 1
       fail-fast: false
@@ -291,7 +291,7 @@ jobs:
   codeql_scan:
     needs: prepare_matrix
     if: inputs.enable_codeql && inputs.codeql_languages != '' && needs.prepare_matrix.outputs.matrix != '[]'
-    runs-on: ${{ inputs.runner_type }}
+    runs-on: ${{ vars.GENERAL_RUNNERS || inputs.runner_type }}
     steps:
       # ----------------- Setup -----------------
       - name: Checkout Repository
@@ -353,7 +353,7 @@ jobs:
     name: Notify
     needs: [prepare_matrix, security_scan, codeql_scan]
     if: always() && needs.prepare_matrix.outputs.matrix != '[]'
-    runs-on: ${{ inputs.runner_type }}
+    runs-on: ${{ vars.GENERAL_RUNNERS || inputs.runner_type }}
     steps:
       - name: Slack Notification
         uses: LerianStudio/github-actions-shared-workflows/src/notify/slack-notify@v1

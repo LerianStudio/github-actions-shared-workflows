@@ -156,13 +156,17 @@ on:
         type: boolean
         default: true
       cosign_max_attempts:
-        description: 'Maximum cosign signing attempts per image reference. Increase to absorb transient OIDC/Fulcio rate limits.'
-        type: string
-        default: '3'
-      cosign_initial_delay:
-        description: 'Initial delay (seconds) between cosign retries. Grows exponentially (×3) after each failed attempt.'
+        description: 'Maximum cosign signing attempts per image reference. Increase to absorb transient OIDC/Fulcio/Rekor rate limits.'
         type: string
         default: '5'
+      cosign_initial_delay:
+        description: 'Initial delay (seconds) between cosign retries. Grows exponentially (×3) after each failed attempt, capped at cosign_max_delay, then randomized (equal jitter).'
+        type: string
+        default: '5'
+      cosign_max_delay:
+        description: 'Maximum delay (seconds) between cosign retries. Caps the exponential backoff before jitter is applied.'
+        type: string
+        default: '60'
       continue_gitops_on_signing_failure:
         description: 'When true, continue to GitOps artifact upload even if cosign signing fails after all retries. Image stays in registry unsigned and a warning is emitted; manual signing is required afterwards.'
         type: boolean
@@ -182,7 +186,7 @@ permissions:
 
 jobs:
   prepare:
-    runs-on: ${{ inputs.runner_type }}
+    runs-on: ${{ vars.GENERAL_RUNNERS || inputs.runner_type }}
     outputs:
       matrix: ${{ steps.set-matrix.outputs.matrix }}
       has_builds: ${{ steps.set-matrix.outputs.has_builds }}
@@ -273,7 +277,7 @@ jobs:
   build:
     needs: prepare
     if: needs.prepare.outputs.has_builds == 'true'
-    runs-on: ${{ inputs.runner_type }}
+    runs-on: ${{ vars.GENERAL_RUNNERS || inputs.runner_type }}
     name: Build ${{ matrix.app.name }}
     permissions:
       contents: read
@@ -504,6 +508,7 @@ jobs:
           image-refs: ${{ steps.cosign-refs.outputs.refs }}
           max-attempts: ${{ inputs.cosign_max_attempts }}
           initial-delay: ${{ inputs.cosign_initial_delay }}
+          max-delay: ${{ inputs.cosign_max_delay }}
 
       - name: Report cosign signing status
         if: inputs.enable_cosign_sign && steps.preflight.outputs.should_build != 'false' && steps.cosign-sign.outcome == 'failure'

@@ -72,7 +72,7 @@ permissions:
 jobs:
   fuzz:
     name: Fuzz Tests
-    runs-on: ${{ inputs.runner_type }}
+    runs-on: ${{ vars.GENERAL_RUNNERS || inputs.runner_type }}
     timeout-minutes: ${{ inputs.timeout_minutes }}
 
     steps:
@@ -86,9 +86,11 @@ jobs:
 
       - name: Dry run summary
         if: ${{ inputs.dry_run }}
+        env:
+          RESOLVED_RUNNER: ${{ vars.GENERAL_RUNNERS || inputs.runner_type }}
         run: |
           echo "::notice::DRY RUN — no fuzz tests will be executed"
-          echo "  runner      : ${{ inputs.runner_type }}"
+          echo "  runner      : $RESOLVED_RUNNER"
           echo "  go_version  : ${{ inputs.go_version }}"
           echo "  fuzz_command: ${{ inputs.fuzz_command }}"
           echo "  artifacts   : ${{ inputs.fuzz_artifacts_path }}"

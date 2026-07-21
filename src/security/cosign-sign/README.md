@@ -14,8 +14,9 @@ Composite action that signs container images using [Sigstore cosign](https://git
 | `image-refs` | Newline-separated fully qualified image references to sign (e.g., `docker.io/org/app@sha256:abc...`) | Yes | — |
 | `cosign-version` | Cosign version to install | No | `v2.5.0` |
 | `dry-run` | Log what would be signed without actually signing | No | `false` |
-| `max-attempts` | Maximum number of signing attempts per image reference (retry on transient OIDC/Fulcio failures) | No | `3` |
-| `initial-delay` | Initial delay in seconds between retry attempts. Delay grows exponentially (×3) after each failed attempt. | No | `5` |
+| `max-attempts` | Maximum number of signing attempts per image reference (retry on transient OIDC/Fulcio/Rekor failures) | No | `5` |
+| `initial-delay` | Initial delay in seconds between retry attempts. Delay grows exponentially (×3) after each failed attempt, capped at `max-delay`, then randomized (equal jitter) to avoid thundering-herd retries. | No | `5` |
+| `max-delay` | Maximum delay in seconds between retry attempts. Caps the exponential backoff before jitter is applied. | No | `60` |
 
 ## Outputs
 
@@ -83,9 +84,9 @@ permissions:
 
 ## Retry behavior
 
-The signing step retries automatically on transient failures (e.g., malformed OIDC responses from Fulcio, token endpoint flakiness). By default it attempts up to **3 times** with exponential backoff starting at **5s** and growing ×3 per retry (5s → 15s → 45s).
+The signing step retries automatically on transient failures (e.g., malformed OIDC responses from Fulcio, token endpoint flakiness, Rekor log entry lookups). By default it attempts up to **5 times** with exponential backoff starting at **5s**, growing ×3 per retry, capped at **60s**, and randomized (equal jitter) to avoid multiple concurrent jobs retrying against Rekor at the same instant.
 
-Tune via `max-attempts` and `initial-delay` if your environment needs a different policy:
+Tune via `max-attempts`, `initial-delay`, and `max-delay` if your environment needs a different policy:
 
 ```yaml
       - name: Sign container image
@@ -94,4 +95,5 @@ Tune via `max-attempts` and `initial-delay` if your environment needs a differen
           image-refs: docker.io/myorg/myapp@${{ steps.build-push.outputs.digest }}
           max-attempts: "5"
           initial-delay: "10"
+          max-delay: "60"
 ```

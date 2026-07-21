@@ -111,8 +111,9 @@ jobs:
 | `force_full_matrix` | boolean | `false` | When `true`, build all `filter_paths` components on every run regardless of what changed. Use for tightly-coupled services that must always share the same image tag (e.g., auth + identity always released together) |
 | `force_multiplatform` | boolean | `false` | Force multi-platform build (amd64+arm64) even for beta/rc tags |
 | `enable_cosign_sign` | boolean | `true` | Sign images with cosign keyless (OIDC) signing. Requires `id-token: write` in caller |
-| `cosign_max_attempts` | string | `3` | Max cosign signing attempts per image. Increase to absorb transient OIDC/Fulcio rate limits |
-| `cosign_initial_delay` | string | `5` | Initial delay (seconds) between cosign retries. Grows ×3 each failed attempt |
+| `cosign_max_attempts` | string | `5` | Max cosign signing attempts per image. Increase to absorb transient OIDC/Fulcio/Rekor rate limits |
+| `cosign_initial_delay` | string | `5` | Initial delay (seconds) between cosign retries. Grows ×3 each failed attempt, capped at `cosign_max_delay`, then randomized (equal jitter) |
+| `cosign_max_delay` | string | `60` | Maximum delay (seconds) between cosign retries. Caps the exponential backoff before jitter is applied |
 | `continue_gitops_on_signing_failure` | boolean | `false` | Allow GitOps artifact upload to continue when cosign signing fails after all retries. Image stays unsigned in registry; manual `cosign sign` required |
 
 ## Secrets
@@ -281,7 +282,7 @@ jobs:
 
 Cosign signing depends on the Sigstore OIDC/Fulcio infrastructure, which can hit transient rate limits or 5xx responses. Two layers protect releases:
 
-1. **Retry with exponential backoff** — controlled by `cosign_max_attempts` (default `3`) and `cosign_initial_delay` (default `5`s, grows ×3 between attempts). Increase both for releases that consistently brush against rate limits.
+1. **Retry with exponential backoff and jitter** — controlled by `cosign_max_attempts` (default `5`) and `cosign_initial_delay` (default `5`s, grows ×3 between attempts, capped at `cosign_max_delay` — default `60`s — then randomized with equal jitter to avoid multiple jobs retrying against Rekor at the same instant). Increase these for releases that consistently brush against rate limits or multi-minute Rekor outages.
 
 2. **Optional GitOps continuation** — when `continue_gitops_on_signing_failure: true`, signing failure does not block the GitOps artifact upload. The image is already pushed and immutable in the registry; this prevents a transient signing failure from leaving the release in a broken half-state where the image exists but no GitOps PR was opened.
 
@@ -293,6 +294,7 @@ jobs:
       enable_cosign_sign: true
       cosign_max_attempts: 5
       cosign_initial_delay: 15
+      cosign_max_delay: 60
       continue_gitops_on_signing_failure: true
     secrets: inherit
 ```
