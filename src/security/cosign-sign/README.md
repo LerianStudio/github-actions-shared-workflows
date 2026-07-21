@@ -95,4 +95,5 @@ Tune via `max-attempts`, `initial-delay`, and `max-delay` if your environment ne
           image-refs: docker.io/myorg/myapp@${{ steps.build-push.outputs.digest }}
           max-attempts: "5"
           initial-delay: "10"
+          max-delay: "60"
 ```

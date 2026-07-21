@@ -121,6 +121,9 @@ runs:
               echo "::warning::cosign sign failed (attempt $attempt/$MAX_ATTEMPTS) — retrying in ${sleep_time}s (base ${capped_delay}s, jittered)…"
               sleep "$sleep_time"
               delay=$((delay * 3))
+              if [ "$delay" -gt "$MAX_DELAY" ]; then
+                delay="$MAX_DELAY"
+              fi
             fi
           done
 

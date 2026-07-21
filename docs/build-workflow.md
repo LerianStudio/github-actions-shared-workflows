@@ -294,6 +294,7 @@ jobs:
       enable_cosign_sign: true
       cosign_max_attempts: 5
       cosign_initial_delay: 15
+      cosign_max_delay: 60
       continue_gitops_on_signing_failure: true
     secrets: inherit
 ```
