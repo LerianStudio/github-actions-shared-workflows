@@ -145,11 +145,13 @@ jobs:
 
       - name: Dry run summary
         if: ${{ inputs.dry_run }}
+        env:
+          RESOLVED_RUNNER: ${{ vars.GENERAL_RUNNERS || 'blacksmith-4vcpu-ubuntu-2404' }}
         run: |
           ENABLE_DISCORD="${{ env.DISCORD_WEBHOOK_URL != '' && 'true' || 'false' }}"
           ENABLE_SLACK="${{ env.SLACK_WEBHOOK_URL != '' && inputs.slack_channel != '' && 'true' || 'false' }}"
           echo "::notice::DRY RUN — no notifications will be sent"
-          echo "  runner           : ${{ vars.GENERAL_RUNNERS || 'blacksmith-4vcpu-ubuntu-2404' }}"
+          echo "  runner           : $RESOLVED_RUNNER"
           echo "  product_name     : ${{ inputs.product_name }}"
           echo "  release_tag      : ${{ steps.release.outputs.tag }}"
           echo "  discord_webhook  : ${{ env.DISCORD_WEBHOOK_URL != '' && 'configured' || 'not set' }}"
