@@ -9,7 +9,7 @@ on:
       runner_type:
         description: 'GitHub runner type to use'
         type: string
-        default: 'blacksmith-4vcpu-ubuntu-2404'
+        default: 'ubuntu-latest'
       go_version:
         description: 'Go version to use'
         type: string
@@ -40,7 +40,7 @@ on:
       runner_type:
         description: 'GitHub runner type to use'
         type: string
-        default: 'blacksmith-4vcpu-ubuntu-2404'
+        default: 'ubuntu-latest'
       go_version:
         description: 'Go version to use'
         type: string

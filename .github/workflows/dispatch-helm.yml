@@ -88,7 +88,7 @@ on:
       runner_type:
         description: 'GitHub runner type to use'
         type: string
-        default: 'blacksmith-4vcpu-ubuntu-2404'
+        default: 'ubuntu-latest'
     secrets:
       helm_repo_token:
         description: 'GitHub token with access to Helm repository (needs repo scope)'

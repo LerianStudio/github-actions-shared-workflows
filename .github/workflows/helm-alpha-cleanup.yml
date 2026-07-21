@@ -71,7 +71,7 @@ concurrency:
 jobs:
   cleanup:
     name: Prune alpha packages past TTL
-    runs-on: ${{ vars.RUNNER_LABEL || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ vars.RUNNER_LABEL || 'ubuntu-latest' }}
     permissions:
       packages: write # delete alpha package versions from GHCR
     steps:

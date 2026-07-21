@@ -11,7 +11,7 @@ on:
       runner_type:
         description: 'GitHub runner type to use'
         type: string
-        default: 'blacksmith-4vcpu-ubuntu-2404'
+        default: 'ubuntu-latest'
       dry_run:
         description: 'Preview metadata validations without posting comments or labels'
         required: false
