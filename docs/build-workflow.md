@@ -104,6 +104,7 @@ jobs:
 | `ghcr_org` | string | `''` | GHCR organization (defaults to repository owner) |
 | `on_existing_tag` | string | `fail` | Behaviour when the target tag already exists in an enabled registry (pre-flight check before build): `fail` (abort early), `skip` (skip build/push, still emit GitOps artifacts for an idempotent re-run), `warn` (warn and build anyway) |
 | `dockerfile_name` | string | `Dockerfile` | Name of the Dockerfile |
+| `tag_prefix` | string | `''` | Skip this build entirely (`has_builds=false`) when triggered by a tag that does not start with this prefix. For callers with multiple independently-tagged components sharing one workflow_call chain. Empty = build on every tag |
 | `app_name_prefix` | string | `''` | Prefix for app names in monorepo |
 | `build_context` | string | `.` | Docker build context |
 | `enable_gitops_artifacts` | boolean | `false` | Upload artifacts for gitops-update workflow |

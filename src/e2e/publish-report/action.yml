@@ -1,0 +1,70 @@
+name: Publish E2E Report
+description: Upload each module's Allure report to S3 under <bucket>/<repo>/<channel>/<tag>/<module>/, with a dry-run preview.
+
+inputs:
+  modules:
+    description: Comma-separated modules whose reports/allure-report-<module>/ dirs should be uploaded.
+    required: true
+  s3-bucket:
+    description: Destination S3 bucket (read by Palantir).
+    required: true
+  repo-name:
+    description: Repository name used in the S3 path (e.g. github.event.repository.name).
+    required: true
+  tag-name:
+    description: Release tag (e.g. github.ref_name). Its prerelease identifier selects the channel (beta/rc/main).
+    required: true
+  dry-run:
+    description: When "true", print the resolved S3 destinations and skip all uploads.
+    required: false
+    default: "false"
+  has-role:
+    description: Whether an AWS role is configured ("true"/"false"). Only used to annotate dry-run output.
+    required: false
+    default: "false"
+
+runs:
+  using: composite
+  steps:
+    # Channel is derived from the tag's prerelease identifier, matching the JS
+    # products' e2e job. Path shape mirrors it: s3://<bucket>/<repo>/<channel>/
+    # <tag>/<leaf>/ — playwright's <leaf> is "playwright-report"; ours is the
+    # module name, since one run covers several modules. Requires AWS credentials
+    # already configured by the caller (the aws CLI is invoked directly).
+    - name: Upload Allure reports to S3
+      shell: bash
+      env:
+        REPO_NAME: ${{ inputs.repo-name }}
+        TAG_NAME: ${{ inputs.tag-name }}
+        MODULES: ${{ inputs.modules }}
+        S3_BUCKET: ${{ inputs.s3-bucket }}
+        DRY_RUN: ${{ inputs.dry-run }}
+        HAS_ROLE: ${{ inputs.has-role }}
+      run: |
+        set -euo pipefail
+        CHANNEL="main"
+        if [[ "$TAG_NAME" == *-beta.* ]]; then
+          CHANNEL="beta"
+        elif [[ "$TAG_NAME" == *-rc.* ]]; then
+          CHANNEL="rc"
+        fi
+        if [[ "$DRY_RUN" == "true" && "$HAS_ROLE" != "true" ]]; then
+          echo "::notice::[dry-run] no AWS role configured — real runs would skip the S3 upload; printing the plan anyway."
+        fi
+        IFS=',' read -ra MODULE_LIST <<< "$MODULES"
+        for MODULE in "${MODULE_LIST[@]}"; do
+          MODULE="$(echo -n "$MODULE" | xargs)"
+          [[ -z "$MODULE" ]] && continue
+          REPORT_DIR="reports/allure-report-${MODULE}"
+          S3_PATH="s3://${S3_BUCKET}/${REPO_NAME}/${CHANNEL}/${TAG_NAME}/${MODULE}/"
+          if [[ "$DRY_RUN" == "true" ]]; then
+            echo "::notice::[dry-run] would upload ${REPORT_DIR}/ to ${S3_PATH}"
+            continue
+          fi
+          if [[ ! -d "$REPORT_DIR" ]]; then
+            echo "::warning::${REPORT_DIR} not found — skipping S3 upload for ${MODULE}"
+            continue
+          fi
+          aws s3 cp "$REPORT_DIR/" "$S3_PATH" --recursive
+          echo "::notice::Uploaded ${MODULE} Allure report to ${S3_PATH}"
+        done

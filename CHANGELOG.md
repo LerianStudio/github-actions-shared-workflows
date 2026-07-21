@@ -1,5 +1,71 @@
 # Github-actions-shared-workflows Changelog
 
+## [1.46.5](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.46.5)
+
+Fixes:
+
+- Resolved an issue with the release process by merging changes from `develop` to `main`. (@bedatty)
+- Limited the retry wall-clock time for `aws-cli` and configured `dirmngr.conf` for keyserver timeout. (@bedatty)
+- Bounded the network fetches during the `aws-cli` installer process. (@bedatty)
+- Addressed findings from CodeRabbit on release PR `#590`. (@bedatty)
+- Added an end-to-end tests job with Allure/S3 report for Palantir in the `go-release` workflow. (@bedatty)
+- Skipped the `release-diff` trigger for CI/meta-only changes in the `ungoliant` workflow. (@bedatty)
+- Introduced a major-bump grace window in the `lib-version-check` workflow. (@bedatty)
+
+[Compare changes](https://github.com/LerianStudio/github-actions-shared-workflows/compare/v1.46.4...v1.46.5)
+
+---
+
+## [1.46.4](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.46.4)
+
+Fixes:
+- Merged changes from `develop` to `main` to address release issues. (@bedatty)
+- Added explicit `!cancelled()` condition to the `s3_upload` gate in the go-release workflow to prevent premature cancellations. (@bedatty)
+- Removed reliance on unreliable build results for gating `s3_upload` in the go-release workflow. (@bedatty)
+
+Improvements:
+- Included `br-slc` in the deployment matrix to enhance deployment coverage. (@bedatty, @gandalf-at-lerian)
+
+[Compare changes](https://github.com/LerianStudio/github-actions-shared-workflows/compare/v1.46.3...v1.46.4)
+
+---
+
+## [1.46.3](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.46.3)
+
+Fixes:
+- Merged changes from `develop` to `main` to ensure the latest updates are reflected in the primary branch. (@bedatty)
+- Addressed findings from CodeRabbit on the pull request merging `develop` to `main`. (@bedatty)
+- Added `tag_prefix` for `extra_builds` and frontend quality gates to improve the release process. (@bedatty)
+
+Improvements:
+- Updated documentation to include `shared_paths/normalize_to_filter` in the monorepo scope note, ensuring clarity on its inclusion. (@bedatty)
+
+[Compare changes](https://github.com/LerianStudio/github-actions-shared-workflows/compare/v1.46.2...v1.46.3)
+
+---
+
+## [1.46.2](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.46.2)
+
+Features:
+- Added npm publish support and configured JavaScript project validation paths for monorepos. (@bedatty)
+
+Fixes:
+- Corrected the release process to ensure the transition from `develop` to `main`. (@bedatty)
+- Forwarded `dockerfile_name` and `extra_builds` parameters for stable releases in the Go release workflow. (@fredcamaral)
+- Enabled fetching of git notes to allow `semantic-release` to promote prereleases to stable versions. (@bedatty)
+- Implemented sorting of tags using `versionsort.suffix` to prioritize stable releases over prereleases. (@bedatty)
+- Made the ArgoCD application wait timeout configurable with retry backoff in the GitOps update process. (@bedatty)
+- Increased the default `curl-timeout` from 300 seconds to 900 seconds in the Ungoliant workflow. (@bedatty)
+
+Improvements:
+- Renamed the matrix entry from `gestao-acessos-console` to `severino`. (@prymax10)
+- Clarified the wording regarding retry attempts in the GitOps update documentation. (@bedatty)
+- Documented the `curl-timeout` lockstep requirement in the Ungoliant README. (@bedatty)
+
+[Compare changes](https://github.com/LerianStudio/github-actions-shared-workflows/compare/v1.46.1...v1.46.2)
+
+---
+
 ## [1.46.1](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.46.1)
 
 Fixes:
