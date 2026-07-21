@@ -14,13 +14,17 @@ inputs:
     required: false
     default: "false"
   max-attempts:
-    description: Maximum number of signing attempts per image reference (retry on transient OIDC/Fulcio failures)
-    required: false
-    default: "3"
-  initial-delay:
-    description: Initial delay in seconds between retry attempts. Delay grows exponentially (×3) after each failed attempt.
+    description: Maximum number of signing attempts per image reference (retry on transient OIDC/Fulcio/Rekor failures)
     required: false
     default: "5"
+  initial-delay:
+    description: Initial delay in seconds between retry attempts. Delay grows exponentially (×3) after each failed attempt, capped at max-delay, then randomized (equal jitter) to avoid thundering-herd retries.
+    required: false
+    default: "5"
+  max-delay:
+    description: Maximum delay in seconds between retry attempts. Caps the exponential backoff before jitter is applied.
+    required: false
+    default: "60"
 
 outputs:
   signed-refs:
@@ -95,6 +99,7 @@ runs:
         VALID_COUNT: ${{ steps.validate.outputs.count }}
         MAX_ATTEMPTS: ${{ inputs.max-attempts }}
         INITIAL_DELAY: ${{ inputs.initial-delay }}
+        MAX_DELAY: ${{ inputs.max-delay }}
       run: |
         sign_with_retry() {
           local ref="$1"
@@ -107,8 +112,14 @@ runs:
               return 0
             fi
             if [ "$attempt" -lt "$MAX_ATTEMPTS" ]; then
-              echo "::warning::cosign sign failed (attempt $attempt/$MAX_ATTEMPTS) — retrying in ${delay}s…"
-              sleep "$delay"
+              local capped_delay="$delay"
+              if [ "$capped_delay" -gt "$MAX_DELAY" ]; then
+                capped_delay="$MAX_DELAY"
+              fi
+              local half=$((capped_delay / 2))
+              local sleep_time=$((half + RANDOM % (half + 1)))
+              echo "::warning::cosign sign failed (attempt $attempt/$MAX_ATTEMPTS) — retrying in ${sleep_time}s (base ${capped_delay}s, jittered)…"
+              sleep "$sleep_time"
               delay=$((delay * 3))
             fi
           done
