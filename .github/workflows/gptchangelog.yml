@@ -55,7 +55,7 @@ permissions:
 
 jobs:
   prepare:
-    runs-on: ${{ vars.RUNNER_LABEL || inputs.runner_type }}
+    runs-on: ${{ vars.GENERAL_RUNNERS || inputs.runner_type }}
     outputs:
       matrix: ${{ steps.set-matrix.outputs.matrix }}
       has_changes: ${{ steps.set-matrix.outputs.has_changes }}
@@ -245,7 +245,7 @@ jobs:
   generate_changelog:
     needs: prepare
     if: needs.prepare.outputs.has_changes == 'true'
-    runs-on: ${{ vars.RUNNER_LABEL || inputs.runner_type }}
+    runs-on: ${{ vars.GENERAL_RUNNERS || inputs.runner_type }}
     name: Generate Consolidated Changelog
 
     steps:

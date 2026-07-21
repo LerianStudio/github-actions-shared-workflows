@@ -70,7 +70,7 @@ permissions:
 
 jobs:
   release:
-    runs-on: ${{ vars.RUNNER_LABEL || 'ubuntu-latest' }}
+    runs-on: ${{ vars.GENERAL_RUNNERS || 'ubuntu-latest' }}
     permissions:
       id-token: write # AWS OIDC to assume the upload role
       contents: read

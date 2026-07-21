@@ -71,7 +71,7 @@ permissions:
 jobs:
   dependency-review:
     name: Dependency Review
-    runs-on: ${{ vars.RUNNER_LABEL || inputs.runner_type }}
+    runs-on: ${{ vars.GENERAL_RUNNERS || inputs.runner_type }}
     if: github.event_name == 'pull_request' && inputs.enable_dependency_review
 
     steps:
@@ -85,7 +85,7 @@ jobs:
 
   gosec:
     name: Gosec Security Scan
-    runs-on: ${{ vars.RUNNER_LABEL || inputs.runner_type }}
+    runs-on: ${{ vars.GENERAL_RUNNERS || inputs.runner_type }}
     if: inputs.enable_gosec
 
     steps:
@@ -112,7 +112,7 @@ jobs:
 
   govulncheck:
     name: Go Vulnerability Check
-    runs-on: ${{ vars.RUNNER_LABEL || inputs.runner_type }}
+    runs-on: ${{ vars.GENERAL_RUNNERS || inputs.runner_type }}
     if: inputs.enable_govulncheck
 
     steps:
@@ -133,7 +133,7 @@ jobs:
 
   nancy:
     name: Nancy Dependency Check
-    runs-on: ${{ vars.RUNNER_LABEL || inputs.runner_type }}
+    runs-on: ${{ vars.GENERAL_RUNNERS || inputs.runner_type }}
     if: inputs.enable_nancy
 
     steps:
@@ -157,7 +157,7 @@ jobs:
 
   trivy:
     name: Trivy Security Scan
-    runs-on: ${{ vars.RUNNER_LABEL || inputs.runner_type }}
+    runs-on: ${{ vars.GENERAL_RUNNERS || inputs.runner_type }}
     if: inputs.enable_trivy
 
     steps:
@@ -182,7 +182,7 @@ jobs:
 
   secret-scan:
     name: Secret Scanning
-    runs-on: ${{ vars.RUNNER_LABEL || inputs.runner_type }}
+    runs-on: ${{ vars.GENERAL_RUNNERS || inputs.runner_type }}
     if: inputs.enable_secret_scan
 
     steps:
@@ -201,7 +201,7 @@ jobs:
 
   license-check:
     name: License Check
-    runs-on: ${{ vars.RUNNER_LABEL || inputs.runner_type }}
+    runs-on: ${{ vars.GENERAL_RUNNERS || inputs.runner_type }}
     if: inputs.enable_license_check
 
     steps:
@@ -235,7 +235,7 @@ jobs:
 
   sbom:
     name: Generate SBOM
-    runs-on: ${{ vars.RUNNER_LABEL || inputs.runner_type }}
+    runs-on: ${{ vars.GENERAL_RUNNERS || inputs.runner_type }}
     if: inputs.enable_sbom
 
     steps:
@@ -263,7 +263,7 @@ jobs:
 
   security-summary:
     name: Security Summary
-    runs-on: ${{ vars.RUNNER_LABEL || inputs.runner_type }}
+    runs-on: ${{ vars.GENERAL_RUNNERS || inputs.runner_type }}
     needs: [gosec, govulncheck, nancy, trivy, secret-scan, license-check, sbom]
     if: always()
 

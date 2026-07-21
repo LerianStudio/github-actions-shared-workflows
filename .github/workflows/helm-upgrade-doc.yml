@@ -69,7 +69,7 @@ permissions:
 jobs:
   upgrade-doc:
     name: Generate Helm Upgrade Doc
-    runs-on: ${{ vars.RUNNER_LABEL || inputs.runner_type }}
+    runs-on: ${{ vars.GENERAL_RUNNERS || inputs.runner_type }}
     permissions:
       contents: write
       pull-requests: write

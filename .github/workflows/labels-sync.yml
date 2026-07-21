@@ -41,7 +41,7 @@ permissions:
 jobs:
   sync:
     name: Sync labels to repository
-    runs-on: ${{ vars.RUNNER_LABEL || 'ubuntu-latest' }}
+    runs-on: ${{ vars.GENERAL_RUNNERS || 'ubuntu-latest' }}
     steps:
       - name: Sync labels
         uses: LerianStudio/github-actions-shared-workflows/src/config/labels-sync@v1

@@ -111,7 +111,7 @@ permissions:
 jobs:
   notify:
     name: Release Notification
-    runs-on: ${{ vars.RUNNER_LABEL || 'ubuntu-latest' }}
+    runs-on: ${{ vars.GENERAL_RUNNERS || 'ubuntu-latest' }}
     env:
       DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
       SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}

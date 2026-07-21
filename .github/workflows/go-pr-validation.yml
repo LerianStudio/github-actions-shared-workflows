@@ -220,7 +220,7 @@ jobs:
   changes:
     name: Detect non-doc changes
     if: contains(fromJSON('["opened","synchronize","reopened","ready_for_review"]'), github.event.action)
-    runs-on: ${{ vars.RUNNER_LABEL || inputs.runner_type }}
+    runs-on: ${{ vars.GENERAL_RUNNERS || inputs.runner_type }}
     permissions:
       contents: read
       pull-requests: read
@@ -260,7 +260,7 @@ jobs:
     name: Go Analysis
     needs: [changes, go-analysis]
     if: always()
-    runs-on: ${{ vars.RUNNER_LABEL || inputs.runner_type }}
+    runs-on: ${{ vars.GENERAL_RUNNERS || inputs.runner_type }}
     steps:
       - name: Aggregate Go Analysis result
         uses: LerianStudio/github-actions-shared-workflows/src/validate/result-gate@v1
@@ -293,7 +293,7 @@ jobs:
     name: Security
     needs: [changes, security]
     if: always()
-    runs-on: ${{ vars.RUNNER_LABEL || inputs.runner_type }}
+    runs-on: ${{ vars.GENERAL_RUNNERS || inputs.runner_type }}
     steps:
       - name: Aggregate security result
         uses: LerianStudio/github-actions-shared-workflows/src/validate/result-gate@v1
@@ -319,7 +319,7 @@ jobs:
     name: Lib Version
     needs: [changes, lib-version]
     if: always()
-    runs-on: ${{ vars.RUNNER_LABEL || inputs.runner_type }}
+    runs-on: ${{ vars.GENERAL_RUNNERS || inputs.runner_type }}
     steps:
       - name: Aggregate Lib Version result
         uses: LerianStudio/github-actions-shared-workflows/src/validate/result-gate@v1

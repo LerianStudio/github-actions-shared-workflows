@@ -77,7 +77,7 @@ permissions:
 jobs:
   check:
     name: Lerian Library Version Check
-    runs-on: ${{ vars.RUNNER_LABEL || inputs.runner_type }}
+    runs-on: ${{ vars.GENERAL_RUNNERS || inputs.runner_type }}
     outputs:
       has_outdated: ${{ steps.check.outputs.has_outdated }}
       outdated_count: ${{ steps.check.outputs.outdated_count }}

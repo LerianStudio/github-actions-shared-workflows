@@ -40,7 +40,7 @@ permissions:
 jobs:
   cleanup:
     name: Delete old workflow runs
-    runs-on: ${{ vars.RUNNER_LABEL || 'ubuntu-latest' }}
+    runs-on: ${{ vars.GENERAL_RUNNERS || 'ubuntu-latest' }}
     steps:
       - name: Delete old workflow runs
         uses: LerianStudio/github-actions-shared-workflows/src/config/workflow-runs-cleanup@v1

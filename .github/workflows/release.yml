@@ -110,7 +110,7 @@ permissions:
 
 jobs:
   prepare:
-    runs-on: ${{ vars.RUNNER_LABEL || inputs.runner_type }}
+    runs-on: ${{ vars.GENERAL_RUNNERS || inputs.runner_type }}
     outputs:
       matrix: ${{ steps.set-matrix.outputs.matrix }}
       has_changes: ${{ steps.set-matrix.outputs.has_changes }}
@@ -168,7 +168,7 @@ jobs:
   publish_release:
     needs: prepare
     if: needs.prepare.outputs.has_changes == 'true' && needs.prepare.outputs.should_skip != 'true'
-    runs-on: ${{ vars.RUNNER_LABEL || inputs.runner_type }}
+    runs-on: ${{ vars.GENERAL_RUNNERS || inputs.runner_type }}
     environment:
       name: create_release
     name: Release ${{ matrix.app.name }}
@@ -410,7 +410,7 @@ jobs:
     name: Aggregate Publish Status
     needs: publish_release
     if: always() && needs.publish_release.result != 'cancelled'
-    runs-on: ${{ vars.RUNNER_LABEL || inputs.runner_type }}
+    runs-on: ${{ vars.GENERAL_RUNNERS || inputs.runner_type }}
     outputs:
       release_published: ${{ steps.aggregate.outputs.published }}
       release_version: ${{ steps.aggregate.outputs.version }}
@@ -471,7 +471,7 @@ jobs:
       inputs.enable_changelog &&
       needs.publish_release_status.outputs.release_published == 'true' &&
       (needs.update_major_tag.result == 'success' || needs.update_major_tag.result == 'skipped')
-    runs-on: ${{ vars.RUNNER_LABEL || inputs.runner_type }}
+    runs-on: ${{ vars.GENERAL_RUNNERS || inputs.runner_type }}
     environment:
       name: create_release
     steps:
@@ -501,7 +501,7 @@ jobs:
     name: Update Major Tag
     needs: [publish_release, publish_release_status]
     if: inputs.enable_major_tag && needs.publish_release_status.outputs.release_published == 'true'
-    runs-on: ${{ vars.RUNNER_LABEL || inputs.runner_type }}
+    runs-on: ${{ vars.GENERAL_RUNNERS || inputs.runner_type }}
     environment:
       name: create_release
     permissions:
@@ -537,7 +537,7 @@ jobs:
     name: Enforce Latest Release
     needs: [publish_release, publish_release_status]
     if: always() && needs.publish_release_status.outputs.release_published == 'true'
-    runs-on: ${{ vars.RUNNER_LABEL || inputs.runner_type }}
+    runs-on: ${{ vars.GENERAL_RUNNERS || inputs.runner_type }}
     permissions:
       contents: write
     steps:

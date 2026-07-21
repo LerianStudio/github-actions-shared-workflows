@@ -47,7 +47,7 @@ permissions:
 jobs:
   alpha:
     name: "Publish alpha • ${{ inputs.chart }}"
-    runs-on: ${{ vars.RUNNER_LABEL || 'ubuntu-latest' }}
+    runs-on: ${{ vars.GENERAL_RUNNERS || 'ubuntu-latest' }}
     permissions:
       contents: read # checkout the chart source
       packages: write # push the packaged chart to GHCR

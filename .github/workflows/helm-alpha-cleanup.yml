@@ -71,7 +71,7 @@ concurrency:
 jobs:
   cleanup:
     name: Prune alpha packages past TTL
-    runs-on: ${{ vars.RUNNER_LABEL || 'ubuntu-latest' }}
+    runs-on: ${{ vars.GENERAL_RUNNERS || 'ubuntu-latest' }}
     permissions:
       packages: write # delete alpha package versions from GHCR
     steps:
