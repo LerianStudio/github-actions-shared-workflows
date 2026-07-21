@@ -45,7 +45,7 @@ permissions:
 jobs:
   # ----------------- Expand Rules -----------------
   expand:
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ${{ vars.GENERAL_RUNNERS || 'blacksmith-4vcpu-ubuntu-2404' }}
     outputs:
       matrix: ${{ steps.expand.outputs.matrix }}
       has_pairs: ${{ steps.expand.outputs.has_pairs }}
@@ -137,7 +137,7 @@ jobs:
   sync:
     needs: expand
     if: needs.expand.outputs.has_pairs == 'true'
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ${{ vars.GENERAL_RUNNERS || 'blacksmith-4vcpu-ubuntu-2404' }}
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.expand.outputs.matrix) }}

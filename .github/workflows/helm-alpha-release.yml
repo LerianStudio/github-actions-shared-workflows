@@ -47,7 +47,7 @@ permissions:
 jobs:
   alpha:
     name: "Publish alpha • ${{ inputs.chart }}"
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ${{ vars.GENERAL_RUNNERS || 'blacksmith-4vcpu-ubuntu-2404' }}
     permissions:
       contents: read # checkout the chart source
       packages: write # push the packaged chart to GHCR

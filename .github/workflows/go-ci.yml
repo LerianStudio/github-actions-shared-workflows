@@ -109,7 +109,7 @@ jobs:
 
   coverage-report:
     name: Coverage Report
-    runs-on: ${{ inputs.runner_type }}
+    runs-on: ${{ vars.GENERAL_RUNNERS || inputs.runner_type }}
     needs: test
     if: inputs.enable_coverage_comment && github.event_name == 'pull_request'
     permissions:
@@ -133,7 +133,7 @@ jobs:
 
   lint:
     name: Lint
-    runs-on: ${{ inputs.runner_type }}
+    runs-on: ${{ vars.GENERAL_RUNNERS || inputs.runner_type }}
 
     steps:
       - name: Checkout code
@@ -153,7 +153,7 @@ jobs:
 
   build:
     name: Build Binary
-    runs-on: ${{ inputs.runner_type }}
+    runs-on: ${{ vars.GENERAL_RUNNERS || inputs.runner_type }}
     needs: [test, lint]
     if: inputs.enable_cross_platform_build
 
@@ -203,7 +203,7 @@ jobs:
 
   verify-module:
     name: Verify Module
-    runs-on: ${{ inputs.runner_type }}
+    runs-on: ${{ vars.GENERAL_RUNNERS || inputs.runner_type }}
     if: inputs.check_module_tidy
 
     steps:
@@ -223,7 +223,7 @@ jobs:
 
   check-format:
     name: Check Formatting
-    runs-on: ${{ inputs.runner_type }}
+    runs-on: ${{ vars.GENERAL_RUNNERS || inputs.runner_type }}
 
     steps:
       - name: Checkout code
@@ -248,7 +248,7 @@ jobs:
 
   check-docs:
     name: Check Documentation
-    runs-on: ${{ inputs.runner_type }}
+    runs-on: ${{ vars.GENERAL_RUNNERS || inputs.runner_type }}
     if: inputs.check_docs
 
     steps:

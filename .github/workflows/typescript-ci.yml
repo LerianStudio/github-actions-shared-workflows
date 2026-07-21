@@ -18,7 +18,7 @@ on:
       runner_type:
         description: 'GitHub runner type'
         type: string
-        default: 'ubuntu-latest'
+        default: 'blacksmith-4vcpu-ubuntu-2404'
       package_manager:
         description: 'Package manager to use (npm, yarn, pnpm)'
         type: string
@@ -76,7 +76,7 @@ permissions:
 jobs:
   lint-and-typecheck:
     name: Lint & Type Check
-    runs-on: ${{ inputs.runner_type }}
+    runs-on: ${{ vars.GENERAL_RUNNERS || inputs.runner_type }}
     defaults:
       run:
         working-directory: ${{ inputs.working_directory }}
@@ -110,7 +110,7 @@ jobs:
 
   build-and-test:
     name: Build & Test (Node ${{ matrix.node }})
-    runs-on: ${{ inputs.runner_type }}
+    runs-on: ${{ vars.GENERAL_RUNNERS || inputs.runner_type }}
     needs: lint-and-typecheck
     strategy:
       fail-fast: false
@@ -168,7 +168,7 @@ jobs:
 
   security-audit:
     name: Security Audit
-    runs-on: ${{ inputs.runner_type }}
+    runs-on: ${{ vars.GENERAL_RUNNERS || inputs.runner_type }}
     if: inputs.enable_security_audit
     defaults:
       run:
@@ -215,7 +215,7 @@ jobs:
 
   docs:
     name: Generate Documentation
-    runs-on: ${{ inputs.runner_type }}
+    runs-on: ${{ vars.GENERAL_RUNNERS || inputs.runner_type }}
     if: inputs.enable_docs
     needs: build-and-test
     defaults:

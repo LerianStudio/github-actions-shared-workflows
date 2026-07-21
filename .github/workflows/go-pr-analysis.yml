@@ -107,7 +107,7 @@ jobs:
   # ============================================
   detect-changes:
     name: Detect Changes
-    runs-on: ${{ inputs.runner_type }}
+    runs-on: ${{ vars.GENERAL_RUNNERS || inputs.runner_type }}
     outputs:
       matrix: ${{ steps.changed-paths.outputs.matrix }}
       has_changes: ${{ steps.changed-paths.outputs.has_changes }}
@@ -130,7 +130,7 @@ jobs:
     name: Lint (${{ matrix.app.name }})
     needs: detect-changes
     if: needs.detect-changes.outputs.has_changes == 'true' && inputs.enable_lint
-    runs-on: ${{ inputs.runner_type }}
+    runs-on: ${{ vars.GENERAL_RUNNERS || inputs.runner_type }}
     strategy:
       fail-fast: false
       matrix:
@@ -226,7 +226,7 @@ jobs:
     name: Security (${{ matrix.app.name }})
     needs: detect-changes
     if: needs.detect-changes.outputs.has_changes == 'true' && inputs.enable_security
-    runs-on: ${{ inputs.runner_type }}
+    runs-on: ${{ vars.GENERAL_RUNNERS || inputs.runner_type }}
     strategy:
       fail-fast: false
       matrix:
@@ -322,7 +322,7 @@ jobs:
     name: Tests (${{ matrix.app.name }})
     needs: detect-changes
     if: needs.detect-changes.outputs.has_changes == 'true' && inputs.enable_tests
-    runs-on: ${{ inputs.runner_type }}
+    runs-on: ${{ vars.GENERAL_RUNNERS || inputs.runner_type }}
     strategy:
       fail-fast: false
       matrix:
@@ -501,7 +501,7 @@ jobs:
     name: Coverage (${{ matrix.app.name }})
     needs: [detect-changes, tests]
     if: needs.detect-changes.outputs.has_changes == 'true' && inputs.enable_coverage
-    runs-on: ${{ inputs.runner_type }}
+    runs-on: ${{ vars.GENERAL_RUNNERS || inputs.runner_type }}
     strategy:
       fail-fast: false
       matrix:
@@ -782,7 +782,7 @@ jobs:
     name: Build (${{ matrix.app.name }})
     needs: detect-changes
     if: needs.detect-changes.outputs.has_changes == 'true' && inputs.enable_build
-    runs-on: ${{ inputs.runner_type }}
+    runs-on: ${{ vars.GENERAL_RUNNERS || inputs.runner_type }}
     strategy:
       fail-fast: false
       matrix:
@@ -862,7 +862,7 @@ jobs:
     name: Integration Tests (${{ matrix.app.name }})
     needs: detect-changes
     if: needs.detect-changes.outputs.has_changes == 'true' && inputs.enable_integration_tests
-    runs-on: ${{ inputs.runner_type }}
+    runs-on: ${{ vars.GENERAL_RUNNERS || inputs.runner_type }}
     strategy:
       fail-fast: false
       matrix:
@@ -914,7 +914,7 @@ jobs:
     name: Test Determinism (${{ matrix.app.name }})
     needs: detect-changes
     if: needs.detect-changes.outputs.has_changes == 'true' && inputs.enable_test_determinism
-    runs-on: ${{ inputs.runner_type }}
+    runs-on: ${{ vars.GENERAL_RUNNERS || inputs.runner_type }}
     strategy:
       fail-fast: false
       matrix:
@@ -984,7 +984,7 @@ jobs:
     name: No Go Changes
     needs: detect-changes
     if: needs.detect-changes.outputs.has_changes != 'true'
-    runs-on: ${{ inputs.runner_type }}
+    runs-on: ${{ vars.GENERAL_RUNNERS || inputs.runner_type }}
     steps:
       - name: Skip
         run: |

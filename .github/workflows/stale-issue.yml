@@ -35,7 +35,7 @@ permissions:
 jobs:
   stale-issue:
     name: Flag and close stale issues
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ${{ vars.GENERAL_RUNNERS || 'blacksmith-4vcpu-ubuntu-2404' }}
     steps:
       - name: Run stale issue scan
         uses: LerianStudio/github-actions-shared-workflows/src/config/stale@v1
