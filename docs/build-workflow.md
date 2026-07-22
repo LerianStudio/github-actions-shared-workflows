@@ -132,7 +132,7 @@ Uses `secrets: inherit` pattern. Required secrets:
 Before building, the workflow checks whether the target image tag already exists in each enabled registry (via `docker manifest inspect`, reusing the registry logins). This avoids a full rebuild that would only fail at push time on registries with tag immutability enabled. Behaviour is controlled by `on_existing_tag`:
 
 - **`fail`** (default): abort early with a clear error instead of rebuilding then failing at push.
-- **`skip`**: skip the build/push but still emit the GitOps tag artifacts (from the version), so a re-run remains idempotent for the downstream GitOps update.
+- **`skip`**: skip the build/push but still emit the GitOps tag artifacts (from the version), so a re-run remains idempotent for the downstream GitOps update. Cosign signing (if enabled) also retries in this mode: the digest is resolved from the existing registry tag via `docker buildx imagetools inspect` instead of the build/push step, so a transient signing failure on an already-pushed tag can be recovered with a plain re-run instead of cutting a new release.
 - **`warn`**: emit a warning and build anyway (push may still fail on immutable registries).
 
 A non-existent tag (or a check that errors out, e.g. transient registry issues) is treated as "not present" so the check never blocks a legitimate build.
