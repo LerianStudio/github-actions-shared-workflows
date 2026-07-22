@@ -1,5 +1,14 @@
 # Github-actions-shared-workflows Changelog
 
+## [1.47.3](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.47.3)
+
+Fixes:
+- Corrected the workflow to ensure the release process moves from the `develop` branch to the `main` branch. (@bedatty)
+
+[Compare changes](https://github.com/LerianStudio/github-actions-shared-workflows/compare/v1.47.2...v1.47.3)
+
+---
+
 ## [1.47.2](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.47.2)
 
 Fixes:
