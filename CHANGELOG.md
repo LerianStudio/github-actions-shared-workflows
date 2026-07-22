@@ -1,5 +1,24 @@
 # Github-actions-shared-workflows Changelog
 
+## [1.47.2](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.47.2)
+
+Fixes:
+
+- Merged changes from `develop` to `main` to address release issues. (@bedatty)
+- Forced the GET method on the stale pull request GitHub API calls to ensure correct operation. (@bedatty)
+- Implemented pagination for discovering stale pull requests instead of using a fixed limit to improve accuracy. (@bedatty)
+- Passed filter values for stale pull requests using `jq --arg` to avoid issues with string interpolation. (@bedatty)
+- Removed redundant changelog backmerge and ensured closure of stale bump pull requests. (@bedatty)
+- Prevented `mktemp` failures from masking successful operations, ensuring error propagation. (@bedatty)
+- Utilized `mktemp` for error capture and added pagination for stale pull request lookup. (@bedatty)
+- Scoped stale pull request cleanup to automation authors and made failures more visible. (@bedatty)
+- Closed stale bump pull requests during version propagation to maintain workflow integrity. (@bedatty)
+- Removed redundant changelog backmerge in the `gptchangelog` composite to streamline the release process. (@bedatty)
+
+[Compare changes](https://github.com/LerianStudio/github-actions-shared-workflows/compare/v1.47.1...v1.47.2)
+
+---
+
 ## [1.47.1](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.47.1)
 
 Fixes:
