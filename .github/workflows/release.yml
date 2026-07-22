@@ -351,22 +351,13 @@ jobs:
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       # ----------------- Backmerge -----------------
-      - name: Backmerge ${{ inputs.backmerge_source }} → ${{ inputs.backmerge_target }}
-        if: |
-          inputs.backmerge_enabled &&
-          steps.semantic.outputs.new_release_published == 'true' &&
-          github.ref_name == inputs.backmerge_source
-        uses: LerianStudio/github-actions-shared-workflows/src/config/backmerge-sync@v1
-        with:
-          github-token: ${{ steps.app-token.outputs.token }}
-          source-branch: ${{ inputs.backmerge_source }}
-          target-branch: ${{ inputs.backmerge_target }}
-          mode: ${{ inputs.backmerge_mode }}
-          dry-run: ${{ inputs.dry_run }}
-          commit-message: "chore(release): backmerge ${source} into ${target} [skip ci]"
-          pr-title: "chore(release): backmerge ${source} → ${target} (v${{ steps.semantic.outputs.new_release_version }})"
-          git-user-name: ${{ secrets.LERIAN_CI_CD_USER_NAME }}
-          git-user-email: ${{ secrets.LERIAN_CI_CD_USER_EMAIL }}
+      # The post-release backmerge (backmerge_source → backmerge_target) is NOT
+      # done here anymore. It now runs in the dedicated `backmerge` job below,
+      # which depends on generate_changelog so the changelog commit is already
+      # on backmerge_source (main) before it is merged into backmerge_target
+      # (develop). Running it inline here completes before generate_changelog,
+      # so the target branch never received the changelog. The pre-version
+      # prerelease sync above stays inline — it must happen before version calc.
 
       # ----------------- Per-leg release publish marker -----------------
       # Matrix job outputs are last-writer-wins, so we persist each leg's
@@ -496,6 +487,67 @@ jobs:
           openai-model: ${{ inputs.openai_model }}
           bot-ignore-list: ${{ inputs.changelog_bot_ignore_list }}
 
+  # ----------------- Backmerge (post-changelog) -----------------
+  # Runs the post-release backmerge (backmerge_source → backmerge_target) only
+  # AFTER generate_changelog has committed the CHANGELOG to backmerge_source
+  # (main). The backmerge-sync composite fetches origin/<source> fresh, so
+  # ordering this job after the changelog commit is what guarantees the
+  # changelog is carried into backmerge_target (develop). This used to be a
+  # step inside publish_release, which finishes before generate_changelog and
+  # therefore backmerged main WITHOUT the changelog.
+  backmerge:
+    name: Backmerge ${{ inputs.backmerge_source }} → ${{ inputs.backmerge_target }}
+    needs: [publish_release, publish_release_status, update_major_tag, generate_changelog]
+    if: >-
+      always() &&
+      inputs.backmerge_enabled &&
+      needs.publish_release_status.outputs.release_published == 'true' &&
+      github.ref_name == inputs.backmerge_source &&
+      (needs.update_major_tag.result == 'success' || needs.update_major_tag.result == 'skipped') &&
+      (needs.generate_changelog.result == 'success' || needs.generate_changelog.result == 'skipped')
+    runs-on: ${{ inputs.runner_type }}
+    environment:
+      name: create_release
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        id: app-token
+        with:
+          client-id: ${{ secrets.LERIAN_STUDIO_MIDAZ_PUSH_BOT_APP_ID }}
+          private-key: ${{ secrets.LERIAN_STUDIO_MIDAZ_PUSH_BOT_PRIVATE_KEY }}
+
+      - name: Checkout repository
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          fetch-depth: 0
+          token: ${{ steps.app-token.outputs.token }}
+
+      - name: Import GPG key
+        uses: crazy-max/ghaction-import-gpg@2dc316deee8e90f13e1a351ab510b4d5bc0c82cd # v7
+        with:
+          gpg_private_key: ${{ secrets.LERIAN_CI_CD_USER_GPG_KEY }}
+          passphrase: ${{ secrets.LERIAN_CI_CD_USER_GPG_KEY_PASSWORD }}
+          git_committer_name: ${{ secrets.LERIAN_CI_CD_USER_NAME }}
+          git_committer_email: ${{ secrets.LERIAN_CI_CD_USER_EMAIL }}
+          git_config_global: true
+          git_user_signingkey: true
+          git_commit_gpgsign: true
+
+      - name: Backmerge ${{ inputs.backmerge_source }} → ${{ inputs.backmerge_target }}
+        uses: LerianStudio/github-actions-shared-workflows/src/config/backmerge-sync@v1
+        with:
+          github-token: ${{ steps.app-token.outputs.token }}
+          source-branch: ${{ inputs.backmerge_source }}
+          target-branch: ${{ inputs.backmerge_target }}
+          mode: ${{ inputs.backmerge_mode }}
+          dry-run: ${{ inputs.dry_run }}
+          commit-message: "chore(release): backmerge ${source} into ${target} [skip ci]"
+          pr-title: "chore(release): backmerge ${source} → ${target} (v${{ needs.publish_release_status.outputs.release_version }})"
+          git-user-name: ${{ secrets.LERIAN_CI_CD_USER_NAME }}
+          git-user-email: ${{ secrets.LERIAN_CI_CD_USER_EMAIL }}
+
   # ----------------- Major Tag Update -----------------
   update_major_tag:
     name: Update Major Tag
@@ -557,7 +609,7 @@ jobs:
   # Slack notification
   notify:
     name: Notify
-    needs: [prepare, publish_release, publish_release_status, generate_changelog, update_major_tag, enforce_latest]
+    needs: [prepare, publish_release, publish_release_status, generate_changelog, backmerge, update_major_tag, enforce_latest]
     if: always() && needs.prepare.outputs.has_changes == 'true'
     uses: ./.github/workflows/slack-notify.yml
     with:
@@ -566,9 +618,10 @@ jobs:
             && 'failure' || 'success' }}
       workflow_name: "Release"
       failed_jobs: >-
-        ${{ format('{0}{1}{2}{3}',
+        ${{ format('{0}{1}{2}{3}{4}',
           (needs.publish_release.result == 'failure' && 'Publish Release' || ''),
           (needs.generate_changelog.result == 'failure' && ' / Generate Changelog' || ''),
+          (needs.backmerge.result == 'failure' && ' / Backmerge' || ''),
           (needs.update_major_tag.result == 'failure' && ' / Update Major Tag' || ''),
           (needs.enforce_latest.result == 'failure' && ' / Enforce Latest' || '')
         ) }}
