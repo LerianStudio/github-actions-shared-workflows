@@ -607,6 +607,7 @@ jobs:
 
       - name: Report cosign signing status
         if: >-
+          !cancelled() &&
           inputs.enable_cosign_sign &&
           (steps.cosign-sign.outcome == 'failure' || steps.cosign-refs.outputs.has_lookup_error == 'true')
         env:
