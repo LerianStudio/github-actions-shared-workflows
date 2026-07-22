@@ -32,7 +32,7 @@ Pre-releases (`v*-beta.N` produced by `develop`/`release-candidate`) are filtere
 | Condition | Result |
 |---|---|
 | Push to `target_branch` succeeds | Direct push, no PR |
-| Push fails (branch protection, conflict, etc.) | PR opened against `target_branch` |
+| Push fails (branch protection, conflict, etc.) | PR opened against `target_branch`; the commit is amended to drop `[skip ci]` first, so required status checks actually run and the PR can be merged |
 | Bump is `major` | PR opened (never direct push) |
 | Auto-merge enabled for that bump level | `gh pr merge --auto --squash` on the fallback PR |
 | Target already on `new_tag` | Skipped, no change |
