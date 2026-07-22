@@ -58,6 +58,15 @@ else
 fi
 
 if [[ "$open_pr" -eq 1 ]]; then
+  # The commit above may carry [skip ci] (added for the direct-push case, to
+  # avoid re-triggering CI on a trivial bump). That's wrong for a PR: consumer
+  # repos gate merging on required status checks, and [skip ci] means those
+  # checks never run, leaving the PR permanently unmergeable. The rejected
+  # direct push never landed anywhere, so amending here is safe.
+  if [[ "$force_pr" -ne 1 ]]; then
+    git commit --amend -m "chore(ci): bump shared-workflows to ${NEW_TAG}"
+  fi
+
   branch="chore/bump-shared-workflows-${NEW_TAG}"
   git push -f origin "HEAD:${branch}"
 
