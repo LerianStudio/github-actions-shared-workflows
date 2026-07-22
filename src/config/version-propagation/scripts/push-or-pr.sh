@@ -87,15 +87,24 @@ fi
 # The direct push succeeded or the replacement PR was just opened above —
 # close any older bump PRs this automation left open against the same target
 # branch, so consumers don't accumulate one unmerged PR per skipped release.
-bot_login_err="$(mktemp)"
-stale_prs_err="$(mktemp)"
-trap 'rm -f "$bot_login_err" "$stale_prs_err"' EXIT
-
-bot_login=$(gh api user --jq '.login' 2>"$bot_login_err") || {
-  echo "::warning::could not resolve automation identity, skipping stale PR cleanup:" >&2
-  cat "$bot_login_err" >&2
-  bot_login=""
+bot_login_err=""
+stale_prs_err=""
+cleanup_tmp_files() {
+  [[ -z "$bot_login_err" ]] || rm -f -- "$bot_login_err"
+  [[ -z "$stale_prs_err" ]] || rm -f -- "$stale_prs_err"
 }
+trap cleanup_tmp_files EXIT
+
+bot_login=""
+if bot_login_err="$(mktemp)" && stale_prs_err="$(mktemp)"; then
+  bot_login=$(gh api user --jq '.login' 2>"$bot_login_err") || {
+    echo "::warning::could not resolve automation identity, skipping stale PR cleanup:" >&2
+    cat "$bot_login_err" >&2
+    bot_login=""
+  }
+else
+  echo "::warning::could not create temporary files for stale PR cleanup; skipping cleanup" >&2
+fi
 
 current_branch="chore/bump-shared-workflows-${NEW_TAG}"
 stale_prs=""
