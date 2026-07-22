@@ -36,6 +36,7 @@ Pre-releases (`v*-beta.N` produced by `develop`/`release-candidate`) are filtere
 | Bump is `major` | PR opened (never direct push) |
 | Auto-merge enabled for that bump level | `gh pr merge --auto --squash` on the fallback PR |
 | Target already on `new_tag` | Skipped, no change |
+| Older unmerged bump PR still open on the same `target_branch` | Closed once the new bump lands, with a comment noting it was superseded |
 
 The `target_branch` default is `develop` (gitflow-friendly: the bump flows through `develop → release-candidate → main` via the normal promotion pipeline). Repos without `develop` declare `target_branch: main` in their target entry.
 
