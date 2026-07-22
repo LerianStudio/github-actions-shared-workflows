@@ -547,72 +547,10 @@ runs:
         echo "❌ Failed to push after $max_attempts attempts"
         exit 1
 
-    - name: Backmerge default branch into develop
-      if: steps.generate.outputs.apps_updated != ''
-      shell: bash
-      env:
-        GH_TOKEN: ${{ inputs.github-token }}
-      run: |
-        DEFAULT_BRANCH=$(gh repo view --json defaultBranchRef -q '.defaultBranchRef.name')
-        TARGET_BRANCH="develop"
-
-        if ! git ls-remote --heads origin develop | grep -q develop; then
-          echo "⚠️ No develop branch found — skipping backmerge"
-          exit 0
-        fi
-
-        echo "📌 Backmerging $DEFAULT_BRANCH → $TARGET_BRANCH"
-
-        git fetch origin "$DEFAULT_BRANCH" "$TARGET_BRANCH"
-        git checkout "$TARGET_BRANCH"
-        git reset --hard "origin/$TARGET_BRANCH"
-
-        if git merge-base --is-ancestor "origin/$DEFAULT_BRANCH" "HEAD"; then
-          echo "✅ $TARGET_BRANCH already contains $DEFAULT_BRANCH — nothing to backmerge"
-          exit 0
-        fi
-
-        # Try clean merge first — push directly if no conflicts
-        set +e
-        git merge --no-ff -S \
-          -m "chore(changelog): backmerge $DEFAULT_BRANCH into $TARGET_BRANCH [skip ci]" \
-          "origin/$DEFAULT_BRANCH"
-        MERGE_EXIT=$?
-        set -e
-
-        if [ $MERGE_EXIT -eq 0 ]; then
-          if git push origin "$TARGET_BRANCH"; then
-            echo "✅ Backmerged $DEFAULT_BRANCH into $TARGET_BRANCH (direct push)"
-            exit 0
-          fi
-          echo "⚠️ Direct push to $TARGET_BRANCH rejected — falling back to PR"
-        elif [ $MERGE_EXIT -eq 1 ]; then
-          echo "⚠️ Merge conflict between $DEFAULT_BRANCH and $TARGET_BRANCH — falling back to PR for manual resolution"
-          git merge --abort 2>/dev/null || true
-        else
-          echo "⚠️ Merge failed (exit $MERGE_EXIT) — falling back to PR"
-          git merge --abort 2>/dev/null || true
-        fi
-
-        # Fallback: open a backmerge PR for manual resolution
-        BACKMERGE_BRANCH="release/backmerge-${DEFAULT_BRANCH}-into-${TARGET_BRANCH}"
-        echo "📌 Creating backmerge branch: $BACKMERGE_BRANCH"
-        # Fetch the backmerge branch (if it exists) so --force-with-lease
-        # compares against the current remote state, not a stale tracking ref.
-        git fetch origin "$BACKMERGE_BRANCH" 2>/dev/null || true
-        git checkout -B "$BACKMERGE_BRANCH" "origin/$DEFAULT_BRANCH"
-        git push --force-with-lease origin "$BACKMERGE_BRANCH"
-
-        if [[ "$(gh pr list --head "$BACKMERGE_BRANCH" --base "$TARGET_BRANCH" --state open --json number --jq 'length')" == "0" ]]; then
-          gh pr create \
-            --title "chore(changelog): backmerge $DEFAULT_BRANCH into $TARGET_BRANCH" \
-            --body "Automated backmerge from \`$DEFAULT_BRANCH\` into \`$TARGET_BRANCH\` could not be completed automatically. Please review and merge manually." \
-            --base "$TARGET_BRANCH" \
-            --head "$BACKMERGE_BRANCH"
-          echo "✅ Backmerge PR created"
-        else
-          echo "⚠️ Backmerge PR already exists"
-        fi
+    # Backmerging default branch into develop is NOT done here. The caller
+    # (release.yml) runs a dedicated `backmerge` job after this composite,
+    # which already carries the changelog commit just pushed above since it
+    # fetches the source branch fresh. A second backmerge here was redundant.
 
     # ----------------- Cleanup -----------------
     - name: Cleanup temporary files
