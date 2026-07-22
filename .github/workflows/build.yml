@@ -480,24 +480,42 @@ jobs:
           APP_NAME: ${{ matrix.app.name }}
           VERSION: ${{ steps.version.outputs.version }}
           ENABLE_DOCKERHUB: ${{ inputs.enable_dockerhub }}
+          ENABLE_GHCR: ${{ inputs.enable_ghcr }}
           DOCKERHUB_ORG: ${{ inputs.dockerhub_org }}
           GHCR_ORG: ${{ steps.image-names.outputs.ghcr_org }}
         run: |
-          set -euo pipefail
+          set -uo pipefail
           TAG="${VERSION#v}"
+
+          # Each registry is inspected independently: a tag can be immutable-blocked
+          # in one registry but absent from another (e.g. a prior partial push), so
+          # reusing one registry's digest for the other's ref would sign a
+          # nonexistent (or wrong) reference.
           if [ "$ENABLE_DOCKERHUB" == "true" ]; then
             REF="${DOCKERHUB_ORG}/${APP_NAME}:${TAG}"
-          else
-            REF="ghcr.io/${GHCR_ORG}/${APP_NAME}:${TAG}"
+            DIGEST=""
+            if OUTPUT=$(docker buildx imagetools inspect "$REF" --format '{{json .Manifest}}' 2>/dev/null); then
+              DIGEST=$(echo "$OUTPUT" | jq -r '.digest // empty')
+            fi
+            echo "dockerhub_digest=$DIGEST" >> "$GITHUB_OUTPUT"
           fi
-          DIGEST=$(docker buildx imagetools inspect "$REF" --format '{{json .Manifest}}' | jq -r '.digest')
-          echo "digest=$DIGEST" >> "$GITHUB_OUTPUT"
+
+          if [ "$ENABLE_GHCR" == "true" ]; then
+            REF="ghcr.io/${GHCR_ORG}/${APP_NAME}:${TAG}"
+            DIGEST=""
+            if OUTPUT=$(docker buildx imagetools inspect "$REF" --format '{{json .Manifest}}' 2>/dev/null); then
+              DIGEST=$(echo "$OUTPUT" | jq -r '.digest // empty')
+            fi
+            echo "ghcr_digest=$DIGEST" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Build cosign image references
         if: inputs.enable_cosign_sign
         id: cosign-refs
         env:
-          DIGEST: ${{ steps.build-push.outputs.digest || steps.existing-digest.outputs.digest }}
+          DIGEST: ${{ steps.build-push.outputs.digest }}
+          DOCKERHUB_DIGEST: ${{ steps.existing-digest.outputs.dockerhub_digest }}
+          GHCR_DIGEST: ${{ steps.existing-digest.outputs.ghcr_digest }}
           ENABLE_DOCKERHUB: ${{ inputs.enable_dockerhub }}
           ENABLE_GHCR: ${{ inputs.enable_ghcr }}
           DOCKERHUB_ORG: ${{ inputs.dockerhub_org }}
@@ -506,13 +524,21 @@ jobs:
         run: |
           REFS=""
 
-          if [ "$ENABLE_DOCKERHUB" == "true" ]; then
-            REFS="docker.io/${DOCKERHUB_ORG}/${APP_NAME}@${DIGEST}"
+          # A single build-push pushes the identical content to every enabled
+          # registry, so DIGEST (from build-push) applies to both. When the build
+          # was skipped (existing tag), fall back to each registry's own resolved
+          # digest instead, and only emit a ref when that registry's digest was
+          # actually found.
+          DOCKERHUB_FINAL="${DIGEST:-$DOCKERHUB_DIGEST}"
+          GHCR_FINAL="${DIGEST:-$GHCR_DIGEST}"
+
+          if [ "$ENABLE_DOCKERHUB" == "true" ] && [ -n "$DOCKERHUB_FINAL" ]; then
+            REFS="docker.io/${DOCKERHUB_ORG}/${APP_NAME}@${DOCKERHUB_FINAL}"
           fi
 
-          if [ "$ENABLE_GHCR" == "true" ]; then
+          if [ "$ENABLE_GHCR" == "true" ] && [ -n "$GHCR_FINAL" ]; then
             [ -n "$REFS" ] && REFS="${REFS}"$'\n'
-            REFS="${REFS}ghcr.io/${GHCR_ORG}/${APP_NAME}@${DIGEST}"
+            REFS="${REFS}ghcr.io/${GHCR_ORG}/${APP_NAME}@${GHCR_FINAL}"
           fi
 
           {
@@ -536,7 +562,7 @@ jobs:
         if: inputs.enable_cosign_sign && steps.cosign-sign.outcome == 'failure'
         env:
           REFS: ${{ steps.cosign-refs.outputs.refs }}
-          DIGEST: ${{ steps.build-push.outputs.digest || steps.existing-digest.outputs.digest }}
+          DIGEST: ${{ steps.build-push.outputs.digest || steps.existing-digest.outputs.dockerhub_digest || steps.existing-digest.outputs.ghcr_digest }}
           APP_NAME: ${{ matrix.app.name }}
         run: |
           echo "::warning::Cosign signing FAILED for ${APP_NAME} after all retries — image is unsigned in the registry."
