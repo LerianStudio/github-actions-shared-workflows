@@ -494,8 +494,11 @@ jobs:
           if [ "$ENABLE_DOCKERHUB" == "true" ]; then
             REF="${DOCKERHUB_ORG}/${APP_NAME}:${TAG}"
             DIGEST=""
-            if OUTPUT=$(docker buildx imagetools inspect "$REF" --format '{{json .Manifest}}' 2>/dev/null); then
+            if OUTPUT=$(docker buildx imagetools inspect "$REF" --format '{{json .Manifest}}' 2>&1); then
               DIGEST=$(echo "$OUTPUT" | jq -r '.digest // empty')
+              [ -z "$DIGEST" ] && echo "::warning::docker buildx imagetools inspect for ${REF} returned no digest — cosign will skip this registry."
+            else
+              echo "::warning::Failed to inspect ${REF} (registry lookup error, possibly transient) — cosign will skip signing for this registry: ${OUTPUT}"
             fi
             echo "dockerhub_digest=$DIGEST" >> "$GITHUB_OUTPUT"
           fi
@@ -503,8 +506,11 @@ jobs:
           if [ "$ENABLE_GHCR" == "true" ]; then
             REF="ghcr.io/${GHCR_ORG}/${APP_NAME}:${TAG}"
             DIGEST=""
-            if OUTPUT=$(docker buildx imagetools inspect "$REF" --format '{{json .Manifest}}' 2>/dev/null); then
+            if OUTPUT=$(docker buildx imagetools inspect "$REF" --format '{{json .Manifest}}' 2>&1); then
               DIGEST=$(echo "$OUTPUT" | jq -r '.digest // empty')
+              [ -z "$DIGEST" ] && echo "::warning::docker buildx imagetools inspect for ${REF} returned no digest — cosign will skip this registry."
+            else
+              echo "::warning::Failed to inspect ${REF} (registry lookup error, possibly transient) — cosign will skip signing for this registry: ${OUTPUT}"
             fi
             echo "ghcr_digest=$DIGEST" >> "$GITHUB_OUTPUT"
           fi
@@ -562,7 +568,6 @@ jobs:
         if: inputs.enable_cosign_sign && steps.cosign-sign.outcome == 'failure'
         env:
           REFS: ${{ steps.cosign-refs.outputs.refs }}
-          DIGEST: ${{ steps.build-push.outputs.digest || steps.existing-digest.outputs.dockerhub_digest || steps.existing-digest.outputs.ghcr_digest }}
           APP_NAME: ${{ matrix.app.name }}
         run: |
           echo "::warning::Cosign signing FAILED for ${APP_NAME} after all retries — image is unsigned in the registry."
@@ -570,14 +575,13 @@ jobs:
             echo "### ⚠️ Unsigned image — manual action required"
             echo ""
             echo "- **App:** \`${APP_NAME}\`"
-            echo "- **Digest:** \`${DIGEST}\`"
-            echo "- **Refs:**"
+            echo "- **Refs (each already includes its own digest):**"
             echo '```'
             echo "${REFS}"
             echo '```'
             echo ""
             echo "GitOps artifact upload was allowed to continue (\`continue_gitops_on_signing_failure: true\`)."
-            echo "The image is immutable and present in the registry but **not signed**. Run \`cosign sign\` manually against the digest above before promoting to production."
+            echo "The image(s) above are immutable and present in the registry but **not signed**. Run \`cosign sign\` manually against each ref above before promoting to production."
           } >> "$GITHUB_STEP_SUMMARY"
 
       # ----------------- GitOps Artifacts -----------------
