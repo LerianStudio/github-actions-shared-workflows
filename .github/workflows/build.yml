@@ -503,20 +503,29 @@ jobs:
           # Captures stdout and stderr separately (not merged) so any stderr
           # chatter on an otherwise-successful call (deprecation notices,
           # credential-helper output) can't corrupt the JSON fed to jq.
+          #
+          # Emits digest then "true"/"false" (lookup failed) on separate lines.
+          # An empty digest is ambiguous by itself: it means either "tag
+          # genuinely absent here" (fine, that registry is just skipped) or
+          # "the lookup itself errored" (ambiguous — the tag may well exist
+          # and just went unsigned). The caller needs that distinction to
+          # avoid silently reporting success when a registry couldn't be
+          # verified at all.
           resolve_digest() {
             local ref="$1"
-            local out err digest=""
+            local out err digest="" failed="false"
             local err_file
             err_file="$(mktemp)"
             if out=$(docker buildx imagetools inspect "$ref" --format '{{json .Manifest}}' 2>"$err_file"); then
               digest=$(echo "$out" | jq -r '.digest // empty')
               [ -z "$digest" ] && echo "::warning::docker buildx imagetools inspect for ${ref} returned no digest — cosign will skip this registry." >&2
             else
+              failed="true"
               err=$(cat "$err_file")
               echo "::warning::Failed to inspect ${ref} (registry lookup error, possibly transient) — cosign will skip signing for this registry: $(escape_for_warning "$err")" >&2
             fi
             rm -f "$err_file"
-            printf '%s' "$digest"
+            printf '%s\n%s\n' "$digest" "$failed"
           }
 
           # Each registry is inspected independently: a tag can be immutable-blocked
@@ -524,11 +533,15 @@ jobs:
           # reusing one registry's digest for the other's ref would sign a
           # nonexistent (or wrong) reference.
           if [ "$ENABLE_DOCKERHUB" == "true" ]; then
-            echo "dockerhub_digest=$(resolve_digest "${DOCKERHUB_ORG}/${APP_NAME}:${TAG}")" >> "$GITHUB_OUTPUT"
+            { read -r DH_DIGEST; read -r DH_FAILED; } < <(resolve_digest "${DOCKERHUB_ORG}/${APP_NAME}:${TAG}")
+            echo "dockerhub_digest=$DH_DIGEST" >> "$GITHUB_OUTPUT"
+            echo "dockerhub_lookup_failed=$DH_FAILED" >> "$GITHUB_OUTPUT"
           fi
 
           if [ "$ENABLE_GHCR" == "true" ]; then
-            echo "ghcr_digest=$(resolve_digest "ghcr.io/${GHCR_ORG}/${APP_NAME}:${TAG}")" >> "$GITHUB_OUTPUT"
+            { read -r GHCR_DIGEST_OUT; read -r GHCR_FAILED; } < <(resolve_digest "ghcr.io/${GHCR_ORG}/${APP_NAME}:${TAG}")
+            echo "ghcr_digest=$GHCR_DIGEST_OUT" >> "$GITHUB_OUTPUT"
+            echo "ghcr_lookup_failed=$GHCR_FAILED" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Build cosign image references
@@ -538,6 +551,8 @@ jobs:
           DIGEST: ${{ steps.build-push.outputs.digest }}
           DOCKERHUB_DIGEST: ${{ steps.existing-digest.outputs.dockerhub_digest }}
           GHCR_DIGEST: ${{ steps.existing-digest.outputs.ghcr_digest }}
+          DOCKERHUB_LOOKUP_FAILED: ${{ steps.existing-digest.outputs.dockerhub_lookup_failed }}
+          GHCR_LOOKUP_FAILED: ${{ steps.existing-digest.outputs.ghcr_lookup_failed }}
           ENABLE_DOCKERHUB: ${{ inputs.enable_dockerhub }}
           ENABLE_GHCR: ${{ inputs.enable_ghcr }}
           DOCKERHUB_ORG: ${{ inputs.dockerhub_org }}
@@ -569,6 +584,16 @@ jobs:
             echo "EOF"
           } >> "$GITHUB_OUTPUT"
 
+          # A registry lookup error (as opposed to a confirmed-absent tag) means
+          # that registry's image was never actually verified for signing, even
+          # if the other enabled registry resolves fine and cosign succeeds for
+          # it. Surface that as its own signal so the run isn't reported as a
+          # clean success while one registry's image silently stayed unsigned.
+          HAS_LOOKUP_ERROR="false"
+          [ "$ENABLE_DOCKERHUB" == "true" ] && [ "$DOCKERHUB_LOOKUP_FAILED" == "true" ] && HAS_LOOKUP_ERROR="true"
+          [ "$ENABLE_GHCR" == "true" ] && [ "$GHCR_LOOKUP_FAILED" == "true" ] && HAS_LOOKUP_ERROR="true"
+          echo "has_lookup_error=$HAS_LOOKUP_ERROR" >> "$GITHUB_OUTPUT"
+
       - name: Sign container images with cosign
         if: inputs.enable_cosign_sign
         id: cosign-sign
@@ -581,23 +606,32 @@ jobs:
           max-delay: ${{ inputs.cosign_max_delay }}
 
       - name: Report cosign signing status
-        if: inputs.enable_cosign_sign && steps.cosign-sign.outcome == 'failure'
+        if: >-
+          inputs.enable_cosign_sign &&
+          (steps.cosign-sign.outcome == 'failure' || steps.cosign-refs.outputs.has_lookup_error == 'true')
         env:
           REFS: ${{ steps.cosign-refs.outputs.refs }}
           APP_NAME: ${{ matrix.app.name }}
+          SIGNING_FAILED: ${{ steps.cosign-sign.outcome == 'failure' }}
+          HAS_LOOKUP_ERROR: ${{ steps.cosign-refs.outputs.has_lookup_error }}
         run: |
-          echo "::warning::Cosign signing did not complete for every ref for ${APP_NAME} — one or more of the refs below may still be unsigned."
+          echo "::warning::Cosign signing did not complete for every image of ${APP_NAME} — one or more images may still be unsigned."
           {
-            echo "### ⚠️ Signing did not complete for every ref — manual action required"
+            echo "### ⚠️ Signing did not complete for every image — manual action required"
             echo ""
             echo "- **App:** \`${APP_NAME}\`"
-            echo "- **Requested refs (each already includes its own digest):**"
-            echo '```'
-            echo "${REFS}"
-            echo '```'
+            if [ "$HAS_LOOKUP_ERROR" == "true" ]; then
+              echo "- **Note:** a registry lookup failed while resolving the existing tag's digest (see the ::warning:: above) — that registry's image was never verified or signed, even if signing succeeded for the other one."
+            fi
+            if [ "$SIGNING_FAILED" == "true" ]; then
+              echo "- **Requested refs (each already includes its own digest):**"
+              echo '```'
+              echo "${REFS}"
+              echo '```'
+            fi
             echo ""
             echo "GitOps artifact upload was allowed to continue (\`continue_gitops_on_signing_failure: true\`)."
-            echo "The image(s) above are immutable and already present in the registry, but signing failed after all retries for at least one ref — some refs above may already be signed, others may not be. Verify with \`cosign verify\` and run \`cosign sign\` manually against any ref that isn't before promoting to production."
+            echo "The image(s) above are immutable and already present in the registry, but signing did not complete for every one — some may already be signed, others may not be. Verify with \`cosign verify\` and run \`cosign sign\` manually against any ref that isn't before promoting to production."
           } >> "$GITHUB_STEP_SUMMARY"
 
       # ----------------- GitOps Artifacts -----------------
