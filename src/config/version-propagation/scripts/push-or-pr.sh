@@ -115,6 +115,7 @@ if [[ -n "$bot_login" ]]; then
   # walks every page, and current_branch/bot_login go through jq --arg rather
   # than being interpolated into the filter string.
   if ! stale_prs=$(gh api "repos/${REPO}/pulls" \
+    --method GET \
     --paginate \
     -f state=open \
     -f base="$TARGET_BRANCH" \
