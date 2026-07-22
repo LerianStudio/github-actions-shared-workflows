@@ -1,5 +1,23 @@
 # Github-actions-shared-workflows Changelog
 
+## [1.47.1](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.47.1)
+
+Fixes:
+
+- Ensure the `cosign` report step runs by adding `!cancelled()` condition. (@bedatty)
+- Surface registry lookup failures even when signing succeeds. (@bedatty)
+- Stop merging `stderr` into digest inspect `stdout`. (@bedatty)
+- Retry `cosign` signing when `on_existing_tag` skips the build. (@bedatty)
+- Escape workflow-command output and soften partial-failure wording. (@bedatty)
+- Surface digest inspection failures and stop collapsing report digests. (@bedatty)
+- Resolve `cosign` digest per registry independently. (@bedatty)
+- Run post-release backmerge after changelog commit. (@bedatty, @gandalf-at-lerian)
+- Develop to main release process adjustment. (@bedatty)
+
+[Compare changes](https://github.com/LerianStudio/github-actions-shared-workflows/compare/v1.47.0...v1.47.1)
+
+---
+
 ## [1.47.0](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.47.0)
 
 Features:
