@@ -109,20 +109,21 @@ fi
 current_branch="chore/bump-shared-workflows-${NEW_TAG}"
 stale_prs=""
 if [[ -n "$bot_login" ]]; then
-  # Pass current_branch/bot_login via jq --arg rather than interpolating them
-  # into the filter string, so a stray quote in either value can't change
-  # which PRs the filter matches.
-  if ! stale_prs=$(gh pr list \
-    --repo "$REPO" \
-    --base "$TARGET_BRANCH" \
-    --state open \
-    --limit 200 \
-    --json number,headRefName,author \
+  # Use `gh api --paginate` (REST pulls list) instead of `gh pr list`, which
+  # caps at a fixed --limit — a large target repo could have more open PRs
+  # than the cap, silently hiding older bump PRs from this filter. --paginate
+  # walks every page, and current_branch/bot_login go through jq --arg rather
+  # than being interpolated into the filter string.
+  if ! stale_prs=$(gh api "repos/${REPO}/pulls" \
+    --paginate \
+    -f state=open \
+    -f base="$TARGET_BRANCH" \
+    -f per_page=100 \
     2>"$stale_prs_err" | jq -r \
       --arg cur "$current_branch" \
       --arg bot "$bot_login" \
-      '.[] | select(.headRefName != $cur and (.headRefName | startswith("chore/bump-shared-workflows-")) and .author.login == $bot) | .number'); then
-    echo "::warning::gh pr list failed while looking for stale bump PRs:" >&2
+      '.[] | select(.head.ref != $cur and (.head.ref | startswith("chore/bump-shared-workflows-")) and .user.login == $bot) | .number'); then
+    echo "::warning::gh api pulls list failed while looking for stale bump PRs:" >&2
     cat "$stale_prs_err" >&2
     stale_prs=""
   fi
