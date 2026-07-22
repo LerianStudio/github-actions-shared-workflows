@@ -500,32 +500,35 @@ jobs:
             printf '%s' "$s"
           }
 
+          # Captures stdout and stderr separately (not merged) so any stderr
+          # chatter on an otherwise-successful call (deprecation notices,
+          # credential-helper output) can't corrupt the JSON fed to jq.
+          resolve_digest() {
+            local ref="$1"
+            local out err digest=""
+            local err_file
+            err_file="$(mktemp)"
+            if out=$(docker buildx imagetools inspect "$ref" --format '{{json .Manifest}}' 2>"$err_file"); then
+              digest=$(echo "$out" | jq -r '.digest // empty')
+              [ -z "$digest" ] && echo "::warning::docker buildx imagetools inspect for ${ref} returned no digest — cosign will skip this registry." >&2
+            else
+              err=$(cat "$err_file")
+              echo "::warning::Failed to inspect ${ref} (registry lookup error, possibly transient) — cosign will skip signing for this registry: $(escape_for_warning "$err")" >&2
+            fi
+            rm -f "$err_file"
+            printf '%s' "$digest"
+          }
+
           # Each registry is inspected independently: a tag can be immutable-blocked
           # in one registry but absent from another (e.g. a prior partial push), so
           # reusing one registry's digest for the other's ref would sign a
           # nonexistent (or wrong) reference.
           if [ "$ENABLE_DOCKERHUB" == "true" ]; then
-            REF="${DOCKERHUB_ORG}/${APP_NAME}:${TAG}"
-            DIGEST=""
-            if OUTPUT=$(docker buildx imagetools inspect "$REF" --format '{{json .Manifest}}' 2>&1); then
-              DIGEST=$(echo "$OUTPUT" | jq -r '.digest // empty')
-              [ -z "$DIGEST" ] && echo "::warning::docker buildx imagetools inspect for ${REF} returned no digest — cosign will skip this registry."
-            else
-              echo "::warning::Failed to inspect ${REF} (registry lookup error, possibly transient) — cosign will skip signing for this registry: $(escape_for_warning "$OUTPUT")"
-            fi
-            echo "dockerhub_digest=$DIGEST" >> "$GITHUB_OUTPUT"
+            echo "dockerhub_digest=$(resolve_digest "${DOCKERHUB_ORG}/${APP_NAME}:${TAG}")" >> "$GITHUB_OUTPUT"
           fi
 
           if [ "$ENABLE_GHCR" == "true" ]; then
-            REF="ghcr.io/${GHCR_ORG}/${APP_NAME}:${TAG}"
-            DIGEST=""
-            if OUTPUT=$(docker buildx imagetools inspect "$REF" --format '{{json .Manifest}}' 2>&1); then
-              DIGEST=$(echo "$OUTPUT" | jq -r '.digest // empty')
-              [ -z "$DIGEST" ] && echo "::warning::docker buildx imagetools inspect for ${REF} returned no digest — cosign will skip this registry."
-            else
-              echo "::warning::Failed to inspect ${REF} (registry lookup error, possibly transient) — cosign will skip signing for this registry: $(escape_for_warning "$OUTPUT")"
-            fi
-            echo "ghcr_digest=$DIGEST" >> "$GITHUB_OUTPUT"
+            echo "ghcr_digest=$(resolve_digest "ghcr.io/${GHCR_ORG}/${APP_NAME}:${TAG}")" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Build cosign image references
