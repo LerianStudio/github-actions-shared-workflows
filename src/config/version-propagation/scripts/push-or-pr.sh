@@ -109,14 +109,19 @@ fi
 current_branch="chore/bump-shared-workflows-${NEW_TAG}"
 stale_prs=""
 if [[ -n "$bot_login" ]]; then
+  # Pass current_branch/bot_login via jq --arg rather than interpolating them
+  # into the filter string, so a stray quote in either value can't change
+  # which PRs the filter matches.
   if ! stale_prs=$(gh pr list \
     --repo "$REPO" \
     --base "$TARGET_BRANCH" \
     --state open \
     --limit 200 \
     --json number,headRefName,author \
-    --jq ".[] | select(.headRefName != \"$current_branch\" and (.headRefName | startswith(\"chore/bump-shared-workflows-\")) and .author.login == \"$bot_login\") | .number" \
-    2>"$stale_prs_err"); then
+    2>"$stale_prs_err" | jq -r \
+      --arg cur "$current_branch" \
+      --arg bot "$bot_login" \
+      '.[] | select(.headRefName != $cur and (.headRefName | startswith("chore/bump-shared-workflows-")) and .author.login == $bot) | .number'); then
     echo "::warning::gh pr list failed while looking for stale bump PRs:" >&2
     cat "$stale_prs_err" >&2
     stale_prs=""
