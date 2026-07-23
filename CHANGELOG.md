@@ -1,5 +1,19 @@
 # Github-actions-shared-workflows Changelog
 
+## [1.47.4](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.47.4)
+
+Fixes:
+- Corrected the release process by ensuring changes are properly merged from `develop` to `main`. (@bedatty)
+- Updated the Go release workflow to forward `kustomize` GitOps inputs to the `update_gitops` job. (@bedatty)
+
+Improvements:
+- Bumped dependencies for the `security-scanners` group across one directory with two updates. (@bedatty)
+- Updated the `actions-core` group dependencies across one directory with three updates. (@bedatty)
+
+[Compare changes](https://github.com/LerianStudio/github-actions-shared-workflows/compare/v1.47.3...v1.47.4)
+
+---
+
 ## [1.47.3](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.47.3)
 
 Fixes:
