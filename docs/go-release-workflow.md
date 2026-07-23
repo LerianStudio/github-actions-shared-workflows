@@ -66,6 +66,12 @@ A third layout needs `release_single_app: true`: **one semantic-release tag for 
 | `use_dynamic_mapping` | Use dynamic artifact-to-YAML key mapping | boolean | `false` |
 | `configmap_updates` | JSON mapping of artifact names to configmap keys (helmfile only) | string | `''` |
 | `enable_docker_login` | Log in to DockerHub in the gitops-update job | boolean | `false` |
+| `gitops_layout` | GitOps layout strategy: `helmfile` (default, current behavior) or `kustomize` | string | `helmfile` |
+| `kustomize_base_path` | Required when `gitops_layout=kustomize`. Path within the gitops repo to the kustomization folder (supports `${SERVER}`/`${ENV}` placeholders) | string | `''` |
+| `kustomize_image_name` | Required when `gitops_layout=kustomize`. Image reference matched by `kustomize edit set image` | string | `''` |
+| `kustomize_environments` | Optional space-separated env list overriding the default tag-based env loop when `gitops_layout=kustomize` | string | `''` |
+| `kustomize_version` | Version of kustomize CLI to install (used only when `gitops_layout=kustomize`) | string | `v5.4.3` |
+| `argocd_app_name_template` | Template for the ArgoCD application name. Placeholders `{server}`, `{app}`, `{env}`. For kustomize layouts without env split use e.g. `{server}-{app}` | string | `{server}-{app}-{env}` |
 | `s3_uploads` | JSON array of S3 upload entries run after build on tag push (see [S3 migrations upload](#s3-migrations-upload)) | string | `''` |
 | `enable_apidog_e2e` | Run the ApiDog E2E test job on tag push after a successful gitops-update | boolean | `false` |
 | `apidog_runner_type` | Runner for the ApiDog E2E test job (needs reach to the deployed environment) | string | `eveo-lxc-runners` |

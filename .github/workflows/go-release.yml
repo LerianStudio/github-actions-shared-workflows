@@ -197,6 +197,30 @@ on:
         description: 'Log in to DockerHub in the gitops-update job (for private image digest reads)'
         type: boolean
         default: false
+      gitops_layout:
+        description: 'GitOps layout strategy: "helmfile" (default, current behavior) or "kustomize".'
+        type: string
+        default: 'helmfile'
+      kustomize_base_path:
+        description: 'Required when gitops_layout=kustomize. Path within the gitops repo to the kustomization folder (e.g. environments/anacleto/kustomize/ungoliant-controller). Supports ${SERVER} and ${ENV} placeholders.'
+        type: string
+        default: ''
+      kustomize_image_name:
+        description: 'Required when gitops_layout=kustomize. Image reference matched by `kustomize edit set image` (e.g. ghcr.io/lerianstudio/ungoliant-controller).'
+        type: string
+        default: ''
+      kustomize_environments:
+        description: 'Optional space-separated env list overriding the default tag-based env loop when gitops_layout=kustomize. Leave empty for layouts without env split.'
+        type: string
+        default: ''
+      kustomize_version:
+        description: 'Version of kustomize CLI to install (used only when gitops_layout=kustomize).'
+        type: string
+        default: 'v5.4.3'
+      argocd_app_name_template:
+        description: 'Template for the ArgoCD application name. Supports placeholders {server}, {app}, {env}. Default {server}-{app}-{env} preserves current behavior. For kustomize layouts without env split, use e.g. {server}-{app}.'
+        type: string
+        default: '{server}-{app}-{env}'
 
       # ----------------- S3 Upload (s3-upload.yml) -----------------
       s3_uploads:
@@ -429,7 +453,7 @@ jobs:
       contents: read
     steps:
       - name: Checkout repository
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
         with:
           persist-credentials: false
 
@@ -652,6 +676,12 @@ jobs:
       use_dynamic_mapping: ${{ inputs.use_dynamic_mapping }}
       configmap_updates: ${{ inputs.configmap_updates }}
       enable_docker_login: ${{ inputs.enable_docker_login }}
+      gitops_layout: ${{ inputs.gitops_layout }}
+      kustomize_base_path: ${{ inputs.kustomize_base_path }}
+      kustomize_image_name: ${{ inputs.kustomize_image_name }}
+      kustomize_environments: ${{ inputs.kustomize_environments }}
+      kustomize_version: ${{ inputs.kustomize_version }}
+      argocd_app_name_template: ${{ inputs.argocd_app_name_template }}
       force_env: ${{ github.ref_type == 'branch' && inputs.build_on_release && (contains(needs.release.outputs.new_release_version, '-beta.') && 'development' || contains(needs.release.outputs.new_release_version, '-rc.') && 'staging' || 'production') || '' }}
     secrets: inherit
 
