@@ -1,5 +1,16 @@
 # Github-actions-shared-workflows Changelog
 
+## [1.47.5](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.47.5)
+
+Fixes:
+
+- Merged changes from the `develop` branch into the `main` branch to align the release process. (@bedatty)
+- Updated the `gitops-update` workflow to install `kustomize` without using `sudo`, following the pattern used for `yq`. (@bedatty)
+
+[Compare changes](https://github.com/LerianStudio/github-actions-shared-workflows/compare/v1.47.4...v1.47.5)
+
+---
+
 ## [1.47.4](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.47.4)
 
 Fixes:
