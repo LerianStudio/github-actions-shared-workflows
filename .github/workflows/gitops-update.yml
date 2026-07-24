@@ -255,7 +255,10 @@ jobs:
           URL="https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2F${VERSION}/kustomize_${VERSION}_linux_amd64.tar.gz"
           curl -fsSL "$URL" -o /tmp/kustomize.tar.gz
           tar -xzf /tmp/kustomize.tar.gz -C /tmp
-          sudo install -m 755 /tmp/kustomize /usr/local/bin/kustomize
+          mkdir -p ~/.local/bin
+          install -m 755 /tmp/kustomize ~/.local/bin/kustomize
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          export PATH="$HOME/.local/bin:$PATH"
           kustomize version
 
       - name: Validate kustomize inputs
