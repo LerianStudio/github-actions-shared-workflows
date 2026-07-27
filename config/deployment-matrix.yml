@@ -106,6 +106,10 @@ apps:
     - rosiehr                     # internal HR app (benedita only); values at cross/
     - go-boilerplate-ddd          # Go service boilerplate (reference/template)
 
+    # Provisioned by Severino (app-provisioning automation)
+    - severino-teste-4
+    - severino-teste-5
+
 clusters:
   anacleto:
     # Anacleto hosts two parallel test types (chaos, fuzzing), each with two
@@ -155,12 +159,6 @@ clusters:
       lerian-map: cross
       rosiehr: cross
       tenant-manager: cross
-      # Caradhras is the pre-promotion test instance of the plugin-access-manager
-      # auth-backend and exists only at stg-mt (its values.yaml is the one whose
-      # .auth.backend.image.repository already points at ghcr.io/lerianstudio/caradhras,
-      # unlike the primary plugin-access-manager, which still runs ghcr.io/lerianstudio/casdoor).
-      # Without this override a beta tag would resolve dev-st / dev-mt and find no values.yaml.
-      plugin-access-manager-caradhras: stg-mt
     apps:
       - midaz
       - fetcher
@@ -194,3 +192,7 @@ clusters:
       - rosiehr
       - go-boilerplate-ddd
       - severino-bot
+
+      # Provisioned by Severino (app-provisioning automation)
+      - severino-teste-4
+      - severino-teste-5
