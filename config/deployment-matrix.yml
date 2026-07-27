@@ -73,7 +73,7 @@ apps:
 
     # Plugins
     - plugin-access-manager       # caller repo may push as plugin-identity / plugin-auth / casdoor
-    - caradhras                   # Lerian's hard fork of Casdoor (IAM/SSO); pushed by LerianStudio/caradhras. Distinct from plugin-access-manager: its own app dir, own values.yaml, three images (caradhras, caradhras-postgres-migrations, caradhras-ui)
+    - plugin-access-manager-caradhras  # pre-promotion test instance of the plugin-access-manager auth-backend, running the caradhras image; pushed by LerianStudio/caradhras via gitops_app_name (its image is ghcr.io/lerianstudio/caradhras, so the repo name alone does not match this app dir)
     - plugin-fees
     - plugin-br-pix-indirect-btg
     - plugin-br-pix-switch
@@ -160,7 +160,7 @@ clusters:
       # .auth.backend.image.repository already points at ghcr.io/lerianstudio/caradhras,
       # unlike the primary plugin-access-manager, which still runs ghcr.io/lerianstudio/casdoor).
       # Without this override a beta tag would resolve dev-st / dev-mt and find no values.yaml.
-      caradhras: stg-mt
+      plugin-access-manager-caradhras: stg-mt
     apps:
       - midaz
       - fetcher
@@ -170,7 +170,7 @@ clusters:
       - tracer
       - product-console
       - plugin-access-manager
-      - caradhras
+      - plugin-access-manager-caradhras
       - plugin-fees
       - plugin-br-pix-indirect-btg
       - plugin-br-pix-switch
