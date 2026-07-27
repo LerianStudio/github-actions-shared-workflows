@@ -276,8 +276,12 @@ jobs:
       fail_on_coverage_threshold: ${{ inputs.fail_on_coverage_threshold }}
       go_private_modules: ${{ inputs.go_private_modules }}
       enable_integration_tests: ${{ inputs.enable_integration_tests }}
-      # Empty falls through to go-pr-analysis's own default (`make test-integration`),
-      # so an unset caller keeps the previous behaviour.
+      # Intentional duplicate of go-pr-analysis's own default — KEEP IN SYNC.
+      # A reusable-workflow default applies only when the input is omitted, and a
+      # `with:` mapping cannot conditionally omit a key: passing the empty string
+      # through would reach go-pr-analysis as '' and produce an empty `run:` in its
+      # integration-tests job, which is a workflow validation error. So the literal
+      # has to be repeated here rather than deferred to.
       integration_test_command: ${{ inputs.integration_test_command || 'make test-integration' }}
       enable_test_determinism: ${{ inputs.enable_test_determinism }}
       test_determinism_runs: ${{ inputs.test_determinism_runs }}

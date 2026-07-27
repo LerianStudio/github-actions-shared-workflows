@@ -921,7 +921,11 @@ jobs:
   custom-checks:
     name: Custom Checks (${{ matrix.app.name }})
     needs: detect-changes
-    if: needs.detect-changes.outputs.has_changes == 'true' && inputs.enable_custom_checks && inputs.custom_checks != ''
+    # Deliberately NOT also gated on `custom_checks != ''`. A caller that enables
+    # the gate but leaves the list empty is misconfigured, and skipping the job
+    # silently would report coverage that never happened — the run step warns
+    # instead.
+    if: needs.detect-changes.outputs.has_changes == 'true' && inputs.enable_custom_checks
     runs-on: ${{ vars.GENERAL_RUNNERS || inputs.runner_type }}
     # This is the only job that runs caller-supplied commands, so it is the one
     # place an unbounded hang is plausible. Caps the 6h GitHub default while
@@ -984,6 +988,10 @@ jobs:
         env:
           CUSTOM_CHECKS: ${{ inputs.custom_checks }}
         run: |
+          if [ -z "${CUSTOM_CHECKS//[[:space:]]/}" ]; then
+            echo "::warning::enable_custom_checks is true but custom_checks is empty — no checks ran"
+            exit 0
+          fi
           set +e
           failures=0
           while IFS= read -r target; do
