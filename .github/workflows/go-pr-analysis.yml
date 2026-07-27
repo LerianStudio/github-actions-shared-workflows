@@ -923,6 +923,10 @@ jobs:
     needs: detect-changes
     if: needs.detect-changes.outputs.has_changes == 'true' && inputs.enable_custom_checks && inputs.custom_checks != ''
     runs-on: ${{ vars.GENERAL_RUNNERS || inputs.runner_type }}
+    # This is the only job that runs caller-supplied commands, so it is the one
+    # place an unbounded hang is plausible. Caps the 6h GitHub default while
+    # staying generous enough for a heavy guard.
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -930,6 +934,11 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+        with:
+          # Caller-supplied make targets run in this workspace; do not leave a
+          # usable git credential behind for them. Private-module access comes
+          # from the explicit git config step below, not from checkout.
+          persist-credentials: false
 
       - name: Install system dependencies
         if: inputs.system_packages != ''
@@ -956,12 +965,16 @@ jobs:
           go-version: ${{ inputs.go_version }}
           cache: true
 
+      # MANAGE_TOKEN goes through env rather than being interpolated into the
+      # script text: an interpolated secret is not masked if the shell traces the
+      # command, and it is what CodeQL/zizmor flag as template-injection.
       - name: Configure private Go modules
         if: inputs.go_private_modules != ''
         run: |
-          git config --global url."https://${{ secrets.MANAGE_TOKEN }}@github.com/".insteadOf "https://github.com/"
+          git config --global url."https://${MANAGE_TOKEN}@github.com/".insteadOf "https://github.com/"
         env:
           GOPRIVATE: ${{ inputs.go_private_modules }}
+          MANAGE_TOKEN: ${{ secrets.MANAGE_TOKEN }}
 
       # Every target runs even if an earlier one fails, so one PR surfaces every
       # broken guard instead of only the first. CUSTOM_CHECKS is passed via env
