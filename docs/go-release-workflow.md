@@ -56,6 +56,7 @@ A third layout needs `release_single_app: true`: **one semantic-release tag for 
 | `beta_environments` | Space-separated environments updated by a beta release (`develop` branch) | string | `dev` |
 | `rc_environments` | Space-separated environments updated by an rc release (`release-candidate` branch) | string | `stg` |
 | `stable_environments` | Space-separated environments updated by a stable release (`main` branch). Default `prd` so a hotfix does not overwrite features still in dev/stg. Set to `dev stg prd` to refresh lower environments too. Sandbox is controlled separately by `update_sandbox` | string | `prd` |
+| `gitops_app_name` | App name used **only** by `update_gitops` (deployment-matrix lookup + the `applications/{env}/{app}/values.yaml` path). Empty → the existing chain (`app_name`, then `app_name_prefix`, then the repo name) | string | `''` |
 | `gitops_artifact_pattern` | Pattern to download GitOps artifacts. Empty → `gitops-tags-<repo-name>*` | string | `''` |
 | `gitops_yaml_key_mappings` | JSON mapping of artifact names to YAML keys | string | `''` |
 | `gitops_runner_type` | Runner for the gitops-update (deploy) job (needs cluster access) | string | `eveo-lxc-runners` |
@@ -88,6 +89,8 @@ A third layout needs `release_single_app: true`: **one semantic-release tag for 
 | `release_single_app` | Force single-app mode for the release job even when `filter_paths` is set (one version tag, many images) | boolean | `false` |
 
 > **Derived gitops defaults** — to slim down gitops/helm plugin callers, three gitops-update inputs derive from `app_name_prefix` / the repo name when left unset: `commit_message_prefix` → `app_name_prefix`; the gitops deploy `app_name` → `app_name_prefix`; `gitops_artifact_pattern` → `gitops-tags-<repo-name>*`. Set any of them explicitly to override (e.g. a repo whose deploy app name differs from its `app_name_prefix`, or a monorepo needing a different artifact suffix). All derivations fall back to the repository name when `app_name_prefix` is also empty, preserving the previous behavior.
+>
+> **Decoupling the gitops app name from the image name** — `app_name` is a single input shared by `build.yml` and `update_gitops`, so using it to fix a gitops path also renames the published image (`build.yml` resolves `APP_NAME="${app_name:-$REPO_NAME}"`). When the gitops app directory is named differently from the image, set `gitops_app_name` instead: it takes precedence for the deploy job only and leaves the image name untouched. Empty (the default) keeps the chain above exactly as it was.
 
 ## Secrets
 
