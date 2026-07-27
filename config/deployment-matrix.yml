@@ -108,6 +108,7 @@ apps:
 
     # Provisioned by Severino (app-provisioning automation)
     - severino-teste-4
+    - severino-teste-5
 
 clusters:
   anacleto:
@@ -194,3 +195,4 @@ clusters:
 
       # Provisioned by Severino (app-provisioning automation)
       - severino-teste-4
+      - severino-teste-5
