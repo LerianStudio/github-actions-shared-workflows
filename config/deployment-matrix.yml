@@ -73,6 +73,7 @@ apps:
 
     # Plugins
     - plugin-access-manager       # caller repo may push as plugin-identity / plugin-auth / casdoor
+    - caradhras                   # Lerian's hard fork of Casdoor (IAM/SSO); pushed by LerianStudio/caradhras. Distinct from plugin-access-manager: its own app dir, own values.yaml, three images (caradhras, caradhras-postgres-migrations, caradhras-ui)
     - plugin-fees
     - plugin-br-pix-indirect-btg
     - plugin-br-pix-switch
@@ -163,6 +164,7 @@ clusters:
       - tracer
       - product-console
       - plugin-access-manager
+      - caradhras
       - plugin-fees
       - plugin-br-pix-indirect-btg
       - plugin-br-pix-switch
