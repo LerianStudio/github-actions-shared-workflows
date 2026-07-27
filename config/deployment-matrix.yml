@@ -109,6 +109,7 @@ apps:
     # Provisioned by Severino (app-provisioning automation)
     - severino-teste-4
     - severino-teste-5
+    - severino-teste-6
 
 clusters:
   anacleto:
@@ -133,6 +134,9 @@ clusters:
       - br-sisbajud
       - lender
       - ungoliant-controller
+
+      # Provisioned by Severino (app-provisioning automation)
+      - severino-teste-6
 
   benedita:
     # Benedita hosts two parallel variants per environment as sibling namespaces:
@@ -196,3 +200,4 @@ clusters:
       # Provisioned by Severino (app-provisioning automation)
       - severino-teste-4
       - severino-teste-5
+      - severino-teste-6
