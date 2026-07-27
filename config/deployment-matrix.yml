@@ -155,6 +155,12 @@ clusters:
       lerian-map: cross
       rosiehr: cross
       tenant-manager: cross
+      # Caradhras is the pre-promotion test instance of the plugin-access-manager
+      # auth-backend and exists only at stg-mt (its values.yaml is the one whose
+      # .auth.backend.image.repository already points at ghcr.io/lerianstudio/caradhras,
+      # unlike the primary plugin-access-manager, which still runs ghcr.io/lerianstudio/casdoor).
+      # Without this override a beta tag would resolve dev-st / dev-mt and find no values.yaml.
+      caradhras: stg-mt
     apps:
       - midaz
       - fetcher
