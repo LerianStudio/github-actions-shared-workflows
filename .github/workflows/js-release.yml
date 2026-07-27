@@ -145,6 +145,10 @@ on:
         description: 'Space-separated environments updated by a stable release (main branch). Default "prd" so a hotfix does not overwrite features still in dev/stg. Set to "dev stg prd" to refresh lower environments too. Sandbox is controlled separately by update_sandbox.'
         type: string
         default: 'prd'
+      gitops_app_name:
+        description: 'App name used ONLY for the gitops-update job (deployment-matrix lookup + the helmfile applications/{env}/{app}/values.yaml path). Empty = keep the existing resolution (app_name_prefix, then the repository name). Set this when the gitops app directory is named differently from the published image.'
+        type: string
+        default: ''
       gitops_artifact_pattern:
         description: 'Pattern to download GitOps artifacts (defaults to "gitops-tags-<repo-name>*")'
         type: string
@@ -428,7 +432,10 @@ jobs:
       beta_environments: ${{ inputs.beta_environments }}
       rc_environments: ${{ inputs.rc_environments }}
       stable_environments: ${{ inputs.stable_environments }}
-      app_name: ${{ inputs.app_name_prefix }}
+      # gitops_app_name first, then the pre-existing value unchanged, so a caller
+      # that does not set it resolves exactly as before (and gitops-update still
+      # falls back to the repository name when both are empty).
+      app_name: ${{ inputs.gitops_app_name || inputs.app_name_prefix }}
       artifact_pattern: ${{ inputs.gitops_artifact_pattern || format('gitops-tags-{0}*', github.event.repository.name) }}
       yaml_key_mappings: ${{ inputs.gitops_yaml_key_mappings }}
       deployment_matrix_ref: ${{ inputs.deployment_matrix_ref }}

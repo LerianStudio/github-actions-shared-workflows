@@ -51,6 +51,7 @@ Mirrors the [`go-release`](./go-release-workflow.md) umbrella for Go services �
 | `beta_environments` | Space-separated environments updated by a beta release (`develop` branch) | string | `dev` |
 | `rc_environments` | Space-separated environments updated by an rc release (`release-candidate` branch) | string | `stg` |
 | `stable_environments` | Space-separated environments updated by a stable release (`main` branch). Default `prd` so a hotfix does not overwrite features still in dev/stg. Set to `dev stg prd` to refresh lower environments too. Sandbox is controlled separately by `update_sandbox` | string | `prd` |
+| `gitops_app_name` | App name used **only** by `update_gitops` (deployment-matrix lookup + the `applications/{env}/{app}/values.yaml` path). Empty → the existing chain (`app_name_prefix`, then the repo name) | string | `''` |
 | `gitops_artifact_pattern` | Pattern to download GitOps artifacts. Empty → `gitops-tags-<repo-name>*` | string | `''` |
 | `gitops_yaml_key_mappings` | JSON mapping of artifact names to YAML keys | string | `''` |
 | `deployment_matrix_ref` | Git ref of shared-workflows to read the deployment matrix from | string | `main` |
