@@ -15,6 +15,8 @@ Umbrella reusable workflow for Go service repositories. A caller references this
 
 The `go-analysis`, `security` and `lib-version` pipelines each have a `*-gate` aggregator job that exposes a single stable status-check name (`Go Analysis`, `Security`, `Lib Version`) for branch protection, regardless of the internal job names. All three are gated by the change detector, so documentation-only PRs skip them (and the aggregators still report success). If the change detector (`changes`) job itself fails, the aggregators propagate that failure instead of passing — so broken change detection cannot let the required checks go green.
 
+> The aggregators run with `if: always()`, so they report on every run of this workflow. `result-gate` treats `skipped` as a pass, which is correct for the docs-only case (the detector ran and found nothing to analyse) but **not** for a run where the detector never ran at all — that would report the required checks green having evaluated nothing. The `changes` job must therefore stay reachable on every `pull_request` action type the caller listens to, `edited` included. A caller that adds an action type to its own `types:` list without it being covered here reintroduces the hole.
+
 ## Inputs
 
 | Input | Description | Type | Default |
@@ -46,6 +48,11 @@ The `go-analysis`, `security` and `lib-version` pipelines each have a `*-gate` a
 | `fail_on_coverage_threshold` | Fail when coverage is below threshold | boolean | `true` |
 | `go_private_modules` | GOPRIVATE pattern for private modules | string | `''` |
 | `enable_integration_tests` | Enable integration tests | boolean | `false` |
+| `integration_test_command` | Command for the integration lane. Empty → `make test-integration` | string | `''` |
+| `enable_test_determinism` | Enable the test determinism check (repeat runs with shuffle) | boolean | `false` |
+| `test_determinism_runs` | Number of repeat runs for the determinism check | number | `3` |
+| `enable_custom_checks` | Run arbitrary caller-owned Makefile targets as an extra gate | boolean | `false` |
+| `custom_checks` | Newline-separated Makefile targets; each runs via `make <target>`, any non-zero exit fails the job | string | `''` |
 | `system_packages` | apt packages to install for CGO repos | string | `''` |
 | `ignore_file` | Path to Trivy ignore file | string | `''` |
 | `enable_docker_scan` | Build and scan a Docker image with Trivy; set `false` for repos without a root Dockerfile (monorepos with Dockerfiles under `components/`/`cmd/`) | boolean | `true` |

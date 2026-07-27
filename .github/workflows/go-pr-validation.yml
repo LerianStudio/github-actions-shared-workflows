@@ -124,6 +124,26 @@ on:
         description: 'Enable integration tests (requires make test-integration target)'
         type: boolean
         default: false
+      integration_test_command:
+        description: 'Command to run integration tests. Empty = go-pr-analysis default (`make test-integration`).'
+        type: string
+        default: ''
+      enable_test_determinism:
+        description: 'Enable the test determinism check (runs tests multiple times with shuffle)'
+        type: boolean
+        default: false
+      test_determinism_runs:
+        description: 'Number of times to run tests for the determinism check'
+        type: number
+        default: 3
+      enable_custom_checks:
+        description: 'Enable arbitrary caller-owned checks beyond the named gates (runs each target in custom_checks)'
+        type: boolean
+        default: false
+      custom_checks:
+        description: 'Newline-separated Makefile targets to run as additional checks. Each runs via `make <target>`; a non-zero exit on any of them fails the job. Use for repo-specific guards the named jobs do not cover.'
+        type: string
+        default: ''
       system_packages:
         description: 'Space-separated apt packages to install before Go commands (CGO repos)'
         type: string
@@ -217,9 +237,13 @@ jobs:
     secrets: inherit
 
   # ----------------- Change Detection (gate) -----------------
+  # `edited` must stay in this list. When this job is skipped, the *-gate
+  # aggregators still run (if: always()) and receive result == 'skipped', which
+  # result-gate treats as a pass — so a run that evaluated nothing reports the
+  # required checks green. Matches js-pr-validation.yml, which already includes it.
   changes:
     name: Detect non-doc changes
-    if: contains(fromJSON('["opened","synchronize","reopened","ready_for_review"]'), github.event.action)
+    if: contains(fromJSON('["opened","edited","synchronize","reopened","ready_for_review"]'), github.event.action)
     runs-on: ${{ vars.GENERAL_RUNNERS || inputs.runner_type }}
     permissions:
       contents: read
@@ -252,6 +276,17 @@ jobs:
       fail_on_coverage_threshold: ${{ inputs.fail_on_coverage_threshold }}
       go_private_modules: ${{ inputs.go_private_modules }}
       enable_integration_tests: ${{ inputs.enable_integration_tests }}
+      # Intentional duplicate of go-pr-analysis's own default — KEEP IN SYNC.
+      # A reusable-workflow default applies only when the input is omitted, and a
+      # `with:` mapping cannot conditionally omit a key: passing the empty string
+      # through would reach go-pr-analysis as '' and produce an empty `run:` in its
+      # integration-tests job, which is a workflow validation error. So the literal
+      # has to be repeated here rather than deferred to.
+      integration_test_command: ${{ inputs.integration_test_command || 'make test-integration' }}
+      enable_test_determinism: ${{ inputs.enable_test_determinism }}
+      test_determinism_runs: ${{ inputs.test_determinism_runs }}
+      enable_custom_checks: ${{ inputs.enable_custom_checks }}
+      custom_checks: ${{ inputs.custom_checks }}
       system_packages: ${{ inputs.system_packages }}
       shared_paths: ${{ inputs.shared_paths }}
     secrets: inherit
