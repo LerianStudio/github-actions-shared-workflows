@@ -217,9 +217,13 @@ jobs:
     secrets: inherit
 
   # ----------------- Change Detection (gate) -----------------
+  # `edited` must stay in this list. When this job is skipped, the *-gate
+  # aggregators still run (if: always()) and receive result == 'skipped', which
+  # result-gate treats as a pass — so a run that evaluated nothing reports the
+  # required checks green. Matches js-pr-validation.yml, which already includes it.
   changes:
     name: Detect non-doc changes
-    if: contains(fromJSON('["opened","synchronize","reopened","ready_for_review"]'), github.event.action)
+    if: contains(fromJSON('["opened","edited","synchronize","reopened","ready_for_review"]'), github.event.action)
     runs-on: ${{ vars.GENERAL_RUNNERS || inputs.runner_type }}
     permissions:
       contents: read
