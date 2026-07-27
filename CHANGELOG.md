@@ -1,5 +1,23 @@
 # Github-actions-shared-workflows Changelog
 
+## [1.48.0](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.48.0)
+
+Features:
+- Add an override for `gitops_app_name` in both `go-release` and `js-release` workflows. (@bedatty)
+
+Fixes:
+- Register `caradhras` on `benedita` in the deployment matrix. (@bedatty)
+- Use the `gitops` app directory name for `caradhras` in the deployment matrix. (@bedatty)
+- Pin `caradhras` to the `stg-mt` helmfile environment in the deployment matrix. (@bedatty)
+
+Improvements:
+- Bump `docker/login-action` from `4.4.0` to `4.5.1` in the docker group. (@bedatty)
+- Bump the `github-security` group with two updates. (@bedatty)
+
+[Compare changes](https://github.com/LerianStudio/github-actions-shared-workflows/compare/v1.47.5...v1.48.0)
+
+---
+
 ## [1.47.5](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.47.5)
 
 Fixes:
