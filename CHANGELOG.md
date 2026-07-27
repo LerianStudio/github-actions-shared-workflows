@@ -1,5 +1,19 @@
 # Github-actions-shared-workflows Changelog
 
+## [1.48.1](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.48.1)
+
+Fixes:
+
+- Addressed an issue in the release process by merging changes from `develop` to `main`. (@bedatty)
+- Added a warning for `go-pr-analysis` when `custom_checks` is enabled but empty. (@bedatty)
+- Implemented a `custom_checks` gate for both `go-pr-validation` and `go-pr-analysis`. (@bedatty)
+- Ensured the change detector runs on edited pull requests in `go-pr-validation`. (@bedatty)
+- Stopped redirecting `caradhras` beta tags into `stg-mt` in the deployment matrix. (@bedatty)
+
+[Compare changes](https://github.com/LerianStudio/github-actions-shared-workflows/compare/v1.48.0...v1.48.1)
+
+---
+
 ## [1.48.0](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.48.0)
 
 Features:
