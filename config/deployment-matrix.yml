@@ -105,6 +105,9 @@ apps:
     - rosiehr                     # internal HR app (benedita only); values at cross/
     - go-boilerplate-ddd          # Go service boilerplate (reference/template)
 
+    # Provisioned by Severino (app-provisioning automation)
+    - severino-teste-3
+
 clusters:
   anacleto:
     # Anacleto hosts two parallel test types (chaos, fuzzing), each with two
@@ -186,3 +189,6 @@ clusters:
       - rosiehr
       - go-boilerplate-ddd
       - severino-bot
+
+      # Provisioned by Severino (app-provisioning automation)
+      - severino-teste-3
