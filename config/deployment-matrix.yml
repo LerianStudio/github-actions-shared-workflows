@@ -107,6 +107,7 @@ apps:
     - go-boilerplate-ddd          # Go service boilerplate (reference/template)
 
     # Provisioned by Severino (app-provisioning automation)
+    - severino-test-tool
     - severino-teste-4
     - severino-teste-5
     - severino-teste-6
@@ -165,6 +166,9 @@ clusters:
       lerian-map: cross
       rosiehr: cross
       tenant-manager: cross
+
+      # Provisioned by Severino (app-provisioning automation)
+      severino-test-tool: cross
     apps:
       - midaz
       - fetcher
@@ -200,6 +204,7 @@ clusters:
       - severino-bot
 
       # Provisioned by Severino (app-provisioning automation)
+      - severino-test-tool
       - severino-teste-4
       - severino-teste-5
       - severino-teste-6
