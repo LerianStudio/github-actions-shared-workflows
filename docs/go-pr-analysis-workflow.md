@@ -97,6 +97,7 @@ jobs:
 | `runner_type` | GitHub runner type | No | `firmino-lxc-runners` |
 | `filter_paths` | JSON array of paths to monitor for changes. If empty, treats repo as single-app. | No | `''` |
 | `path_level` | Directory depth level to extract app name | No | `2` |
+| `normalize_to_filter` | Collapse every changed file under a `filter_paths` entry into that one component (`working_dir` = the filter itself) instead of the `path_level`-trimmed directory. With `false`, a change deeper than `path_level` segments inside a filtered component spawns a bogus matrix entry rooted at that subdirectory — no testable package, so no `coverage.txt`, and the coverage job fails with "Artifact not found". | No | `true` |
 | `app_name_prefix` | Prefix for app names in matrix output | No | `''` |
 | `go_version` | Go version to use | No | `1.23` |
 | `golangci_lint_version` | GolangCI-Lint version | No | `v1.62.2` |
