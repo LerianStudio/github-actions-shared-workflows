@@ -108,6 +108,10 @@ on:
         description: 'Directory depth level to extract the component name from filter_paths'
         type: number
         default: 2
+      normalize_to_filter:
+        description: 'Collapse every changed file under a filter_paths entry into that one component (working_dir = the filter itself) instead of the path_level-trimmed directory. Forwarded to go-pr-analysis; see that workflow for why the default is true.'
+        type: boolean
+        default: true
       coverage_threshold:
         description: 'Minimum coverage percentage required (0-100)'
         type: number
@@ -272,6 +276,7 @@ jobs:
       app_name_prefix: ${{ inputs.app_name_prefix }}
       filter_paths: ${{ inputs.filter_paths }}
       path_level: ${{ inputs.path_level }}
+      normalize_to_filter: ${{ inputs.normalize_to_filter }}
       coverage_threshold: ${{ inputs.coverage_threshold }}
       fail_on_coverage_threshold: ${{ inputs.fail_on_coverage_threshold }}
       go_private_modules: ${{ inputs.go_private_modules }}

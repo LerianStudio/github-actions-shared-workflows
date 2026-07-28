@@ -44,6 +44,7 @@ The `go-analysis`, `security` and `lib-version` pipelines each have a `*-gate` a
 | `app_name_prefix` | Prefix used to namespace coverage/build artifacts | string | `''` |
 | `filter_paths` | Newline-separated component path prefixes for monorepo per-component analysis (lint/tests/coverage) **and** security scanning; empty = single-app root run. When using it for security, leave `dockerfile_path` empty so each component Dockerfile is discovered | string | `''` |
 | `path_level` | Directory depth level to extract the component name from `filter_paths` | number | `2` |
+| `normalize_to_filter` | Collapse every changed file under a `filter_paths` entry into that one component instead of the `path_level`-trimmed directory; forwarded to `go-pr-analysis` | boolean | `true` |
 | `coverage_threshold` | Minimum coverage percentage (0-100) | number | `80` |
 | `fail_on_coverage_threshold` | Fail when coverage is below threshold | boolean | `true` |
 | `go_private_modules` | GOPRIVATE pattern for private modules | string | `''` |

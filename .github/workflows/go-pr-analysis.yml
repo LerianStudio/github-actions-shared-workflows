@@ -25,6 +25,10 @@ on:
         description: 'Directory depth level to extract app name'
         type: number
         default: 2
+      normalize_to_filter:
+        description: 'Collapse every changed file under a filter_paths entry into that one component (working_dir = the filter itself), instead of the path_level-trimmed directory. Default true: without it, a change deeper than path_level segments inside a filtered component (e.g. "apps/dict/components/hub/api/services/command/x.go" under the filter "apps/dict/components/hub/api") spawns a bogus matrix entry rooted at that subdirectory, where no Makefile and no testable package exist — so no coverage.txt is produced, the upload finds no file, and the coverage job fails with "Artifact not found". Mirrors the same input in frontend-pr-analysis.yml.'
+        type: boolean
+        default: true
       app_name_prefix:
         description: 'Prefix for app names in matrix output'
         type: string
@@ -129,6 +133,7 @@ jobs:
           path-level: ${{ inputs.path_level }}
           get-app-name: 'true'
           app-name-prefix: ${{ inputs.app_name_prefix }}
+          normalize-to-filter: ${{ inputs.normalize_to_filter }}
           fallback-app-name: ${{ inputs.app_name_prefix != '' && inputs.app_name_prefix || 'app' }}
 
   # ============================================
