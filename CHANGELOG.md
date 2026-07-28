@@ -1,5 +1,16 @@
 # Github-actions-shared-workflows Changelog
 
+## [1.48.2](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.48.2)
+
+Fixes:
+
+- Merged changes from the `develop` branch to the `main` branch to align release versions. (@bedatty)
+- Made `normalize_to_filter` accessible for component path collapsing in the Go PR analysis workflow. (@bedatty)
+
+[Compare changes](https://github.com/LerianStudio/github-actions-shared-workflows/compare/v1.48.1...v1.48.2)
+
+---
+
 ## [1.48.1](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.48.1)
 
 Fixes:
