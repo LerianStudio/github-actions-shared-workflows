@@ -92,6 +92,35 @@ Notes:
 - Use `${SERVER}` / `${ENV}` placeholders in `kustomize_base_path` for multi-cluster / multi-env kustomize layouts (e.g. `environments/${SERVER}/kustomize/${ENV}/my-app`).
 - `configmap_updates` is ignored under `gitops_layout=kustomize` (out of scope for v1).
 
+### Kustomize with More Than One Image
+
+When a single release publishes several images into the same `kustomization.yaml` — for example a controller and a slimmer read API built from the same module — map each extra image to the artifact that carries its tag. Every downloaded artifact file is named after the app that built it (`build.yml` writes `gitops-tags/<app>.tag`), and that name is the mapping key.
+
+```yaml
+update_gitops:
+  needs: build
+  if: needs.build.result == 'success'
+  uses: LerianStudio/github-actions-shared-workflows/.github/workflows/gitops-update.yml@v1.0.0
+  with:
+    gitops_repository: LerianStudio/midaz-firmino-gitops
+    gitops_layout: kustomize
+    kustomize_base_path: environments/anacleto/kustomize/ungoliant-controller
+    kustomize_image_name: ghcr.io/lerianstudio/ungoliant-controller
+    kustomize_image_mappings: |
+      {
+        "ungoliant-api": "ghcr.io/lerianstudio/ungoliant-api"
+      }
+    artifact_pattern: 'gitops-tags-*'
+    argocd_app_name_template: '{server}-{app}'
+  secrets: inherit
+```
+
+Notes:
+- Artifacts absent from the mapping fall back to `kustomize_image_name`, so single-image callers need no mapping at all.
+- An artifact that resolves to neither (empty mapping entry and empty `kustomize_image_name`) is skipped with a warning instead of being written under the wrong image name.
+- `artifact_pattern` must match the extra apps too. The default derived from the repository name only matches the primary app, so a second image named after a component needs a broader pattern such as `gitops-tags-*`.
+- All images resolve into the same `kustomization.yaml` (`kustomize_base_path`). A second image living under a different path is not supported yet.
+
 ### Multi-Component Example (Midaz)
 
 ```yaml
@@ -135,7 +164,8 @@ update_gitops:
 | `configmap_updates` | string | - | JSON object mapping artifact names to configmap keys. Helmfile layout only; ignored for kustomize |
 | `gitops_layout` | string | `helmfile` | GitOps layout strategy: `helmfile` (default) or `kustomize` |
 | `kustomize_base_path` | string | - | Required when `gitops_layout=kustomize`. Path within the gitops repo to the kustomization folder. Supports `${SERVER}` / `${ENV}` placeholders |
-| `kustomize_image_name` | string | - | Required when `gitops_layout=kustomize`. Image reference matched by `kustomize edit set image` |
+| `kustomize_image_name` | string | - | Required when `gitops_layout=kustomize`, unless every image is covered by `kustomize_image_mappings`. Image reference matched by `kustomize edit set image`; also the fallback for artifacts absent from the mapping |
+| `kustomize_image_mappings` | string | - | JSON object mapping artifact names to kustomize image references. Use when one release publishes more than one image into the same `kustomization.yaml`. Kustomize layout only |
 | `kustomize_environments` | string | - | Optional space-separated env list overriding the default tag-based env loop when `gitops_layout=kustomize`. Leave empty for layouts without env split |
 | `kustomize_version` | string | `v5.4.3` | Version of kustomize CLI to install (only when `gitops_layout=kustomize`) |
 | `argocd_app_name_template` | string | `{server}-{app}-{env}` | Template for the ArgoCD application name. Supports `{server}`, `{app}`, `{env}`. For kustomize layouts without env split, use e.g. `{server}-{app}` |
