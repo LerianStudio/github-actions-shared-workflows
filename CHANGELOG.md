@@ -1,5 +1,23 @@
 # Github-actions-shared-workflows Changelog
 
+## [1.49.0](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.49.0)
+
+Features:
+- Announce releases from the release umbrella workflow. (@bedatty)
+
+Fixes:
+- Resolve kustomize image per gitops tag artifact. (@bedatty)
+- Develop to main branch release process adjustment. (@bedatty)
+- Pass dry-run summary values through environment variables. (@bedatty)
+
+Improvements:
+- Bump `trufflesecurity/trufflehog` from `3.95.9` to `3.96.0` in the security-scanners group. (@bedatty)
+- Pin notification composites to the floating major tag. (@bedatty)
+
+[Compare changes](https://github.com/LerianStudio/github-actions-shared-workflows/compare/v1.48.2...v1.49.0)
+
+---
+
 ## [1.48.2](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.48.2)
 
 Fixes:
