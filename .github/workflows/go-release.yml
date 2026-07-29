@@ -221,8 +221,12 @@ on:
         description: 'Required when gitops_layout=kustomize. Path within the gitops repo to the kustomization folder (e.g. environments/anacleto/kustomize/ungoliant-controller). Supports ${SERVER} and ${ENV} placeholders.'
         type: string
         default: ''
+      kustomize_image_mappings:
+        description: 'JSON object mapping artifact names to kustomize image references (e.g. {"ungoliant-api":"ghcr.io/lerianstudio/ungoliant-api"}). Use when extra_builds groups publish additional images into the same kustomization.yaml — artifacts not listed fall back to kustomize_image_name. Requires gitops_artifact_pattern to also match the extra groups (the default only matches the repository name).'
+        type: string
+        default: ''
       kustomize_image_name:
-        description: 'Required when gitops_layout=kustomize. Image reference matched by `kustomize edit set image` (e.g. ghcr.io/lerianstudio/ungoliant-controller).'
+        description: 'Required when gitops_layout=kustomize, unless every image is covered by kustomize_image_mappings. Image reference matched by `kustomize edit set image` (e.g. ghcr.io/lerianstudio/ungoliant-controller).'
         type: string
         default: ''
       kustomize_environments:
@@ -701,6 +705,7 @@ jobs:
       gitops_layout: ${{ inputs.gitops_layout }}
       kustomize_base_path: ${{ inputs.kustomize_base_path }}
       kustomize_image_name: ${{ inputs.kustomize_image_name }}
+      kustomize_image_mappings: ${{ inputs.kustomize_image_mappings }}
       kustomize_environments: ${{ inputs.kustomize_environments }}
       kustomize_version: ${{ inputs.kustomize_version }}
       argocd_app_name_template: ${{ inputs.argocd_app_name_template }}
