@@ -34,6 +34,9 @@ Mirrors the [`go-release`](./go-release-workflow.md) umbrella for Go services �
 | `filter_paths` | Path prefixes to filter (empty = single-app repo) | string | `''` |
 | `shared_paths` | Path patterns that trigger a release/build for all components | string | `''` |
 | `path_level` | Directory depth level to extract app name | string | `2` |
+| `enable_release_announcement` | Announce the published release to the repository Slack channel (see [release-workflow](release-workflow.md#release-announcement)) | boolean | `true` |
+| `announcement_product_name` | Product name displayed in the announcement. Empty → repository name | string | `''` |
+| `announcement_slack_channel` | Slack channel for the announcement. Empty → `RELEASE_SLACK_CHANNEL` repository variable; skipped when both are empty | string | `''` |
 | `enable_dockerhub` | Push image to DockerHub | boolean | `false` |
 | `enable_ghcr` | Push image to GitHub Container Registry | boolean | `true` |
 | `enable_gitops_artifacts` | Upload GitOps artifacts for the downstream update | boolean | `false` |

@@ -5,7 +5,12 @@
   </tr>
 </table>
 
-Reusable workflow that sends release notifications to Discord and Slack. Fetches the latest release tag via GitHub CLI and dispatches to channel-specific composite actions.
+Reusable workflow that sends release notifications to Discord and Slack. Resolves the release tag from `release_tag`, then the release event, then the latest release via GitHub CLI, and dispatches to channel-specific composite actions.
+
+The [release workflow](release-workflow.md) calls this workflow directly from its
+`announce_release` job (Slack only), so most repositories do not need a standalone caller —
+see [Release Announcement](release-workflow.md#release-announcement). A dedicated caller with
+`on: release` is still required for Discord.
 
 ## Architecture
 
@@ -21,6 +26,7 @@ release-notification.yml
 |---|---|:---:|---|---|
 | `product_name` | `string` | Yes | — | Product name displayed in notifications |
 | `slack_channel` | `string` | No | `""` | Slack channel name |
+| `release_tag` | `string` | No | `""` | Release tag to announce. When empty, resolves from the release event and then from the latest release |
 | `discord_color` | `string` | No | `2105893` | Discord embed color (decimal) |
 | `discord_username` | `string` | No | `Release Changelog` | Bot username in Discord |
 | `discord_content` | `string` | No | `""` | Discord message content (e.g. role mentions) |

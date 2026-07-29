@@ -68,6 +68,23 @@ on:
         type: string
         default: ''
 
+      # ----------------- Release Announcement -----------------
+      enable_release_announcement:
+        description: 'Announce the published release to the repository Slack channel after a successful release'
+        required: false
+        type: boolean
+        default: true
+      announcement_product_name:
+        description: 'Product name displayed in the announcement. Defaults to the repository name.'
+        required: false
+        type: string
+        default: ''
+      announcement_slack_channel:
+        description: 'Slack channel that receives the announcement. Defaults to the RELEASE_SLACK_CHANNEL repository variable; the announcement is skipped when both are empty.'
+        required: false
+        type: string
+        default: ''
+
       # ----------------- Backmerge -----------------
       backmerge_enabled:
         description: 'Backmerge the release branch into the target branch after a successful release'
@@ -605,6 +622,34 @@ jobs:
           else
             echo "ℹ️ No stable vX.Y.Z release found — leaving Latest untouched"
           fi
+
+  # ----------------- Release Announcement -----------------
+  # Announces the published release to the channel owned by the calling
+  # repository. Routing is per-repo: the channel comes from
+  # announcement_slack_channel or the RELEASE_SLACK_CHANNEL variable, and the
+  # webhook from the RELEASE_WEBHOOK_URL (or legacy
+  # RELEASE_WEBHOOK_NOTIFICATION_URL) repository secret. Discord is not wired
+  # here because SethCohen/github-releases-to-discord reads the `release` event
+  # payload, which is absent on the push event that drives this workflow —
+  # Discord announcements stay on release-notification.yml with on: release.
+  announce_release:
+    name: Announce Release
+    needs: [publish_release, publish_release_status, generate_changelog, backmerge, update_major_tag, enforce_latest]
+    if: >-
+      always() &&
+      inputs.enable_release_announcement &&
+      needs.publish_release_status.outputs.release_published == 'true' &&
+      (inputs.announcement_slack_channel != '' || vars.RELEASE_SLACK_CHANNEL != '')
+    uses: ./.github/workflows/release-notification.yml
+    with:
+      product_name: ${{ inputs.announcement_product_name != '' && inputs.announcement_product_name || github.event.repository.name }}
+      slack_channel: ${{ inputs.announcement_slack_channel != '' && inputs.announcement_slack_channel || vars.RELEASE_SLACK_CHANNEL }}
+      release_tag: ${{ needs.publish_release_status.outputs.release_git_tag }}
+      dry_run: ${{ inputs.dry_run }}
+    secrets:
+      APP_ID: ${{ secrets.LERIAN_STUDIO_MIDAZ_PUSH_BOT_APP_ID }}
+      APP_PRIVATE_KEY: ${{ secrets.LERIAN_STUDIO_MIDAZ_PUSH_BOT_PRIVATE_KEY }}
+      SLACK_WEBHOOK_URL: ${{ secrets.RELEASE_WEBHOOK_URL || secrets.RELEASE_WEBHOOK_NOTIFICATION_URL }}
 
   # Slack notification
   notify:
