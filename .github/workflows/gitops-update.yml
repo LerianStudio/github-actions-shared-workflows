@@ -77,7 +77,11 @@ on:
         type: string
         default: ''
       kustomize_image_name:
-        description: 'Required when gitops_layout=kustomize. Image reference matched by `kustomize edit set image` (e.g. ghcr.io/lerianstudio/ungoliant-controller).'
+        description: 'Required when gitops_layout=kustomize, unless every image is covered by kustomize_image_mappings. Image reference matched by `kustomize edit set image` (e.g. ghcr.io/lerianstudio/ungoliant-controller). Also the fallback for artifacts absent from kustomize_image_mappings.'
+        type: string
+        default: ''
+      kustomize_image_mappings:
+        description: 'JSON object mapping artifact names to kustomize image references (e.g. {"ungoliant-api":"ghcr.io/lerianstudio/ungoliant-api"}). Use when one release publishes more than one image into the same kustomization.yaml — each downloaded artifact is named after the app that built it. Artifacts not listed fall back to kustomize_image_name. Kustomize layout only.'
         type: string
         default: ''
       kustomize_environments:
@@ -267,14 +271,29 @@ jobs:
         env:
           KUSTOMIZE_BASE_PATH: ${{ inputs.kustomize_base_path }}
           KUSTOMIZE_IMAGE_NAME: ${{ inputs.kustomize_image_name }}
+          KUSTOMIZE_IMAGE_MAPPINGS: ${{ inputs.kustomize_image_mappings }}
         run: |
           set -euo pipefail
           if [[ -z "$KUSTOMIZE_BASE_PATH" ]]; then
             echo "::error::gitops_layout=kustomize requires kustomize_base_path."
             exit 1
           fi
-          if [[ -z "$KUSTOMIZE_IMAGE_NAME" ]]; then
-            echo "::error::gitops_layout=kustomize requires kustomize_image_name."
+          # An empty or null mapping value would resolve to nothing and silently
+          # fall back to kustomize_image_name, writing the extra artifact's tag
+          # onto the primary image — the exact failure the mapping exists to
+          # prevent. Reject it instead of resolving it.
+          MAPPED_IMAGES=0
+          if [[ -n "$KUSTOMIZE_IMAGE_MAPPINGS" ]]; then
+            if ! jq -e 'type == "object" and all(.[]; type == "string" and length > 0)' >/dev/null 2>&1 <<< "$KUSTOMIZE_IMAGE_MAPPINGS"; then
+              echo "::error::kustomize_image_mappings must be a JSON object whose every value is a non-empty image reference string."
+              exit 1
+            fi
+            MAPPED_IMAGES=$(jq -r 'length' <<< "$KUSTOMIZE_IMAGE_MAPPINGS")
+            echo "kustomize_image_mappings:"
+            jq -r 'to_entries[] | "  \(.key) -> \(.value)"' <<< "$KUSTOMIZE_IMAGE_MAPPINGS"
+          fi
+          if [[ -z "$KUSTOMIZE_IMAGE_NAME" && "$MAPPED_IMAGES" -eq 0 ]]; then
+            echo "::error::gitops_layout=kustomize requires kustomize_image_name or a non-empty kustomize_image_mappings."
             exit 1
           fi
 
@@ -469,6 +488,7 @@ jobs:
           GITOPS_LAYOUT: ${{ inputs.gitops_layout }}
           KUSTOMIZE_BASE_PATH: ${{ inputs.kustomize_base_path }}
           KUSTOMIZE_IMAGE_NAME: ${{ inputs.kustomize_image_name }}
+          KUSTOMIZE_IMAGE_MAPPINGS: ${{ inputs.kustomize_image_mappings }}
           KUSTOMIZE_ENVIRONMENTS: ${{ inputs.kustomize_environments }}
           MANIFEST_FILE: shared-workflows/${{ inputs.deployment_matrix_file }}
           UPDATE_SANDBOX: ${{ inputs.update_sandbox }}
@@ -677,16 +697,37 @@ jobs:
                 FILE_BEFORE_HASH=$(sha256sum "$KUSTOMIZATION_FILE" | cut -d' ' -f1)
 
                 # Apply each available artifact tag via `kustomize edit set image`.
-                # The artifact value (TAG) is the only thing that varies; we set the
-                # same image_name for every artifact since kustomize layouts typically
-                # have a single image per kustomization.yaml. If an app has multiple
-                # images, callers can extend kustomize_image_name later (out of scope here).
+                # Each artifact file is named after the app that built it
+                # (build.yml writes gitops-tags/<app>.tag), so that basename is the
+                # key used to resolve which image the tag belongs to:
+                #   kustomize_image_mappings[<app>], falling back to
+                #   kustomize_image_name when the app is not listed.
+                # A release publishing more than one image into the same
+                # kustomization.yaml maps every extra app explicitly; single-image
+                # callers leave the mapping empty and every artifact resolves to
+                # kustomize_image_name, exactly as before.
                 for artifact_file in .gitops-tags/*; do
                   [[ -f "$artifact_file" ]] || continue
                   TAG="$(cut -d= -f2 < "$artifact_file" | tr -d '[:space:]')"
                   [[ -n "$TAG" ]] || continue
-                  echo "    kustomize edit set image ${KUSTOMIZE_IMAGE_NAME}=${KUSTOMIZE_IMAGE_NAME}:${TAG}"
-                  ( cd "gitops/${TARGET_DIR}" && kustomize edit set image "${KUSTOMIZE_IMAGE_NAME}=${KUSTOMIZE_IMAGE_NAME}:${TAG}" )
+
+                  ARTIFACT_APP="$(basename "$artifact_file")"
+                  ARTIFACT_APP="${ARTIFACT_APP%.tag}"
+
+                  IMAGE_NAME=""
+                  if [[ -n "$KUSTOMIZE_IMAGE_MAPPINGS" ]]; then
+                    IMAGE_NAME=$(jq -r --arg app "$ARTIFACT_APP" '.[$app] // empty' <<< "$KUSTOMIZE_IMAGE_MAPPINGS")
+                  fi
+                  if [[ -z "$IMAGE_NAME" ]]; then
+                    IMAGE_NAME="$KUSTOMIZE_IMAGE_NAME"
+                  fi
+                  if [[ -z "$IMAGE_NAME" ]]; then
+                    echo "::warning::No kustomize image resolved for artifact '${ARTIFACT_APP}' — not in kustomize_image_mappings and kustomize_image_name is empty. Skipping."
+                    continue
+                  fi
+
+                  echo "    ${ARTIFACT_APP}: kustomize edit set image ${IMAGE_NAME}=${IMAGE_NAME}:${TAG}"
+                  ( cd "gitops/${TARGET_DIR}" && kustomize edit set image "${IMAGE_NAME}=${IMAGE_NAME}:${TAG}" )
                 done
 
                 FILE_AFTER_HASH=$(sha256sum "$KUSTOMIZATION_FILE" | cut -d' ' -f1)

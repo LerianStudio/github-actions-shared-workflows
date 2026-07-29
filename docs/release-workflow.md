@@ -90,6 +90,56 @@ jobs:
 | `dry_run` | boolean | `false` | Run semantic-release in dry-run mode (no tags/releases) and preview the backmerge instead of applying it |
 | `prerelease_branches` | string | `develop,release-candidate` | Comma-separated list of branches treated as prerelease lines (beta/rc) |
 | `prerelease_backmerge_sync_enabled` | boolean | `false` | Merge `backmerge_source` into a prerelease branch before calculating its next version. Independent of `backmerge_enabled`, which also gates the separate post-release backmerge on `backmerge_source` itself. Opt-in — set to `true` to enable this pre-version-calculation sync, which can skip/block a release on prerelease branches when the merge cannot complete directly |
+| `enable_release_announcement` | boolean | `true` | Announce the published release to the repository Slack channel after a successful release |
+| `announcement_product_name` | string | `''` | Product name displayed in the announcement. Defaults to the repository name |
+| `announcement_slack_channel` | string | `''` | Slack channel that receives the announcement. Defaults to the `RELEASE_SLACK_CHANNEL` repository variable; the announcement is skipped when both are empty |
+
+## Release Announcement
+
+After a successful release, the `announce_release` job calls
+[`release-notification.yml`](release-notification.md) to post the published tag to the
+channel owned by the calling repository. Routing is per-repo — no shared workflow change
+is needed to add a repository or change its channel.
+
+### Setup in the consuming repository
+
+```
+Settings → Secrets and variables → Actions → New repository secret
+Name:  RELEASE_WEBHOOK_URL
+Value: https://hooks.slack.com/services/xxx/yyy/zzz
+
+Settings → Secrets and variables → Actions → Variables → New repository variable
+Name:  RELEASE_SLACK_CHANNEL
+Value: lerian-product-release
+```
+
+`RELEASE_WEBHOOK_NOTIFICATION_URL` is still accepted as a fallback for repositories that
+already use that name.
+
+### Behavior
+
+| Condition | Result |
+|---|---|
+| Channel and webhook configured | Announcement is sent for the published tag |
+| No channel (input and `RELEASE_SLACK_CHANNEL` both empty) | Job is skipped |
+| Channel set but no webhook secret | Job runs, notification step is skipped (non-fatal) |
+| `dry_run: true` | Payload is printed, nothing is sent |
+| No release published in the run | Job is skipped |
+
+The announced tag comes from `publish_release_status.outputs.release_git_tag`, so monorepo
+runs announce the tag actually published by the last matrix leg instead of the newest
+release in the repository.
+
+### Discord
+
+Discord is intentionally not wired into this job. The underlying action
+(`SethCohen/github-releases-to-discord`) reads the `release` event payload, which is absent
+on the `push` event that drives this workflow. Keep Discord announcements on a dedicated
+caller workflow that triggers `release-notification.yml` with `on: release`.
+
+> Repositories that already announce releases through a separate `on: release` workflow will
+> get two messages once this job is active. Remove the standalone Slack announcement there,
+> or set `enable_release_announcement: false`.
 
 ## Secrets
 
@@ -109,6 +159,7 @@ jobs:
 | Secret | Description |
 |--------|-------------|
 | `NPM_TOKEN` | npm registry auth token, forwarded to the `Semantic Release` step. Only needed when the caller's own `.releaserc` includes `@semantic-release/npm` (a package with independent semver that publishes to an npm registry). Omit for repos that do not publish to npm. |
+| `RELEASE_WEBHOOK_URL` | Slack webhook that receives the release announcement. Falls back to `RELEASE_WEBHOOK_NOTIFICATION_URL`; the announcement step is skipped when both are empty. |
 
 ## Outputs
 

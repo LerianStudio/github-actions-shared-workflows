@@ -49,6 +49,18 @@ on:
         description: 'Merge main into a prerelease branch (develop/release-candidate) before calculating its next version. Defaults to false (opt-in) — set to true to enable this pre-version-calculation sync, which can skip/block a release on those branches when the merge cannot complete directly. The post-release backmerge on main after a stable release is unaffected by this input either way.'
         type: boolean
         default: false
+      enable_release_announcement:
+        description: 'Announce the published release to the repository Slack channel after a successful release'
+        type: boolean
+        default: true
+      announcement_product_name:
+        description: 'Product name displayed in the announcement. Defaults to the repository name.'
+        type: string
+        default: ''
+      announcement_slack_channel:
+        description: 'Slack channel that receives the announcement. Defaults to the RELEASE_SLACK_CHANNEL repository variable; the announcement is skipped when both are empty.'
+        type: string
+        default: ''
 
       # ----------------- Build (build.yml) -----------------
       enable_dockerhub:
@@ -209,8 +221,12 @@ on:
         description: 'Required when gitops_layout=kustomize. Path within the gitops repo to the kustomization folder (e.g. environments/anacleto/kustomize/ungoliant-controller). Supports ${SERVER} and ${ENV} placeholders.'
         type: string
         default: ''
+      kustomize_image_mappings:
+        description: 'JSON object mapping artifact names to kustomize image references (e.g. {"ungoliant-api":"ghcr.io/lerianstudio/ungoliant-api"}). Use when extra_builds groups publish additional images into the same kustomization.yaml — artifacts not listed fall back to kustomize_image_name. Requires gitops_artifact_pattern to also match the extra groups (the default only matches the repository name).'
+        type: string
+        default: ''
       kustomize_image_name:
-        description: 'Required when gitops_layout=kustomize. Image reference matched by `kustomize edit set image` (e.g. ghcr.io/lerianstudio/ungoliant-controller).'
+        description: 'Required when gitops_layout=kustomize, unless every image is covered by kustomize_image_mappings. Image reference matched by `kustomize edit set image` (e.g. ghcr.io/lerianstudio/ungoliant-controller).'
         type: string
         default: ''
       kustomize_environments:
@@ -383,6 +399,9 @@ jobs:
       stable_releases_only: ${{ inputs.stable_releases_only }}
       changelog_bot_ignore_list: ${{ inputs.changelog_bot_ignore_list }}
       prerelease_backmerge_sync_enabled: ${{ inputs.prerelease_backmerge_sync_enabled }}
+      enable_release_announcement: ${{ inputs.enable_release_announcement }}
+      announcement_product_name: ${{ inputs.announcement_product_name }}
+      announcement_slack_channel: ${{ inputs.announcement_slack_channel }}
       shared_paths: ${{ inputs.shared_paths }}
       filter_paths: ${{ !inputs.release_single_app && inputs.filter_paths || '' }}
     secrets: inherit
@@ -686,6 +705,7 @@ jobs:
       gitops_layout: ${{ inputs.gitops_layout }}
       kustomize_base_path: ${{ inputs.kustomize_base_path }}
       kustomize_image_name: ${{ inputs.kustomize_image_name }}
+      kustomize_image_mappings: ${{ inputs.kustomize_image_mappings }}
       kustomize_environments: ${{ inputs.kustomize_environments }}
       kustomize_version: ${{ inputs.kustomize_version }}
       argocd_app_name_template: ${{ inputs.argocd_app_name_template }}

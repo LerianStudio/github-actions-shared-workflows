@@ -32,6 +32,9 @@ A third layout needs `release_single_app: true`: **one semantic-release tag for 
 | `enable_changelog` | Generate CHANGELOG.md via GPT after a successful release | boolean | `false` |
 | `enable_major_tag` | Force-update the floating major tag (e.g. `v1`) | boolean | `false` |
 | `stable_releases_only` | Only generate changelogs for stable releases | boolean | `true` |
+| `enable_release_announcement` | Announce the published release to the repository Slack channel (see [release-workflow](release-workflow.md#release-announcement)) | boolean | `true` |
+| `announcement_product_name` | Product name displayed in the announcement. Empty → repository name | string | `''` |
+| `announcement_slack_channel` | Slack channel for the announcement. Empty → `RELEASE_SLACK_CHANNEL` repository variable; skipped when both are empty | string | `''` |
 | `enable_dockerhub` | Push image to DockerHub | boolean | `true` |
 | `enable_ghcr` | Push image to GitHub Container Registry (requires `MANAGE_TOKEN`) | boolean | `true` |
 | `enable_gitops_artifacts` | Upload GitOps artifacts for the downstream update | boolean | `false` |
@@ -69,7 +72,8 @@ A third layout needs `release_single_app: true`: **one semantic-release tag for 
 | `enable_docker_login` | Log in to DockerHub in the gitops-update job | boolean | `false` |
 | `gitops_layout` | GitOps layout strategy: `helmfile` (default, current behavior) or `kustomize` | string | `helmfile` |
 | `kustomize_base_path` | Required when `gitops_layout=kustomize`. Path within the gitops repo to the kustomization folder (supports `${SERVER}`/`${ENV}` placeholders) | string | `''` |
-| `kustomize_image_name` | Required when `gitops_layout=kustomize`. Image reference matched by `kustomize edit set image` | string | `''` |
+| `kustomize_image_name` | Required when `gitops_layout=kustomize`, unless every image is covered by `kustomize_image_mappings`. Image reference matched by `kustomize edit set image`; also the fallback for artifacts absent from the mapping | string | `''` |
+| `kustomize_image_mappings` | JSON object mapping artifact names to kustomize image references, for `extra_builds` groups publishing additional images into the same `kustomization.yaml` (see [Multiple build groups](#multiple-build-groups)) | string | `''` |
 | `kustomize_environments` | Optional space-separated env list overriding the default tag-based env loop when `gitops_layout=kustomize` | string | `''` |
 | `kustomize_version` | Version of kustomize CLI to install (used only when `gitops_layout=kustomize`) | string | `v5.4.3` |
 | `argocd_app_name_template` | Template for the ArgoCD application name. Placeholders `{server}`, `{app}`, `{env}`. For kustomize layouts without env split use e.g. `{server}-{app}` | string | `{server}-{app}-{env}` |
@@ -211,6 +215,26 @@ Extra builds run on tag push (beta/rc, and stable when `build_on_release` is off
 > **Independently-tagged component** — a group with `tag_prefix` set (e.g. `matcher-mcp-v`) only builds when the triggering tag starts with that prefix, letting a component with its own semantic-release line and tag scheme (decoupled from the app's `vX.Y.Z`) share this workflow without building on every unrelated tag push. Set the top-level `tag_prefix` input too (e.g. `v`), so the *primary* build also ignores that component's tags — otherwise a `matcher-mcp-v1.2.3` push would still trigger the primary app build.
 
 > **Important** — `update_gitops` downloads artifacts by `gitops_artifact_pattern` (default `gitops-tags-<repo-name>*`). When an extra build produces an image whose name does **not** start with the repo name (e.g. `mock-btg-server`), set `gitops_artifact_pattern` to a wildcard that captures every image (e.g. `gitops-tags-*`), otherwise that image's tag artifact is skipped.
+
+> **Kustomize layout** — under `gitops_layout: kustomize` the single top-level `kustomize_image_name` used to be applied to *every* downloaded artifact, so an extra build's tag could never reach its own image: both `newTag`s resolved to the primary image name. Map each extra image to the artifact that carries its tag with `kustomize_image_mappings`, keyed by app name (`build.yml` writes `gitops-tags/<app>.tag`). Artifacts not listed still fall back to `kustomize_image_name`, and one that resolves to neither is skipped with a warning rather than written under the wrong image. Set `gitops_artifact_pattern: 'gitops-tags-*'` as well, per the note above — the default pattern only matches the repository name. All images must live in the same `kustomization.yaml`; a second image under a different `kustomize_base_path` is not supported yet.
+>
+> ```yaml
+> kustomize_image_name: ghcr.io/lerianstudio/ungoliant-controller
+> kustomize_image_mappings: |
+>   {
+>     "ungoliant-api": "ghcr.io/lerianstudio/ungoliant-api"
+>   }
+> gitops_artifact_pattern: 'gitops-tags-*'
+> extra_builds: |
+>   [
+>     {
+>       "filter_paths": "components/api",
+>       "app_name_overrides": "components/api:ungoliant-api",
+>       "shared_paths": "go.mod\ngo.sum\ncmd/\ninternal/\ncomponents/api/",
+>       "enable_gitops_artifacts": true
+>     }
+>   ]
+> ```
 
 > **Separate ArgoCD Application** — the wildcard-pattern approach above only works when the extra image is deployed *within the same app's* `values.yaml` (different nested key, same `app_name`/directory). If the extra build's component is its own, independent ArgoCD Application (its own `environments/*/helmfile/applications/<other-app-name>/values.yaml`), the single `update_gitops` job can't target it — `app_name` is one value per job call. Add a second, dedicated job in your caller `release.yml` that calls `gitops-update.yml` directly with that component's own `app_name`, `artifact_pattern`, and `yaml_key_mappings`, independent of the primary `update_gitops`. The primary `update_gitops` job only runs when the primary build actually produced artifacts (`needs.build.outputs.has_builds == 'true'`), so it skips cleanly — instead of failing — on releases where only an `extra_builds` group changed.
 
