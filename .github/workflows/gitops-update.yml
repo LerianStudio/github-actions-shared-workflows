@@ -278,16 +278,22 @@ jobs:
             echo "::error::gitops_layout=kustomize requires kustomize_base_path."
             exit 1
           fi
+          # An empty or null mapping value would resolve to nothing and silently
+          # fall back to kustomize_image_name, writing the extra artifact's tag
+          # onto the primary image — the exact failure the mapping exists to
+          # prevent. Reject it instead of resolving it.
+          MAPPED_IMAGES=0
           if [[ -n "$KUSTOMIZE_IMAGE_MAPPINGS" ]]; then
-            if ! jq -e 'type == "object"' >/dev/null 2>&1 <<< "$KUSTOMIZE_IMAGE_MAPPINGS"; then
-              echo "::error::kustomize_image_mappings must be a JSON object mapping artifact names to image references."
+            if ! jq -e 'type == "object" and all(.[]; type == "string" and length > 0)' >/dev/null 2>&1 <<< "$KUSTOMIZE_IMAGE_MAPPINGS"; then
+              echo "::error::kustomize_image_mappings must be a JSON object whose every value is a non-empty image reference string."
               exit 1
             fi
+            MAPPED_IMAGES=$(jq -r 'length' <<< "$KUSTOMIZE_IMAGE_MAPPINGS")
             echo "kustomize_image_mappings:"
             jq -r 'to_entries[] | "  \(.key) -> \(.value)"' <<< "$KUSTOMIZE_IMAGE_MAPPINGS"
           fi
-          if [[ -z "$KUSTOMIZE_IMAGE_NAME" && -z "$KUSTOMIZE_IMAGE_MAPPINGS" ]]; then
-            echo "::error::gitops_layout=kustomize requires kustomize_image_name or kustomize_image_mappings."
+          if [[ -z "$KUSTOMIZE_IMAGE_NAME" && "$MAPPED_IMAGES" -eq 0 ]]; then
+            echo "::error::gitops_layout=kustomize requires kustomize_image_name or a non-empty kustomize_image_mappings."
             exit 1
           fi
 
