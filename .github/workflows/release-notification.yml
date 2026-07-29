@@ -12,6 +12,11 @@ on:
         required: false
         type: string
         default: ""
+      release_tag:
+        description: Release tag to announce. When empty, resolves from the release event or the latest release.
+        required: false
+        type: string
+        default: ""
       discord_color:
         description: Discord embed color (decimal)
         required: false
@@ -130,8 +135,16 @@ jobs:
         id: release
         env:
           GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
+          INPUT_TAG: ${{ inputs.release_tag }}
+          EVENT_TAG: ${{ github.event.release.tag_name }}
         run: |
-          TAG='${{ github.event.release.tag_name }}'
+          TAG="$INPUT_TAG"
+          if [[ -n "$TAG" ]]; then
+            echo "Using release tag provided by the caller: $TAG"
+          fi
+          if [[ -z "$TAG" ]]; then
+            TAG="$EVENT_TAG"
+          fi
           if [[ -z "$TAG" ]]; then
             echo "No release event tag — falling back to gh release list"
             TAG=$(gh release list --repo "$GITHUB_REPOSITORY" --limit 1 --json tagName --jq '.[0].tagName')
@@ -147,28 +160,51 @@ jobs:
         if: ${{ inputs.dry_run }}
         env:
           RESOLVED_RUNNER: ${{ vars.GENERAL_RUNNERS || 'blacksmith-4vcpu-ubuntu-2404' }}
+          PRODUCT_NAME: ${{ inputs.product_name }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+          DISCORD_COLOR: ${{ inputs.discord_color }}
+          DISCORD_USERNAME: ${{ inputs.discord_username }}
+          DISCORD_CONTENT: ${{ inputs.discord_content }}
+          SKIP_BETA_DISCORD: ${{ inputs.skip_beta_discord }}
+          SLACK_CHANNEL: ${{ inputs.slack_channel }}
+          SLACK_COLOR: ${{ inputs.slack_color }}
+          SLACK_ICON_EMOJI: ${{ inputs.slack_icon_emoji }}
         run: |
-          ENABLE_DISCORD="${{ env.DISCORD_WEBHOOK_URL != '' && 'true' || 'false' }}"
-          ENABLE_SLACK="${{ env.SLACK_WEBHOOK_URL != '' && inputs.slack_channel != '' && 'true' || 'false' }}"
+          DISCORD_STATE="not set"
+          ENABLE_DISCORD=false
+          if [[ -n "$DISCORD_WEBHOOK_URL" ]]; then
+            DISCORD_STATE="configured"
+            ENABLE_DISCORD=true
+          fi
+
+          SLACK_STATE="not set"
+          ENABLE_SLACK=false
+          if [[ -n "$SLACK_WEBHOOK_URL" ]]; then
+            SLACK_STATE="configured"
+            if [[ -n "$SLACK_CHANNEL" ]]; then
+              ENABLE_SLACK=true
+            fi
+          fi
+
           echo "::notice::DRY RUN — no notifications will be sent"
           echo "  runner           : $RESOLVED_RUNNER"
-          echo "  product_name     : ${{ inputs.product_name }}"
-          echo "  release_tag      : ${{ steps.release.outputs.tag }}"
-          echo "  discord_webhook  : ${{ env.DISCORD_WEBHOOK_URL != '' && 'configured' || 'not set' }}"
-          echo "  discord_color    : ${{ inputs.discord_color }}"
-          echo "  discord_username : ${{ inputs.discord_username }}"
-          echo "  discord_content  : ${{ inputs.discord_content }}"
-          echo "  skip_beta_discord: ${{ inputs.skip_beta_discord }}"
-          echo "  enable_discord   : ${ENABLE_DISCORD}"
-          echo "  slack_webhook    : ${{ env.SLACK_WEBHOOK_URL != '' && 'configured' || 'not set' }}"
-          echo "  slack_channel    : ${{ inputs.slack_channel }}"
-          echo "  slack_color      : ${{ inputs.slack_color }}"
-          echo "  slack_icon_emoji : ${{ inputs.slack_icon_emoji }}"
-          echo "  enable_slack     : ${ENABLE_SLACK}"
+          echo "  product_name     : $PRODUCT_NAME"
+          echo "  release_tag      : $RELEASE_TAG"
+          echo "  discord_webhook  : $DISCORD_STATE"
+          echo "  discord_color    : $DISCORD_COLOR"
+          echo "  discord_username : $DISCORD_USERNAME"
+          echo "  discord_content  : $DISCORD_CONTENT"
+          echo "  skip_beta_discord: $SKIP_BETA_DISCORD"
+          echo "  enable_discord   : $ENABLE_DISCORD"
+          echo "  slack_webhook    : $SLACK_STATE"
+          echo "  slack_channel    : $SLACK_CHANNEL"
+          echo "  slack_color      : $SLACK_COLOR"
+          echo "  slack_icon_emoji : $SLACK_ICON_EMOJI"
+          echo "  enable_slack     : $ENABLE_SLACK"
 
       - name: Discord notification
         if: ${{ env.DISCORD_WEBHOOK_URL != '' }}
-        uses: LerianStudio/github-actions-shared-workflows/src/notify/discord-release@v1.18.0
+        uses: LerianStudio/github-actions-shared-workflows/src/notify/discord-release@v1
         with:
           webhook-url: ${{ secrets.DISCORD_WEBHOOK_URL }}
           release-tag: ${{ steps.release.outputs.tag }}
@@ -180,7 +216,7 @@ jobs:
 
       - name: Slack notification
         if: ${{ env.SLACK_WEBHOOK_URL != '' && inputs.slack_channel != '' }}
-        uses: LerianStudio/github-actions-shared-workflows/src/notify/slack-release@v1.18.0
+        uses: LerianStudio/github-actions-shared-workflows/src/notify/slack-release@v1
         with:
           webhook-url: ${{ secrets.SLACK_WEBHOOK_URL }}
           channel: ${{ inputs.slack_channel }}

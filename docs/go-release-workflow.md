@@ -32,6 +32,9 @@ A third layout needs `release_single_app: true`: **one semantic-release tag for 
 | `enable_changelog` | Generate CHANGELOG.md via GPT after a successful release | boolean | `false` |
 | `enable_major_tag` | Force-update the floating major tag (e.g. `v1`) | boolean | `false` |
 | `stable_releases_only` | Only generate changelogs for stable releases | boolean | `true` |
+| `enable_release_announcement` | Announce the published release to the repository Slack channel (see [release-workflow](release-workflow.md#release-announcement)) | boolean | `true` |
+| `announcement_product_name` | Product name displayed in the announcement. Empty → repository name | string | `''` |
+| `announcement_slack_channel` | Slack channel for the announcement. Empty → `RELEASE_SLACK_CHANNEL` repository variable; skipped when both are empty | string | `''` |
 | `enable_dockerhub` | Push image to DockerHub | boolean | `true` |
 | `enable_ghcr` | Push image to GitHub Container Registry (requires `MANAGE_TOKEN`) | boolean | `true` |
 | `enable_gitops_artifacts` | Upload GitOps artifacts for the downstream update | boolean | `false` |

@@ -73,6 +73,18 @@ on:
         description: 'Directory depth level to extract app name (e.g., 2 -> "apps/agent")'
         type: string
         default: '2'
+      enable_release_announcement:
+        description: 'Announce the published release to the repository Slack channel after a successful release'
+        type: boolean
+        default: true
+      announcement_product_name:
+        description: 'Product name displayed in the announcement. Defaults to the repository name.'
+        type: string
+        default: ''
+      announcement_slack_channel:
+        description: 'Slack channel that receives the announcement. Defaults to the RELEASE_SLACK_CHANNEL repository variable; the announcement is skipped when both are empty.'
+        type: string
+        default: ''
 
       # ----------------- Build (typescript-build.yml) -----------------
       enable_dockerhub:
@@ -298,6 +310,9 @@ jobs:
       backmerge_mode: ${{ inputs.backmerge_mode }}
       shared_paths: ${{ inputs.shared_paths }}
       path_level: ${{ inputs.path_level }}
+      enable_release_announcement: ${{ inputs.enable_release_announcement }}
+      announcement_product_name: ${{ inputs.announcement_product_name }}
+      announcement_slack_channel: ${{ inputs.announcement_slack_channel }}
       filter_paths: ${{ !inputs.release_single_app && inputs.filter_paths || '' }}
     secrets: inherit
 
