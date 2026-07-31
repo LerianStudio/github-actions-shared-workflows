@@ -96,6 +96,7 @@ jobs:
 | Input | Type | Default | Description |
 |-------|------|---------|-------------|
 | `runner_type` | string | `firmino-lxc-runners` | GitHub runner type |
+| `build_runner_type` | string | `''` | Optional runner override for the Build jobs only (prepare/notify stay on `runner_type`); empty falls back to `vars.GENERAL_RUNNERS`, then `runner_type` |
 | `filter_paths` | string | `''` | Newline-separated list of path prefixes. If empty, builds from root (single-app mode) |
 | `path_level` | string | `2` | Directory depth for app name extraction |
 | `enable_dockerhub` | boolean | `true` | Enable pushing to DockerHub |

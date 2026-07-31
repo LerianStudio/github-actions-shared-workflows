@@ -14,6 +14,10 @@ on:
         description: 'GitHub runner type to use'
         type: string
         default: 'blacksmith-4vcpu-ubuntu-2404'
+      security_scan_runner_type:
+        description: 'Optional runner override for the security_scan jobs only. Empty = vars.GENERAL_RUNNERS, then runner_type.'
+        type: string
+        default: ''
       filter_paths:
         description: 'Paths to monitor for changes (newline separated). If not provided, treats as single app repo'
         type: string
@@ -161,7 +165,7 @@ jobs:
   security_scan:
     needs: prepare_matrix
     if: needs.prepare_matrix.outputs.matrix != '[]'
-    runs-on: ${{ vars.GENERAL_RUNNERS || inputs.runner_type }}
+    runs-on: ${{ inputs.security_scan_runner_type || vars.GENERAL_RUNNERS || inputs.runner_type }}
     strategy:
       max-parallel: 1
       fail-fast: false
