@@ -27,7 +27,7 @@ A third layout needs `release_single_app: true`: **one semantic-release tag for 
 |-------|-------------|------|---------|
 | `runner_type` | GitHub runner type | string | `blacksmith-4vcpu-ubuntu-2404` |
 | `build_runner_type` | Optional runner override for the Build jobs only (forwarded to build.yml; prepare/notify stay on `runner_type`); empty falls back to `vars.GENERAL_RUNNERS`, then `runner_type` | string | `''` |
-| `release_runner_type` | Optional runner override for the Release (publish) jobs only (forwarded to release.yml as `publish_runner_type`) | string | `''` |
+| `release_runner_type` | Optional runner override for the Release (publish) jobs only (forwarded to release.yml as `publish_runner_type`); empty falls back to `vars.GENERAL_RUNNERS`, then `runner_type` | string | `''` |
 | `dry_run` | Reserved (downstream workflows have no dry-run mode yet) | boolean | `false` |
 | `ignore_globs` | Space-separated globs treated as docs/meta for the branch-push gate | string | `*.md docs/* .github/* LICENSE* .gitignore` |
 | `semantic_version` | semantic-release version | string | `23.0.8` |
