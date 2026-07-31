@@ -86,6 +86,7 @@ apps:
     - br-slc
     - br-ccs
     - br-sisbajud
+    - streaming-hub
 
     # Test/mock infrastructure
     - mock-btg-server             # benedita only (-st variant); companion to plugin-br-pix-indirect-btg
@@ -105,12 +106,6 @@ apps:
     # Benedita-exclusive
     - rosiehr                     # internal HR app (benedita only); values at cross/
     - go-boilerplate-ddd          # Go service boilerplate (reference/template)
-
-    # Provisioned by Severino (app-provisioning automation)
-    - severino-teste-4
-    - severino-teste-5
-    - severino-teste-6
-    - severino-teste-7
 
 clusters:
   anacleto:
@@ -135,10 +130,6 @@ clusters:
       - br-sisbajud
       - lender
       - ungoliant-controller
-
-      # Provisioned by Severino (app-provisioning automation)
-      - severino-teste-6
-      - severino-teste-7
 
   benedita:
     # Benedita hosts two parallel variants per environment as sibling namespaces:
@@ -198,8 +189,4 @@ clusters:
       - rosiehr
       - go-boilerplate-ddd
       - severino-bot
-
-      # Provisioned by Severino (app-provisioning automation)
-      - severino-teste-4
-      - severino-teste-5
-      - severino-teste-6
+      - streaming-hub
