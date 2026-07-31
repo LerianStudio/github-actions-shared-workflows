@@ -12,6 +12,10 @@ on:
         description: 'GitHub runner type to use'
         type: string
         default: 'blacksmith-4vcpu-ubuntu-2404'
+      release_runner_type:
+        description: 'Optional runner override for the Release (publish) jobs only (forwarded to release.yml as publish_runner_type). Empty = vars.GENERAL_RUNNERS, then runner_type.'
+        type: string
+        default: ''
       dry_run:
         description: 'Run semantic-release in dry-run mode (no tags/releases created) and preview the backmerge instead of applying it'
         required: false
@@ -299,6 +303,7 @@ jobs:
     uses: ./.github/workflows/release.yml
     with:
       runner_type: ${{ inputs.runner_type }}
+      publish_runner_type: ${{ inputs.release_runner_type }}
       dry_run: ${{ inputs.dry_run }}
       semantic_version: ${{ inputs.semantic_version }}
       enable_changelog: ${{ inputs.enable_changelog }}

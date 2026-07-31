@@ -95,6 +95,10 @@ jobs:
 | Input | Description | Required | Default |
 |-------|-------------|----------|---------|
 | `runner_type` | GitHub runner type | No | `firmino-lxc-runners` |
+| `lint_runner_type` | Optional runner override for the Lint jobs only; empty falls back to `vars.GENERAL_RUNNERS`, then `runner_type` | No | `''` |
+| `test_runner_type` | Optional runner override for the Tests jobs only; empty falls back to `vars.GENERAL_RUNNERS`, then `runner_type` | No | `''` |
+| `coverage_runner_type` | Optional runner override for the Coverage jobs only; empty falls back to `vars.GENERAL_RUNNERS`, then `runner_type` | No | `''` |
+| `build_runner_type` | Optional runner override for the Build jobs only; empty falls back to `vars.GENERAL_RUNNERS`, then `runner_type` | No | `''` |
 | `filter_paths` | JSON array of paths to monitor for changes. If empty, treats repo as single-app. | No | `''` |
 | `path_level` | Directory depth level to extract app name | No | `2` |
 | `normalize_to_filter` | Collapse every changed file under a `filter_paths` entry into that one component (`working_dir` = the filter itself) instead of the `path_level`-trimmed directory. With `false`, a change deeper than `path_level` segments inside a filtered component spawns a bogus matrix entry rooted at that subdirectory — no testable package, so no `coverage.txt`, and the coverage job fails with "Artifact not found". | No | `true` |

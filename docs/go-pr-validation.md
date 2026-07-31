@@ -22,6 +22,13 @@ The `go-analysis`, `security` and `lib-version` pipelines each have a `*-gate` a
 | Input | Description | Type | Default |
 |-------|-------------|------|---------|
 | `runner_type` | GitHub runner type | string | `blacksmith-4vcpu-ubuntu-2404` |
+| `gate_runner_type` | Optional runner override for the umbrella utility jobs only (Detect non-doc changes + Go Analysis / Security / Lib Version result gates); empty falls back to `vars.GENERAL_RUNNERS`, then `runner_type` | string | `''` |
+| `lint_runner_type` | Optional runner override for the Go analysis Lint jobs only | string | `''` |
+| `test_runner_type` | Optional runner override for the Go analysis Tests jobs only | string | `''` |
+| `coverage_runner_type` | Optional runner override for the Go analysis Coverage jobs only | string | `''` |
+| `build_runner_type` | Optional runner override for the Go analysis Build jobs only | string | `''` |
+| `security_scan_runner_type` | Optional runner override for the security_scan jobs only | string | `''` |
+| `pr_checks_summary_runner_type` | Optional runner override for the PR Checks Summary job only | string | `''` |
 | `dry_run` | Preview metadata validations without posting comments/labels | boolean | `false` |
 | `run_go_analysis` | Run the Go analysis pipeline | boolean | `true` |
 | `run_security` | Run the security scan pipeline | boolean | `true` |

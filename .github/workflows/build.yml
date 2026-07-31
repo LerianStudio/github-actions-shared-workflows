@@ -25,6 +25,10 @@ on:
         description: 'Runner to use for the workflow'
         type: string
         default: 'blacksmith-4vcpu-ubuntu-2404'
+      build_runner_type:
+        description: 'Optional runner override for the Build jobs only (prepare/notify stay on runner_type). Empty = vars.GENERAL_RUNNERS, then runner_type.'
+        type: string
+        default: ''
       filter_paths:
         description: 'Newline-separated list of path prefixes to filter. If not provided, builds from root.'
         type: string
@@ -277,7 +281,7 @@ jobs:
   build:
     needs: prepare
     if: needs.prepare.outputs.has_builds == 'true'
-    runs-on: ${{ vars.GENERAL_RUNNERS || inputs.runner_type }}
+    runs-on: ${{ inputs.build_runner_type || vars.GENERAL_RUNNERS || inputs.runner_type }}
     name: Build ${{ matrix.app.name }}
     permissions:
       contents: read
