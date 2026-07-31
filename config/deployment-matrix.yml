@@ -86,6 +86,7 @@ apps:
     - br-slc
     - br-ccs
     - br-sisbajud
+    - br-consignado-gw
 
     # Test/mock infrastructure
     - mock-btg-server             # benedita only (-st variant); companion to plugin-br-pix-indirect-btg
@@ -187,6 +188,7 @@ clusters:
       - br-slc
       - br-ccs
       - br-sisbajud
+      - br-consignado-gw
       - mock-btg-server
       - backoffice-console
       - cs-platform
