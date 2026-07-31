@@ -108,9 +108,6 @@ apps:
     - rosiehr                     # internal HR app (benedita only); values at cross/
     - go-boilerplate-ddd          # Go service boilerplate (reference/template)
 
-    # Provisioned by Severino (app-provisioning automation)
-    - severino-testing-final
-
 clusters:
   anacleto:
     # Anacleto hosts two parallel test types (chaos, fuzzing), each with two
@@ -134,9 +131,6 @@ clusters:
       - br-sisbajud
       - lender
       - ungoliant-controller
-
-      # Provisioned by Severino (app-provisioning automation)
-      - severino-testing-final
 
   benedita:
     # Benedita hosts two parallel variants per environment as sibling namespaces:
@@ -198,6 +192,3 @@ clusters:
       - go-boilerplate-ddd
       - severino-bot
       - streaming-hub
-
-      # Provisioned by Severino (app-provisioning automation)
-      - severino-testing-final
