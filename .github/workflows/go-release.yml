@@ -648,6 +648,7 @@ jobs:
       # app's version. Do not make this conditional on ref_type.
       tag_prefix: ${{ matrix.group.tag_prefix }}
       runner_type: ${{ inputs.runner_type }}
+      build_runner_type: ${{ inputs.build_runner_type }}
       enable_dockerhub: ${{ (matrix.group.enable_dockerhub == null && inputs.enable_dockerhub == true) || matrix.group.enable_dockerhub == true }}
       enable_ghcr: ${{ (matrix.group.enable_ghcr == null && inputs.enable_ghcr == true) || matrix.group.enable_ghcr == true }}
       dockerhub_org: ${{ inputs.dockerhub_org }}
