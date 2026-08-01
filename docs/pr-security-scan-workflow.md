@@ -186,6 +186,7 @@ The detection regex can be overridden centrally through the optional **organizat
 | Input | Type | Default | Description |
 |-------|------|---------|-------------|
 | `runner_type` | string | `blacksmith-4vcpu-ubuntu-2404` | GitHub runner type |
+| `security_scan_runner_type` | string | `''` | Optional runner override for the security_scan jobs only; empty falls back to `vars.GENERAL_RUNNERS`, then `runner_type` |
 | `filter_paths` | string | - | Paths to monitor (newline separated). If empty, treats as single app |
 | `path_level` | string | `2` | Directory depth level to extract app name (monorepo only) |
 | `monorepo_type` | string | `type1` | Monorepo type: `type1` or `type2` |

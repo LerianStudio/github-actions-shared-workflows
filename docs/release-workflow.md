@@ -83,6 +83,7 @@ jobs:
 |-------|------|---------|-------------|
 | `semantic_version` | string | `23.0.8` | Semantic release version to use |
 | `runner_type` | string | `firmino-lxc-runners` | GitHub runner type |
+| `publish_runner_type` | string | `''` | Optional runner override for the Release (publish) jobs only; empty falls back to `vars.GENERAL_RUNNERS`, then `runner_type` |
 | `backmerge_enabled` | boolean | `true` | Backmerge the release branch into the target branch after a successful release |
 | `backmerge_source` | string | `main` | Release branch eligible for backmerge; backmerge runs only when the release ref matches this |
 | `backmerge_target` | string | `develop` | Branch that receives the backmerge |

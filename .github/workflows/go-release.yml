@@ -12,6 +12,14 @@ on:
         description: 'GitHub runner type to use'
         type: string
         default: 'blacksmith-4vcpu-ubuntu-2404'
+      build_runner_type:
+        description: 'Optional runner override for the Build jobs only (forwarded to build.yml; prepare/notify stay on runner_type). Empty = vars.GENERAL_RUNNERS, then runner_type.'
+        type: string
+        default: ''
+      release_runner_type:
+        description: 'Optional runner override for the Release (publish) jobs only (forwarded to release.yml as publish_runner_type). Empty = vars.GENERAL_RUNNERS, then runner_type.'
+        type: string
+        default: ''
       dry_run:
         description: 'Reserved. Downstream release/build/gitops workflows do not yet expose a dry-run mode.'
         required: false
@@ -393,6 +401,7 @@ jobs:
     uses: ./.github/workflows/release.yml
     with:
       runner_type: ${{ inputs.runner_type }}
+      publish_runner_type: ${{ inputs.release_runner_type }}
       semantic_version: ${{ inputs.semantic_version }}
       enable_changelog: ${{ inputs.enable_changelog }}
       enable_major_tag: ${{ inputs.enable_major_tag }}
@@ -433,6 +442,7 @@ jobs:
       release_version: ${{ github.ref_type == 'branch' && needs.release.outputs.new_release_version || '' }}
       checkout_ref: ${{ github.ref_type == 'branch' && needs.release.outputs.new_release_git_tag || '' }}
       runner_type: ${{ inputs.runner_type }}
+      build_runner_type: ${{ inputs.build_runner_type }}
       enable_dockerhub: ${{ inputs.enable_dockerhub }}
       enable_ghcr: ${{ inputs.enable_ghcr }}
       enable_gitops_artifacts: ${{ inputs.enable_gitops_artifacts }}
@@ -638,6 +648,7 @@ jobs:
       # app's version. Do not make this conditional on ref_type.
       tag_prefix: ${{ matrix.group.tag_prefix }}
       runner_type: ${{ inputs.runner_type }}
+      build_runner_type: ${{ inputs.build_runner_type }}
       enable_dockerhub: ${{ (matrix.group.enable_dockerhub == null && inputs.enable_dockerhub == true) || matrix.group.enable_dockerhub == true }}
       enable_ghcr: ${{ (matrix.group.enable_ghcr == null && inputs.enable_ghcr == true) || matrix.group.enable_ghcr == true }}
       dockerhub_org: ${{ inputs.dockerhub_org }}

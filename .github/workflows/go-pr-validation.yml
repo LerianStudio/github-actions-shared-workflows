@@ -12,6 +12,10 @@ on:
         description: 'GitHub runner type to use'
         type: string
         default: 'blacksmith-4vcpu-ubuntu-2404'
+      gate_runner_type:
+        description: 'Optional runner override for the umbrella utility jobs only (Detect non-doc changes and the Go Analysis / Security / Lib Version result gates). Empty = vars.GENERAL_RUNNERS, then runner_type.'
+        type: string
+        default: ''
       dry_run:
         description: 'Preview metadata validations without posting comments or labels'
         required: false
@@ -82,12 +86,32 @@ on:
         description: 'Target branches that require source branch validation (pipe-separated)'
         type: string
         default: 'main'
+      pr_checks_summary_runner_type:
+        description: 'Optional runner override for the PR Checks Summary job only. Empty = vars.GENERAL_RUNNERS, then runner_type.'
+        type: string
+        default: ''
 
       # ----------------- Go analysis (go-pr-analysis.yml) -----------------
       go_version:
         description: 'Go version to use'
         type: string
         default: '1.23'
+      lint_runner_type:
+        description: 'Optional runner override for the Go analysis Lint jobs only. Empty = vars.GENERAL_RUNNERS, then runner_type.'
+        type: string
+        default: ''
+      test_runner_type:
+        description: 'Optional runner override for the Go analysis Tests jobs only. Empty = vars.GENERAL_RUNNERS, then runner_type.'
+        type: string
+        default: ''
+      coverage_runner_type:
+        description: 'Optional runner override for the Go analysis Coverage jobs only. Empty = vars.GENERAL_RUNNERS, then runner_type.'
+        type: string
+        default: ''
+      build_runner_type:
+        description: 'Optional runner override for the Go analysis Build jobs only. Empty = vars.GENERAL_RUNNERS, then runner_type.'
+        type: string
+        default: ''
       golangci_lint_version:
         description: 'GolangCI-Lint version'
         type: string
@@ -156,6 +180,10 @@ on:
       # ----------------- Security (pr-security-scan.yml) -----------------
       ignore_file:
         description: 'Path to Trivy ignore file (e.g., .trivyignore.yaml)'
+        type: string
+        default: ''
+      security_scan_runner_type:
+        description: 'Optional runner override for the security_scan jobs only. Empty = vars.GENERAL_RUNNERS, then runner_type.'
         type: string
         default: ''
       enable_docker_scan:
@@ -229,6 +257,7 @@ jobs:
     uses: ./.github/workflows/pr-validation.yml
     with:
       runner_type: ${{ inputs.runner_type }}
+      pr_checks_summary_runner_type: ${{ inputs.pr_checks_summary_runner_type }}
       dry_run: ${{ inputs.dry_run }}
       pr_title_types: ${{ inputs.pr_title_types }}
       pr_title_scopes: ${{ inputs.pr_title_scopes }}
@@ -248,7 +277,7 @@ jobs:
   changes:
     name: Detect non-doc changes
     if: contains(fromJSON('["opened","edited","synchronize","reopened","ready_for_review"]'), github.event.action)
-    runs-on: ${{ vars.GENERAL_RUNNERS || inputs.runner_type }}
+    runs-on: ${{ inputs.gate_runner_type || vars.GENERAL_RUNNERS || inputs.runner_type }}
     permissions:
       contents: read
       pull-requests: read
@@ -270,6 +299,10 @@ jobs:
     uses: ./.github/workflows/go-pr-analysis.yml
     with:
       runner_type: ${{ inputs.runner_type }}
+      lint_runner_type: ${{ inputs.lint_runner_type }}
+      test_runner_type: ${{ inputs.test_runner_type }}
+      coverage_runner_type: ${{ inputs.coverage_runner_type }}
+      build_runner_type: ${{ inputs.build_runner_type }}
       go_version: ${{ inputs.go_version }}
       golangci_lint_version: ${{ inputs.golangci_lint_version }}
       golangci_lint_args: ${{ inputs.golangci_lint_args }}
@@ -300,7 +333,7 @@ jobs:
     name: Go Analysis
     needs: [changes, go-analysis]
     if: always()
-    runs-on: ${{ vars.GENERAL_RUNNERS || inputs.runner_type }}
+    runs-on: ${{ inputs.gate_runner_type || vars.GENERAL_RUNNERS || inputs.runner_type }}
     steps:
       - name: Aggregate Go Analysis result
         uses: LerianStudio/github-actions-shared-workflows/src/validate/result-gate@v1
@@ -316,6 +349,7 @@ jobs:
     uses: ./.github/workflows/pr-security-scan.yml
     with:
       runner_type: ${{ inputs.runner_type }}
+      security_scan_runner_type: ${{ inputs.security_scan_runner_type }}
       ignore_file: ${{ inputs.ignore_file }}
       enable_docker_scan: ${{ inputs.enable_docker_scan }}
       dockerfile_path: ${{ inputs.dockerfile_path }}
@@ -333,7 +367,7 @@ jobs:
     name: Security
     needs: [changes, security]
     if: always()
-    runs-on: ${{ vars.GENERAL_RUNNERS || inputs.runner_type }}
+    runs-on: ${{ inputs.gate_runner_type || vars.GENERAL_RUNNERS || inputs.runner_type }}
     steps:
       - name: Aggregate security result
         uses: LerianStudio/github-actions-shared-workflows/src/validate/result-gate@v1
@@ -359,7 +393,7 @@ jobs:
     name: Lib Version
     needs: [changes, lib-version]
     if: always()
-    runs-on: ${{ vars.GENERAL_RUNNERS || inputs.runner_type }}
+    runs-on: ${{ inputs.gate_runner_type || vars.GENERAL_RUNNERS || inputs.runner_type }}
     steps:
       - name: Aggregate Lib Version result
         uses: LerianStudio/github-actions-shared-workflows/src/validate/result-gate@v1

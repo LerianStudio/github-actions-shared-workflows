@@ -13,6 +13,10 @@ on:
         description: 'GitHub runner type to use'
         type: string
         default: 'blacksmith-4vcpu-ubuntu-2404'
+      pr_checks_summary_runner_type:
+        description: 'Optional runner override for the PR Checks Summary job only. Empty = vars.GENERAL_RUNNERS, then runner_type.'
+        type: string
+        default: ''
       dry_run:
         description: Preview validations without posting comments or labels
         required: false
@@ -174,7 +178,7 @@ jobs:
   # ----------------- PR Checks Summary -----------------
   pr-checks-summary:
     name: PR Checks Summary
-    runs-on: ${{ vars.GENERAL_RUNNERS || inputs.runner_type }}
+    runs-on: ${{ inputs.pr_checks_summary_runner_type || vars.GENERAL_RUNNERS || inputs.runner_type }}
     needs: [blocking-checks, advisory-checks]
     if: always()
 

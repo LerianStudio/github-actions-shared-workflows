@@ -28,6 +28,10 @@ on:
         description: 'Runner to use for the workflow'
         type: string
         default: 'blacksmith-4vcpu-ubuntu-2404'
+      publish_runner_type:
+        description: 'Optional runner override for the Release (publish) jobs only. Empty = vars.GENERAL_RUNNERS, then runner_type.'
+        type: string
+        default: ''
       filter_paths:
         description: 'Newline-separated list of path prefixes to filter. If not provided, treats as single app repo.'
         type: string
@@ -185,7 +189,7 @@ jobs:
   publish_release:
     needs: prepare
     if: needs.prepare.outputs.has_changes == 'true' && needs.prepare.outputs.should_skip != 'true'
-    runs-on: ${{ vars.GENERAL_RUNNERS || inputs.runner_type }}
+    runs-on: ${{ inputs.publish_runner_type || vars.GENERAL_RUNNERS || inputs.runner_type }}
     environment:
       name: create_release
     name: Release ${{ matrix.app.name }}

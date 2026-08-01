@@ -11,6 +11,22 @@ on:
         description: 'GitHub runner type'
         type: string
         default: 'blacksmith-4vcpu-ubuntu-2404'
+      lint_runner_type:
+        description: 'Optional runner override for the Lint jobs only. Empty = vars.GENERAL_RUNNERS, then runner_type.'
+        type: string
+        default: ''
+      test_runner_type:
+        description: 'Optional runner override for the Tests jobs only. Empty = vars.GENERAL_RUNNERS, then runner_type.'
+        type: string
+        default: ''
+      coverage_runner_type:
+        description: 'Optional runner override for the Coverage jobs only. Empty = vars.GENERAL_RUNNERS, then runner_type.'
+        type: string
+        default: ''
+      build_runner_type:
+        description: 'Optional runner override for the Build jobs only. Empty = vars.GENERAL_RUNNERS, then runner_type.'
+        type: string
+        default: ''
       filter_paths:
         description: 'JSON array of paths to monitor for changes (e.g., ["apps/api", "apps/worker"]). If empty, treats repo as single-app and runs against root directory.'
         type: string
@@ -143,7 +159,7 @@ jobs:
     name: Lint (${{ matrix.app.name }})
     needs: detect-changes
     if: needs.detect-changes.outputs.has_changes == 'true' && inputs.enable_lint
-    runs-on: ${{ vars.GENERAL_RUNNERS || inputs.runner_type }}
+    runs-on: ${{ inputs.lint_runner_type || vars.GENERAL_RUNNERS || inputs.runner_type }}
     strategy:
       fail-fast: false
       matrix:
@@ -335,7 +351,7 @@ jobs:
     name: Tests (${{ matrix.app.name }})
     needs: detect-changes
     if: needs.detect-changes.outputs.has_changes == 'true' && inputs.enable_tests
-    runs-on: ${{ vars.GENERAL_RUNNERS || inputs.runner_type }}
+    runs-on: ${{ inputs.test_runner_type || vars.GENERAL_RUNNERS || inputs.runner_type }}
     strategy:
       fail-fast: false
       matrix:
@@ -514,7 +530,7 @@ jobs:
     name: Coverage (${{ matrix.app.name }})
     needs: [detect-changes, tests]
     if: needs.detect-changes.outputs.has_changes == 'true' && inputs.enable_coverage
-    runs-on: ${{ vars.GENERAL_RUNNERS || inputs.runner_type }}
+    runs-on: ${{ inputs.coverage_runner_type || vars.GENERAL_RUNNERS || inputs.runner_type }}
     strategy:
       fail-fast: false
       matrix:
@@ -795,7 +811,7 @@ jobs:
     name: Build (${{ matrix.app.name }})
     needs: detect-changes
     if: needs.detect-changes.outputs.has_changes == 'true' && inputs.enable_build
-    runs-on: ${{ vars.GENERAL_RUNNERS || inputs.runner_type }}
+    runs-on: ${{ inputs.build_runner_type || vars.GENERAL_RUNNERS || inputs.runner_type }}
     strategy:
       fail-fast: false
       matrix:
