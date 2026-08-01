@@ -1,5 +1,22 @@
 # Github-actions-shared-workflows Changelog
 
+## [1.50.0](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.50.0)
+
+Features:
+- Added optional per-job `runner_type` overrides to workflows, allowing more flexibility in job execution environments. (@fredcamaral)
+- Registered `br-consignado-gw` on benedita, expanding deployment capabilities. (@fredcamaral)
+
+Fixes:
+- Forwarded `build_runner_type` to the `extra_build` job in the Go release workflow, ensuring consistent build configurations. (@fredcamaral)
+- Addressed review feedback on runner override documentation and improved forwarding in the JavaScript release process. (@fredcamaral)
+
+Improvements:
+- Cleaned up testing apps from the deployment matrix and added the `streaming-hub` app to the deployment matrix for better organization and clarity. (@ferr3ira-gabriel)
+
+[Compare changes](https://github.com/LerianStudio/github-actions-shared-workflows/compare/v1.49.0...v1.50.0)
+
+---
+
 ## [1.49.0](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.49.0)
 
 Features:
