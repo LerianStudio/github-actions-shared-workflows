@@ -107,6 +107,7 @@ apps:
     # Benedita-exclusive
     - rosiehr                     # internal HR app (benedita only); values at cross/
     - go-boilerplate-ddd          # Go service boilerplate (reference/template)
+    - billing-api                 # Lago-backed billing gateway (benedita only); values at dev-st/stg-st. The Lago install it fronts lives at cross/, the gateway itself does not
 
 clusters:
   anacleto:
@@ -192,3 +193,4 @@ clusters:
       - go-boilerplate-ddd
       - severino-bot
       - streaming-hub
+      - billing-api
