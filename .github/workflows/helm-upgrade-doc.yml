@@ -14,6 +14,14 @@ name: "Helm Upgrade Doc"
 #     upgrade-doc:
 #       uses: LerianStudio/github-actions-shared-workflows/.github/workflows/helm-upgrade-doc.yml@v1
 #       secrets: inherit
+#
+# Slack channel: the notification channel is a GENERIC `SLACK_CHANNEL` secret, so
+# switching channels never requires editing this shared workflow. With
+# `secrets: inherit` it uses the caller's `SLACK_CHANNEL`. To point at a different
+# channel, map any channel secret to it in the CALLER (instead of inherit):
+#       secrets:
+#         SLACK_CHANNEL: ${{ secrets.SLACK_CHANNEL_OPS }}   # or any channel secret
+#         # ...plus the other secrets this workflow requires...
 
 on:
   workflow_call:
@@ -58,7 +66,7 @@ on:
         required: false
       SLACK_BOT_TOKEN_HELM:
         required: false
-      SLACK_CHANNEL_OPS:
+      SLACK_CHANNEL:
         required: false
       SLACK_GROUP_TECH_SUPPORT:
         required: false
@@ -92,7 +100,7 @@ jobs:
           anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
           openrouter-api-key: ${{ secrets.OPENROUTER_API_KEY }}
           slack-bot-token: ${{ secrets.SLACK_BOT_TOKEN_HELM }}
-          slack-channel: ${{ secrets.SLACK_CHANNEL_OPS }}
+          slack-channel: ${{ secrets.SLACK_CHANNEL }}
           slack-group-ops: ${{ secrets.SLACK_GROUP_TECH_SUPPORT }}
           charts-root: ${{ inputs.charts_root }}
           docs-subdir: ${{ inputs.docs_subdir }}
