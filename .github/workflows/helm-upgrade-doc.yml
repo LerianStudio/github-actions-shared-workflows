@@ -58,7 +58,7 @@ on:
         required: false
       SLACK_BOT_TOKEN_HELM:
         required: false
-      SLACK_CHANNEL_DEVOPS:
+      SLACK_CHANNEL_OPS:
         required: false
       SLACK_GROUP_TECH_SUPPORT:
         required: false
@@ -92,7 +92,7 @@ jobs:
           anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
           openrouter-api-key: ${{ secrets.OPENROUTER_API_KEY }}
           slack-bot-token: ${{ secrets.SLACK_BOT_TOKEN_HELM }}
-          slack-channel: ${{ secrets.SLACK_CHANNEL_DEVOPS }}
+          slack-channel: ${{ secrets.SLACK_CHANNEL_OPS }}
           slack-group-ops: ${{ secrets.SLACK_GROUP_TECH_SUPPORT }}
           charts-root: ${{ inputs.charts_root }}
           docs-subdir: ${{ inputs.docs_subdir }}
