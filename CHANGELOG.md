@@ -1,5 +1,23 @@
 # Github-actions-shared-workflows Changelog
 
+## [1.50.1](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.50.1)
+
+Improvements:
+
+- Changed the Slack channel to `helm-doc-upgrade-notify` in the workflow. (@guimoreirar)
+- Updated the Slack channel secret to a generic `SLACK_CHANNEL` in the helm upgrade documentation. (@guimoreirar)
+- Clarified the naming of `SLACK_CHANNEL` under secrets: inherit in the documentation. (@guimoreirar)
+- Registered `billing-api` in the deployment matrix. (@bedatty)
+
+Fixes:
+
+- Used a generic `SLACK_CHANNEL` secret for notifications in the helm upgrade documentation. (@guimoreirar)
+- Renamed `SLACK_CHANNEL_DEVOPS` to `SLACK_CHANNEL_OPS` in the helm upgrade documentation. (@guimoreirar)
+
+[Compare changes](https://github.com/LerianStudio/github-actions-shared-workflows/compare/v1.50.0...v1.50.1)
+
+---
+
 ## [1.50.0](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.50.0)
 
 Features:
