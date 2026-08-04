@@ -106,8 +106,16 @@ All secrets are passed via `secrets: inherit`. The caller repository must have t
 | `ANTHROPIC_API_KEY` | No | Anthropic API key. When set, takes priority over OpenRouter |
 | `OPENROUTER_API_KEY` | No | OpenRouter API key. Used when `ANTHROPIC_API_KEY` is not set |
 | `SLACK_BOT_TOKEN_HELM` | No | Slack bot token for PR review notifications |
-| `SLACK_CHANNEL_DEVOPS` | No | Slack channel ID to send notifications |
+| `SLACK_CHANNEL` | No | Slack channel ID to send notifications. Generic — map any channel secret to it in the caller (e.g. `SLACK_CHANNEL: ${{ secrets.SLACK_CHANNEL_OPS }}`) |
 | `SLACK_GROUP_TECH_SUPPORT` | No | Slack group ID to mention in notifications (e.g. ops team) |
+
+> **Slack channel with `secrets: inherit`:** `inherit` matches by name — it does **not**
+> rename `SLACK_CHANNEL_OPS` to `SLACK_CHANNEL`. The caller must have a secret named
+> exactly `SLACK_CHANNEL`, otherwise `slack-channel` is empty and the Slack step is
+> skipped. To target a channel whose secret has a different name, replace
+> `secrets: inherit` with an explicit mapping listing every required secret plus
+> `SLACK_CHANNEL: ${{ secrets.SLACK_CHANNEL_OPS }}` (you cannot combine `inherit`
+> with an explicit `secrets:` block).
 
 > **Note:** At least one of `ANTHROPIC_API_KEY` or `OPENROUTER_API_KEY` must be provided.
 
