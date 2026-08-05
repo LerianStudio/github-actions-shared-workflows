@@ -91,6 +91,7 @@ The `frontend-analysis`, `security` and `socket` pipelines each have a `*-gate` 
 | `socket_sarif_file` | Path where the Socket CLI scan writes its SARIF report (empty = none) | string | `''` |
 | `socket_ignore_commit_files` | Scan every manifest instead of only the ones touched by the commit | boolean | `false` |
 | `socket_python_version` | Python version used to run the Socket CLI | string | `3.12` |
+| `socket_cli_version` | `socketsecurity` release installed from PyPI (pinned; `latest` tracks the newest) | string | `2.5.8` |
 
 > **Monorepo note:** `filter_paths`/`shared_paths`/`path_level`/`normalize_to_filter` scope the `frontend-analysis` job only. They are not passed to the `security` job because `frontend-pr-analysis.yml` and `pr-security-scan.yml` use different formats for that input (JSON array vs. newline-separated). For a path-scoped security scan too, call `pr-security-scan.yml` directly.
 

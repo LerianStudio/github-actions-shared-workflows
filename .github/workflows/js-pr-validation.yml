@@ -322,6 +322,10 @@ on:
         description: 'Python version used to run the Socket CLI'
         type: string
         default: '3.12'
+      socket_cli_version:
+        description: 'socketsecurity release installed from PyPI, pinned so the package executed with the API token cannot change between runs. Set to "latest" to track the newest release instead.'
+        type: string
+        default: '2.5.8'
     secrets:
       MANAGE_TOKEN:
         required: false
@@ -511,6 +515,7 @@ jobs:
           target-path: ${{ inputs.socket_working_dir }}
           pr-number: ${{ github.event.pull_request.number || 0 }}
           python-version: ${{ inputs.socket_python_version }}
+          cli-version: ${{ inputs.socket_cli_version }}
           fail-on-findings: ${{ inputs.socket_fail_on_findings }}
           sarif-file: ${{ inputs.socket_sarif_file }}
           ignore-commit-files: ${{ inputs.socket_ignore_commit_files }}

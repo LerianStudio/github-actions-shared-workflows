@@ -18,6 +18,7 @@ This is the paid tier of Socket and needs an API token. Without one the action *
 | `target-path` | Directory scanned for dependency manifests | No | `.` |
 | `pr-number` | Pull request number reported to Socket. `0` outside a pull request | No | `0` |
 | `python-version` | Python version used to run the Socket CLI | No | `3.12` |
+| `cli-version` | `socketsecurity` release installed from PyPI. `latest` tracks the newest release and warns | No | `2.5.8` |
 | `fail-on-findings` | Fail the step on blocking alerts. When `false` the scan still runs and reports | No | `false` |
 | `sarif-file` | Path where the SARIF report is written. Empty skips SARIF generation | No | `''` |
 | `ignore-commit-files` | Scan every manifest instead of only the ones touched by the commit | No | `false` |
@@ -46,6 +47,14 @@ This is the paid tier of Socket and needs an API token. Without one the action *
 Exit codes `3` and `5` are infrastructure problems: they say nothing about the dependencies under review, so they never block a pull request.
 
 `--disable-blocking` is deliberately **never** passed. It forces exit `0` over everything, including the API failures that normally surface as exit `3`, which would make advisory mode indistinguishable from a clean scan. The native exit code always reaches the evaluation step, and that step is the single place deciding success or failure — so enforcement stays opt-in per repository, the same discipline as `fail_on_coverage_threshold` and the pre-release gate, without losing the signal.
+
+## Why the CLI version is pinned
+
+`socketcli` runs with `SOCKET_SECURITY_API_KEY` and a GitHub token in its environment. Installing it with an unconstrained `--upgrade` would execute whatever PyPI published most recently, with those credentials, and with no review — precisely the class of risk this composite exists to catch. `cli-version` therefore pins an exact release.
+
+PyPI forbids re-uploading an existing version, so an exact pin already resolves to a fixed artifact; `--require-hashes` is not used because it would also require hashes for every transitive dependency, which is unmaintainable in a shared composite.
+
+Setting `cli-version: latest` restores the unpinned behavior and emits a `::warning::`. Bumping the pin is manual, like the action SHAs — Dependabot's `github-actions` ecosystem does not scan `src/**`.
 
 ## Dry run
 

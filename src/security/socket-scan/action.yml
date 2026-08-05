@@ -22,6 +22,10 @@ inputs:
     description: 'Python version used to run the Socket CLI'
     required: false
     default: '3.12'
+  cli-version:
+    description: 'socketsecurity release installed from PyPI, pinned so the package running with the API token cannot change between runs. Use "latest" to track the newest instead.'
+    required: false
+    default: '2.5.8'
   fail-on-findings:
     description: 'Fail the step when Socket reports blocking alerts. When false the scan still runs and reports, but never fails the step.'
     required: false
@@ -79,7 +83,21 @@ runs:
     - name: Install Socket CLI
       if: steps.guard.outputs.skipped != 'true' && inputs.dry-run != 'true'
       shell: bash
-      run: pip install socketsecurity --upgrade
+      env:
+        CLI_VERSION: ${{ inputs.cli-version }}
+      run: |
+        # The next step runs this package with the Socket API token and a GitHub
+        # token in its environment, so the version is pinned: an unconstrained
+        # --upgrade would execute whatever PyPI published most recently. PyPI
+        # forbids re-uploading an existing version, so an exact pin already
+        # yields a fixed artifact; --require-hashes is not used because it would
+        # also demand hashes for every transitive dependency.
+        if [ -z "$CLI_VERSION" ] || [ "$CLI_VERSION" = "latest" ]; then
+          echo "::warning::Installing socketsecurity unpinned — the package runs with the Socket API token. Pin cli-version to a reviewed release."
+          pip install socketsecurity --upgrade
+        else
+          pip install "socketsecurity==${CLI_VERSION}"
+        fi
 
     # ----------------- Scan -----------------
     - name: Dry run summary
