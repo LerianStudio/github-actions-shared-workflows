@@ -81,17 +81,17 @@ The `frontend-analysis`, `security` and `socket` pipelines each have a `*-gate` 
 | `ignore_file` | Path to Trivy ignore file (e.g. `.trivyignore.yaml`) | string | `''` |
 | `trivy_skip_dirs` | Comma-separated directories to skip in every Trivy filesystem scan | string | `''` |
 | `socket_enable_firewall` | Run Socket Firewall (free tier, no token) and install dependencies through it | boolean | `true` |
-| `socket_enable_scan` | Run the Socket CLI scan (paid tier, needs `SOCKET_SECURITY_API_KEY`) | boolean | `false` |
 | `socket_working_dir` | Directory holding the `package.json` and lockfile scanned by the Socket job | string | `.` |
 | `socket_firewall_version` | Socket Firewall binary version | string | `latest` |
 | `socket_job_summary` | Socket Firewall job summary verbosity (`all`, `errors`, `none`) | string | `all` |
 | `socket_use_cache` | Cache the Socket Firewall binaries between runs (the `sfw` binary only) | boolean | `true` |
 | `socket_fail_on_block` | Fail the Socket job when Socket Firewall blocks a package | boolean | `true` |
-| `socket_fail_on_findings` | Fail the Socket job when the Socket CLI scan reports blocking alerts | boolean | `false` |
-| `socket_sarif_file` | Path where the Socket CLI scan writes its SARIF report (empty = none) | string | `''` |
-| `socket_ignore_commit_files` | Scan every manifest instead of only the ones touched by the commit | boolean | `false` |
-| `socket_python_version` | Python version used to run the Socket CLI | string | `3.12` |
-| `socket_cli_version` | `socketsecurity` release installed from PyPI (pinned; `latest` tracks the newest) | string | `2.5.8` |
+| `socket_enable_app_gate` | Turn the Socket GitHub App checks into an enforceable gate (no token needed) | boolean | `true` |
+| `socket_app_slug` | GitHub App slug whose checks the gate reads | string | `socket-security` |
+| `socket_app_timeout` | Seconds to wait for the App checks before treating the result as inconclusive | number | `300` |
+| `socket_app_fail_on_findings` | Fail the Socket job when the App reports adverse checks | boolean | `true` |
+| `socket_app_on_inconclusive` | `block` or `warn` when the App reached no verdict | string | `block` |
+| `socket_app_on_missing` | `warn` or `block` when the App published no checks | string | `warn` |
 
 > **Monorepo note:** `filter_paths`/`shared_paths`/`path_level`/`normalize_to_filter` scope the `frontend-analysis` job only. They are not passed to the `security` job because `frontend-pr-analysis.yml` and `pr-security-scan.yml` use different formats for that input (JSON array vs. newline-separated). For a path-scoped security scan too, call `pr-security-scan.yml` directly.
 
@@ -101,7 +101,6 @@ The `frontend-analysis`, `security` and `socket` pipelines each have a `*-gate` 
 |--------|-------------|----------|
 | `MANAGE_TOKEN` | Token for PR operations and private package access | No |
 | `SLACK_WEBHOOK_URL` | Slack webhook for pipeline notifications | No |
-| `SOCKET_SECURITY_API_KEY` | Socket API token for the Socket CLI scan (paid tier). Absent = the scan skips with a notice | No |
 
 All other secrets required by the underlying primitives (e.g. `DOCKER_USERNAME`, `DOCKERHUB_IMAGE_PULL_TOKEN`, `NPMRC_TOKEN`) are forwarded automatically via `secrets: inherit`.
 
@@ -167,53 +166,65 @@ jobs:
 
 ## Socket supply chain
 
-`npm audit`, Trivy and CodeQL find known CVEs and insecure code. None of them find a **supply-chain attack** — a package with a malicious install script, a typosquat, a dependency hijacked in a patch release. [Socket](https://socket.dev) covers that gap by analyzing package behavior, and it is wired here in two independent layers.
+`npm audit`, Trivy and CodeQL find known CVEs and insecure code. None of them find a **supply-chain attack** — a package with a malicious install script, a typosquat, a dependency hijacked in a patch release. [Socket](https://socket.dev) covers that gap by analyzing package behavior, and it is wired here in two layers that do different jobs.
 
 > Not to be confused with `socket.io`, the WebSocket library. Unrelated project, no scanning capability.
 
-### Free tier — Socket Firewall (on by default)
+### Layer 1 — Socket Firewall, on every install
 
-[`src/security/socket-firewall`](../src/security/socket-firewall/README.md) installs Socket Firewall's free edition, which shims `npm`/`yarn`/`pnpm`, then runs the project's install through it. A malicious package makes the install exit non-zero and the `Socket` check goes red. No token, no account, no cost.
+[`setup-node-guarded`](../src/setup/setup-node-guarded/README.md) installs Socket Firewall's free edition (no token, no account) and runs `sfw npm ci` — or the `yarn`/`pnpm` equivalent — instead of a bare install. A malicious package is refused mid-fetch, so it is never written to disk and its install scripts never run.
 
-The shim only protects installs in the same job, so this runs a clean install of the same lockfile in the dedicated `socket` job. The 12 install steps inside `frontend-pr-analysis.yml` are not shimmed — the gate here is what blocks the PR.
+This applies to **every** install in the pipeline: all twelve analysis jobs in `frontend-pr-analysis.yml` plus the dedicated `socket` job. That breadth is the point. A firewall shim only protects installs in its own job, so guarding one job would leave the others executing `postinstall` scripts with the runner's tokens in scope.
 
-**Monorepos:** the install needs a lockfile in `socket_working_dir` (default `.`). If none is found the layer skips with a warning instead of failing, so point it at the right directory:
+Two consequences worth knowing:
 
-```yaml
-with:
-  socket_working_dir: 'ui'
-```
-
-Unlike `filter_paths`, this is a single directory — the Socket job is not matrixed per component. Repositories with several independently-locked apps should call the composite directly from their own matrixed job.
-
-To report blocks as warnings instead of failing:
+- **No package-manager cache on guarded installs.** Socket Firewall only sees what crosses the network; per its docs, *"if there are no network requests, as is the case when artifacts are cached locally, there is nothing for `sfw` to block"*. So `cache:` is not passed to `actions/setup-node` and the cache is purged before each install. Measured cost is small — a cold `sfw npm ci` over ~2000 packages takes about 20s.
+- **No private registries.** The free edition does not support custom registries. A repository that needs one must set `socket_enable_firewall: false`, which restores the previous behaviour, cache included.
 
 ```yaml
 with:
-  socket_fail_on_block: false
+  socket_enable_firewall: true   # default
+  socket_fail_on_block: false    # report blocks as warnings instead of failing
 ```
 
-An install that fails for an ordinary reason (bad lockfile, unreachable registry) always fails the job — `socket_fail_on_block` only softens confirmed Socket blocks.
+An install that fails for an ordinary reason always fails the job — `socket_fail_on_block` only softens confirmed Socket blocks.
 
-### Paid tier — Socket CLI scan (off by default)
+### Layer 2 — Socket App gate, no token required
 
-[`src/security/socket-scan`](../src/security/socket-scan/README.md) runs `socketcli`, which posts the full alert report on the PR and enforces the organization's Socket policy. It needs the `SOCKET_SECURITY_API_KEY` secret; **without the secret it skips with a `::notice::` and the job stays green**, so enabling it early breaks nothing.
+The organization already runs the [Socket GitHub App](https://github.com/marketplace/socket-security), which analyses the dependency graph and posts `Socket Security: Project Report` and `Socket Security: Pull Request Alerts`. What it does not do is enforce: its checks land as `success`, `neutral` or `skipped`, and neither `neutral` nor `skipped` blocks a merge.
+
+[`socket-app-gate`](../src/security/socket-app-gate/README.md) waits for those checks on the PR **head** SHA and converts them into a verdict this workflow owns. It re-scans nothing, needs no API token and consumes no Socket quota — running `socketcli` in CI instead would duplicate the same analysis and post a second, competing report.
+
+| Verdict | Meaning | Default |
+|---|---|---|
+| `pass` | Every App check completed non-adversely | Passes |
+| `findings` | A check concluded `failure`/`action_required`/`cancelled`/`timed_out` | **Blocks** |
+| `inconclusive` | Checks exist but are `neutral`/`skipped`, or the wait timed out | **Blocks** |
+| `missing` | The App published no checks — it is not installed here | Warns |
+
+`inconclusive` blocking is deliberate. On a pull request with merge conflicts the App reports *"Skipped un-mergeable pull request"*, meaning no diff was analysed at all — treating that as clean would wave through exactly the wrong pull request. `missing` only warns, so repositories without the App stay green and rely on layer 1.
 
 ```yaml
 with:
-  socket_enable_scan: true          # opt-in
-  socket_fail_on_findings: false    # default — advisory until the repo is clean
-secrets: inherit                    # carries SOCKET_SECURITY_API_KEY
+  socket_app_on_inconclusive: 'warn'   # default 'block'
+  socket_app_on_missing: 'block'       # default 'warn' — require the App
 ```
 
-Socket API errors (`exit 3`) and unmet reachability prerequisites (`exit 5`) are always advisory — they say nothing about the dependencies under review.
+### The PR comment
 
-### Turning the whole thing off
+The `socket` job posts one upserted comment per pull request under the marker `<!-- socket-supply-chain-<app> -->`, in the same `Stage | Status | Blocking?` layout as the security scan comment, with a section per layer. It is a separate comment from the security one by necessity: `pr-security-reporter` runs inside the `security_scan` job of `pr-security-scan.yml`, and step outputs do not cross jobs.
+
+`dry_run: true` skips the comment entirely — posting is a side effect a dry run must not have.
+
+### Turning it off
 
 ```yaml
 with:
-  run_socket: false
+  run_socket: false               # the socket job (gate + report)
+  socket_enable_firewall: false   # also unguards the twelve analysis installs
 ```
+
+Note these are independent: `run_socket: false` removes the gate job and the comment but leaves the guarded installs in place.
 
 ## Branch protection
 

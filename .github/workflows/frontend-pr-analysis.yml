@@ -52,6 +52,21 @@ on:
         description: 'Package manager to use (npm, yarn, pnpm)'
         type: string
         default: 'npm'
+      enable_socket_firewall:
+        description: >-
+          Route every dependency install through Socket Firewall (free tier, no token), so a malicious package
+          is refused before any install script runs. When false, installs restore the package-manager cache and
+          behave as they did before Socket was introduced.
+        type: boolean
+        default: true
+      socket_firewall_version:
+        description: 'Socket Firewall binary version. Empty or "latest" tracks the newest release.'
+        type: string
+        default: 'latest'
+      socket_fail_on_block:
+        description: 'Fail the job when Socket Firewall blocks a package. Set to false to report the block as a warning instead.'
+        type: boolean
+        default: true
       eslint_args:
         description: 'Additional arguments for ESLint'
         type: string
@@ -231,29 +246,15 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Set up pnpm
-        if: inputs.package_manager == 'pnpm'
-        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+      - name: Setup Node.js and install dependencies
+        uses: LerianStudio/github-actions-shared-workflows/src/setup/setup-node-guarded@feat/js-pr-validation-socket
         with:
-          package_json_file: ${{ matrix.app.working_dir }}/package.json
-
-      - name: Setup Node.js
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v6
-        with:
+          package-manager: ${{ inputs.package_manager }}
           node-version: ${{ inputs.node_version }}
-          cache: ${{ inputs.package_manager }}
-          cache-dependency-path: ${{ matrix.app.working_dir }}/${{ inputs.package_manager == 'yarn' && 'yarn.lock' || (inputs.package_manager == 'pnpm' && 'pnpm-lock.yaml' || 'package-lock.json') }}
-
-      - name: Install dependencies
-        working-directory: ${{ matrix.app.working_dir }}
-        env:
-          PKG_MANAGER: ${{ inputs.package_manager }}
-        run: |
-          case "$PKG_MANAGER" in
-            yarn) yarn install --frozen-lockfile ;;
-            pnpm) pnpm install --frozen-lockfile ;;
-            *) npm ci ;;
-          esac
+          working-dir: ${{ matrix.app.working_dir }}
+          guard: ${{ inputs.enable_socket_firewall }}
+          firewall-version: ${{ inputs.socket_firewall_version }}
+          fail-on-block: ${{ inputs.socket_fail_on_block }}
 
       - name: Run ESLint
         working-directory: ${{ matrix.app.working_dir }}
@@ -284,29 +285,15 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Set up pnpm
-        if: inputs.package_manager == 'pnpm'
-        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+      - name: Setup Node.js and install dependencies
+        uses: LerianStudio/github-actions-shared-workflows/src/setup/setup-node-guarded@feat/js-pr-validation-socket
         with:
-          package_json_file: ${{ matrix.app.working_dir }}/package.json
-
-      - name: Setup Node.js
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v6
-        with:
+          package-manager: ${{ inputs.package_manager }}
           node-version: ${{ inputs.node_version }}
-          cache: ${{ inputs.package_manager }}
-          cache-dependency-path: ${{ matrix.app.working_dir }}/${{ inputs.package_manager == 'yarn' && 'yarn.lock' || (inputs.package_manager == 'pnpm' && 'pnpm-lock.yaml' || 'package-lock.json') }}
-
-      - name: Install dependencies
-        working-directory: ${{ matrix.app.working_dir }}
-        env:
-          PKG_MANAGER: ${{ inputs.package_manager }}
-        run: |
-          case "$PKG_MANAGER" in
-            yarn) yarn install --frozen-lockfile ;;
-            pnpm) pnpm install --frozen-lockfile ;;
-            *) npm ci ;;
-          esac
+          working-dir: ${{ matrix.app.working_dir }}
+          guard: ${{ inputs.enable_socket_firewall }}
+          firewall-version: ${{ inputs.socket_firewall_version }}
+          fail-on-block: ${{ inputs.socket_fail_on_block }}
 
       - name: Run TypeScript compiler
         working-directory: ${{ matrix.app.working_dir }}
@@ -330,29 +317,15 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Set up pnpm
-        if: inputs.package_manager == 'pnpm'
-        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+      - name: Setup Node.js and install dependencies
+        uses: LerianStudio/github-actions-shared-workflows/src/setup/setup-node-guarded@feat/js-pr-validation-socket
         with:
-          package_json_file: ${{ matrix.app.working_dir }}/package.json
-
-      - name: Setup Node.js
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v6
-        with:
+          package-manager: ${{ inputs.package_manager }}
           node-version: ${{ inputs.node_version }}
-          cache: ${{ inputs.package_manager }}
-          cache-dependency-path: ${{ matrix.app.working_dir }}/${{ inputs.package_manager == 'yarn' && 'yarn.lock' || (inputs.package_manager == 'pnpm' && 'pnpm-lock.yaml' || 'package-lock.json') }}
-
-      - name: Install dependencies
-        working-directory: ${{ matrix.app.working_dir }}
-        env:
-          PKG_MANAGER: ${{ inputs.package_manager }}
-        run: |
-          case "$PKG_MANAGER" in
-            yarn) yarn install --frozen-lockfile ;;
-            pnpm) pnpm install --frozen-lockfile ;;
-            *) npm ci ;;
-          esac
+          working-dir: ${{ matrix.app.working_dir }}
+          guard: ${{ inputs.enable_socket_firewall }}
+          firewall-version: ${{ inputs.socket_firewall_version }}
+          fail-on-block: ${{ inputs.socket_fail_on_block }}
 
       - name: Run npm audit
         working-directory: ${{ matrix.app.working_dir }}
@@ -384,29 +357,15 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Set up pnpm
-        if: inputs.package_manager == 'pnpm'
-        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+      - name: Setup Node.js and install dependencies
+        uses: LerianStudio/github-actions-shared-workflows/src/setup/setup-node-guarded@feat/js-pr-validation-socket
         with:
-          package_json_file: ${{ matrix.app.working_dir }}/package.json
-
-      - name: Setup Node.js
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v6
-        with:
+          package-manager: ${{ inputs.package_manager }}
           node-version: ${{ inputs.node_version }}
-          cache: ${{ inputs.package_manager }}
-          cache-dependency-path: ${{ matrix.app.working_dir }}/${{ inputs.package_manager == 'yarn' && 'yarn.lock' || (inputs.package_manager == 'pnpm' && 'pnpm-lock.yaml' || 'package-lock.json') }}
-
-      - name: Install dependencies
-        working-directory: ${{ matrix.app.working_dir }}
-        env:
-          PKG_MANAGER: ${{ inputs.package_manager }}
-        run: |
-          case "$PKG_MANAGER" in
-            yarn) yarn install --frozen-lockfile ;;
-            pnpm) pnpm install --frozen-lockfile ;;
-            *) npm ci ;;
-          esac
+          working-dir: ${{ matrix.app.working_dir }}
+          guard: ${{ inputs.enable_socket_firewall }}
+          firewall-version: ${{ inputs.socket_firewall_version }}
+          fail-on-block: ${{ inputs.socket_fail_on_block }}
 
       - name: Run tests
         working-directory: ${{ matrix.app.working_dir }}
@@ -596,29 +555,15 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Set up pnpm
-        if: inputs.package_manager == 'pnpm'
-        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+      - name: Setup Node.js and install dependencies
+        uses: LerianStudio/github-actions-shared-workflows/src/setup/setup-node-guarded@feat/js-pr-validation-socket
         with:
-          package_json_file: ${{ matrix.app.working_dir }}/package.json
-
-      - name: Setup Node.js
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v6
-        with:
+          package-manager: ${{ inputs.package_manager }}
           node-version: ${{ inputs.node_version }}
-          cache: ${{ inputs.package_manager }}
-          cache-dependency-path: ${{ matrix.app.working_dir }}/${{ inputs.package_manager == 'yarn' && 'yarn.lock' || (inputs.package_manager == 'pnpm' && 'pnpm-lock.yaml' || 'package-lock.json') }}
-
-      - name: Install dependencies
-        working-directory: ${{ matrix.app.working_dir }}
-        env:
-          PKG_MANAGER: ${{ inputs.package_manager }}
-        run: |
-          case "$PKG_MANAGER" in
-            yarn) yarn install --frozen-lockfile ;;
-            pnpm) pnpm install --frozen-lockfile ;;
-            *) npm ci ;;
-          esac
+          working-dir: ${{ matrix.app.working_dir }}
+          guard: ${{ inputs.enable_socket_firewall }}
+          firewall-version: ${{ inputs.socket_firewall_version }}
+          fail-on-block: ${{ inputs.socket_fail_on_block }}
 
       - name: Build
         working-directory: ${{ matrix.app.working_dir }}
@@ -649,29 +594,15 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Set up pnpm
-        if: inputs.package_manager == 'pnpm'
-        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+      - name: Setup Node.js and install dependencies
+        uses: LerianStudio/github-actions-shared-workflows/src/setup/setup-node-guarded@feat/js-pr-validation-socket
         with:
-          package_json_file: ${{ matrix.app.working_dir }}/package.json
-
-      - name: Setup Node.js
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v6
-        with:
+          package-manager: ${{ inputs.package_manager }}
           node-version: ${{ inputs.node_version }}
-          cache: ${{ inputs.package_manager }}
-          cache-dependency-path: ${{ matrix.app.working_dir }}/${{ inputs.package_manager == 'yarn' && 'yarn.lock' || (inputs.package_manager == 'pnpm' && 'pnpm-lock.yaml' || 'package-lock.json') }}
-
-      - name: Install dependencies
-        working-directory: ${{ matrix.app.working_dir }}
-        env:
-          PKG_MANAGER: ${{ inputs.package_manager }}
-        run: |
-          case "$PKG_MANAGER" in
-            yarn) yarn install --frozen-lockfile ;;
-            pnpm) pnpm install --frozen-lockfile ;;
-            *) npm ci ;;
-          esac
+          working-dir: ${{ matrix.app.working_dir }}
+          guard: ${{ inputs.enable_socket_firewall }}
+          firewall-version: ${{ inputs.socket_firewall_version }}
+          fail-on-block: ${{ inputs.socket_fail_on_block }}
 
       - name: Check i18n keys (extraction parity)
         id: i18n_extraction
@@ -731,29 +662,15 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Set up pnpm
-        if: inputs.package_manager == 'pnpm'
-        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+      - name: Setup Node.js and install dependencies
+        uses: LerianStudio/github-actions-shared-workflows/src/setup/setup-node-guarded@feat/js-pr-validation-socket
         with:
-          package_json_file: ${{ matrix.app.working_dir }}/package.json
-
-      - name: Setup Node.js
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v6
-        with:
+          package-manager: ${{ inputs.package_manager }}
           node-version: ${{ inputs.node_version }}
-          cache: ${{ inputs.package_manager }}
-          cache-dependency-path: ${{ matrix.app.working_dir }}/${{ inputs.package_manager == 'yarn' && 'yarn.lock' || (inputs.package_manager == 'pnpm' && 'pnpm-lock.yaml' || 'package-lock.json') }}
-
-      - name: Install dependencies
-        working-directory: ${{ matrix.app.working_dir }}
-        env:
-          PKG_MANAGER: ${{ inputs.package_manager }}
-        run: |
-          case "$PKG_MANAGER" in
-            yarn) yarn install --frozen-lockfile ;;
-            pnpm) pnpm install --frozen-lockfile ;;
-            *) npm ci ;;
-          esac
+          working-dir: ${{ matrix.app.working_dir }}
+          guard: ${{ inputs.enable_socket_firewall }}
+          firewall-version: ${{ inputs.socket_firewall_version }}
+          fail-on-block: ${{ inputs.socket_fail_on_block }}
 
       - name: Check accessibility
         working-directory: ${{ matrix.app.working_dir }}
@@ -785,29 +702,15 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Set up pnpm
-        if: inputs.package_manager == 'pnpm'
-        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+      - name: Setup Node.js and install dependencies
+        uses: LerianStudio/github-actions-shared-workflows/src/setup/setup-node-guarded@feat/js-pr-validation-socket
         with:
-          package_json_file: ${{ matrix.app.working_dir }}/package.json
-
-      - name: Setup Node.js
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v6
-        with:
+          package-manager: ${{ inputs.package_manager }}
           node-version: ${{ inputs.node_version }}
-          cache: ${{ inputs.package_manager }}
-          cache-dependency-path: ${{ matrix.app.working_dir }}/${{ inputs.package_manager == 'yarn' && 'yarn.lock' || (inputs.package_manager == 'pnpm' && 'pnpm-lock.yaml' || 'package-lock.json') }}
-
-      - name: Install dependencies
-        working-directory: ${{ matrix.app.working_dir }}
-        env:
-          PKG_MANAGER: ${{ inputs.package_manager }}
-        run: |
-          case "$PKG_MANAGER" in
-            yarn) yarn install --frozen-lockfile ;;
-            pnpm) pnpm install --frozen-lockfile ;;
-            *) npm ci ;;
-          esac
+          working-dir: ${{ matrix.app.working_dir }}
+          guard: ${{ inputs.enable_socket_firewall }}
+          firewall-version: ${{ inputs.socket_firewall_version }}
+          fail-on-block: ${{ inputs.socket_fail_on_block }}
 
       - name: Install Playwright browsers
         if: inputs.custom_checks_needs_browsers
@@ -864,29 +767,15 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Set up pnpm
-        if: inputs.package_manager == 'pnpm'
-        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+      - name: Setup Node.js and install dependencies
+        uses: LerianStudio/github-actions-shared-workflows/src/setup/setup-node-guarded@feat/js-pr-validation-socket
         with:
-          package_json_file: ${{ matrix.app.working_dir }}/package.json
-
-      - name: Setup Node.js
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v6
-        with:
+          package-manager: ${{ inputs.package_manager }}
           node-version: ${{ inputs.node_version }}
-          cache: ${{ inputs.package_manager }}
-          cache-dependency-path: ${{ matrix.app.working_dir }}/${{ inputs.package_manager == 'yarn' && 'yarn.lock' || (inputs.package_manager == 'pnpm' && 'pnpm-lock.yaml' || 'package-lock.json') }}
-
-      - name: Install dependencies
-        working-directory: ${{ matrix.app.working_dir }}
-        env:
-          PKG_MANAGER: ${{ inputs.package_manager }}
-        run: |
-          case "$PKG_MANAGER" in
-            yarn) yarn install --frozen-lockfile ;;
-            pnpm) pnpm install --frozen-lockfile ;;
-            *) npm ci ;;
-          esac
+          working-dir: ${{ matrix.app.working_dir }}
+          guard: ${{ inputs.enable_socket_firewall }}
+          firewall-version: ${{ inputs.socket_firewall_version }}
+          fail-on-block: ${{ inputs.socket_fail_on_block }}
 
       - name: Check bundle budget
         working-directory: ${{ matrix.app.working_dir }}
@@ -918,29 +807,15 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Set up pnpm
-        if: inputs.package_manager == 'pnpm'
-        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+      - name: Setup Node.js and install dependencies
+        uses: LerianStudio/github-actions-shared-workflows/src/setup/setup-node-guarded@feat/js-pr-validation-socket
         with:
-          package_json_file: ${{ matrix.app.working_dir }}/package.json
-
-      - name: Setup Node.js
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v6
-        with:
+          package-manager: ${{ inputs.package_manager }}
           node-version: ${{ inputs.node_version }}
-          cache: ${{ inputs.package_manager }}
-          cache-dependency-path: ${{ matrix.app.working_dir }}/${{ inputs.package_manager == 'yarn' && 'yarn.lock' || (inputs.package_manager == 'pnpm' && 'pnpm-lock.yaml' || 'package-lock.json') }}
-
-      - name: Install dependencies
-        working-directory: ${{ matrix.app.working_dir }}
-        env:
-          PKG_MANAGER: ${{ inputs.package_manager }}
-        run: |
-          case "$PKG_MANAGER" in
-            yarn) yarn install --frozen-lockfile ;;
-            pnpm) pnpm install --frozen-lockfile ;;
-            *) npm ci ;;
-          esac
+          working-dir: ${{ matrix.app.working_dir }}
+          guard: ${{ inputs.enable_socket_firewall }}
+          firewall-version: ${{ inputs.socket_firewall_version }}
+          fail-on-block: ${{ inputs.socket_fail_on_block }}
 
       - name: Install Playwright browsers
         working-directory: ${{ matrix.app.working_dir }}
@@ -983,29 +858,15 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Set up pnpm
-        if: inputs.package_manager == 'pnpm'
-        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+      - name: Setup Node.js and install dependencies
+        uses: LerianStudio/github-actions-shared-workflows/src/setup/setup-node-guarded@feat/js-pr-validation-socket
         with:
-          package_json_file: ${{ matrix.app.working_dir }}/package.json
-
-      - name: Setup Node.js
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v6
-        with:
+          package-manager: ${{ inputs.package_manager }}
           node-version: ${{ inputs.node_version }}
-          cache: ${{ inputs.package_manager }}
-          cache-dependency-path: ${{ matrix.app.working_dir }}/${{ inputs.package_manager == 'yarn' && 'yarn.lock' || (inputs.package_manager == 'pnpm' && 'pnpm-lock.yaml' || 'package-lock.json') }}
-
-      - name: Install dependencies
-        working-directory: ${{ matrix.app.working_dir }}
-        env:
-          PKG_MANAGER: ${{ inputs.package_manager }}
-        run: |
-          case "$PKG_MANAGER" in
-            yarn) yarn install --frozen-lockfile ;;
-            pnpm) pnpm install --frozen-lockfile ;;
-            *) npm ci ;;
-          esac
+          working-dir: ${{ matrix.app.working_dir }}
+          guard: ${{ inputs.enable_socket_firewall }}
+          firewall-version: ${{ inputs.socket_firewall_version }}
+          fail-on-block: ${{ inputs.socket_fail_on_block }}
 
       - name: Install Playwright browsers
         working-directory: ${{ matrix.app.working_dir }}
@@ -1119,31 +980,16 @@ jobs:
           echo "::error::Health check at ${HEALTH_PATH}:${PORT} did not pass within ${TIMEOUT}s"
           exit 1
 
-      - name: Set up pnpm
-        if: inputs.docker_smoke_test_script != '' && inputs.package_manager == 'pnpm'
-        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
-        with:
-          package_json_file: ${{ matrix.app.working_dir }}/package.json
-
-      - name: Setup Node.js
+      - name: Setup Node.js and install dependencies
         if: inputs.docker_smoke_test_script != ''
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v6
+        uses: LerianStudio/github-actions-shared-workflows/src/setup/setup-node-guarded@feat/js-pr-validation-socket
         with:
+          package-manager: ${{ inputs.package_manager }}
           node-version: ${{ inputs.node_version }}
-          cache: ${{ inputs.package_manager }}
-          cache-dependency-path: ${{ matrix.app.working_dir }}/${{ inputs.package_manager == 'yarn' && 'yarn.lock' || (inputs.package_manager == 'pnpm' && 'pnpm-lock.yaml' || 'package-lock.json') }}
-
-      - name: Install dependencies
-        if: inputs.docker_smoke_test_script != ''
-        working-directory: ${{ matrix.app.working_dir }}
-        env:
-          PKG_MANAGER: ${{ inputs.package_manager }}
-        run: |
-          case "$PKG_MANAGER" in
-            yarn) yarn install --frozen-lockfile ;;
-            pnpm) pnpm install --frozen-lockfile ;;
-            *) npm ci ;;
-          esac
+          working-dir: ${{ matrix.app.working_dir }}
+          guard: ${{ inputs.enable_socket_firewall }}
+          firewall-version: ${{ inputs.socket_firewall_version }}
+          fail-on-block: ${{ inputs.socket_fail_on_block }}
 
       - name: Install Playwright browsers
         if: inputs.docker_smoke_test_script != ''

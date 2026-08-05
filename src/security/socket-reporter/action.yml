@@ -1,0 +1,257 @@
+name: Socket Supply Chain Reporter
+description: Posts the Socket Firewall and Socket App results as a single upserted pull request comment, in the same layout as pr-security-reporter.
+
+inputs:
+  github-token:
+    description: 'Token used to post the pull request comment'
+    required: true
+  app-name:
+    description: 'Application name used in the comment heading and the comment marker'
+    required: true
+  firewall-enabled:
+    description: 'Whether the Socket Firewall layer ran at all'
+    required: false
+    default: 'true'
+  firewall-blocked:
+    description: 'true when Socket Firewall blocked a package during install'
+    required: false
+    default: 'false'
+  firewall-exit-code:
+    description: 'Exit code returned by the guarded install'
+    required: false
+    default: '0'
+  firewall-fail-on-block:
+    description: 'Whether a Socket Firewall block is blocking for this repository'
+    required: false
+    default: 'true'
+  guarded-install-count:
+    description: 'How many analysis jobs installed dependencies through Socket Firewall, for the coverage line'
+    required: false
+    default: ''
+  app-gate-enabled:
+    description: 'Whether the Socket App gate ran at all'
+    required: false
+    default: 'true'
+  app-findings-file:
+    description: 'Path to the JSON verdict written by socket-app-gate'
+    required: false
+    default: ''
+  app-fail-on-findings:
+    description: 'Whether an adverse Socket App verdict is blocking for this repository'
+    required: false
+    default: 'true'
+  run-url:
+    description: 'Link to the workflow run, shown in the comment footer'
+    required: false
+    default: ''
+
+outputs:
+  has-findings:
+    description: 'true when any Socket layer reported a blocking finding'
+    value: ${{ steps.parse.outputs.has_findings }}
+
+runs:
+  using: composite
+  steps:
+    # ----------------- PR Comment -----------------
+    - name: Post Socket report to PR
+      id: report
+      uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+      env:
+        APP_NAME: ${{ inputs.app-name }}
+        FIREWALL_ENABLED: ${{ inputs.firewall-enabled }}
+        FIREWALL_BLOCKED: ${{ inputs.firewall-blocked }}
+        FIREWALL_EXIT_CODE: ${{ inputs.firewall-exit-code }}
+        FIREWALL_FAIL_ON_BLOCK: ${{ inputs.firewall-fail-on-block }}
+        GUARDED_INSTALL_COUNT: ${{ inputs.guarded-install-count }}
+        APP_GATE_ENABLED: ${{ inputs.app-gate-enabled }}
+        APP_FINDINGS_FILE: ${{ inputs.app-findings-file }}
+        APP_FAIL_ON_FINDINGS: ${{ inputs.app-fail-on-findings }}
+        RUN_URL: ${{ inputs.run-url }}
+      with:
+        github-token: ${{ inputs.github-token }}
+        script: |
+          const fs = require('fs');
+          const appName = process.env.APP_NAME;
+          const bool = (v) => v === 'true';
+
+          const fwEnabled = bool(process.env.FIREWALL_ENABLED);
+          const fwBlocked = bool(process.env.FIREWALL_BLOCKED);
+          const fwExit = process.env.FIREWALL_EXIT_CODE || '0';
+          const fwBlocking = bool(process.env.FIREWALL_FAIL_ON_BLOCK);
+          const guardedCount = process.env.GUARDED_INSTALL_COUNT || '';
+          const appEnabled = bool(process.env.APP_GATE_ENABLED);
+          const appBlocking = bool(process.env.APP_FAIL_ON_FINDINGS);
+          const runUrl = process.env.RUN_URL;
+
+          // ── Socket App verdict ──
+          let app = null;
+          const findingsFile = process.env.APP_FINDINGS_FILE;
+          if (appEnabled && findingsFile && fs.existsSync(findingsFile)) {
+            try {
+              app = JSON.parse(fs.readFileSync(findingsFile, 'utf8'));
+            } catch (e) {
+              core.warning(`Could not parse Socket App findings file: ${e.message}`);
+            }
+          }
+
+          // ── Per-stage rows ──
+          const rows = [];
+          let hasFindings = false;
+
+          if (!fwEnabled) {
+            rows.push(['Socket Firewall', '⏭ Disabled', '—']);
+          } else if (fwBlocked) {
+            rows.push(['Socket Firewall', '🚫 Package blocked', fwBlocking ? 'Yes' : 'No']);
+            if (fwBlocking) hasFindings = true;
+          } else if (fwExit !== '0') {
+            rows.push(['Socket Firewall', '⚠️ Install failed', 'Yes']);
+            hasFindings = true;
+          } else {
+            rows.push(['Socket Firewall', '✅ Clean', '—']);
+          }
+
+          const APP_STATUS = {
+            pass: ['✅ Clean', false],
+            findings: ['🚫 Alerts reported', true],
+            inconclusive: ['⚠️ No verdict reached', true],
+            missing: ['⏭ App not installed', false],
+          };
+          if (!appEnabled) {
+            rows.push(['Socket App Alerts', '⏭ Disabled', '—']);
+          } else if (!app) {
+            rows.push(['Socket App Alerts', '⚠️ Result unavailable', '—']);
+          } else {
+            const [label, adverse] = APP_STATUS[app.verdict] || ['❔ Unknown', false];
+            const blocking = adverse && appBlocking;
+            rows.push(['Socket App Alerts', label, blocking ? 'Yes' : (adverse ? 'No' : '—')]);
+            if (blocking) hasFindings = true;
+          }
+
+          // ── Body ──
+          const lines = [];
+          lines.push(`## 🛡️ Socket Supply Chain — \`${appName}\``);
+          lines.push('');
+          lines.push(hasFindings
+            ? '## ❌ PR Blocked — supply chain findings'
+            : '## ✅ PR Mergeable — no blocking findings');
+          lines.push('');
+          lines.push('| Stage | Status | Blocking? |');
+          lines.push('|-------|--------|-----------|');
+          for (const [stage, status, blocking] of rows) {
+            lines.push(`| ${stage} | ${status} | ${blocking} |`);
+          }
+          lines.push('');
+
+          // ── Socket Firewall detail ──
+          lines.push('## Socket Firewall');
+          lines.push('');
+          if (!fwEnabled) {
+            lines.push('⏭ Disabled for this repository (`socket_enable_firewall: false`).');
+          } else if (fwBlocked) {
+            lines.push('🚫 A package was refused during install. It was never written to disk, so its install scripts did not run.');
+            lines.push('');
+            lines.push('Check the **Socket Firewall** job summary for the offending package. '
+              + 'If this is a false positive, the package needs review — there is no ignore file for install-time blocks.');
+          } else if (fwExit !== '0') {
+            lines.push(`⚠️ The dependency install failed with exit code \`${fwExit}\`, with no Socket block detected. This is an ordinary install failure, not a supply chain finding.`);
+          } else {
+            lines.push('✅ Every package in the lockfile was fetched through `sfw` and allowed.');
+            if (guardedCount) {
+              lines.push('');
+              lines.push(`Guarded installs this run: **${guardedCount}**. The package-manager cache is purged `
+                + 'before each one — a cached tarball produces no network request and would install uninspected.');
+            }
+          }
+          lines.push('');
+
+          // ── Socket App detail ──
+          lines.push('---');
+          lines.push('');
+          lines.push('## Socket App Alerts');
+          lines.push('');
+          if (!appEnabled) {
+            lines.push('⏭ Disabled for this repository (`socket_enable_app_gate: false`).');
+          } else if (!app) {
+            lines.push('⚠️ The Socket App verdict could not be read. The gate step may have failed before writing it — check the run logs.');
+          } else {
+            if (app.verdict === 'missing') {
+              lines.push('⏭ No checks published by the Socket GitHub App on this commit. Install-time protection still applies via Socket Firewall.');
+            } else if (app.verdict === 'inconclusive') {
+              lines.push('⚠️ The App published checks but reached no verdict. **This is not the same as clean** — '
+                + 'it usually means the pull request is un-mergeable, so the App skipped the diff against the '
+                + 'target branch. Resolve the conflict and re-run.');
+            } else if (app.verdict === 'findings') {
+              lines.push('🚫 The App reported adverse findings on the dependency diff.');
+            } else {
+              lines.push('✅ No adverse findings across the App checks.');
+            }
+            if (Array.isArray(app.checks) && app.checks.length) {
+              lines.push('');
+              lines.push('| Check | Conclusion |');
+              lines.push('|-------|------------|');
+              for (const c of app.checks) {
+                lines.push(`| ${c.name} | \`${c.conclusion || c.status}\` |`);
+              }
+            }
+            if (app.reportUrl) {
+              lines.push('');
+              lines.push(`[View the full Socket report](${app.reportUrl})`);
+            }
+          }
+          lines.push('');
+
+          if (runUrl) {
+            lines.push('---');
+            lines.push('');
+            lines.push(`<sub>🔍 [View full scan logs](${runUrl})</sub>`);
+          }
+
+          // Own marker, distinct from pr-security-reporter's, so the two comments
+          // never contend for the same body.
+          const marker = `<!-- socket-supply-chain-${appName} -->`;
+          const body = marker + '\n' + lines.join('\n');
+
+          if (context.issue.number) {
+            try {
+              const comments = await github.paginate(github.rest.issues.listComments, {
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                per_page: 100,
+              });
+              const existing = comments.find(c => c.body?.includes(marker));
+              const params = { owner: context.repo.owner, repo: context.repo.repo, body };
+              if (existing) {
+                await github.rest.issues.updateComment({ ...params, comment_id: existing.id });
+              } else {
+                await github.rest.issues.createComment({ ...params, issue_number: context.issue.number });
+              }
+            } catch (e) {
+              core.warning(`Could not post Socket PR comment: ${e.message}`);
+            }
+          }
+
+          await core.summary.addRaw(lines.join('\n')).write();
+          return JSON.stringify({ has_findings: hasFindings });
+
+    - name: Parse outputs
+      id: parse
+      shell: bash
+      env:
+        RESULT: ${{ steps.report.outputs.result }}
+      run: |
+        set -euo pipefail
+        if [ -z "$RESULT" ]; then
+          echo "::error::socket-reporter: github-script produced no output. The script step likely failed — check the previous step's logs."
+          exit 1
+        fi
+        if ! echo "$RESULT" | jq -e . >/dev/null 2>&1; then
+          echo "::error::socket-reporter: github-script output is not valid JSON. Raw output: $RESULT"
+          exit 1
+        fi
+        if ! echo "$RESULT" | jq -e 'has("has_findings") and (.has_findings | type == "boolean")' >/dev/null; then
+          echo "::error::socket-reporter: output missing or invalid \`has_findings\`. Raw output: $RESULT"
+          exit 1
+        fi
+        echo "has_findings=$(echo "$RESULT" | jq -r '.has_findings')" >> "$GITHUB_OUTPUT"
