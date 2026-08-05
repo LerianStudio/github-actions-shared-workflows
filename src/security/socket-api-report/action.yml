@@ -1,0 +1,169 @@
+name: Socket API Report
+description: Reads the full scan the Socket App already computed and extracts per-package alerts, vulnerabilities and scores for reporting.
+
+inputs:
+  socket-api-key:
+    description: 'Socket API token. Empty (the default) skips with a notice, so repositories without one are unaffected.'
+    required: false
+    default: ''
+  report-url:
+    description: >-
+      Socket dashboard URL of the scan to read, as exposed by socket-app-gate
+      (https://socket.dev/dashboard/org/<org>/sbom/<full-scan-id>). The org slug and scan id are parsed from it,
+      so no new scan is created and the App's own analysis is reused.
+    required: false
+    default: ''
+  org-slug:
+    description: 'Socket organization slug. Overrides the value parsed from report-url.'
+    required: false
+    default: ''
+  full-scan-id:
+    description: 'Full scan id. Overrides the value parsed from report-url.'
+    required: false
+    default: ''
+  max-rows:
+    description: 'Maximum package rows kept in the findings file, highest severity first'
+    required: false
+    default: '25'
+  findings-file:
+    description: 'Path where the extracted findings JSON is written for socket-reporter'
+    required: false
+    default: 'socket-api-findings.json'
+  debug-sample:
+    description: 'Log a redacted sample of the NDJSON artifact shape. Useful when adapting to an API change.'
+    required: false
+    default: 'false'
+
+outputs:
+  skipped:
+    description: 'true when the report was not produced (no token, or no scan id to read)'
+    value: ${{ steps.fetch.outputs.skipped }}
+  findings-file:
+    description: 'Path to the extracted findings JSON'
+    value: ${{ steps.fetch.outputs.findings_file }}
+  alert-count:
+    description: 'Total number of alerts across all artifacts in the scan'
+    value: ${{ steps.fetch.outputs.alert_count }}
+
+runs:
+  using: composite
+  steps:
+    # ----------------- Fetch & extract -----------------
+    - name: Read the Socket full scan
+      id: fetch
+      shell: bash
+      env:
+        SOCKET_API_KEY: ${{ inputs.socket-api-key }}
+        REPORT_URL: ${{ inputs.report-url }}
+        ORG_SLUG_IN: ${{ inputs.org-slug }}
+        SCAN_ID_IN: ${{ inputs.full-scan-id }}
+        MAX_ROWS: ${{ inputs.max-rows }}
+        FINDINGS_FILE: ${{ inputs.findings-file }}
+        DEBUG_SAMPLE: ${{ inputs.debug-sample }}
+      run: |
+        echo "findings_file=$FINDINGS_FILE" >> "$GITHUB_OUTPUT"
+        echo '{}' > "$FINDINGS_FILE"
+
+        if [ -z "$SOCKET_API_KEY" ]; then
+          echo "skipped=true" >> "$GITHUB_OUTPUT"
+          echo "alert_count=0" >> "$GITHUB_OUTPUT"
+          echo "::notice::Socket API report skipped — no Socket API token configured."
+          exit 0
+        fi
+
+        # The dashboard URL the App publishes carries both identifiers:
+        #   https://socket.dev/dashboard/org/<org>/sbom/<full-scan-id>
+        # Reusing them means reading the scan the App already computed rather than
+        # creating a second one: no duplicate analysis, one quota unit.
+        ORG="$ORG_SLUG_IN"
+        SCAN="$SCAN_ID_IN"
+        if [ -z "$ORG" ] || [ -z "$SCAN" ]; then
+          [ -z "$ORG" ] && ORG=$(printf '%s' "$REPORT_URL" | sed -n 's#.*/org/\([^/]*\)/.*#\1#p')
+          [ -z "$SCAN" ] && SCAN=$(printf '%s' "$REPORT_URL" | sed -n 's#.*/sbom/\([0-9a-fA-F-]*\).*#\1#p')
+        fi
+        if [ -z "$ORG" ] || [ -z "$SCAN" ]; then
+          echo "skipped=true" >> "$GITHUB_OUTPUT"
+          echo "alert_count=0" >> "$GITHUB_OUTPUT"
+          echo "::warning::Socket API report skipped — could not resolve org/scan id from '$REPORT_URL'."
+          exit 0
+        fi
+        echo "Reading full scan $SCAN for org $ORG"
+
+        # The token goes through a curl config file rather than the command line,
+        # so it never appears in the process table of a shared runner.
+        CFG="$RUNNER_TEMP/socket-curl.cfg"
+        umask 077
+        printf 'header = "Authorization: Bearer %s"\n' "$SOCKET_API_KEY" > "$CFG"
+
+        NDJSON="$RUNNER_TEMP/socket-full-scan.ndjson"
+        HTTP=$(curl -sS --config "$CFG" -o "$NDJSON" -w '%{http_code}' \
+          "https://api.socket.dev/v0/orgs/${ORG}/full-scans/${SCAN}" || echo "000")
+        rm -f "$CFG"
+
+        if [ "$HTTP" != "200" ]; then
+          echo "skipped=true" >> "$GITHUB_OUTPUT"
+          echo "alert_count=0" >> "$GITHUB_OUTPUT"
+          case "$HTTP" in
+            401) echo "::warning::Socket API returned 401 — the token is invalid or revoked." ;;
+            403) echo "::warning::Socket API returned 403 — the token is missing the 'full-scans:list' scope." ;;
+            404) echo "::warning::Socket API returned 404 — scan $SCAN not found under org $ORG." ;;
+            429) echo "::warning::Socket API returned 429 — quota or rate limit exhausted." ;;
+            *) echo "::warning::Socket API returned HTTP $HTTP while reading the full scan." ;;
+          esac
+          # Advisory by construction: this layer informs, the App gate enforces.
+          exit 0
+        fi
+
+        if [ "$DEBUG_SAMPLE" = "true" ]; then
+          echo "--- first artifact, keys only ---"
+          head -1 "$NDJSON" | jq -r 'keys | join(", ")' || true
+          echo "--- first alert object ---"
+          jq -c 'select((.alerts // []) | length > 0) | .alerts[0]' "$NDJSON" 2>/dev/null | head -1 || true
+        fi
+
+        # NDJSON: one artifact per line plus a trailing {"_type":"scores", ...} event.
+        # Alert objects are read defensively — `type` is the documented key, with
+        # `key`/`alert` accepted as fallbacks so an API rename degrades to a label
+        # rather than an empty report.
+        jq -s --argjson maxRows "${MAX_ROWS:-25}" '
+          (map(select(._type == "scores")) | last) as $scores
+          | (map(select(._type != "scores" and (.name != null)))) as $arts
+          | ($arts | map(select((.alerts // []) | length > 0))) as $flagged
+          | {
+              scanScores: ($scores | if . == null then null else (.score // .scores // .) end),
+              artifactCount: ($arts | length),
+              flaggedCount: ($flagged | length),
+              alertCount: ($arts | map((.alerts // []) | length) | add // 0),
+              alertsByType: (
+                $arts | map((.alerts // [])[] | (.type // .key // .alert // "unknown"))
+                | group_by(.) | map({type: .[0], count: length})
+                | sort_by(-.count)
+              ),
+              packages: (
+                $flagged
+                | map({
+                    name: (if .namespace then "\(.namespace)/\(.name)" else .name end),
+                    version: .version,
+                    direct: (.direct // false),
+                    dev: (.dev // false),
+                    scores: (.score // null),
+                    alerts: ((.alerts // []) | map({
+                      type: (.type // .key // .alert // "unknown"),
+                      severity: (.severity // .props.severity // null),
+                      category: (.category // null)
+                    })),
+                    alertCount: ((.alerts // []) | length)
+                  })
+                | sort_by(-.alertCount)
+                | .[:$maxRows]
+              ),
+              truncated: (($flagged | length) > $maxRows)
+            }' "$NDJSON" > "$FINDINGS_FILE" 2>/dev/null || echo '{}' > "$FINDINGS_FILE"
+
+        COUNT=$(jq -r '.alertCount // 0' "$FINDINGS_FILE")
+        FLAGGED=$(jq -r '.flaggedCount // 0' "$FINDINGS_FILE")
+        TOTAL=$(jq -r '.artifactCount // 0' "$FINDINGS_FILE")
+        echo "skipped=false" >> "$GITHUB_OUTPUT"
+        echo "alert_count=$COUNT" >> "$GITHUB_OUTPUT"
+        echo "Scan covers $TOTAL artifact(s); $FLAGGED carry alerts, $COUNT alert(s) total."
+        jq -r '(.alertsByType // [])[] | "  \(.count)x \(.type)"' "$FINDINGS_FILE" | head -20 || true

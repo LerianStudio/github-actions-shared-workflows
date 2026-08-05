@@ -44,6 +44,10 @@ inputs:
     description: 'Whether an adverse Socket App verdict is blocking for this repository'
     required: false
     default: 'true'
+  api-findings-file:
+    description: 'Path to the JSON written by socket-api-report (per-package alerts, vulnerabilities and scores)'
+    required: false
+    default: ''
   run-url:
     description: 'Link to the workflow run, shown in the comment footer'
     required: false
@@ -72,6 +76,7 @@ runs:
         APP_GATE_ENABLED: ${{ inputs.app-gate-enabled }}
         APP_FINDINGS_FILE: ${{ inputs.app-findings-file }}
         APP_FAIL_ON_FINDINGS: ${{ inputs.app-fail-on-findings }}
+        API_FINDINGS_FILE: ${{ inputs.api-findings-file }}
         RUN_URL: ${{ inputs.run-url }}
       with:
         github-token: ${{ inputs.github-token }}
@@ -108,6 +113,8 @@ runs:
           const fwReport = readJson(process.env.FIREWALL_FINDINGS_FILE);
           const fwBlockedPkgs = (fwReport && fwReport.blocked) || [];
           const fwParseFails = (fwReport && fwReport.parseFail) || [];
+
+          const api = readJson(process.env.API_FINDINGS_FILE);
 
           // ── Socket App verdict ──
           let app = null;
@@ -260,6 +267,65 @@ runs:
             }
           }
           lines.push('');
+
+          // ── Dependency findings (Socket API) ──
+          // Advisory by construction: the App gate decides pass/fail, this section
+          // exists so the findings are visible rather than one click away.
+          if (api && api.artifactCount) {
+            const SEV_RANK = { critical: 0, high: 1, middle: 2, medium: 2, low: 3, info: 4 };
+            const SEV_ICON = { critical: '🔴', high: '🟠', middle: '🟡', medium: '🟡', low: '⚪', info: '⚪' };
+            const pct = (v) => (typeof v === 'number' ? `${Math.round(v * 100)}` : '—');
+
+            lines.push('---');
+            lines.push('');
+            lines.push('## Dependency Findings');
+            lines.push('');
+            lines.push(`Scanned **${api.artifactCount}** package(s); **${api.flaggedCount}** carry alerts, **${api.alertCount}** alert(s) total.`);
+
+            const sc = api.scanScores;
+            if (sc) {
+              lines.push('');
+              lines.push('| Overall | Supply chain | Vulnerability | License | Maintenance | Quality |');
+              lines.push('|---|---|---|---|---|---|');
+              lines.push(`| ${pct(sc.overall)} | ${pct(sc.supplyChain)} | ${pct(sc.vulnerability)} | ${pct(sc.license)} | ${pct(sc.maintenance)} | ${pct(sc.quality)} |`);
+            }
+
+            if ((api.alertsByType || []).length) {
+              lines.push('');
+              lines.push('<details><summary>Alerts by type</summary>');
+              lines.push('');
+              lines.push('| Alert | Count |');
+              lines.push('|-------|-------|');
+              for (const a of api.alertsByType) {
+                lines.push(`| \`${a.type}\` | ${a.count} |`);
+              }
+              lines.push('');
+              lines.push('</details>');
+            }
+
+            if ((api.packages || []).length) {
+              lines.push('');
+              lines.push('| Package | Version | Scope | Findings |');
+              lines.push('|---------|---------|-------|----------|');
+              for (const p of api.packages) {
+                const worst = (p.alerts || [])
+                  .map(a => (a.severity || 'info').toLowerCase())
+                  .sort((x, y) => (SEV_RANK[x] ?? 9) - (SEV_RANK[y] ?? 9))[0];
+                const scope = [p.direct ? 'direct' : 'transitive', p.dev ? 'dev' : 'prod'].join(', ');
+                const findings = (p.alerts || [])
+                  .map(a => `${SEV_ICON[(a.severity || '').toLowerCase()] || '•'} \`${a.type}\``)
+                  .join(' ');
+                lines.push(`| ${SEV_ICON[worst] || '•'} \`${p.name}\` | \`${p.version || '?'}\` | ${scope} | ${findings || '—'} |`);
+              }
+              if (api.truncated) {
+                lines.push('');
+                lines.push(`Showing the most-flagged packages only — more exist beyond the row limit.`);
+              }
+            }
+            lines.push('');
+            lines.push('These are **advisory**: they do not gate the merge. Enforcement comes from the Socket App verdict and from Socket Firewall refusing an install.');
+            lines.push('');
+          }
 
           if (runUrl) {
             lines.push('---');

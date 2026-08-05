@@ -92,6 +92,8 @@ The `frontend-analysis`, `security` and `socket` pipelines each have a `*-gate` 
 | `socket_app_fail_on_findings` | Fail the Socket job when the App reports adverse checks | boolean | `true` |
 | `socket_app_on_inconclusive` | `block` or `warn` when the App reached no verdict | string | `block` |
 | `socket_app_on_missing` | `warn` or `block` when the App published no checks | string | `warn` |
+| `socket_enable_api_report` | Read the App's full scan and report per-package alerts, vulnerabilities and scores (advisory) | boolean | `true` |
+| `socket_api_max_rows` | Maximum package rows in the dependency findings table | number | `25` |
 
 > **Monorepo note:** `filter_paths`/`shared_paths`/`path_level`/`normalize_to_filter` scope the `frontend-analysis` job only. They are not passed to the `security` job because `frontend-pr-analysis.yml` and `pr-security-scan.yml` use different formats for that input (JSON array vs. newline-separated). For a path-scoped security scan too, call `pr-security-scan.yml` directly.
 
@@ -168,7 +170,7 @@ jobs:
 
 ## Socket supply chain
 
-`npm audit`, Trivy and CodeQL find known CVEs and insecure code. None of them find a **supply-chain attack** — a package with a malicious install script, a typosquat, a dependency hijacked in a patch release. [Socket](https://socket.dev) covers that gap by analyzing package behavior, and it is wired here in two layers that do different jobs.
+`npm audit`, Trivy and CodeQL find known CVEs and insecure code. None of them find a **supply-chain attack** — a package with a malicious install script, a typosquat, a dependency hijacked in a patch release. [Socket](https://socket.dev) covers that gap by analyzing package behavior, and it is wired here in three layers that do different jobs: one refuses the install, one turns the App's verdict into a gate, and one reports the findings per package.
 
 > Not to be confused with `socket.io`, the WebSocket library. Unrelated project, no scanning capability.
 
@@ -210,6 +212,22 @@ The organization already runs the [Socket GitHub App](https://github.com/marketp
 with:
   socket_app_on_inconclusive: 'warn'   # default 'block'
   socket_app_on_missing: 'block'       # default 'warn' — require the App
+```
+
+### Layer 3 — Dependency findings, advisory
+
+The first two layers answer narrow questions. The firewall reports what it **refused**, never an assessment of what it allowed. The App's checks carry a status and a dashboard link — `Project Report`'s `output.text` is literally `null`. Neither can tell you *which package has which vulnerability*.
+
+[`socket-api-report`](../src/security/socket-api-report/README.md) closes that. It parses the org slug and scan id out of the dashboard URL the App publishes, then reads that scan back through `GET /v0/orgs/{org}/full-scans/{id}`. Nothing is re-analysed and no scan is created — one quota unit — and the comment gains scan scores, an alerts-by-type breakdown and a per-package table with severity, alert type and whether the dependency is direct or transitive, prod or dev.
+
+This layer needs `SOCKET_SECURITY_API_KEY` with the `full-scans:list` scope. Without it, it skips with a notice.
+
+It is **advisory by construction**: every failure path exits `0`. A Socket outage or an exhausted quota must not look like a security finding, so enforcement stays with layer 2's verdict and layer 1's refusal to install.
+
+```yaml
+with:
+  socket_enable_api_report: false   # default true
+  socket_api_max_rows: 50           # default 25
 ```
 
 ### The PR comment

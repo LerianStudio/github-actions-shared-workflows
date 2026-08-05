@@ -326,6 +326,17 @@ on:
           A conflicted pull request is the common cause, and it must not read as clean.
         type: string
         default: 'block'
+      socket_enable_api_report:
+        description: >-
+          Read the full scan the Socket App already computed and report per-package alerts, vulnerabilities and
+          scores in the pull request comment. Requires SOCKET_SECURITY_API_KEY with the full-scans:list scope.
+          Advisory only — it never gates the merge.
+        type: boolean
+        default: true
+      socket_api_max_rows:
+        description: 'Maximum package rows kept in the dependency findings table'
+        type: number
+        default: 25
       socket_app_on_missing:
         description: >-
           What to do when the App published no checks, which is what a repository without it installed looks like:
@@ -546,6 +557,18 @@ jobs:
           on-inconclusive: ${{ inputs.socket_app_on_inconclusive }}
           on-missing-app: ${{ inputs.socket_app_on_missing }}
 
+      # Reads the scan the App already produced, addressed by the dashboard URL the
+      # gate captured — no new scan, one quota unit, no duplicate analysis.
+      - name: Socket API Report
+        id: api-report
+        if: always() && inputs.socket_enable_api_report && github.event_name == 'pull_request'
+        continue-on-error: true
+        uses: LerianStudio/github-actions-shared-workflows/src/security/socket-api-report@feat/js-pr-validation-socket
+        with:
+          socket-api-key: ${{ secrets.SOCKET_SECURITY_API_KEY }}
+          report-url: ${{ steps.app-gate.outputs.report-url }}
+          max-rows: ${{ inputs.socket_api_max_rows }}
+
       - name: Post Socket report to PR
         if: always() && github.event_name == 'pull_request' && !inputs.dry_run
         uses: LerianStudio/github-actions-shared-workflows/src/security/socket-reporter@feat/js-pr-validation-socket
@@ -560,6 +583,7 @@ jobs:
           app-gate-enabled: ${{ inputs.socket_enable_app_gate }}
           app-findings-file: ${{ steps.app-gate.outputs.findings-file }}
           app-fail-on-findings: ${{ inputs.socket_app_fail_on_findings }}
+          api-findings-file: ${{ steps.api-report.outputs.findings-file }}
           # yamllint disable-line rule:line-length
           run-url: ${{ format('{0}/{1}/actions/runs/{2}', github.server_url, github.repository, github.run_id) }}
 
