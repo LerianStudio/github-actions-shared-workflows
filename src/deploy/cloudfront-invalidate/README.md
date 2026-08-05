@@ -24,18 +24,30 @@ A single `aws cloudfront create-invalidation` call is simpler and more auditable
 ## Usage as composite step
 
 ```yaml
-steps:
-  - name: Configure AWS credentials (OIDC)
-    uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c # v6.2.3
-    with:
-      role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
-      aws-region: us-east-1
+name: Deploy SPA
+on:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+  id-token: write # AWS OIDC
+jobs:
+  deploy:
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    steps:
+      # Build + upload your SPA first…
 
-  - name: Invalidate CloudFront
-    uses: ./src/deploy/cloudfront-invalidate
-    with:
-      distribution-id: E1234567890ABC
-      dry-run: false
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c # v6.2.3
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: us-east-1
+
+      - name: Invalidate CloudFront
+        uses: LerianStudio/github-actions-shared-workflows/src/deploy/cloudfront-invalidate@develop
+        with:
+          distribution-id: E1234567890ABC
+          dry-run: false
 ```
 
 ## Usage via reusable workflow

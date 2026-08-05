@@ -16,7 +16,7 @@ Requires AWS credentials to already be configured in the environment (e.g. via `
 
 ## Why custom `aws` shell (not a Marketplace action)
 
-Marketplace S3-sync actions (e.g. `jakejarvis/s3-sync-action`) run a **single** `aws s3 sync` and expose one `Cache-Control` for the whole upload. This composite needs a **two-pass** sync — immutable fingerprinted assets first (with `--delete`), then `*.html` uploaded **last** with `no-store` — so an `index.html` is never served referencing assets that aren't uploaded yet. No maintained Marketplace action models that ordering, and driving `aws` directly matches the sibling [`s3-upload.yml`](../../../.github/workflows/s3-upload.yml) convention in this repo. Authentication is deliberately left to `aws-actions/configure-aws-credentials` (OIDC) in the calling workflow.
+Marketplace S3-sync actions (e.g. `jakejarvis/s3-sync-action`) run a **single** `aws s3 sync` and expose one `Cache-Control` for the whole upload. This composite needs a **multi-pass** sync — immutable fingerprinted assets first (with `--delete`), then stable-named files (service worker, manifest…) with a revalidation policy, then `*.html` uploaded **last** with `no-store` — so an `index.html` is never served referencing assets that aren't uploaded yet, and non-fingerprinted files never get stuck behind an immutable cache. No maintained Marketplace action models that ordering, and driving `aws` directly matches the sibling [`s3-upload.yml`](../../../.github/workflows/s3-upload.yml) convention in this repo. Authentication is deliberately left to `aws-actions/configure-aws-credentials` (OIDC) in the calling workflow.
 
 ## Inputs
 
@@ -24,26 +24,40 @@ Marketplace S3-sync actions (e.g. `jakejarvis/s3-sync-action`) run a **single** 
 |-------|-------------|----------|---------|
 | `dist-directory` | Build output directory to sync, relative to the repo root | Yes | — |
 | `s3-bucket` | Destination S3 bucket name (without `s3://`); objects sync to the bucket **root** | Yes | — |
-| `assets-cache-control` | `Cache-Control` applied to fingerprinted assets (all non-`*.html`) | No | `public,max-age=31536000,immutable` |
+| `assets-cache-control` | `Cache-Control` for fingerprinted assets (non-`*.html`, excluding `revalidate-globs`) | No | `public,max-age=31536000,immutable` |
 | `html-cache-control` | `Cache-Control` applied to `*.html`, uploaded last | No | `no-store` |
-| `dry-run` | Preview both syncs with `--dryrun` (no objects written) | No | `false` |
+| `revalidate-globs` | Space-separated globs for stable-named, non-fingerprinted files that must NOT be immutable. Empty to disable | No | `service-worker.js sw.js manifest.webmanifest robots.txt favicon.ico` |
+| `revalidate-cache-control` | `Cache-Control` for the `revalidate-globs` files | No | `no-cache` |
+| `dry-run` | Fully-local preview: print the plan/file list, no AWS calls | No | `false` |
 
 ## Usage as composite step
 
 ```yaml
-steps:
-  - name: Configure AWS credentials (OIDC)
-    uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c # v6.2.3
-    with:
-      role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
-      aws-region: us-east-1
+name: Deploy SPA
+on:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+  id-token: write # AWS OIDC
+jobs:
+  deploy:
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    steps:
+      # Build your SPA first (checkout, npm ci, npm run build)…
 
-  - name: Sync SPA to S3
-    uses: ./src/deploy/s3-sync
-    with:
-      dist-directory: frontend/dist-customer
-      s3-bucket: my-spa-bucket
-      dry-run: false
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c # v6.2.3
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: us-east-1
+
+      - name: Sync SPA to S3
+        uses: LerianStudio/github-actions-shared-workflows/src/deploy/s3-sync@develop
+        with:
+          dist-directory: frontend/dist-customer
+          s3-bucket: my-spa-bucket
+          dry-run: false
 ```
 
 ## Usage via reusable workflow

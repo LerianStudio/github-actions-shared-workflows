@@ -9,15 +9,23 @@ inputs:
     description: Destination S3 bucket name (without the s3:// prefix). Objects sync to the bucket root.
     required: true
   assets-cache-control:
-    description: Cache-Control header applied to fingerprinted assets (everything except *.html).
+    description: Cache-Control applied to fingerprinted assets — everything except *.html and the revalidate-globs files.
     required: false
     default: "public,max-age=31536000,immutable"
   html-cache-control:
     description: Cache-Control header applied to *.html files, uploaded last so a freshly-served index never references assets that are not yet uploaded.
     required: false
     default: "no-store"
+  revalidate-globs:
+    description: Space-separated globs for stable-named, NON-fingerprinted files (service worker, web manifest, robots, favicon). These must NOT be cached immutable — they get revalidate-cache-control instead so updates propagate. Set empty to disable.
+    required: false
+    default: "service-worker.js sw.js manifest.webmanifest robots.txt favicon.ico"
+  revalidate-cache-control:
+    description: Cache-Control applied to the revalidate-globs files (must revalidate, never immutable).
+    required: false
+    default: "no-cache"
   dry-run:
-    description: Preview both syncs with --dryrun (no objects written).
+    description: Fully-local preview — print the plan and file list, make no AWS calls.
     required: false
     default: "false"
 
@@ -36,20 +44,24 @@ runs:
         BUCKET: ${{ inputs.s3-bucket }}
         ASSETS_CACHE_CONTROL: ${{ inputs.assets-cache-control }}
         HTML_CACHE_CONTROL: ${{ inputs.html-cache-control }}
+        REVALIDATE_CACHE_CONTROL: ${{ inputs.revalidate-cache-control }}
+        REVALIDATE_GLOBS: ${{ inputs.revalidate-globs }}
       run: |
         set -euo pipefail
         echo "::notice::DRY RUN — no AWS credentials used, no AWS calls, no objects written"
         echo "  source directory : ${DIST}"
         echo "  destination      : s3://${BUCKET}/"
-        echo "  assets (non-html): Cache-Control '${ASSETS_CACHE_CONTROL}', synced first with --delete"
+        echo "  assets (immutable): Cache-Control '${ASSETS_CACHE_CONTROL}', synced first with --delete (excludes html + revalidate files)"
+        echo "  revalidate files : '${REVALIDATE_GLOBS}' → Cache-Control '${REVALIDATE_CACHE_CONTROL}'"
         echo "  html             : Cache-Control '${HTML_CACHE_CONTROL}', synced last with --delete"
         echo "  local files that would be uploaded:"
         ( cd "${DIST}" && find . -type f | sort )
 
     # ----------------- Real run -----------------
     # Fingerprinted assets are immutable, so they upload FIRST with a long
-    # Cache-Control and --delete prunes stale files. *.html is excluded here and
-    # handled last to avoid a window where index.html points at missing assets.
+    # Cache-Control and --delete prunes stale files. *.html AND the stable-named
+    # revalidate files are excluded here (handled in their own passes) so they
+    # never inherit the immutable policy.
     - name: Sync fingerprinted assets (immutable) and prune stale files
       if: ${{ inputs.dry-run != 'true' }}
       shell: bash
@@ -57,11 +69,42 @@ runs:
         DIST: ${{ inputs.dist-directory }}
         BUCKET: ${{ inputs.s3-bucket }}
         CACHE_CONTROL: ${{ inputs.assets-cache-control }}
+        REVALIDATE_GLOBS: ${{ inputs.revalidate-globs }}
       run: |
         set -euo pipefail
+        exclude_args=(--exclude "*.html")
+        read -ra globs <<< "$REVALIDATE_GLOBS"
+        for g in "${globs[@]}"; do
+          exclude_args+=(--exclude "$g")
+        done
         aws s3 sync "${DIST}/" "s3://${BUCKET}/" \
           --delete \
-          --exclude "*.html" \
+          "${exclude_args[@]}" \
+          --cache-control "$CACHE_CONTROL"
+
+    # Stable-named, non-fingerprinted files (service worker, manifest, robots,
+    # favicon) MUST NOT be immutable — an immutable service worker would never
+    # update. They sync with a revalidation Cache-Control; --delete is scoped to
+    # these globs. Skipped entirely when revalidate-globs is empty.
+    - name: Sync stable-named files (revalidate, not immutable)
+      if: ${{ inputs.dry-run != 'true' && inputs.revalidate-globs != '' }}
+      shell: bash
+      env:
+        DIST: ${{ inputs.dist-directory }}
+        BUCKET: ${{ inputs.s3-bucket }}
+        CACHE_CONTROL: ${{ inputs.revalidate-cache-control }}
+        REVALIDATE_GLOBS: ${{ inputs.revalidate-globs }}
+      run: |
+        set -euo pipefail
+        read -ra globs <<< "$REVALIDATE_GLOBS"
+        [[ ${#globs[@]} -gt 0 ]] || exit 0
+        include_args=(--exclude "*")
+        for g in "${globs[@]}"; do
+          include_args+=(--include "$g")
+        done
+        aws s3 sync "${DIST}/" "s3://${BUCKET}/" \
+          --delete \
+          "${include_args[@]}" \
           --cache-control "$CACHE_CONTROL"
 
     # HTML is uploaded LAST with a no-store Cache-Control so users always fetch an
