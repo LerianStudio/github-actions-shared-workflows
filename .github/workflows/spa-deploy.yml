@@ -1,0 +1,219 @@
+name: "SPA Deploy"
+
+# Reusable workflow: build a single-page app and deploy it to S3 + CloudFront.
+#
+# Fills the gap left by s3-upload.yml, which cannot deploy a built SPA: it does
+# not build, takes no artifact, forces an <env>/ sub-folder, sets no
+# Cache-Control, does no `--delete` sync, and does no CloudFront invalidation.
+#
+# This workflow only ORCHESTRATES: it checks out, builds the SPA, routes the
+# OIDC secret, and delegates the deploy STEPS to local composites — it inlines no
+# complex shell of its own.
+#
+#   job: deploy
+#     → checkout + setup-node + npm ci + build_command (build the SPA)
+#     → ./src/setup/aws-cli               (ensure AWS CLI is present)
+#     → configure-aws-credentials (OIDC)  (routes AWS_DEPLOY_ROLE_ARN secret)
+#     → ./src/deploy/s3-sync              (differentiated Cache-Control sync)
+#     → ./src/deploy/cloudfront-invalidate (create-invalidation)
+#
+# The s3-sync composite does `aws s3 sync --delete` with DIFFERENTIATED
+# Cache-Control (fingerprinted assets immutable/1y; *.html no-store, uploaded
+# LAST so users never fetch an index that references not-yet-uploaded assets).
+#
+# Auth is OIDC only (configure-aws-credentials with role-to-assume) — never
+# static keys.
+#
+# Example (production — pin to a released tag):
+#   jobs:
+#     deploy:
+#       uses: LerianStudio/github-actions-shared-workflows/.github/workflows/spa-deploy.yml@v1.51.0
+#       with:
+#         working_directory: frontend
+#         build_command: npm run build:customer
+#         dist_directory: frontend/dist-customer
+#         aws_region: ${{ vars.AWS_REGION }}
+#         s3_bucket: ${{ vars.SPA_S3_BUCKET }}
+#         cloudfront_distribution_id: ${{ vars.CLOUDFRONT_DISTRIBUTION_ID }}
+#       secrets:
+#         AWS_DEPLOY_ROLE_ARN: ${{ secrets.FRONTEND_DEPLOY_ROLE_ARN }}
+
+on:
+  workflow_call:
+    inputs:
+      runner_type:
+        description: 'Runner to use for the workflow'
+        type: string
+        default: 'blacksmith-4vcpu-ubuntu-2404'
+      working_directory:
+        description: 'Directory containing package.json / the SPA source (npm ci + build run here)'
+        type: string
+        default: 'frontend'
+      build_command:
+        description: 'Command that produces the production build (e.g. "npm run build:customer")'
+        type: string
+        required: true
+      dist_directory:
+        description: 'Build output directory to sync, relative to the repo root (e.g. "frontend/dist-customer")'
+        type: string
+        required: true
+      aws_region:
+        description: 'AWS region of the S3 bucket and CloudFront distribution'
+        type: string
+        required: true
+      s3_bucket:
+        description: 'Destination S3 bucket name (without the s3:// prefix). Objects are synced to the bucket ROOT.'
+        type: string
+        required: true
+      cloudfront_distribution_id:
+        description: 'CloudFront distribution ID to invalidate after upload'
+        type: string
+        required: true
+      node_version:
+        description: 'Node.js version for setup-node'
+        type: string
+        default: '22'
+      dry_run:
+        description: 'Fully-local preview: skip AWS auth, print the sync plan (no AWS calls), and skip the CloudFront invalidation'
+        type: boolean
+        required: false
+        default: false
+      environment:
+        description: 'GitHub Environment to deploy through — enables required reviewers / branch protection and lets the OIDC trust be scoped to the environment. Empty = no environment gate.'
+        type: string
+        required: false
+        default: ''
+      role_duration_seconds:
+        description: 'Lifetime (seconds) of the assumed AWS credentials. Kept short — creds are only assumed for the S3 sync + invalidation, after the build.'
+        type: number
+        required: false
+        default: 900
+    secrets:
+      AWS_DEPLOY_ROLE_ARN:
+        description: 'ARN of the IAM role to assume via OIDC for S3 + CloudFront access'
+        required: true
+
+# NOTE: no `workflow_dispatch` here — a reusable workflow must be `workflow_call`
+# only (see .claude/commands/workflow.md, "Script injection & workflow_dispatch").
+# `build_command` is free-text and is eval'd below, so exposing it via a
+# manual-dispatch string input would be a command-injection surface. Manual
+# runs belong in a `self-*`/caller entrypoint with safe (choice/boolean) inputs.
+
+permissions:
+  contents: read
+  id-token: write
+
+# Serialize deploys to the same bucket within THIS caller repo so a `--delete`
+# sync never races a concurrent run. GitHub concurrency is repository-scoped: a
+# bucket is expected to be owned by a single repo (its own SPA), so this covers
+# the real case — it does NOT guard a bucket shared across repos (use an external
+# lock, or a single owning repo, for that). Never cancel an in-flight deploy.
+concurrency:
+  group: spa-deploy-${{ inputs.s3_bucket }}
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Build and deploy SPA
+    runs-on: ${{ vars.GENERAL_RUNNERS || inputs.runner_type }}
+    # Optional GitHub Environment gate (required reviewers / branch protection /
+    # environment-scoped OIDC trust). Empty input = no environment.
+    environment: ${{ inputs.environment }}
+    steps:
+      # ----------------- Build -----------------
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${{ inputs.node_version }}
+          cache: npm
+          cache-dependency-path: ${{ inputs.working_directory }}/package-lock.json
+
+      - name: Install dependencies
+        working-directory: ${{ inputs.working_directory }}
+        run: npm ci
+
+      - name: Build SPA
+        working-directory: ${{ inputs.working_directory }}
+        env:
+          BUILD_COMMAND: ${{ inputs.build_command }}
+        run: |
+          set -euo pipefail
+          eval "$BUILD_COMMAND"
+
+      - name: Verify build output exists
+        env:
+          DIST: ${{ inputs.dist_directory }}
+        run: |
+          set -euo pipefail
+          if [[ ! -d "$DIST" ]] || [[ -z "$(find "$DIST" -type f -print -quit)" ]]; then
+            echo "::error::Build output directory '${DIST}' is missing or has no files after build."
+            exit 1
+          fi
+          echo "::notice::Build output ready at ${DIST}"
+
+      # ----------------- Deploy -----------------
+      # dry_run prints every resolved (non-secret) input at the workflow boundary
+      # per the dry_run convention. AWS_DEPLOY_ROLE_ARN is a secret and is never
+      # echoed; AWS auth and the composites are skipped in dry run.
+      - name: Dry-run deployment plan (resolved inputs)
+        if: ${{ inputs.dry_run }}
+        env:
+          WORKING_DIR: ${{ inputs.working_directory }}
+          BUILD_COMMAND: ${{ inputs.build_command }}
+          DIST: ${{ inputs.dist_directory }}
+          BUCKET: ${{ inputs.s3_bucket }}
+          DISTRIBUTION_ID: ${{ inputs.cloudfront_distribution_id }}
+          REGION: ${{ inputs.aws_region }}
+          ENVIRONMENT: ${{ inputs.environment }}
+          ROLE_DURATION: ${{ inputs.role_duration_seconds }}
+        run: |
+          set -euo pipefail
+          echo "::notice::DRY RUN — no AWS credentials assumed, no objects written, no invalidation"
+          echo "  working directory : ${WORKING_DIR}"
+          echo "  build command     : ${BUILD_COMMAND}"
+          echo "  dist directory    : ${DIST}"
+          echo "  s3 bucket         : ${BUCKET}"
+          echo "  distribution id   : ${DISTRIBUTION_ID}"
+          echo "  aws region        : ${REGION}"
+          echo "  environment       : ${ENVIRONMENT:-<none>}"
+          echo "  role duration (s) : ${ROLE_DURATION}"
+
+      # AWS CLI + credentials are only needed for a real deploy. A dry run stays
+      # fully local (the s3-sync composite prints the plan without calling AWS),
+      # so these steps must NOT install tooling or assume the deploy role.
+      # Composites are referenced by EXTERNAL ref (LerianStudio/.../src/...@ref),
+      # never `./src/...`: in a workflow_call reusable workflow `./` resolves to
+      # the CALLER's workspace, so a local path breaks for external callers
+      # (see .claude/commands/workflow.md, "Composite action references").
+      - name: Ensure AWS CLI
+        if: ${{ !inputs.dry_run }}
+        uses: LerianStudio/github-actions-shared-workflows/src/setup/aws-cli@v1
+
+      - name: Configure AWS credentials (OIDC)
+        if: ${{ !inputs.dry_run }}
+        uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c # v6.2.3
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          role-session-name: spa-deploy-${{ github.run_id }}
+          role-duration-seconds: ${{ inputs.role_duration_seconds }}
+          aws-region: ${{ inputs.aws_region }}
+
+      # Deploy STEPS are delegated to single-responsibility composites under
+      # src/deploy/ — no complex shell is inlined in this workflow.
+      - name: Sync SPA to S3 (differentiated Cache-Control)
+        uses: LerianStudio/github-actions-shared-workflows/src/deploy/s3-sync@develop # TODO: pin to @v1 once released
+        with:
+          dist-directory: ${{ inputs.dist_directory }}
+          s3-bucket: ${{ inputs.s3_bucket }}
+          dry-run: ${{ inputs.dry_run }}
+
+      - name: Invalidate CloudFront
+        uses: LerianStudio/github-actions-shared-workflows/src/deploy/cloudfront-invalidate@develop # TODO: pin to @v1 once released
+        with:
+          distribution-id: ${{ inputs.cloudfront_distribution_id }}
+          dry-run: ${{ inputs.dry_run }}
