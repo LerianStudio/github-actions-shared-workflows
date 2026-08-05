@@ -1,0 +1,212 @@
+name: "SPA Deploy"
+
+# Reusable workflow: build a single-page app and deploy it to S3 + CloudFront.
+#
+# Fills the gap left by s3-upload.yml, which cannot deploy a built SPA: it does
+# not build, takes no artifact, forces an <env>/ sub-folder, sets no
+# Cache-Control, does no `--delete` sync, and does no CloudFront invalidation.
+#
+# Steps: checkout -> setup-node -> npm ci -> build_command -> AWS OIDC auth ->
+# `aws s3 sync --delete` with DIFFERENTIATED Cache-Control (fingerprinted assets
+# immutable/1y; *.html no-store, uploaded LAST so users never fetch an index
+# that references not-yet-uploaded assets) -> CloudFront invalidation.
+#
+# Auth is OIDC only (configure-aws-credentials with role-to-assume) — never
+# static keys.
+#
+# Example (production — pin to a released tag):
+#   jobs:
+#     deploy:
+#       uses: LerianStudio/github-actions-shared-workflows/.github/workflows/spa-deploy.yml@v1.51.0
+#       with:
+#         working_directory: frontend
+#         build_command: npm run build:customer
+#         dist_directory: frontend/dist-customer
+#         aws_region: ${{ vars.AWS_REGION }}
+#         s3_bucket: ${{ vars.SPA_S3_BUCKET }}
+#         cloudfront_distribution_id: ${{ vars.CLOUDFRONT_DISTRIBUTION_ID }}
+#       secrets:
+#         AWS_DEPLOY_ROLE_ARN: ${{ secrets.FRONTEND_DEPLOY_ROLE_ARN }}
+
+on:
+  workflow_call:
+    inputs:
+      runner_type:
+        description: 'Runner to use for the workflow'
+        type: string
+        default: 'blacksmith-4vcpu-ubuntu-2404'
+      working_directory:
+        description: 'Directory containing package.json / the SPA source (npm ci + build run here)'
+        type: string
+        default: 'frontend'
+      build_command:
+        description: 'Command that produces the production build (e.g. "npm run build:customer")'
+        type: string
+        required: true
+      dist_directory:
+        description: 'Build output directory to sync, relative to the repo root (e.g. "frontend/dist-customer")'
+        type: string
+        required: true
+      aws_region:
+        description: 'AWS region of the S3 bucket and CloudFront distribution'
+        type: string
+        required: true
+      s3_bucket:
+        description: 'Destination S3 bucket name (without the s3:// prefix). Objects are synced to the bucket ROOT.'
+        type: string
+        required: true
+      cloudfront_distribution_id:
+        description: 'CloudFront distribution ID to invalidate after upload'
+        type: string
+        required: true
+      node_version:
+        description: 'Node.js version for setup-node'
+        type: string
+        default: '22'
+      dry_run:
+        description: 'Preview the sync (aws s3 sync --dryrun) and skip the CloudFront invalidation'
+        type: boolean
+        required: false
+        default: false
+    secrets:
+      AWS_DEPLOY_ROLE_ARN:
+        description: 'ARN of the IAM role to assume via OIDC for S3 + CloudFront access'
+        required: true
+  workflow_dispatch:
+    inputs:
+      working_directory:
+        description: 'Directory containing package.json / the SPA source'
+        type: string
+        default: 'frontend'
+      build_command:
+        description: 'Command that produces the production build'
+        type: string
+        required: true
+      dist_directory:
+        description: 'Build output directory to sync, relative to the repo root'
+        type: string
+        required: true
+      aws_region:
+        description: 'AWS region of the S3 bucket and CloudFront distribution'
+        type: string
+        required: true
+      s3_bucket:
+        description: 'Destination S3 bucket name (without the s3:// prefix)'
+        type: string
+        required: true
+      cloudfront_distribution_id:
+        description: 'CloudFront distribution ID to invalidate after upload'
+        type: string
+        required: true
+      node_version:
+        description: 'Node.js version for setup-node'
+        type: string
+        default: '22'
+      dry_run:
+        description: 'Preview the sync and skip the CloudFront invalidation'
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  deploy:
+    name: Build and deploy SPA
+    runs-on: ${{ vars.GENERAL_RUNNERS || inputs.runner_type }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${{ inputs.node_version }}
+          cache: npm
+          cache-dependency-path: ${{ inputs.working_directory }}/package-lock.json
+
+      - name: Install dependencies
+        working-directory: ${{ inputs.working_directory }}
+        run: npm ci
+
+      - name: Build SPA
+        working-directory: ${{ inputs.working_directory }}
+        env:
+          BUILD_COMMAND: ${{ inputs.build_command }}
+        run: |
+          set -euo pipefail
+          eval "$BUILD_COMMAND"
+
+      - name: Verify build output exists
+        env:
+          DIST: ${{ inputs.dist_directory }}
+        run: |
+          set -euo pipefail
+          if [[ ! -d "$DIST" ]] || [[ -z "$(ls -A "$DIST" 2>/dev/null)" ]]; then
+            echo "::error::Build output directory '${DIST}' is missing or empty after build."
+            exit 1
+          fi
+          echo "::notice::Build output ready at ${DIST}"
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c # v6.2.3
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ inputs.aws_region }}
+
+      - name: Sync fingerprinted assets (immutable) and prune stale files
+        env:
+          DIST: ${{ inputs.dist_directory }}
+          BUCKET: ${{ inputs.s3_bucket }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          set -euo pipefail
+          DRYRUN_FLAG=""
+          if [[ "$DRY_RUN" == "true" ]]; then
+            echo "::notice::DRY RUN — previewing asset sync (no objects written)"
+            DRYRUN_FLAG="--dryrun"
+          fi
+          aws s3 sync "${DIST}/" "s3://${BUCKET}/" \
+            ${DRYRUN_FLAG} \
+            --delete \
+            --exclude "*.html" \
+            --cache-control "public,max-age=31536000,immutable"
+
+      - name: Sync HTML (no-store, uploaded last)
+        env:
+          DIST: ${{ inputs.dist_directory }}
+          BUCKET: ${{ inputs.s3_bucket }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          set -euo pipefail
+          DRYRUN_FLAG=""
+          if [[ "$DRY_RUN" == "true" ]]; then
+            echo "::notice::DRY RUN — previewing HTML sync (no objects written)"
+            DRYRUN_FLAG="--dryrun"
+          fi
+          aws s3 sync "${DIST}/" "s3://${BUCKET}/" \
+            ${DRYRUN_FLAG} \
+            --exclude "*" \
+            --include "*.html" \
+            --content-type "text/html; charset=utf-8" \
+            --cache-control "no-store"
+
+      - name: Invalidate CloudFront
+        if: ${{ !inputs.dry_run }}
+        env:
+          DISTRIBUTION_ID: ${{ inputs.cloudfront_distribution_id }}
+        run: |
+          set -euo pipefail
+          aws cloudfront create-invalidation \
+            --distribution-id "${DISTRIBUTION_ID}" \
+            --paths "/" "/index.html"
+
+      - name: Dry run — skipped invalidation
+        if: ${{ inputs.dry_run }}
+        env:
+          DISTRIBUTION_ID: ${{ inputs.cloudfront_distribution_id }}
+        run: |
+          echo "::notice::DRY RUN — would invalidate distribution ${DISTRIBUTION_ID} paths '/' '/index.html'"
