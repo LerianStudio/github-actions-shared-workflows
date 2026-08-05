@@ -556,6 +556,7 @@ jobs:
           firewall-blocked: ${{ steps.firewall.outputs.blocked || 'false' }}
           firewall-exit-code: ${{ steps.firewall.outputs.install-exit-code || '0' }}
           firewall-fail-on-block: ${{ inputs.socket_fail_on_block }}
+          firewall-findings-file: ${{ steps.firewall.outputs.findings-file }}
           app-gate-enabled: ${{ inputs.socket_enable_app_gate }}
           app-findings-file: ${{ steps.app-gate.outputs.findings-file }}
           app-fail-on-findings: ${{ inputs.socket_app_fail_on_findings }}

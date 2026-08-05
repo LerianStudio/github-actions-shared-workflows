@@ -80,7 +80,8 @@ runs:
           gh api "repos/$REPO/commits/$SHA/check-runs?per_page=100" \
             --jq "[.check_runs[] | select(.app.slug == \"$APP_SLUG\")
                    | {name, status, conclusion, url: .details_url,
-                      title: (.output.title // \"\")}]" > "$RAW_FILE" 2>"$API_ERR" || API_RC=$?
+                      title: (.output.title // \"\"),
+                      summary: (.output.summary // \"\")}]" > "$RAW_FILE" 2>"$API_ERR" || API_RC=$?
 
           # An unreadable API must never look like an empty result: "no checks"
           # is classified downstream as "App not installed", which only warns.

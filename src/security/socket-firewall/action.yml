@@ -44,8 +44,14 @@ outputs:
     description: 'true when no lockfile was found in working-dir, so nothing was installed or inspected'
     value: ${{ steps.guard.outputs.skipped }}
   blocked:
-    description: 'true when the install failed and the output carries a Socket Firewall block marker'
+    description: 'true when the Socket Firewall report records at least one blocked package'
     value: ${{ steps.evaluate.outputs.blocked }}
+  blocked-count:
+    description: 'Number of packages Socket Firewall refused'
+    value: ${{ steps.evaluate.outputs.blocked_count }}
+  findings-file:
+    description: 'Path to the Socket Firewall report JSON, for consumption by socket-reporter'
+    value: ${{ steps.evaluate.outputs.findings_file }}
   install-exit-code:
     description: 'Exit code returned by the package manager install'
     value: ${{ steps.install.outputs.exit_code }}
@@ -177,60 +183,62 @@ runs:
       shell: bash
       env:
         EXIT_CODE: ${{ steps.install.outputs.exit_code }}
-        LOG_FILE: ${{ steps.install.outputs.log_file }}
-        PKG_MANAGER: ${{ inputs.package-manager }}
+        GUARDED: 'true'
+        REPORT_PATH: ${{ steps.firewall.outputs.firewall-path-report }}
+        FINDINGS_FILE: socket-firewall-findings.json
         FAIL_ON_BLOCK: ${{ inputs.fail-on-block }}
-        DRY_RUN: ${{ inputs.dry-run }}
       run: |
-        # Empty means the install step itself never reached its output write
-        # (e.g. working-dir missing) — treat that as a failure, not as success.
+        # Socket Firewall always writes a JSON report, whose schema (verified
+        # against the v1.15.0 binary) is:
+        #   {"blocked":[{"name","namespace","version","purlString","registryFqdn",
+        #                "alerts":[{"alert","action","actionSource","inputPurl"}]}]|null,
+        #    "parseFail":[{"registryFqdn","urlPath"}]|null}
+        # Reading it is deterministic; the previous approach grepped the install
+        # output for block wording, which could misattribute a real block as an
+        # ordinary failure and report blocked=false on a genuine finding.
         EXIT_CODE="${EXIT_CODE:-1}"
+        echo "exit_code=$EXIT_CODE" >> "$GITHUB_OUTPUT"
+
         BLOCKED=false
-        # A non-zero install can be either a Socket Firewall block or an ordinary
-        # dependency resolution failure. Only the former is governed by
-        # fail-on-block; a broken install always fails, since swallowing it would
-        # hide a genuine problem behind a security toggle.
-        if [ "$EXIT_CODE" -ne 0 ] && [ -f "$LOG_FILE" ]; then
-          if grep -qiE 'blocked by socket|socket firewall.*block|sfw.*block|package blocked' "$LOG_FILE"; then
-            BLOCKED=true
+        BLOCKED_COUNT=0
+        REPORT="${REPORT_PATH:-$SFW_JSON_REPORT_PATH}"
+        if [ "$GUARDED" = "true" ] && [ -n "$REPORT" ] && [ -f "$REPORT" ]; then
+          BLOCKED_COUNT=$(jq '(.blocked // []) | length' "$REPORT" 2>/dev/null || echo 0)
+          PARSE_FAIL=$(jq '(.parseFail // []) | length' "$REPORT" 2>/dev/null || echo 0)
+          [ "$BLOCKED_COUNT" -gt 0 ] && BLOCKED=true
+          if [ "$PARSE_FAIL" -gt 0 ]; then
+            echo "::warning::Socket Firewall could not parse $PARSE_FAIL request(s); those packages were not inspected."
+          fi
+          cp "$REPORT" "$FINDINGS_FILE" 2>/dev/null || echo '{}' > "$FINDINGS_FILE"
+        else
+          echo '{}' > "$FINDINGS_FILE"
+          if [ "$GUARDED" = "true" ] && [ "$EXIT_CODE" -ne 0 ]; then
+            # No report to read on a failed guarded install: refuse to call it clean.
+            echo "::warning::Socket Firewall report not found at '${REPORT:-<unset>}'; cannot attribute the install failure."
           fi
         fi
         echo "blocked=$BLOCKED" >> "$GITHUB_OUTPUT"
+        echo "blocked_count=$BLOCKED_COUNT" >> "$GITHUB_OUTPUT"
+        echo "findings_file=$FINDINGS_FILE" >> "$GITHUB_OUTPUT"
 
-        {
-          echo "### Socket Firewall"
-          echo ""
-          echo "| Check | Result |"
-          echo "|---|---|"
-          echo "| Package manager | \`$PKG_MANAGER\` |"
-          echo "| Install exit code | \`$EXIT_CODE\` |"
-          if [ "$BLOCKED" = "true" ]; then
-            echo "| Verdict | :no_entry: package blocked by Socket Firewall |"
-          elif [ "$EXIT_CODE" -ne 0 ]; then
-            echo "| Verdict | :x: install failed (not a Socket block) |"
-          else
-            echo "| Verdict | :white_check_mark: no malicious package detected |"
-          fi
-        } >> "$GITHUB_STEP_SUMMARY"
-
-        if [ "$EXIT_CODE" -eq 0 ]; then
-          echo "Socket Firewall allowed every package in the lockfile."
-          exit 0
+        if [ "$BLOCKED" = "true" ]; then
+          echo "Socket Firewall blocked $BLOCKED_COUNT package(s):"
+          jq -r '(.blocked // [])[] | "  \(.purlString)  [\((.alerts // []) | map(.alert) | join(", "))]"' "$REPORT" || true
         fi
 
-        if [ "$DRY_RUN" = "true" ]; then
-          echo "::warning::Install exited $EXIT_CODE — not failing the step because dry-run is on."
+        if [ "$EXIT_CODE" -eq 0 ] && [ "$BLOCKED" = "false" ]; then
+          [ "$GUARDED" = "true" ] && echo "Socket Firewall allowed every package in the lockfile."
           exit 0
         fi
 
         if [ "$BLOCKED" = "true" ]; then
           if [ "$FAIL_ON_BLOCK" = "true" ]; then
-            echo "::error::Socket Firewall blocked a package during install. Review the Socket Firewall job summary above."
+            echo "::error::Socket Firewall blocked $BLOCKED_COUNT package(s) during install."
             exit 1
           fi
-          echo "::warning::Socket Firewall blocked a package during install (advisory — fail-on-block is false)."
+          echo "::warning::Socket Firewall blocked $BLOCKED_COUNT package(s) (advisory — fail-on-block is false)."
           exit 0
         fi
 
-        echo "::error::Dependency install failed with exit code $EXIT_CODE (no Socket Firewall block detected)."
+        echo "::error::Dependency install failed with exit code $EXIT_CODE (no Socket Firewall block recorded in the report)."
         exit 1

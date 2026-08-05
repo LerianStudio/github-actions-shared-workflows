@@ -24,6 +24,10 @@ inputs:
     description: 'Whether a Socket Firewall block is blocking for this repository'
     required: false
     default: 'true'
+  firewall-findings-file:
+    description: 'Path to the Socket Firewall report JSON (schema: blocked[], parseFail[]) written by socket-firewall or setup-node-guarded'
+    required: false
+    default: ''
   guarded-install-count:
     description: 'How many analysis jobs installed dependencies through Socket Firewall, for the coverage line'
     required: false
@@ -63,6 +67,7 @@ runs:
         FIREWALL_BLOCKED: ${{ inputs.firewall-blocked }}
         FIREWALL_EXIT_CODE: ${{ inputs.firewall-exit-code }}
         FIREWALL_FAIL_ON_BLOCK: ${{ inputs.firewall-fail-on-block }}
+        FIREWALL_FINDINGS_FILE: ${{ inputs.firewall-findings-file }}
         GUARDED_INSTALL_COUNT: ${{ inputs.guarded-install-count }}
         APP_GATE_ENABLED: ${{ inputs.app-gate-enabled }}
         APP_FINDINGS_FILE: ${{ inputs.app-findings-file }}
@@ -87,6 +92,22 @@ runs:
           const appEnabled = bool(process.env.APP_GATE_ENABLED);
           const appBlocking = bool(process.env.APP_FAIL_ON_FINDINGS);
           const runUrl = process.env.RUN_URL;
+
+          // ── Socket Firewall report ──
+          // Schema verified against the sfw v1.15.0 binary:
+          //   { blocked: [{name, namespace, version, purlString, registryFqdn,
+          //                alerts:[{alert, action, actionSource, inputPurl}]}] | null,
+          //     parseFail: [{registryFqdn, urlPath}] | null }
+          // Note it lists only refused packages — the free edition reports what it
+          // blocked, never a per-package assessment of what it allowed.
+          const readJson = (p) => {
+            if (!p || !fs.existsSync(p)) return null;
+            try { return JSON.parse(fs.readFileSync(p, 'utf8')); }
+            catch (e) { core.warning(`Could not parse ${p}: ${e.message}`); return null; }
+          };
+          const fwReport = readJson(process.env.FIREWALL_FINDINGS_FILE);
+          const fwBlockedPkgs = (fwReport && fwReport.blocked) || [];
+          const fwParseFails = (fwReport && fwReport.parseFail) || [];
 
           // ── Socket App verdict ──
           let app = null;
@@ -153,10 +174,26 @@ runs:
           if (!fwEnabled) {
             lines.push('⏭ Disabled for this repository (`socket_enable_firewall: false`).');
           } else if (fwBlocked) {
-            lines.push('🚫 A package was refused during install. It was never written to disk, so its install scripts did not run.');
+            lines.push(`🚫 **${fwBlockedPkgs.length || 'A'}** package(s) refused during install. They were never written to disk, so their install scripts did not run.`);
+            if (fwBlockedPkgs.length) {
+              lines.push('');
+              lines.push('| Package | Version | Registry | Findings |');
+              lines.push('|---------|---------|----------|----------|');
+              for (const p of fwBlockedPkgs) {
+                const name = p.namespace ? `${p.namespace}/${p.name}` : p.name;
+                const findings = (p.alerts || [])
+                  .map(a => `\`${a.alert}\`${a.action && a.action !== 'block' ? ` (${a.action})` : ''}`)
+                  .join(', ') || '—';
+                lines.push(`| \`${name}\` | \`${p.version || '?'}\` | ${p.registryFqdn || '—'} | ${findings} |`);
+              }
+              const sources = [...new Set(fwBlockedPkgs.flatMap(p => (p.alerts || []).map(a => a.actionSource)).filter(Boolean))];
+              if (sources.length) {
+                lines.push('');
+                lines.push(`Policy source: ${sources.map(x => `\`${x}\``).join(', ')}.`);
+              }
+            }
             lines.push('');
-            lines.push('Check the **Socket Firewall** job summary for the offending package. '
-              + 'If this is a false positive, the package needs review — there is no ignore file for install-time blocks.');
+            lines.push('There is no ignore file for install-time blocks — a false positive needs the package reviewed, not suppressed.');
           } else if (fwExit !== '0') {
             lines.push(`⚠️ The dependency install failed with exit code \`${fwExit}\`, with no Socket block detected. This is an ordinary install failure, not a supply chain finding.`);
           } else {
@@ -165,6 +202,17 @@ runs:
               lines.push('');
               lines.push(`Guarded installs this run: **${guardedCount}**. The package-manager cache is purged `
                 + 'before each one — a cached tarball produces no network request and would install uninspected.');
+            }
+          }
+          if (fwParseFails.length) {
+            lines.push('');
+            lines.push(`⚠️ **${fwParseFails.length} request(s) could not be parsed** by Socket Firewall, so those packages were not inspected:`);
+            lines.push('');
+            for (const f of fwParseFails.slice(0, 10)) {
+              lines.push(`- \`${f.registryFqdn || '?'}${f.urlPath || ''}\``);
+            }
+            if (fwParseFails.length > 10) {
+              lines.push(`- …and ${fwParseFails.length - 10} more`);
             }
           }
           lines.push('');
@@ -192,10 +240,18 @@ runs:
             }
             if (Array.isArray(app.checks) && app.checks.length) {
               lines.push('');
-              lines.push('| Check | Conclusion |');
-              lines.push('|-------|------------|');
+              lines.push('| Check | Conclusion | Reported |');
+              lines.push('|-------|------------|----------|');
               for (const c of app.checks) {
-                lines.push(`| ${c.name} | \`${c.conclusion || c.status}\` |`);
+                // The App puts its actual message in output.summary, e.g. "no net
+                // changes to dependencies" or "Skipped un-mergeable pull request";
+                // the conclusion alone hides which of those happened.
+                const msg = (c.summary || '')
+                  .split('\n').map(l => l.trim())
+                  .filter(l => l.startsWith('|') && !l.startsWith('|---') && !l.startsWith('|Report'))
+                  .map(l => l.split('|').filter(Boolean).pop())
+                  .filter(Boolean)[0] || (c.title || '—');
+                lines.push(`| ${c.name} | \`${c.conclusion || c.status}\` | ${msg} |`);
               }
             }
             if (app.reportUrl) {
