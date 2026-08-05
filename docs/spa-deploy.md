@@ -53,7 +53,7 @@ role or produces any side effect.
 | `environment` | GitHub Environment to deploy through — required reviewers / branch protection / environment-scoped OIDC trust. Empty = no gate | No | `''` |
 | `role_duration_seconds` | Lifetime (seconds) of the assumed AWS credentials — kept short (creds assumed only for sync + invalidation) | No | `900` |
 
-Deploys are serialized per `s3_bucket` via `concurrency` (`cancel-in-progress: false`), so a `--delete` sync never races a concurrent run. Credentials use a per-run `role-session-name` (`spa-deploy-<run_id>`) for CloudTrail attribution.
+Deploys are serialized per `s3_bucket` via `concurrency` (`cancel-in-progress: false`) **within the calling repo** — GitHub concurrency is repository-scoped, and each bucket is expected to be owned by a single repo — so a `--delete` sync never races a concurrent run from that repo (a bucket shared across repos would need an external lock). Credentials use a per-run `role-session-name` (`spa-deploy-<run_id>`) for CloudTrail attribution. In `dry_run`, the workflow prints all resolved non-secret inputs via `::notice::` before delegating.
 
 ## Secrets
 

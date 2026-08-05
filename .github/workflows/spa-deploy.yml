@@ -103,8 +103,11 @@ permissions:
   contents: read
   id-token: write
 
-# Serialize deploys targeting the same bucket so a `--delete` sync never races a
-# concurrent run. Never cancel an in-flight deploy mid-sync — let it finish.
+# Serialize deploys to the same bucket within THIS caller repo so a `--delete`
+# sync never races a concurrent run. GitHub concurrency is repository-scoped: a
+# bucket is expected to be owned by a single repo (its own SPA), so this covers
+# the real case — it does NOT guard a bucket shared across repos (use an external
+# lock, or a single owning repo, for that). Never cancel an in-flight deploy.
 concurrency:
   group: spa-deploy-${{ inputs.s3_bucket }}
   cancel-in-progress: false
@@ -153,17 +156,40 @@ jobs:
           fi
           echo "::notice::Build output ready at ${DIST}"
 
-      # Self-hosted runners (blacksmith-*) do not ship the AWS CLI, which the
-      # deploy composites below invoke — install/verify it via the repo's own
-      # setup composite (idempotent; no-op on runners that already have it).
       # ----------------- Deploy -----------------
+      # dry_run prints every resolved (non-secret) input at the workflow boundary
+      # per the dry_run convention. AWS_DEPLOY_ROLE_ARN is a secret and is never
+      # echoed; AWS auth and the composites are skipped in dry run.
+      - name: Dry-run deployment plan (resolved inputs)
+        if: ${{ inputs.dry_run }}
+        env:
+          WORKING_DIR: ${{ inputs.working_directory }}
+          BUILD_COMMAND: ${{ inputs.build_command }}
+          DIST: ${{ inputs.dist_directory }}
+          BUCKET: ${{ inputs.s3_bucket }}
+          DISTRIBUTION_ID: ${{ inputs.cloudfront_distribution_id }}
+          REGION: ${{ inputs.aws_region }}
+          ENVIRONMENT: ${{ inputs.environment }}
+          ROLE_DURATION: ${{ inputs.role_duration_seconds }}
+        run: |
+          set -euo pipefail
+          echo "::notice::DRY RUN — no AWS credentials assumed, no objects written, no invalidation"
+          echo "  working directory : ${WORKING_DIR}"
+          echo "  build command     : ${BUILD_COMMAND}"
+          echo "  dist directory    : ${DIST}"
+          echo "  s3 bucket         : ${BUCKET}"
+          echo "  distribution id   : ${DISTRIBUTION_ID}"
+          echo "  aws region        : ${REGION}"
+          echo "  environment       : ${ENVIRONMENT:-<none>}"
+          echo "  role duration (s) : ${ROLE_DURATION}"
+
+      # AWS CLI + credentials are only needed for a real deploy. A dry run stays
+      # fully local (the s3-sync composite prints the plan without calling AWS),
+      # so these steps must NOT install tooling or assume the deploy role.
       # Composites are referenced by EXTERNAL ref (LerianStudio/.../src/...@ref),
       # never `./src/...`: in a workflow_call reusable workflow `./` resolves to
       # the CALLER's workspace, so a local path breaks for external callers
       # (see .claude/commands/workflow.md, "Composite action references").
-      # AWS CLI + credentials are only needed for a real deploy. A dry run stays
-      # fully local (the s3-sync composite prints the plan without calling AWS),
-      # so it must NOT install tooling or assume the deploy role.
       - name: Ensure AWS CLI
         if: ${{ !inputs.dry_run }}
         uses: LerianStudio/github-actions-shared-workflows/src/setup/aws-cli@v1
