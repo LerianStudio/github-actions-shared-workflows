@@ -298,6 +298,10 @@ on:
         description: 'Socket Firewall job summary verbosity (all, errors, none)'
         type: string
         default: 'all'
+      socket_use_cache:
+        description: 'Cache the sfw binary between runs. Unrelated to the package-manager cache, which is always purged before the guarded install.'
+        type: boolean
+        default: true
       socket_fail_on_block:
         description: 'Fail the Socket job when Socket Firewall blocks a package. Set to false to report the block as a warning instead.'
         type: boolean
@@ -492,6 +496,7 @@ jobs:
           working-dir: ${{ inputs.socket_working_dir }}
           firewall-version: ${{ inputs.socket_firewall_version }}
           job-summary: ${{ inputs.socket_job_summary }}
+          use-cache: ${{ inputs.socket_use_cache }}
           fail-on-block: ${{ inputs.socket_fail_on_block }}
           dry-run: ${{ inputs.dry_run }}
 

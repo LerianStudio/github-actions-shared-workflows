@@ -5,7 +5,7 @@
   </tr>
 </table>
 
-Composite action that installs [Socket Firewall](https://github.com/SocketDev/sfw-free) (free edition, no account required) and then runs the project's dependency install through it. Socket Firewall shims `npm`, `yarn` and `pnpm`, inspects each package as it is fetched and refuses the ones whose behavior matches a supply-chain attack — malicious install scripts, credential exfiltration, typosquats, hijacked patch releases.
+Composite action that installs [Socket Firewall](https://github.com/SocketDev/sfw-free) (free edition, no account required) and then runs the project's dependency install through it as `sfw npm ci` (or the `yarn`/`pnpm` equivalent). `sfw` intercepts the package manager's network traffic, inspects each package as it is fetched and refuses the ones whose behavior matches a supply-chain attack — malicious install scripts, credential exfiltration, typosquats, hijacked patch releases.
 
 This is the free tier of Socket. It catches malicious packages at install time but produces no PR report and enforces no central policy — for that, see [`socket-scan`](../socket-scan/README.md).
 
@@ -18,7 +18,7 @@ This is the free tier of Socket. It catches malicious packages at install time b
 | `working-dir` | Directory holding the `package.json` and lockfile | No | `.` |
 | `firewall-version` | Socket Firewall binary version. `latest` tracks the newest release | No | `latest` |
 | `job-summary` | Socket Firewall job summary verbosity (`all`, `errors`, `none`) | No | `all` |
-| `use-cache` | Cache the Socket Firewall binaries between runs | No | `true` |
+| `use-cache` | Cache the `sfw` binary between runs. Unrelated to the package-manager cache, which is always purged | No | `true` |
 | `github-token` | Token used by Socket Firewall to download its binaries. Empty falls back to `github.token` | No | `''` |
 | `fail-on-block` | Fail the step when Socket Firewall blocks a package | No | `true` |
 | `dry-run` | Print the resolved configuration and never fail the step | No | `false` |
@@ -32,6 +32,16 @@ This is the free tier of Socket. It catches malicious packages at install time b
 | `install-exit-code` | Exit code returned by the package manager install |
 | `report-path` | Path to the Socket Firewall report JSON produced by the underlying action |
 
+## Two things that would silently defeat this
+
+Socket Firewall free works as a wrapper: it only sees what the package manager sends over the network, and only for processes it actually parents. Two easy mistakes turn the whole check into a no-op that still reports success.
+
+**1. Running the package manager without the `sfw` prefix.** The pinned release (`v1.3.2`) installs the `sfw` binary onto `PATH` and nothing else — it declares no `shims` input and creates no wrapper scripts. A bare `npm ci` therefore never involves `sfw`. Every command here is prefixed, which is the only supported form in that release.
+
+**2. Installing from a warm package-manager cache.** Per Socket's documentation, "if there are no network requests, as is the case when artifacts are cached locally, there is nothing for `sfw` to block". This action therefore does **not** pass `cache:` to `actions/setup-node`, and purges the selected package manager's cache (`npm cache clean --force`, `yarn cache clean`, `pnpm store prune`) immediately before the install. A pre-warmed runner image is otherwise enough to hide a malicious package.
+
+The `use-cache` input is unrelated to either: it caches the `sfw` binary itself, not packages.
+
 ## No lockfile, no run
 
 Before touching the toolchain the action checks for the lockfile matching `package-manager` (`package-lock.json`, `yarn.lock` or `pnpm-lock.yaml`) inside `working-dir`. If it is absent, everything is skipped with a `::warning::` and `skipped=true`.
@@ -40,7 +50,7 @@ That keeps monorepos — whose manifests live under a subdirectory — from goin
 
 ## How the verdict is decided
 
-The shims make a blocked package surface as a non-zero exit from the package manager itself, so a failing install is either a Socket block or an ordinary dependency resolution problem. The action separates the two by looking for a Socket block marker in the install output:
+A blocked package surfaces as a non-zero exit from the package manager running under `sfw`, so a failing install is either a Socket block or an ordinary dependency resolution problem. The action separates the two by looking for a Socket block marker in the install output:
 
 | Install exit | Block marker | `fail-on-block` | Result |
 |---|---|---|---|
@@ -96,6 +106,12 @@ permissions:
   contents: read
 ```
 
-## Why this action
+## Third-party actions used
 
-Socket Firewall ships as a binary plus package-manager shims, which is awkward to install correctly inline. [`SocketDev/action`](https://github.com/SocketDev/action) is the vendor-maintained installer, so this composite wraps it (pinned by commit SHA) and adds the parts it does not cover: the toolchain setup, the guarded install itself, block-versus-failure attribution and the advisory mode.
+| Action | Why |
+|---|---|
+| [`SocketDev/action`](https://github.com/SocketDev/action) | Vendor-maintained installer for the `sfw` binary, including version resolution and checksum verification. Reimplementing the download inline would mean hand-rolling that verification. Pinned by commit SHA (`v1.3.2`). |
+| [`actions/setup-node`](https://github.com/actions/setup-node) | Provides the Node.js runtime the package manager needs. Used **without** its cache feature, for the reason above. |
+| [`pnpm/action-setup`](https://github.com/pnpm/action-setup) | `pnpm` is not preinstalled on the runner; only used when `package-manager: pnpm`. |
+
+This composite adds what the vendor action does not cover: the toolchain, the cache purge, the `sfw`-prefixed install, block-versus-failure attribution and the advisory mode.

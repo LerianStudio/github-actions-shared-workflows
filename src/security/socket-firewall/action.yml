@@ -89,14 +89,17 @@ runs:
       with:
         package_json_file: ${{ inputs.working-dir }}/package.json
 
+    # Deliberately no `cache:` here. Socket Firewall free works by intercepting
+    # the package manager's network requests, and per its documentation "if there
+    # are no network requests, as is the case when artifacts are cached locally,
+    # there is nothing for sfw to block". Restoring a package-manager cache would
+    # let cached tarballs install uninspected. Dropping `cache:` also keeps this
+    # job from writing a post-run cache entry that other jobs would restore.
     - name: Setup Node.js
       if: steps.guard.outputs.skipped != 'true'
       uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v6
       with:
         node-version: ${{ inputs.node-version }}
-        cache: ${{ inputs.package-manager }}
-        # yamllint disable-line rule:line-length
-        cache-dependency-path: ${{ inputs.working-dir }}/${{ inputs.package-manager == 'yarn' && 'yarn.lock' || (inputs.package-manager == 'pnpm' && 'pnpm-lock.yaml' || 'package-lock.json') }}
 
     # ----------------- Socket Firewall -----------------
     - name: Dry run summary
@@ -123,10 +126,26 @@ runs:
         firewall-version: ${{ inputs.firewall-version }}
         job-summary: ${{ inputs.job-summary }}
         use-cache: ${{ inputs.use-cache }}
-        shims: 'true'
         github-token: ${{ inputs.github-token != '' && inputs.github-token || github.token }}
 
     # ----------------- Guarded install -----------------
+    - name: Clear package manager cache
+      if: steps.guard.outputs.skipped != 'true'
+      shell: bash
+      env:
+        PKG_MANAGER: ${{ inputs.package-manager }}
+      run: |
+        # sfw can only inspect what crosses the network. Anything already in the
+        # package manager's cache installs without a request and therefore
+        # uninspected, so the cache is purged first — the exact remedy Socket
+        # documents. A pre-warmed runner image is enough to hide a package
+        # otherwise. Failures here are non-fatal: an empty cache is also fine.
+        case "$PKG_MANAGER" in
+          yarn) yarn cache clean || true ;;
+          pnpm) pnpm store prune || true ;;
+          *) npm cache clean --force || true ;;
+        esac
+
     - name: Install dependencies through Socket Firewall
       id: install
       if: steps.guard.outputs.skipped != 'true'
@@ -135,17 +154,19 @@ runs:
       env:
         PKG_MANAGER: ${{ inputs.package-manager }}
       run: |
-        # Shims installed by the previous step route the package manager through
-        # sfw, so a malicious package makes the install itself exit non-zero.
+        # Every command is prefixed with sfw so the package manager runs as its
+        # child and sfw sees the traffic. This is the only supported form in the
+        # pinned release — it exposes no shims input, so a bare `npm ci` would
+        # install completely uninspected while still reporting success.
         # The exit code is captured instead of failing here so the evaluate step
         # can tell a Socket block apart from an ordinary install failure.
         LOG_FILE="$RUNNER_TEMP/socket-firewall-install.log"
         EXIT_CODE=0
         set -o pipefail
         case "$PKG_MANAGER" in
-          yarn) yarn install --frozen-lockfile 2>&1 | tee "$LOG_FILE" || EXIT_CODE=$? ;;
-          pnpm) pnpm install --frozen-lockfile 2>&1 | tee "$LOG_FILE" || EXIT_CODE=$? ;;
-          *) npm ci 2>&1 | tee "$LOG_FILE" || EXIT_CODE=$? ;;
+          yarn) sfw yarn install --frozen-lockfile 2>&1 | tee "$LOG_FILE" || EXIT_CODE=$? ;;
+          pnpm) sfw pnpm install --frozen-lockfile 2>&1 | tee "$LOG_FILE" || EXIT_CODE=$? ;;
+          *) sfw npm ci 2>&1 | tee "$LOG_FILE" || EXIT_CODE=$? ;;
         esac
         echo "exit_code=$EXIT_CODE" >> "$GITHUB_OUTPUT"
         echo "log_file=$LOG_FILE" >> "$GITHUB_OUTPUT"

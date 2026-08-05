@@ -11,7 +11,7 @@ Umbrella reusable workflow for JavaScript/TypeScript repositories. A caller refe
 2. **Change gate** — detects whether the PR touches anything beyond docs/meta (`src/config/non-doc-changes`); documentation-only PRs skip the heavy pipelines.
 3. **Frontend analysis** — lint, typecheck, npm audit, tests, coverage and build (delegates to `frontend-pr-analysis.yml`), opt-in via `run_frontend_analysis`.
 4. **Security scan** — Trivy, CodeQL, prerelease checks (delegates to `pr-security-scan.yml`), opt-in via `run_security`.
-5. **Socket supply chain** — blocks malicious packages at install time and, optionally, runs the full Socket CLI report (`src/security/socket-firewall`, `src/security/socket-scan`), opt-in via `run_socket`.
+5. **Socket supply chain** — blocks malicious packages at install time and, optionally, runs the full Socket CLI report (`src/security/socket-firewall`, `src/security/socket-scan`). Enabled by default; disable with `run_socket: false`.
 
 The `frontend-analysis`, `security` and `socket` pipelines each have a `*-gate` aggregator job that exposes a single stable status-check name (`Frontend Analysis`, `Security`, `Socket`) for branch protection, regardless of the internal job names. All are gated by the change detector, so documentation-only PRs skip them (and the aggregators still report success). If the change detector (`changes`) job itself fails, the aggregators propagate that failure instead of passing.
 
@@ -85,6 +85,7 @@ The `frontend-analysis`, `security` and `socket` pipelines each have a `*-gate` 
 | `socket_working_dir` | Directory holding the `package.json` and lockfile scanned by the Socket job | string | `.` |
 | `socket_firewall_version` | Socket Firewall binary version | string | `latest` |
 | `socket_job_summary` | Socket Firewall job summary verbosity (`all`, `errors`, `none`) | string | `all` |
+| `socket_use_cache` | Cache the Socket Firewall binaries between runs (the `sfw` binary only) | boolean | `true` |
 | `socket_fail_on_block` | Fail the Socket job when Socket Firewall blocks a package | boolean | `true` |
 | `socket_fail_on_findings` | Fail the Socket job when the Socket CLI scan reports blocking alerts | boolean | `false` |
 | `socket_sarif_file` | Path where the Socket CLI scan writes its SARIF report (empty = none) | string | `''` |

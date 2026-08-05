@@ -23,7 +23,7 @@ inputs:
     required: false
     default: '3.12'
   fail-on-findings:
-    description: 'Fail the step when Socket reports blocking alerts. When false, the scan runs with --disable-blocking and always exits 0.'
+    description: 'Fail the step when Socket reports blocking alerts. When false the scan still runs and reports, but never fails the step.'
     required: false
     default: 'false'
   sarif-file:
@@ -35,7 +35,7 @@ inputs:
     required: false
     default: 'false'
   dry-run:
-    description: 'Print the resolved configuration, force --disable-blocking and never fail the step'
+    description: 'Print the resolved configuration without invoking socketcli, so no scan is created on Socket'
     required: false
     default: 'false'
 
@@ -47,8 +47,8 @@ outputs:
     description: 'Exit code returned by socketcli (0 clean, 1 blocking alerts, 2 CLI failure, 3 API error, 5 reachability prerequisite)'
     value: ${{ steps.scan.outputs.exit_code }}
   sarif-file:
-    description: 'Path to the generated SARIF report, empty when SARIF generation was not requested'
-    value: ${{ steps.guard.outputs.sarif_file }}
+    description: 'Path to the generated SARIF report. Empty when SARIF was not requested or the report was never written.'
+    value: ${{ steps.scan.outputs.sarif_file }}
 
 runs:
   using: composite
@@ -59,28 +59,25 @@ runs:
       shell: bash
       env:
         SOCKET_API_KEY: ${{ inputs.socket-api-key }}
-        SARIF_FILE: ${{ inputs.sarif-file }}
       run: |
         # The secrets context is unavailable in step conditions, so token presence
         # is resolved here and every later step keys off this output.
         if [ -z "$SOCKET_API_KEY" ]; then
           echo "skipped=true" >> "$GITHUB_OUTPUT"
-          echo "sarif_file=" >> "$GITHUB_OUTPUT"
           echo "::notice::Socket scan skipped — no Socket API token configured. Set the SOCKET_SECURITY_API_KEY secret to enable it."
           exit 0
         fi
         echo "skipped=false" >> "$GITHUB_OUTPUT"
-        echo "sarif_file=$SARIF_FILE" >> "$GITHUB_OUTPUT"
 
     # ----------------- Toolchain -----------------
     - name: Setup Python
-      if: steps.guard.outputs.skipped != 'true'
+      if: steps.guard.outputs.skipped != 'true' && inputs.dry-run != 'true'
       uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
       with:
         python-version: ${{ inputs.python-version }}
 
     - name: Install Socket CLI
-      if: steps.guard.outputs.skipped != 'true'
+      if: steps.guard.outputs.skipped != 'true' && inputs.dry-run != 'true'
       shell: bash
       run: pip install socketsecurity --upgrade
 
@@ -94,7 +91,7 @@ runs:
         SARIF_FILE: ${{ inputs.sarif-file }}
         IGNORE_COMMIT_FILES: ${{ inputs.ignore-commit-files }}
       run: |
-        echo "::notice::DRY RUN — socketcli runs with --disable-blocking and never fails the step"
+        echo "::notice::DRY RUN — socketcli is not invoked; no scan is created on Socket"
         echo "  target path         : $TARGET_PATH"
         echo "  pr number           : $PR_NUMBER"
         echo "  sarif file          : ${SARIF_FILE:-<none>}"
@@ -102,7 +99,10 @@ runs:
 
     - name: Run Socket scan
       id: scan
-      if: steps.guard.outputs.skipped != 'true'
+      # socketcli has no native --dry-run: any invocation authenticates and
+      # creates a real scan on Socket, and with --scm github it comments on the
+      # pull request. Previewing means not calling it at all.
+      if: steps.guard.outputs.skipped != 'true' && inputs.dry-run != 'true'
       shell: bash
       env:
         SOCKET_SECURITY_API_KEY: ${{ inputs.socket-api-key }}
@@ -111,17 +111,14 @@ runs:
         PR_NUMBER: ${{ inputs.pr-number }}
         SARIF_FILE: ${{ inputs.sarif-file }}
         IGNORE_COMMIT_FILES: ${{ inputs.ignore-commit-files }}
-        FAIL_ON_FINDINGS: ${{ inputs.fail-on-findings }}
-        DRY_RUN: ${{ inputs.dry-run }}
       run: |
         ARGS=(--target-path "$TARGET_PATH" --scm github --pr-number "$PR_NUMBER")
 
-        # --disable-blocking makes socketcli always exit 0. It is passed whenever
-        # enforcement is off so the exit code carries no policy meaning, and the
-        # gate below stays the single place that decides success or failure.
-        if [ "$FAIL_ON_FINDINGS" != "true" ] || [ "$DRY_RUN" = "true" ]; then
-          ARGS+=(--disable-blocking)
-        fi
+        # --disable-blocking is deliberately never passed. It forces exit 0 over
+        # everything, including API failures that normally surface as exit 3, so
+        # advisory mode would become indistinguishable from a clean scan. The
+        # native exit code is preserved and the evaluate step below stays the
+        # single place that decides success or failure.
         [ -n "$SARIF_FILE" ] && ARGS+=(--sarif-file "$SARIF_FILE")
         [ "$IGNORE_COMMIT_FILES" = "true" ] && ARGS+=(--ignore-commit-files)
 
@@ -129,13 +126,20 @@ runs:
         socketcli "${ARGS[@]}" || EXIT_CODE=$?
         echo "exit_code=$EXIT_CODE" >> "$GITHUB_OUTPUT"
 
+        # Reported only once the report actually exists on disk, so consumers
+        # never receive a path to a file the scan failed to write.
+        if [ -n "$SARIF_FILE" ] && [ -f "$SARIF_FILE" ]; then
+          echo "sarif_file=$SARIF_FILE" >> "$GITHUB_OUTPUT"
+        else
+          echo "sarif_file=" >> "$GITHUB_OUTPUT"
+        fi
+
     - name: Evaluate Socket scan result
-      if: always() && steps.guard.outputs.skipped != 'true'
+      if: always() && steps.guard.outputs.skipped != 'true' && inputs.dry-run != 'true'
       shell: bash
       env:
         EXIT_CODE: ${{ steps.scan.outputs.exit_code }}
         FAIL_ON_FINDINGS: ${{ inputs.fail-on-findings }}
-        DRY_RUN: ${{ inputs.dry-run }}
       run: |
         # Empty means the scan step never reached its output write — treat that
         # as a CLI failure rather than as a clean result.
@@ -167,11 +171,6 @@ runs:
         fi
 
         if [ "$EXIT_CODE" = "0" ]; then
-          exit 0
-        fi
-
-        if [ "$DRY_RUN" = "true" ]; then
-          echo "::warning::Socket scan exited $EXIT_CODE — not failing the step because dry-run is on."
           exit 0
         fi
 
