@@ -474,6 +474,10 @@ jobs:
           label: Security
 
   # ----------------- Socket Supply Chain -----------------
+  # TEMPORARY: the two composite refs below point at this feature branch so the
+  # new actions resolve during end-to-end validation. Revert to @v1 before merge
+  # — the tag does not carry them yet, and the internal pinning policy requires
+  # a floating major tag for composites.
   socket:
     name: Socket (checks)
     needs: changes
@@ -493,7 +497,7 @@ jobs:
 
       - name: Socket Firewall
         if: inputs.socket_enable_firewall
-        uses: LerianStudio/github-actions-shared-workflows/src/security/socket-firewall@v1
+        uses: LerianStudio/github-actions-shared-workflows/src/security/socket-firewall@feat/js-pr-validation-socket
         with:
           package-manager: ${{ inputs.package_manager }}
           node-version: ${{ inputs.node_version }}
@@ -506,7 +510,7 @@ jobs:
 
       - name: Socket Scan
         if: always() && inputs.socket_enable_scan
-        uses: LerianStudio/github-actions-shared-workflows/src/security/socket-scan@v1
+        uses: LerianStudio/github-actions-shared-workflows/src/security/socket-scan@feat/js-pr-validation-socket
         with:
           # Token presence is resolved inside the composite rather than in an
           # `if:` — the secrets context is unavailable in step conditions.
