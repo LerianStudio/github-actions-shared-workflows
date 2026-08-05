@@ -337,6 +337,14 @@ on:
         required: false
       SLACK_WEBHOOK_URL:
         required: false
+      # Declared but not consumed by any job today: the Socket layers here run
+      # token-free (the firewall inspects traffic locally, the App gate reads the
+      # GitHub checks API). It is declared so an organization secret reaches this
+      # workflow through `secrets: inherit` without a release, which a reusable
+      # workflow cannot do for an undeclared secret. Do not delete as dead —
+      # Socket Firewall enterprise is the intended consumer.
+      SOCKET_SECURITY_API_KEY:
+        required: false
 
 permissions:
   actions: read

@@ -101,6 +101,7 @@ The `frontend-analysis`, `security` and `socket` pipelines each have a `*-gate` 
 |--------|-------------|----------|
 | `MANAGE_TOKEN` | Token for PR operations and private package access | No |
 | `SLACK_WEBHOOK_URL` | Slack webhook for pipeline notifications | No |
+| `SOCKET_SECURITY_API_KEY` | Socket API token. Not consumed by any job today — declared so an org secret reaches this workflow via `secrets: inherit` without a release. See below | No |
 
 All other secrets required by the underlying primitives (e.g. `DOCKER_USERNAME`, `DOCKERHUB_IMAGE_PULL_TOKEN`, `NPMRC_TOKEN`) are forwarded automatically via `secrets: inherit`.
 
@@ -216,6 +217,14 @@ with:
 The `socket` job posts one upserted comment per pull request under the marker `<!-- socket-supply-chain-<app> -->`, in the same `Stage | Status | Blocking?` layout as the security scan comment, with a section per layer. It is a separate comment from the security one by necessity: `pr-security-reporter` runs inside the `security_scan` job of `pr-security-scan.yml`, and step outputs do not cross jobs.
 
 `dry_run: true` skips the comment entirely — posting is a side effect a dry run must not have.
+
+### About `SOCKET_SECURITY_API_KEY`
+
+Neither layer needs a Socket token: the firewall inspects local traffic, and the App gate reads the GitHub checks API. The secret is nevertheless **declared** on `workflow_call`, because a reusable workflow cannot receive a secret it does not declare — not even through `secrets: inherit` — so declaring it now means an organization secret becomes usable without cutting a release.
+
+Its intended consumer is **Socket Firewall enterprise**, which lifts the free edition's two limits: no custom/private registries, and no Go, NuGet or Ruby ecosystems. Wiring that is not part of this workflow yet.
+
+If you are creating the token, scope it to least privilege. `full-scans:create`, `full-scans:list`, `security-policy:read` and `report:write` are the documented needs for a CI scan; `repo:list` and `repo:create` are likely required on a repository Socket has not seen before. Socket's docs list all 60 scopes but publish no command-to-scope matrix, so start with the documented four and let the API's 403 name what else it wants. Never grant `api-tokens:*` or any policy `:update`/`:delete` scope to a CI token.
 
 ### Turning it off
 
