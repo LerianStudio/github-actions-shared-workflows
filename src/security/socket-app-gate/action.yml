@@ -75,10 +75,21 @@ runs:
         DEADLINE=$(( $(date +%s) + TIMEOUT ))
 
         while :; do
+          API_ERR="$RUNNER_TEMP/socket-app-api.err"
+          API_RC=0
           gh api "repos/$REPO/commits/$SHA/check-runs?per_page=100" \
             --jq "[.check_runs[] | select(.app.slug == \"$APP_SLUG\")
                    | {name, status, conclusion, url: .details_url,
-                      title: (.output.title // \"\")}]" > "$RAW_FILE" 2>/dev/null || echo '[]' > "$RAW_FILE"
+                      title: (.output.title // \"\")}]" > "$RAW_FILE" 2>"$API_ERR" || API_RC=$?
+
+          # An unreadable API must never look like an empty result: "no checks"
+          # is classified downstream as "App not installed", which only warns.
+          # A missing checks:read scope would then pass silently.
+          if [ "$API_RC" -ne 0 ]; then
+            echo "::error::Could not read check runs for $REPO@$SHA (gh exited $API_RC). Does the job grant 'checks: read'?"
+            cat "$API_ERR" >&2 || true
+            exit 1
+          fi
 
           TOTAL=$(jq 'length' "$RAW_FILE")
           PENDING=$(jq '[.[] | select(.status != "completed")] | length' "$RAW_FILE")

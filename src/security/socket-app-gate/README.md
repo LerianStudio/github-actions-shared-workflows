@@ -45,6 +45,12 @@ The App already does the dependency-graph analysis and posts `Socket Security: P
 - **`inconclusive`** is the App declining to judge. On a pull request with merge conflicts the `Pull Request Alerts` check reports *"Skipped un-mergeable pull request"* — no diff against the target branch was analysed at all. Treating that as clean would let exactly the wrong pull request through, so the default blocks and names the likely cause.
 - **`missing`** is simply a repository without the App installed. Blocking there would break every such repository for a reason its authors cannot act on, so the default warns and relies on install-time protection from [`setup-node-guarded`](../../setup/setup-node-guarded/README.md).
 
+## Failure modes it refuses to swallow
+
+An unreadable check-runs API returns no checks, which would be classified as `missing` and merely warn — so a job without the `checks: read` scope would pass silently while gating nothing. The action therefore treats a non-zero `gh` exit as a hard error naming the likely cause, instead of folding it into an empty result.
+
+For the same reason the caller must grant `checks: read`. The `js-pr-validation` umbrella declares it at both workflow and job level, but a caller that pins its own `permissions:` block has to include it: a reusable workflow's permissions are intersected with the caller's, never expanded.
+
 ## Why it polls
 
 The App publishes its checks asynchronously, so this job routinely starts before they exist. The action polls until every check owned by `app-slug` has completed, or until `timeout-seconds`. A timeout is classified as `inconclusive` — never as success.

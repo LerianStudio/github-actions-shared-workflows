@@ -115,6 +115,7 @@ on:
 
 permissions:
   actions: read
+  checks: read          # required by the Socket App gate
   contents: read
   id-token: write
   issues: write
