@@ -11,8 +11,9 @@ Umbrella reusable workflow for JavaScript/TypeScript repositories. A caller refe
 2. **Change gate** — detects whether the PR touches anything beyond docs/meta (`src/config/non-doc-changes`); documentation-only PRs skip the heavy pipelines.
 3. **Frontend analysis** — lint, typecheck, npm audit, tests, coverage and build (delegates to `frontend-pr-analysis.yml`), opt-in via `run_frontend_analysis`.
 4. **Security scan** — Trivy, CodeQL, prerelease checks (delegates to `pr-security-scan.yml`), opt-in via `run_security`.
+5. **Socket supply chain** — blocks malicious packages at install time and, optionally, runs the full Socket CLI report (`src/security/socket-firewall`, `src/security/socket-scan`), opt-in via `run_socket`.
 
-The `frontend-analysis` and `security` pipelines each have a `*-gate` aggregator job that exposes a single stable status-check name (`Frontend Analysis`, `Security`) for branch protection, regardless of the internal job names. Both are gated by the change detector, so documentation-only PRs skip them (and the aggregators still report success). If the change detector (`changes`) job itself fails, the aggregators propagate that failure instead of passing.
+The `frontend-analysis`, `security` and `socket` pipelines each have a `*-gate` aggregator job that exposes a single stable status-check name (`Frontend Analysis`, `Security`, `Socket`) for branch protection, regardless of the internal job names. All are gated by the change detector, so documentation-only PRs skip them (and the aggregators still report success). If the change detector (`changes`) job itself fails, the aggregators propagate that failure instead of passing.
 
 ## Inputs
 
@@ -22,6 +23,7 @@ The `frontend-analysis` and `security` pipelines each have a `*-gate` aggregator
 | `dry_run` | Preview metadata validations without posting comments/labels | boolean | `false` |
 | `run_frontend_analysis` | Run the frontend analysis pipeline | boolean | `true` |
 | `run_security` | Run the security scan pipeline | boolean | `true` |
+| `run_socket` | Run the Socket supply-chain pipeline | boolean | `true` |
 | `ignore_globs` | Space-separated globs treated as docs/meta for the change gate | string | `*.md docs/* .github/* LICENSE* .gitignore` |
 | `pr_title_types` | Allowed commit types (pipe-separated) | string | `feat\|fix\|docs\|style\|refactor\|perf\|test\|chore\|ci\|build\|revert` |
 | `pr_title_scopes` | Allowed scopes (pipe-separated, empty = any) | string | `''` |
@@ -78,6 +80,16 @@ The `frontend-analysis` and `security` pipelines each have a `*-gate` aggregator
 | `codeql_languages` | CodeQL languages (comma-separated, e.g. `javascript-typescript`) | string | `''` |
 | `ignore_file` | Path to Trivy ignore file (e.g. `.trivyignore.yaml`) | string | `''` |
 | `trivy_skip_dirs` | Comma-separated directories to skip in every Trivy filesystem scan | string | `''` |
+| `socket_enable_firewall` | Run Socket Firewall (free tier, no token) and install dependencies through it | boolean | `true` |
+| `socket_enable_scan` | Run the Socket CLI scan (paid tier, needs `SOCKET_SECURITY_API_KEY`) | boolean | `false` |
+| `socket_working_dir` | Directory holding the `package.json` and lockfile scanned by the Socket job | string | `.` |
+| `socket_firewall_version` | Socket Firewall binary version | string | `latest` |
+| `socket_job_summary` | Socket Firewall job summary verbosity (`all`, `errors`, `none`) | string | `all` |
+| `socket_fail_on_block` | Fail the Socket job when Socket Firewall blocks a package | boolean | `true` |
+| `socket_fail_on_findings` | Fail the Socket job when the Socket CLI scan reports blocking alerts | boolean | `false` |
+| `socket_sarif_file` | Path where the Socket CLI scan writes its SARIF report (empty = none) | string | `''` |
+| `socket_ignore_commit_files` | Scan every manifest instead of only the ones touched by the commit | boolean | `false` |
+| `socket_python_version` | Python version used to run the Socket CLI | string | `3.12` |
 
 > **Monorepo note:** `filter_paths`/`shared_paths`/`path_level`/`normalize_to_filter` scope the `frontend-analysis` job only. They are not passed to the `security` job because `frontend-pr-analysis.yml` and `pr-security-scan.yml` use different formats for that input (JSON array vs. newline-separated). For a path-scoped security scan too, call `pr-security-scan.yml` directly.
 
@@ -87,6 +99,7 @@ The `frontend-analysis` and `security` pipelines each have a `*-gate` aggregator
 |--------|-------------|----------|
 | `MANAGE_TOKEN` | Token for PR operations and private package access | No |
 | `SLACK_WEBHOOK_URL` | Slack webhook for pipeline notifications | No |
+| `SOCKET_SECURITY_API_KEY` | Socket API token for the Socket CLI scan (paid tier). Absent = the scan skips with a notice | No |
 
 All other secrets required by the underlying primitives (e.g. `DOCKER_USERNAME`, `DOCKERHUB_IMAGE_PULL_TOKEN`, `NPMRC_TOKEN`) are forwarded automatically via `secrets: inherit`.
 
@@ -150,9 +163,59 @@ jobs:
     secrets: inherit
 ```
 
+## Socket supply chain
+
+`npm audit`, Trivy and CodeQL find known CVEs and insecure code. None of them find a **supply-chain attack** — a package with a malicious install script, a typosquat, a dependency hijacked in a patch release. [Socket](https://socket.dev) covers that gap by analyzing package behavior, and it is wired here in two independent layers.
+
+> Not to be confused with `socket.io`, the WebSocket library. Unrelated project, no scanning capability.
+
+### Free tier — Socket Firewall (on by default)
+
+[`src/security/socket-firewall`](../src/security/socket-firewall/README.md) installs Socket Firewall's free edition, which shims `npm`/`yarn`/`pnpm`, then runs the project's install through it. A malicious package makes the install exit non-zero and the `Socket` check goes red. No token, no account, no cost.
+
+The shim only protects installs in the same job, so this runs a clean install of the same lockfile in the dedicated `socket` job. The 12 install steps inside `frontend-pr-analysis.yml` are not shimmed — the gate here is what blocks the PR.
+
+**Monorepos:** the install needs a lockfile in `socket_working_dir` (default `.`). If none is found the layer skips with a warning instead of failing, so point it at the right directory:
+
+```yaml
+with:
+  socket_working_dir: 'ui'
+```
+
+Unlike `filter_paths`, this is a single directory — the Socket job is not matrixed per component. Repositories with several independently-locked apps should call the composite directly from their own matrixed job.
+
+To report blocks as warnings instead of failing:
+
+```yaml
+with:
+  socket_fail_on_block: false
+```
+
+An install that fails for an ordinary reason (bad lockfile, unreachable registry) always fails the job — `socket_fail_on_block` only softens confirmed Socket blocks.
+
+### Paid tier — Socket CLI scan (off by default)
+
+[`src/security/socket-scan`](../src/security/socket-scan/README.md) runs `socketcli`, which posts the full alert report on the PR and enforces the organization's Socket policy. It needs the `SOCKET_SECURITY_API_KEY` secret; **without the secret it skips with a `::notice::` and the job stays green**, so enabling it early breaks nothing.
+
+```yaml
+with:
+  socket_enable_scan: true          # opt-in
+  socket_fail_on_findings: false    # default — advisory until the repo is clean
+secrets: inherit                    # carries SOCKET_SECURITY_API_KEY
+```
+
+Socket API errors (`exit 3`) and unmet reachability prerequisites (`exit 5`) are always advisory — they say nothing about the dependencies under review.
+
+### Turning the whole thing off
+
+```yaml
+with:
+  run_socket: false
+```
+
 ## Branch protection
 
-Require the aggregator checks `Frontend Analysis` and `Security` (plus the PR metadata checks from `pr-validation.yml`). These names are stable even when the underlying analysis steps change.
+Require the aggregator checks `Frontend Analysis`, `Security` and `Socket` (plus the PR metadata checks from `pr-validation.yml`). These names are stable even when the underlying analysis steps change.
 
 ## Related
 

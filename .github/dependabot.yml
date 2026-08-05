@@ -74,6 +74,10 @@ updates:
           - "trufflesecurity/trufflehog"
           - "anchore/sbom-action"
           - "sigstore/cosign-installer"
+          # Only reachable if SocketDev/action is ever referenced from a workflow;
+          # its current use is in src/security/socket-firewall, which the
+          # github-actions ecosystem does not scan (see note at the top).
+          - "SocketDev/action"
         update-types:
           - "minor"
           - "patch"

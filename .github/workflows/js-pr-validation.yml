@@ -27,6 +27,10 @@ on:
         description: 'Run the security scan pipeline (Trivy, CodeQL, prerelease checks)'
         type: boolean
         default: true
+      run_socket:
+        description: 'Run the Socket supply-chain pipeline (Socket Firewall and, when enabled, the Socket CLI scan)'
+        type: boolean
+        default: true
 
       # ----------------- Change gate -----------------
       ignore_globs:
@@ -272,10 +276,54 @@ on:
         description: 'Comma-separated directories to skip in every Trivy filesystem scan (appended to the built-in skip list).'
         type: string
         default: ''
+
+      # ----------------- Socket supply chain (src/security/socket-*) -----------------
+      socket_enable_firewall:
+        description: 'Run Socket Firewall (free tier, no token) and install dependencies through it, blocking malicious packages at install time.'
+        type: boolean
+        default: true
+      socket_enable_scan:
+        description: 'Run the Socket CLI scan (paid tier). Requires the SOCKET_SECURITY_API_KEY secret; without it the step skips with a notice.'
+        type: boolean
+        default: false
+      socket_working_dir:
+        description: 'Directory holding the package.json and lockfile scanned by the Socket jobs'
+        type: string
+        default: '.'
+      socket_firewall_version:
+        description: 'Socket Firewall binary version. Empty or "latest" tracks the newest release.'
+        type: string
+        default: 'latest'
+      socket_job_summary:
+        description: 'Socket Firewall job summary verbosity (all, errors, none)'
+        type: string
+        default: 'all'
+      socket_fail_on_block:
+        description: 'Fail the Socket job when Socket Firewall blocks a package. Set to false to report the block as a warning instead.'
+        type: boolean
+        default: true
+      socket_fail_on_findings:
+        description: 'Fail the Socket job when the Socket CLI scan reports blocking alerts. Default false keeps the scan advisory until a repository is clean.'
+        type: boolean
+        default: false
+      socket_sarif_file:
+        description: 'Path where the Socket CLI scan writes its SARIF report. Empty = no SARIF.'
+        type: string
+        default: ''
+      socket_ignore_commit_files:
+        description: 'Scan every manifest instead of only the ones touched by the commit (--ignore-commit-files)'
+        type: boolean
+        default: false
+      socket_python_version:
+        description: 'Python version used to run the Socket CLI'
+        type: string
+        default: '3.12'
     secrets:
       MANAGE_TOKEN:
         required: false
       SLACK_WEBHOOK_URL:
+        required: false
+      SOCKET_SECURITY_API_KEY:
         required: false
 
 permissions:
@@ -416,6 +464,66 @@ jobs:
         with:
           result: ${{ needs.changes.result != 'success' && needs.changes.result || needs.security.result }}
           label: Security
+
+  # ----------------- Socket Supply Chain -----------------
+  socket:
+    name: Socket (checks)
+    needs: changes
+    if: inputs.run_socket && needs.changes.outputs.code == 'true'
+    runs-on: ${{ vars.GENERAL_RUNNERS || inputs.runner_type }}
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+        with:
+          # socketcli diffs the commit to decide which manifests changed.
+          fetch-depth: 2
+          persist-credentials: false
+
+      - name: Socket Firewall
+        if: inputs.socket_enable_firewall
+        uses: LerianStudio/github-actions-shared-workflows/src/security/socket-firewall@v1
+        with:
+          package-manager: ${{ inputs.package_manager }}
+          node-version: ${{ inputs.node_version }}
+          working-dir: ${{ inputs.socket_working_dir }}
+          firewall-version: ${{ inputs.socket_firewall_version }}
+          job-summary: ${{ inputs.socket_job_summary }}
+          fail-on-block: ${{ inputs.socket_fail_on_block }}
+          dry-run: ${{ inputs.dry_run }}
+
+      - name: Socket Scan
+        if: always() && inputs.socket_enable_scan
+        uses: LerianStudio/github-actions-shared-workflows/src/security/socket-scan@v1
+        with:
+          # Token presence is resolved inside the composite rather than in an
+          # `if:` — the secrets context is unavailable in step conditions.
+          socket-api-key: ${{ secrets.SOCKET_SECURITY_API_KEY }}
+          github-token: ${{ secrets.MANAGE_TOKEN || github.token }}
+          target-path: ${{ inputs.socket_working_dir }}
+          pr-number: ${{ github.event.pull_request.number || 0 }}
+          python-version: ${{ inputs.socket_python_version }}
+          fail-on-findings: ${{ inputs.socket_fail_on_findings }}
+          sarif-file: ${{ inputs.socket_sarif_file }}
+          ignore-commit-files: ${{ inputs.socket_ignore_commit_files }}
+          dry-run: ${{ inputs.dry_run }}
+
+  socket-gate:
+    name: Socket
+    needs: [changes, socket]
+    if: always()
+    runs-on: ${{ vars.GENERAL_RUNNERS || inputs.runner_type }}
+    permissions:
+      contents: read
+    steps:
+      - name: Aggregate Socket result
+        uses: LerianStudio/github-actions-shared-workflows/src/validate/result-gate@v1
+        with:
+          result: ${{ needs.changes.result != 'success' && needs.changes.result || needs.socket.result }}
+          label: Socket
 
   # ----------------- Org ruleset compatibility stubs -----------------
   # Go Analysis and Lib Version are required status checks in the Lerian org

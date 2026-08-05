@@ -1,0 +1,183 @@
+name: Socket Scan
+description: Runs the Socket CLI (socketcli) supply-chain scan against the repository manifests, reporting alerts on the PR and enforcing the organization policy.
+
+inputs:
+  socket-api-key:
+    description: 'Socket API token. Empty (the default) skips the scan with a notice instead of failing, so repositories without a Socket account are unaffected.'
+    required: false
+    default: ''
+  github-token:
+    description: 'Token used by socketcli to post the alert report on the pull request'
+    required: false
+    default: ''
+  target-path:
+    description: 'Directory scanned for dependency manifests'
+    required: false
+    default: '.'
+  pr-number:
+    description: 'Pull request number reported to Socket. Use 0 outside a pull request.'
+    required: false
+    default: '0'
+  python-version:
+    description: 'Python version used to run the Socket CLI'
+    required: false
+    default: '3.12'
+  fail-on-findings:
+    description: 'Fail the step when Socket reports blocking alerts. When false, the scan runs with --disable-blocking and always exits 0.'
+    required: false
+    default: 'false'
+  sarif-file:
+    description: 'Path where the SARIF report is written. Empty (the default) skips SARIF generation.'
+    required: false
+    default: ''
+  ignore-commit-files:
+    description: 'Scan every manifest instead of only the ones touched by the commit (--ignore-commit-files)'
+    required: false
+    default: 'false'
+  dry-run:
+    description: 'Print the resolved configuration, force --disable-blocking and never fail the step'
+    required: false
+    default: 'false'
+
+outputs:
+  skipped:
+    description: 'true when the scan did not run because no Socket API token was provided'
+    value: ${{ steps.guard.outputs.skipped }}
+  exit-code:
+    description: 'Exit code returned by socketcli (0 clean, 1 blocking alerts, 2 CLI failure, 3 API error, 5 reachability prerequisite)'
+    value: ${{ steps.scan.outputs.exit_code }}
+  sarif-file:
+    description: 'Path to the generated SARIF report, empty when SARIF generation was not requested'
+    value: ${{ steps.guard.outputs.sarif_file }}
+
+runs:
+  using: composite
+  steps:
+    # ----------------- Guard -----------------
+    - name: Resolve Socket token presence
+      id: guard
+      shell: bash
+      env:
+        SOCKET_API_KEY: ${{ inputs.socket-api-key }}
+        SARIF_FILE: ${{ inputs.sarif-file }}
+      run: |
+        # The secrets context is unavailable in step conditions, so token presence
+        # is resolved here and every later step keys off this output.
+        if [ -z "$SOCKET_API_KEY" ]; then
+          echo "skipped=true" >> "$GITHUB_OUTPUT"
+          echo "sarif_file=" >> "$GITHUB_OUTPUT"
+          echo "::notice::Socket scan skipped — no Socket API token configured. Set the SOCKET_SECURITY_API_KEY secret to enable it."
+          exit 0
+        fi
+        echo "skipped=false" >> "$GITHUB_OUTPUT"
+        echo "sarif_file=$SARIF_FILE" >> "$GITHUB_OUTPUT"
+
+    # ----------------- Toolchain -----------------
+    - name: Setup Python
+      if: steps.guard.outputs.skipped != 'true'
+      uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+      with:
+        python-version: ${{ inputs.python-version }}
+
+    - name: Install Socket CLI
+      if: steps.guard.outputs.skipped != 'true'
+      shell: bash
+      run: pip install socketsecurity --upgrade
+
+    # ----------------- Scan -----------------
+    - name: Dry run summary
+      if: steps.guard.outputs.skipped != 'true' && inputs.dry-run == 'true'
+      shell: bash
+      env:
+        TARGET_PATH: ${{ inputs.target-path }}
+        PR_NUMBER: ${{ inputs.pr-number }}
+        SARIF_FILE: ${{ inputs.sarif-file }}
+        IGNORE_COMMIT_FILES: ${{ inputs.ignore-commit-files }}
+      run: |
+        echo "::notice::DRY RUN — socketcli runs with --disable-blocking and never fails the step"
+        echo "  target path         : $TARGET_PATH"
+        echo "  pr number           : $PR_NUMBER"
+        echo "  sarif file          : ${SARIF_FILE:-<none>}"
+        echo "  ignore commit files : $IGNORE_COMMIT_FILES"
+
+    - name: Run Socket scan
+      id: scan
+      if: steps.guard.outputs.skipped != 'true'
+      shell: bash
+      env:
+        SOCKET_SECURITY_API_KEY: ${{ inputs.socket-api-key }}
+        GH_API_TOKEN: ${{ inputs.github-token }}
+        TARGET_PATH: ${{ inputs.target-path }}
+        PR_NUMBER: ${{ inputs.pr-number }}
+        SARIF_FILE: ${{ inputs.sarif-file }}
+        IGNORE_COMMIT_FILES: ${{ inputs.ignore-commit-files }}
+        FAIL_ON_FINDINGS: ${{ inputs.fail-on-findings }}
+        DRY_RUN: ${{ inputs.dry-run }}
+      run: |
+        ARGS=(--target-path "$TARGET_PATH" --scm github --pr-number "$PR_NUMBER")
+
+        # --disable-blocking makes socketcli always exit 0. It is passed whenever
+        # enforcement is off so the exit code carries no policy meaning, and the
+        # gate below stays the single place that decides success or failure.
+        if [ "$FAIL_ON_FINDINGS" != "true" ] || [ "$DRY_RUN" = "true" ]; then
+          ARGS+=(--disable-blocking)
+        fi
+        [ -n "$SARIF_FILE" ] && ARGS+=(--sarif-file "$SARIF_FILE")
+        [ "$IGNORE_COMMIT_FILES" = "true" ] && ARGS+=(--ignore-commit-files)
+
+        EXIT_CODE=0
+        socketcli "${ARGS[@]}" || EXIT_CODE=$?
+        echo "exit_code=$EXIT_CODE" >> "$GITHUB_OUTPUT"
+
+    - name: Evaluate Socket scan result
+      if: always() && steps.guard.outputs.skipped != 'true'
+      shell: bash
+      env:
+        EXIT_CODE: ${{ steps.scan.outputs.exit_code }}
+        FAIL_ON_FINDINGS: ${{ inputs.fail-on-findings }}
+        DRY_RUN: ${{ inputs.dry-run }}
+      run: |
+        # Empty means the scan step never reached its output write — treat that
+        # as a CLI failure rather than as a clean result.
+        EXIT_CODE="${EXIT_CODE:-2}"
+        case "$EXIT_CODE" in
+          0) VERDICT=':white_check_mark: no blocking alert' ;;
+          1) VERDICT=':no_entry: blocking alerts reported' ;;
+          2) VERDICT=':x: Socket CLI failure' ;;
+          3) VERDICT=':warning: Socket API error' ;;
+          5) VERDICT=':warning: reachability prerequisite unmet' ;;
+          *) VERDICT=":question: unexpected exit code $EXIT_CODE" ;;
+        esac
+
+        {
+          echo "### Socket Scan"
+          echo ""
+          echo "| Check | Result |"
+          echo "|---|---|"
+          echo "| socketcli exit code | \`$EXIT_CODE\` |"
+          echo "| Verdict | $VERDICT |"
+          echo "| Enforcing | \`$FAIL_ON_FINDINGS\` |"
+        } >> "$GITHUB_STEP_SUMMARY"
+
+        # Infrastructure problems (3, 5) never block a pull request — they say
+        # nothing about the dependencies under review.
+        if [ "$EXIT_CODE" = "3" ] || [ "$EXIT_CODE" = "5" ]; then
+          echo "::warning::Socket scan could not complete (exit $EXIT_CODE). Treated as advisory."
+          exit 0
+        fi
+
+        if [ "$EXIT_CODE" = "0" ]; then
+          exit 0
+        fi
+
+        if [ "$DRY_RUN" = "true" ]; then
+          echo "::warning::Socket scan exited $EXIT_CODE — not failing the step because dry-run is on."
+          exit 0
+        fi
+
+        if [ "$FAIL_ON_FINDINGS" = "true" ]; then
+          echo "::error::Socket scan failed with exit code $EXIT_CODE. Review the Socket report on the pull request."
+          exit 1
+        fi
+
+        echo "::warning::Socket scan exited $EXIT_CODE (advisory — fail-on-findings is false)."
