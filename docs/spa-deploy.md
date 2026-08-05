@@ -50,6 +50,10 @@ role or produces any side effect.
 | `cloudfront_distribution_id` | CloudFront distribution ID to invalidate after upload | Yes | — |
 | `node_version` | Node.js version for `setup-node` | No | `22` |
 | `dry_run` | Fully-local preview: skip AWS auth, print the sync plan (no AWS calls), and skip the invalidation | No | `false` |
+| `environment` | GitHub Environment to deploy through — required reviewers / branch protection / environment-scoped OIDC trust. Empty = no gate | No | `''` |
+| `role_duration_seconds` | Lifetime (seconds) of the assumed AWS credentials — kept short (creds assumed only for sync + invalidation) | No | `900` |
+
+Deploys are serialized per `s3_bucket` via `concurrency` (`cancel-in-progress: false`), so a `--delete` sync never races a concurrent run. Credentials use a per-run `role-session-name` (`spa-deploy-<run_id>`) for CloudTrail attribution.
 
 ## Secrets
 

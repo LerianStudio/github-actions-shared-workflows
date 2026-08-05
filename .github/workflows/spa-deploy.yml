@@ -74,10 +74,20 @@ on:
         type: string
         default: '22'
       dry_run:
-        description: 'Preview the sync (aws s3 sync --dryrun) and skip the CloudFront invalidation'
+        description: 'Fully-local preview: skip AWS auth, print the sync plan (no AWS calls), and skip the CloudFront invalidation'
         type: boolean
         required: false
         default: false
+      environment:
+        description: 'GitHub Environment to deploy through — enables required reviewers / branch protection and lets the OIDC trust be scoped to the environment. Empty = no environment gate.'
+        type: string
+        required: false
+        default: ''
+      role_duration_seconds:
+        description: 'Lifetime (seconds) of the assumed AWS credentials. Kept short — creds are only assumed for the S3 sync + invalidation, after the build.'
+        type: number
+        required: false
+        default: 900
     secrets:
       AWS_DEPLOY_ROLE_ARN:
         description: 'ARN of the IAM role to assume via OIDC for S3 + CloudFront access'
@@ -93,10 +103,19 @@ permissions:
   contents: read
   id-token: write
 
+# Serialize deploys targeting the same bucket so a `--delete` sync never races a
+# concurrent run. Never cancel an in-flight deploy mid-sync — let it finish.
+concurrency:
+  group: spa-deploy-${{ inputs.s3_bucket }}
+  cancel-in-progress: false
+
 jobs:
   deploy:
     name: Build and deploy SPA
     runs-on: ${{ vars.GENERAL_RUNNERS || inputs.runner_type }}
+    # Optional GitHub Environment gate (required reviewers / branch protection /
+    # environment-scoped OIDC trust). Empty input = no environment.
+    environment: ${{ inputs.environment }}
     steps:
       # ----------------- Build -----------------
       - name: Checkout code
@@ -154,6 +173,8 @@ jobs:
         uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c # v6.2.3
         with:
           role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          role-session-name: spa-deploy-${{ github.run_id }}
+          role-duration-seconds: ${{ inputs.role_duration_seconds }}
           aws-region: ${{ inputs.aws_region }}
 
       # Deploy STEPS are delegated to single-responsibility composites under
