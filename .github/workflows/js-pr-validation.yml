@@ -516,6 +516,22 @@ jobs:
       # row below. Enforcement itself is broader: every install in
       # frontend-pr-analysis.yml also runs through the firewall, so a malicious
       # package cannot execute install scripts in any analysis job either.
+      # TEMPORARY diagnostic, remove before merge. Confirms an organization secret
+      # actually reaches this reusable workflow through `secrets: inherit`, which
+      # is the whole reason SOCKET_SECURITY_API_KEY is declared. Reports length
+      # and a prefix only — never the value.
+      - name: Diagnostic - Socket token reachability
+        env:
+          SOCKET_TOKEN: ${{ secrets.SOCKET_SECURITY_API_KEY }}
+        run: |
+          if [ -z "$SOCKET_TOKEN" ]; then
+            echo "::warning::SOCKET_SECURITY_API_KEY is EMPTY in this workflow."
+            echo "  Either the org secret is not shared with this repository, or the"
+            echo "  caller does not use 'secrets: inherit'."
+          else
+            echo "::notice::SOCKET_SECURITY_API_KEY is present (${#SOCKET_TOKEN} chars, starts with '${SOCKET_TOKEN:0:4}')."
+          fi
+
       - name: Socket Firewall
         id: firewall
         if: inputs.socket_enable_firewall
