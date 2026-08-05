@@ -150,8 +150,8 @@ jobs:
           DIST: ${{ inputs.dist_directory }}
         run: |
           set -euo pipefail
-          if [[ ! -d "$DIST" ]] || [[ -z "$(ls -A "$DIST" 2>/dev/null)" ]]; then
-            echo "::error::Build output directory '${DIST}' is missing or empty after build."
+          if [[ ! -d "$DIST" ]] || [[ -z "$(find "$DIST" -type f -print -quit)" ]]; then
+            echo "::error::Build output directory '${DIST}' is missing or has no files after build."
             exit 1
           fi
           echo "::notice::Build output ready at ${DIST}"

@@ -58,6 +58,22 @@ runs:
         ( cd "${DIST}" && find . -type f | sort )
 
     # ----------------- Real run -----------------
+    # SAFETY GUARD: every real sync below runs with `--delete`. An empty or
+    # missing dist would make `--delete` wipe the whole bucket. Refuse to proceed
+    # unless the build produced at least one regular file (protects standalone
+    # use of this composite, not just callers that pre-validate).
+    - name: Guard against empty distribution (protects --delete)
+      if: ${{ inputs.dry-run != 'true' }}
+      shell: bash
+      env:
+        DIST: ${{ inputs.dist-directory }}
+      run: |
+        set -euo pipefail
+        if [[ ! -d "$DIST" ]] || [[ -z "$(find "$DIST" -type f -print -quit)" ]]; then
+          echo "::error::Distribution '${DIST}' is missing or contains no files — refusing to sync, as --delete would empty the bucket."
+          exit 1
+        fi
+
     # Fingerprinted assets are immutable, so they upload FIRST with a long
     # Cache-Control and --delete prunes stale files. *.html AND the stable-named
     # revalidate files are excluded here (handled in their own passes) so they

@@ -14,6 +14,8 @@ When `dry-run` is `true` the composite is **fully local**: it prints the resolve
 
 Requires AWS credentials to already be configured in the environment (e.g. via `aws-actions/configure-aws-credentials` OIDC in the calling job) and the AWS CLI to be present (see [`setup/aws-cli`](../../setup/aws-cli)). It performs **no authentication itself** — secrets stay in the reusable workflow.
 
+> ⚠️ **The bucket must be dedicated to this SPA.** The sync runs `aws s3 sync --delete` against the bucket **root**, so any object not present in the build is pruned. Do not point it at a bucket holding other content. As a safeguard, the composite refuses to sync when the distribution directory is missing or has no files (which, with `--delete`, would otherwise empty the bucket).
+
 ## Why custom `aws` shell (not a Marketplace action)
 
 Marketplace S3-sync actions (e.g. `jakejarvis/s3-sync-action`) run a **single** `aws s3 sync` and expose one `Cache-Control` for the whole upload. This composite needs a **multi-pass** sync — immutable fingerprinted assets first (with `--delete`), then stable-named files (service worker, manifest…) with a revalidation policy, then `*.html` uploaded **last** with `no-store` — so an `index.html` is never served referencing assets that aren't uploaded yet, and non-fingerprinted files never get stuck behind an immutable cache. No maintained Marketplace action models that ordering, and driving `aws` directly matches the sibling [`s3-upload.yml`](../../../.github/workflows/s3-upload.yml) convention in this repo. Authentication is deliberately left to `aws-actions/configure-aws-credentials` (OIDC) in the calling workflow.
