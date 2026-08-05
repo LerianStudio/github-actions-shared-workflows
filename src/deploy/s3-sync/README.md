@@ -12,6 +12,10 @@ Composite action that syncs a **built single-page application** to an S3 bucket 
 
 Requires AWS credentials to already be configured in the environment (e.g. via `aws-actions/configure-aws-credentials` OIDC in the calling job) and the AWS CLI to be present (see [`setup/aws-cli`](../../setup/aws-cli)). It performs **no authentication itself** — secrets stay in the reusable workflow.
 
+## Why custom `aws` shell (not a Marketplace action)
+
+Marketplace S3-sync actions (e.g. `jakejarvis/s3-sync-action`) run a **single** `aws s3 sync` and expose one `Cache-Control` for the whole upload. This composite needs a **two-pass** sync — immutable fingerprinted assets first (with `--delete`), then `*.html` uploaded **last** with `no-store` — so an `index.html` is never served referencing assets that aren't uploaded yet. No maintained Marketplace action models that ordering, and driving `aws` directly matches the sibling [`s3-upload.yml`](../../../.github/workflows/s3-upload.yml) convention in this repo. Authentication is deliberately left to `aws-actions/configure-aws-credentials` (OIDC) in the calling workflow.
+
 ## Inputs
 
 | Input | Description | Required | Default |

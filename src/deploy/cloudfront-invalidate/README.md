@@ -9,6 +9,10 @@ Composite action that creates a **CloudFront invalidation** for the given paths 
 
 Requires AWS credentials to already be configured in the environment (e.g. via `aws-actions/configure-aws-credentials` OIDC in the calling job) and the AWS CLI to be present (see [`setup/aws-cli`](../../setup/aws-cli)). It performs **no authentication itself** — secrets stay in the reusable workflow.
 
+## Why custom `aws` shell (not a Marketplace action)
+
+A single `aws cloudfront create-invalidation` call is simpler and more auditable than pulling a wrapper action, needs no extra pinning surface, and reuses the AWS credentials already assumed for the S3 sync in the same job. It also gives the `dry-run` short-circuit (log instead of invalidate) for free. Authentication is deliberately left to `aws-actions/configure-aws-credentials` (OIDC) in the calling workflow.
+
 ## Inputs
 
 | Input | Description | Required | Default |
