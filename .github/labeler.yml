@@ -77,6 +77,13 @@ config:
   - changed-files:
     - any-glob-to-any-file: "src/config/**"
 
+deploy:
+  - changed-files:
+    - any-glob-to-any-file:
+      - "src/deploy/**"
+      - ".github/workflows/spa-deploy.yml"
+      - ".github/workflows/s3-upload.yml"
+
 notify:
   - changed-files:
     - any-glob-to-any-file:

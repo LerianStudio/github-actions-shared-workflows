@@ -1,0 +1,72 @@
+name: S3 Sync (SPA)
+description: Sync a built SPA to an S3 bucket root with differentiated Cache-Control — fingerprinted assets immutable (with --delete), then *.html no-store uploaded last.
+
+inputs:
+  dist-directory:
+    description: Build output directory to sync, relative to the repo root (e.g. "frontend/dist-customer").
+    required: true
+  s3-bucket:
+    description: Destination S3 bucket name (without the s3:// prefix). Objects sync to the bucket root.
+    required: true
+  assets-cache-control:
+    description: Cache-Control header applied to fingerprinted assets (everything except *.html).
+    required: false
+    default: "public,max-age=31536000,immutable"
+  html-cache-control:
+    description: Cache-Control header applied to *.html files, uploaded last so a freshly-served index never references assets that are not yet uploaded.
+    required: false
+    default: "no-store"
+  dry-run:
+    description: Preview both syncs with --dryrun (no objects written).
+    required: false
+    default: "false"
+
+runs:
+  using: composite
+  steps:
+    # Fingerprinted assets are immutable, so they upload FIRST with a long
+    # Cache-Control and --delete prunes stale files. *.html is excluded here and
+    # handled last to avoid a window where index.html points at missing assets.
+    - name: Sync fingerprinted assets (immutable) and prune stale files
+      shell: bash
+      env:
+        DIST: ${{ inputs.dist-directory }}
+        BUCKET: ${{ inputs.s3-bucket }}
+        CACHE_CONTROL: ${{ inputs.assets-cache-control }}
+        DRY_RUN: ${{ inputs.dry-run }}
+      run: |
+        set -euo pipefail
+        sync_args=()
+        if [[ "$DRY_RUN" == "true" ]]; then
+          echo "::notice::DRY RUN — previewing asset sync (no objects written)"
+          sync_args+=(--dryrun)
+        fi
+        aws s3 sync "${DIST}/" "s3://${BUCKET}/" \
+          "${sync_args[@]}" \
+          --delete \
+          --exclude "*.html" \
+          --cache-control "$CACHE_CONTROL"
+
+    # HTML is uploaded LAST with a no-store Cache-Control (never --delete here, to
+    # keep the immutable assets synced above) so users always fetch an index that
+    # references already-present assets.
+    - name: Sync HTML (no-store, uploaded last)
+      shell: bash
+      env:
+        DIST: ${{ inputs.dist-directory }}
+        BUCKET: ${{ inputs.s3-bucket }}
+        CACHE_CONTROL: ${{ inputs.html-cache-control }}
+        DRY_RUN: ${{ inputs.dry-run }}
+      run: |
+        set -euo pipefail
+        sync_args=()
+        if [[ "$DRY_RUN" == "true" ]]; then
+          echo "::notice::DRY RUN — previewing HTML sync (no objects written)"
+          sync_args+=(--dryrun)
+        fi
+        aws s3 sync "${DIST}/" "s3://${BUCKET}/" \
+          "${sync_args[@]}" \
+          --exclude "*" \
+          --include "*.html" \
+          --content-type "text/html; charset=utf-8" \
+          --cache-control "$CACHE_CONTROL"

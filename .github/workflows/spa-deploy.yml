@@ -6,10 +6,20 @@ name: "SPA Deploy"
 # not build, takes no artifact, forces an <env>/ sub-folder, sets no
 # Cache-Control, does no `--delete` sync, and does no CloudFront invalidation.
 #
-# Steps: checkout -> setup-node -> npm ci -> build_command -> AWS OIDC auth ->
-# `aws s3 sync --delete` with DIFFERENTIATED Cache-Control (fingerprinted assets
-# immutable/1y; *.html no-store, uploaded LAST so users never fetch an index
-# that references not-yet-uploaded assets) -> CloudFront invalidation.
+# This workflow only ORCHESTRATES: it checks out, builds the SPA, routes the
+# OIDC secret, and delegates the deploy STEPS to local composites — it inlines no
+# complex shell of its own.
+#
+#   job: deploy
+#     → checkout + setup-node + npm ci + build_command (build the SPA)
+#     → ./src/setup/aws-cli               (ensure AWS CLI is present)
+#     → configure-aws-credentials (OIDC)  (routes AWS_DEPLOY_ROLE_ARN secret)
+#     → ./src/deploy/s3-sync              (differentiated Cache-Control sync)
+#     → ./src/deploy/cloudfront-invalidate (create-invalidation)
+#
+# The s3-sync composite does `aws s3 sync --delete` with DIFFERENTIATED
+# Cache-Control (fingerprinted assets immutable/1y; *.html no-store, uploaded
+# LAST so users never fetch an index that references not-yet-uploaded assets).
 #
 # Auth is OIDC only (configure-aws-credentials with role-to-assume) — never
 # static keys.
@@ -151,62 +161,29 @@ jobs:
           fi
           echo "::notice::Build output ready at ${DIST}"
 
+      # Self-hosted runners (blacksmith-*) do not ship the AWS CLI, which the
+      # deploy composites below invoke — install/verify it via the repo's own
+      # setup composite (idempotent; no-op on runners that already have it).
+      - name: Ensure AWS CLI
+        uses: ./src/setup/aws-cli
+
       - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c # v6.2.3
         with:
           role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
           aws-region: ${{ inputs.aws_region }}
 
-      - name: Sync fingerprinted assets (immutable) and prune stale files
-        env:
-          DIST: ${{ inputs.dist_directory }}
-          BUCKET: ${{ inputs.s3_bucket }}
-          DRY_RUN: ${{ inputs.dry_run }}
-        run: |
-          set -euo pipefail
-          DRYRUN_FLAG=""
-          if [[ "$DRY_RUN" == "true" ]]; then
-            echo "::notice::DRY RUN — previewing asset sync (no objects written)"
-            DRYRUN_FLAG="--dryrun"
-          fi
-          aws s3 sync "${DIST}/" "s3://${BUCKET}/" \
-            ${DRYRUN_FLAG} \
-            --delete \
-            --exclude "*.html" \
-            --cache-control "public,max-age=31536000,immutable"
-
-      - name: Sync HTML (no-store, uploaded last)
-        env:
-          DIST: ${{ inputs.dist_directory }}
-          BUCKET: ${{ inputs.s3_bucket }}
-          DRY_RUN: ${{ inputs.dry_run }}
-        run: |
-          set -euo pipefail
-          DRYRUN_FLAG=""
-          if [[ "$DRY_RUN" == "true" ]]; then
-            echo "::notice::DRY RUN — previewing HTML sync (no objects written)"
-            DRYRUN_FLAG="--dryrun"
-          fi
-          aws s3 sync "${DIST}/" "s3://${BUCKET}/" \
-            ${DRYRUN_FLAG} \
-            --exclude "*" \
-            --include "*.html" \
-            --content-type "text/html; charset=utf-8" \
-            --cache-control "no-store"
+      # Deploy STEPS are delegated to single-responsibility composites under
+      # src/deploy/ — no complex shell is inlined in this workflow.
+      - name: Sync SPA to S3 (differentiated Cache-Control)
+        uses: ./src/deploy/s3-sync
+        with:
+          dist-directory: ${{ inputs.dist_directory }}
+          s3-bucket: ${{ inputs.s3_bucket }}
+          dry-run: ${{ inputs.dry_run }}
 
       - name: Invalidate CloudFront
-        if: ${{ !inputs.dry_run }}
-        env:
-          DISTRIBUTION_ID: ${{ inputs.cloudfront_distribution_id }}
-        run: |
-          set -euo pipefail
-          aws cloudfront create-invalidation \
-            --distribution-id "${DISTRIBUTION_ID}" \
-            --paths "/" "/index.html"
-
-      - name: Dry run — skipped invalidation
-        if: ${{ inputs.dry_run }}
-        env:
-          DISTRIBUTION_ID: ${{ inputs.cloudfront_distribution_id }}
-        run: |
-          echo "::notice::DRY RUN — would invalidate distribution ${DISTRIBUTION_ID} paths '/' '/index.html'"
+        uses: ./src/deploy/cloudfront-invalidate
+        with:
+          distribution-id: ${{ inputs.cloudfront_distribution_id }}
+          dry-run: ${{ inputs.dry_run }}

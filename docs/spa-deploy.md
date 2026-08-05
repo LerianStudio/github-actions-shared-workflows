@@ -11,17 +11,28 @@ It fills the gap left by [`s3-upload.yml`](./s3-upload.md), which cannot deploy 
 
 ## What it does
 
+This workflow only **orchestrates** — the deploy steps are delegated to
+single-responsibility composite actions under `src/deploy/`, so no complex shell
+is inlined in the workflow itself.
+
 1. `checkout` (SHA-pinned, `persist-credentials: false`).
 2. `setup-node` with npm cache keyed on `<working_directory>/package-lock.json`.
 3. `npm ci` in `working_directory`.
 4. Run `build_command` in `working_directory`.
 5. Verify `dist_directory` exists and is non-empty.
-6. `configure-aws-credentials` via OIDC `role-to-assume` — **never static keys**.
-7. `aws s3 sync --delete` of fingerprinted assets with `Cache-Control: public,max-age=31536000,immutable` (excludes `*.html`).
-8. `aws s3 sync` of `*.html` **last**, with `Cache-Control: no-store` — so a freshly-served `index.html` never references assets that are not yet uploaded.
-9. `aws cloudfront create-invalidation --paths "/" "/index.html"`.
+6. [`./src/setup/aws-cli`](../src/setup/aws-cli) — ensure the AWS CLI is present
+   (idempotent; no-op on runners that already ship it).
+7. `configure-aws-credentials` via OIDC `role-to-assume` — **never static keys**.
+8. [`./src/deploy/s3-sync`](../src/deploy/s3-sync) — `aws s3 sync --delete` of
+   fingerprinted assets with `Cache-Control: public,max-age=31536000,immutable`
+   (excludes `*.html`), then `*.html` synced **last** with
+   `Cache-Control: no-store` so a freshly-served `index.html` never references
+   assets that are not yet uploaded.
+9. [`./src/deploy/cloudfront-invalidate`](../src/deploy/cloudfront-invalidate) —
+   `aws cloudfront create-invalidation --paths "/" "/index.html"`.
 
-The bucket root is the sync target (no forced environment sub-folder). `dry_run: true` runs both syncs with `--dryrun` and skips the invalidation.
+The bucket root is the sync target (no forced environment sub-folder). `dry_run:
+true` runs both syncs with `--dryrun` and skips the invalidation.
 
 ## Inputs
 
