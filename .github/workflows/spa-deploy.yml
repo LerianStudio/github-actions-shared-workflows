@@ -82,40 +82,12 @@ on:
       AWS_DEPLOY_ROLE_ARN:
         description: 'ARN of the IAM role to assume via OIDC for S3 + CloudFront access'
         required: true
-  workflow_dispatch:
-    inputs:
-      working_directory:
-        description: 'Directory containing package.json / the SPA source'
-        type: string
-        default: 'frontend'
-      build_command:
-        description: 'Command that produces the production build'
-        type: string
-        required: true
-      dist_directory:
-        description: 'Build output directory to sync, relative to the repo root'
-        type: string
-        required: true
-      aws_region:
-        description: 'AWS region of the S3 bucket and CloudFront distribution'
-        type: string
-        required: true
-      s3_bucket:
-        description: 'Destination S3 bucket name (without the s3:// prefix)'
-        type: string
-        required: true
-      cloudfront_distribution_id:
-        description: 'CloudFront distribution ID to invalidate after upload'
-        type: string
-        required: true
-      node_version:
-        description: 'Node.js version for setup-node'
-        type: string
-        default: '22'
-      dry_run:
-        description: 'Preview the sync and skip the CloudFront invalidation'
-        type: boolean
-        default: false
+
+# NOTE: no `workflow_dispatch` here — a reusable workflow must be `workflow_call`
+# only (see .claude/commands/workflow.md, "Script injection & workflow_dispatch").
+# `build_command` is free-text and is eval'd below, so exposing it via a
+# manual-dispatch string input would be a command-injection surface. Manual
+# runs belong in a `self-*`/caller entrypoint with safe (choice/boolean) inputs.
 
 permissions:
   contents: read
@@ -164,8 +136,12 @@ jobs:
       # Self-hosted runners (blacksmith-*) do not ship the AWS CLI, which the
       # deploy composites below invoke — install/verify it via the repo's own
       # setup composite (idempotent; no-op on runners that already have it).
+      # Composites are referenced by EXTERNAL ref (LerianStudio/.../src/...@ref),
+      # never `./src/...`: in a workflow_call reusable workflow `./` resolves to
+      # the CALLER's workspace, so a local path breaks for external callers
+      # (see .claude/commands/workflow.md, "Composite action references").
       - name: Ensure AWS CLI
-        uses: ./src/setup/aws-cli
+        uses: LerianStudio/github-actions-shared-workflows/src/setup/aws-cli@v1
 
       - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c # v6.2.3
@@ -176,14 +152,14 @@ jobs:
       # Deploy STEPS are delegated to single-responsibility composites under
       # src/deploy/ — no complex shell is inlined in this workflow.
       - name: Sync SPA to S3 (differentiated Cache-Control)
-        uses: ./src/deploy/s3-sync
+        uses: LerianStudio/github-actions-shared-workflows/src/deploy/s3-sync@develop # TODO: pin to @v1 once released
         with:
           dist-directory: ${{ inputs.dist_directory }}
           s3-bucket: ${{ inputs.s3_bucket }}
           dry-run: ${{ inputs.dry_run }}
 
       - name: Invalidate CloudFront
-        uses: ./src/deploy/cloudfront-invalidate
+        uses: LerianStudio/github-actions-shared-workflows/src/deploy/cloudfront-invalidate@develop # TODO: pin to @v1 once released
         with:
           distribution-id: ${{ inputs.cloudfront_distribution_id }}
           dry-run: ${{ inputs.dry_run }}
