@@ -98,6 +98,7 @@ jobs:
     name: Build and deploy SPA
     runs-on: ${{ vars.GENERAL_RUNNERS || inputs.runner_type }}
     steps:
+      # ----------------- Build -----------------
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -136,6 +137,7 @@ jobs:
       # Self-hosted runners (blacksmith-*) do not ship the AWS CLI, which the
       # deploy composites below invoke — install/verify it via the repo's own
       # setup composite (idempotent; no-op on runners that already have it).
+      # ----------------- Deploy -----------------
       # Composites are referenced by EXTERNAL ref (LerianStudio/.../src/...@ref),
       # never `./src/...`: in a workflow_call reusable workflow `./` resolves to
       # the CALLER's workspace, so a local path breaks for external callers
