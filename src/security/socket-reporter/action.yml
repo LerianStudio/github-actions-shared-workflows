@@ -70,6 +70,10 @@ runs:
         RUN_URL: ${{ inputs.run-url }}
       with:
         github-token: ${{ inputs.github-token }}
+        # Without this the action JSON-encodes the returned string, so the output
+        # arrives as a quoted string instead of an object and the parse below
+        # cannot read has_findings from it.
+        result-encoding: string
         script: |
           const fs = require('fs');
           const appName = process.env.APP_NAME;
