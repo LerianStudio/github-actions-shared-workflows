@@ -32,7 +32,10 @@ is inlined in the workflow itself.
    `aws cloudfront create-invalidation --paths "/" "/index.html"`.
 
 The bucket root is the sync target (no forced environment sub-folder). `dry_run:
-true` runs both syncs with `--dryrun` and skips the invalidation.
+true` is **fully local**: the AWS CLI / OIDC credential steps are skipped, the
+s3-sync composite only prints the resolved plan and file list (no AWS calls), and
+the CloudFront invalidation is skipped — so a preview never assumes the deploy
+role or produces any side effect.
 
 ## Inputs
 
@@ -46,7 +49,7 @@ true` runs both syncs with `--dryrun` and skips the invalidation.
 | `s3_bucket` | Destination S3 bucket name (without `s3://`); objects sync to the bucket **root** | Yes | — |
 | `cloudfront_distribution_id` | CloudFront distribution ID to invalidate after upload | Yes | — |
 | `node_version` | Node.js version for `setup-node` | No | `22` |
-| `dry_run` | Preview the sync (`aws s3 sync --dryrun`) and skip invalidation | No | `false` |
+| `dry_run` | Fully-local preview: skip AWS auth, print the sync plan (no AWS calls), and skip the invalidation | No | `false` |
 
 ## Secrets
 

@@ -142,10 +142,15 @@ jobs:
       # never `./src/...`: in a workflow_call reusable workflow `./` resolves to
       # the CALLER's workspace, so a local path breaks for external callers
       # (see .claude/commands/workflow.md, "Composite action references").
+      # AWS CLI + credentials are only needed for a real deploy. A dry run stays
+      # fully local (the s3-sync composite prints the plan without calling AWS),
+      # so it must NOT install tooling or assume the deploy role.
       - name: Ensure AWS CLI
+        if: ${{ !inputs.dry_run }}
         uses: LerianStudio/github-actions-shared-workflows/src/setup/aws-cli@v1
 
       - name: Configure AWS credentials (OIDC)
+        if: ${{ !inputs.dry_run }}
         uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c # v6.2.3
         with:
           role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}

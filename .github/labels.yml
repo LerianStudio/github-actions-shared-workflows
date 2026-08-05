@@ -114,7 +114,7 @@
 
 - name: deploy
   color: "0e8a16"
-  description: Changes to deployment composite actions (src/deploy/)
+  description: Changes to deployment composites and workflows (src/deploy/, spa-deploy.yml, s3-upload.yml)
 
 - name: deployment-matrix
   color: "5319e7"

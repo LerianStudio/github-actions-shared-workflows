@@ -35,7 +35,7 @@ steps:
     uses: ./src/deploy/cloudfront-invalidate
     with:
       distribution-id: E1234567890ABC
-      dry-run: ${{ inputs.dry_run }}
+      dry-run: false
 ```
 
 ## Usage via reusable workflow

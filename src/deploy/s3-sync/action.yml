@@ -24,48 +24,61 @@ inputs:
 runs:
   using: composite
   steps:
+    # ----------------- Dry run (local only) -----------------
+    # A dry run must not use credentials or contact AWS: it prints the resolved
+    # plan and the local file list so callers can validate config before applying,
+    # with zero side effects and no role assumption.
+    - name: Preview deployment plan (dry run)
+      if: ${{ inputs.dry-run == 'true' }}
+      shell: bash
+      env:
+        DIST: ${{ inputs.dist-directory }}
+        BUCKET: ${{ inputs.s3-bucket }}
+        ASSETS_CACHE_CONTROL: ${{ inputs.assets-cache-control }}
+        HTML_CACHE_CONTROL: ${{ inputs.html-cache-control }}
+      run: |
+        set -euo pipefail
+        echo "::notice::DRY RUN — no AWS credentials used, no AWS calls, no objects written"
+        echo "  source directory : ${DIST}"
+        echo "  destination      : s3://${BUCKET}/"
+        echo "  assets (non-html): Cache-Control '${ASSETS_CACHE_CONTROL}', synced first with --delete"
+        echo "  html             : Cache-Control '${HTML_CACHE_CONTROL}', synced last with --delete"
+        echo "  local files that would be uploaded:"
+        ( cd "${DIST}" && find . -type f | sort )
+
+    # ----------------- Real run -----------------
     # Fingerprinted assets are immutable, so they upload FIRST with a long
     # Cache-Control and --delete prunes stale files. *.html is excluded here and
     # handled last to avoid a window where index.html points at missing assets.
     - name: Sync fingerprinted assets (immutable) and prune stale files
+      if: ${{ inputs.dry-run != 'true' }}
       shell: bash
       env:
         DIST: ${{ inputs.dist-directory }}
         BUCKET: ${{ inputs.s3-bucket }}
         CACHE_CONTROL: ${{ inputs.assets-cache-control }}
-        DRY_RUN: ${{ inputs.dry-run }}
       run: |
         set -euo pipefail
-        sync_args=()
-        if [[ "$DRY_RUN" == "true" ]]; then
-          echo "::notice::DRY RUN — previewing asset sync (no objects written)"
-          sync_args+=(--dryrun)
-        fi
         aws s3 sync "${DIST}/" "s3://${BUCKET}/" \
-          "${sync_args[@]}" \
           --delete \
           --exclude "*.html" \
           --cache-control "$CACHE_CONTROL"
 
-    # HTML is uploaded LAST with a no-store Cache-Control (never --delete here, to
-    # keep the immutable assets synced above) so users always fetch an index that
-    # references already-present assets.
-    - name: Sync HTML (no-store, uploaded last)
+    # HTML is uploaded LAST with a no-store Cache-Control so users always fetch an
+    # index that references already-present assets. --delete is scoped to *.html
+    # (via --exclude "*" --include "*.html"), so obsolete HTML is pruned without
+    # touching the immutable assets synced above.
+    - name: Sync HTML (no-store, uploaded last) and prune stale HTML
+      if: ${{ inputs.dry-run != 'true' }}
       shell: bash
       env:
         DIST: ${{ inputs.dist-directory }}
         BUCKET: ${{ inputs.s3-bucket }}
         CACHE_CONTROL: ${{ inputs.html-cache-control }}
-        DRY_RUN: ${{ inputs.dry-run }}
       run: |
         set -euo pipefail
-        sync_args=()
-        if [[ "$DRY_RUN" == "true" ]]; then
-          echo "::notice::DRY RUN — previewing HTML sync (no objects written)"
-          sync_args+=(--dryrun)
-        fi
         aws s3 sync "${DIST}/" "s3://${BUCKET}/" \
-          "${sync_args[@]}" \
+          --delete \
           --exclude "*" \
           --include "*.html" \
           --content-type "text/html; charset=utf-8" \

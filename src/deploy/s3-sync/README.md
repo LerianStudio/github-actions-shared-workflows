@@ -8,7 +8,9 @@
 Composite action that syncs a **built single-page application** to an S3 bucket root with differentiated `Cache-Control`:
 
 1. Fingerprinted assets (everything except `*.html`) sync **first** with an immutable, long-lived `Cache-Control` and `--delete` to prune stale objects.
-2. `*.html` syncs **last** with `no-store` — so a freshly-served `index.html` never references assets that are not yet uploaded.
+2. `*.html` syncs **last** with `no-store` — so a freshly-served `index.html` never references assets that are not yet uploaded. Its `--delete` is scoped to `*.html`, so obsolete HTML is pruned without touching the immutable assets.
+
+When `dry-run` is `true` the composite is **fully local**: it prints the resolved plan and the file list, and makes **no AWS calls** (no credentials required).
 
 Requires AWS credentials to already be configured in the environment (e.g. via `aws-actions/configure-aws-credentials` OIDC in the calling job) and the AWS CLI to be present (see [`setup/aws-cli`](../../setup/aws-cli)). It performs **no authentication itself** — secrets stay in the reusable workflow.
 
@@ -41,7 +43,7 @@ steps:
     with:
       dist-directory: frontend/dist-customer
       s3-bucket: my-spa-bucket
-      dry-run: ${{ inputs.dry_run }}
+      dry-run: false
 ```
 
 ## Usage via reusable workflow
