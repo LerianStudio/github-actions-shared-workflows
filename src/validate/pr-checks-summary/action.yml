@@ -30,6 +30,10 @@ inputs:
     description: Result of breaking change guard
     required: false
     default: skipped
+  blocking-checks-result:
+    description: Runtime result of the blocking checks job
+    required: false
+    default: skipped
   dry-run:
     description: Whether this is a dry run
     required: false
@@ -39,6 +43,9 @@ outputs:
   has-breaking-change-guard:
     description: Whether the breaking change guard result was reported (true/false)
     value: ${{ steps.guard-state.outputs.has-breaking-change-guard }}
+  has-blocking-checks-runtime-failure:
+    description: Whether the blocking checks runtime result is non-success and non-skipped (true/false)
+    value: ${{ steps.guard-state.outputs.has-blocking-checks-runtime-failure }}
 
 runs:
   using: composite
@@ -48,12 +55,18 @@ runs:
       shell: bash
       env:
         BREAKING_CHANGE_RESULT: ${{ inputs.breaking-change-result }}
+        BLOCKING_CHECKS_RESULT: ${{ inputs.blocking-checks-result }}
       run: |
         set -euo pipefail
         if [ "$BREAKING_CHANGE_RESULT" != "skipped" ]; then
           echo "has-breaking-change-guard=true" >> "$GITHUB_OUTPUT"
         else
           echo "has-breaking-change-guard=false" >> "$GITHUB_OUTPUT"
+        fi
+        if [ "$BLOCKING_CHECKS_RESULT" != "success" ] && [ "$BLOCKING_CHECKS_RESULT" != "skipped" ]; then
+          echo "has-blocking-checks-runtime-failure=true" >> "$GITHUB_OUTPUT"
+        else
+          echo "has-blocking-checks-runtime-failure=false" >> "$GITHUB_OUTPUT"
         fi
 
     - name: Summary
@@ -66,6 +79,7 @@ runs:
         LABEL_RESULT: ${{ inputs.label-result }}
         METADATA_RESULT: ${{ inputs.metadata-result }}
         BREAKING_CHANGE_RESULT: ${{ inputs.breaking-change-result }}
+        BLOCKING_CHECKS_RESULT: ${{ inputs.blocking-checks-result }}
         DRY_RUN: ${{ inputs.dry-run }}
       run: |
         icon() {
@@ -93,6 +107,9 @@ runs:
           echo "| PR Description | $(icon "$DESCRIPTION_RESULT") ${DESCRIPTION_RESULT} |"
           if [ "$BREAKING_CHANGE_RESULT" != "skipped" ]; then
             echo "| Breaking Change Guard | $(icon "$BREAKING_CHANGE_RESULT") ${BREAKING_CHANGE_RESULT} |"
+          fi
+          if [ "$BLOCKING_CHECKS_RESULT" != "success" ] && [ "$BLOCKING_CHECKS_RESULT" != "skipped" ]; then
+            echo "| Blocking Checks Runtime | $(icon "$BLOCKING_CHECKS_RESULT") ${BLOCKING_CHECKS_RESULT} |"
           fi
           echo ""
           echo "### Advisory"

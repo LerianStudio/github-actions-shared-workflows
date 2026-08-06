@@ -8,9 +8,10 @@
 Umbrella reusable workflow for JavaScript/TypeScript repositories. A caller references this single workflow and it orchestrates everything a JS/TS PR needs:
 
 1. **PR metadata** — title, source branch, size, labels (delegates to `pr-validation.yml`).
-2. **Change gate** — detects whether the PR touches anything beyond docs/meta (`src/config/non-doc-changes`); documentation-only PRs skip the heavy pipelines.
-3. **Frontend analysis** — lint, typecheck, npm audit, tests, coverage and build (delegates to `frontend-pr-analysis.yml`), opt-in via `run_frontend_analysis`.
-4. **Security scan** — Trivy, CodeQL, prerelease checks (delegates to `pr-security-scan.yml`), opt-in via `run_security`.
+2. **Breaking Change Guard** — mandatory detection and enforcement inherited from `pr-validation.yml` for every PR target branch.
+3. **Change gate** — detects whether the PR touches anything beyond docs/meta (`src/config/non-doc-changes`); documentation-only PRs skip the heavy pipelines.
+4. **Frontend analysis** — lint, typecheck, npm audit, tests, coverage and build (delegates to `frontend-pr-analysis.yml`), opt-in via `run_frontend_analysis`.
+5. **Security scan** — Trivy, CodeQL, prerelease checks (delegates to `pr-security-scan.yml`), opt-in via `run_security`.
 
 The `frontend-analysis` and `security` pipelines each have a `*-gate` aggregator job that exposes a single stable status-check name (`Frontend Analysis`, `Security`) for branch protection, regardless of the internal job names. Both are gated by the change detector, so documentation-only PRs skip them (and the aggregators still report success). If the change detector (`changes`) job itself fails, the aggregators propagate that failure instead of passing.
 
@@ -81,6 +82,30 @@ The `frontend-analysis` and `security` pipelines each have a `*-gate` aggregator
 
 > **Monorepo note:** `filter_paths`/`shared_paths`/`path_level`/`normalize_to_filter` scope the `frontend-analysis` job only. They are not passed to the `security` job because `frontend-pr-analysis.yml` and `pr-security-scan.yml` use different formats for that input (JSON array vs. newline-separated). For a path-scoped security scan too, call `pr-security-scan.yml` directly.
 
+The Breaking Change Guard has no input, enable flag, target-branch filter, or opt-out. This umbrella inherits the guard automatically from `pr-validation.yml`.
+
+## Outputs
+
+| Output | Values | Description |
+|--------|--------|-------------|
+| `has_breaking_changes` | `true` / `false` | Whether the PR contains at least one breaking-change commit |
+| `breaking_change_approved` | `true` / `false` | Whether the PR description contains the exact acknowledgement |
+| `breaking_change_result` | `success` / `failure` | Normalized guard result used by the nested `Blocking Checks` job |
+
+These outputs forward the nested `pr-validation` job outputs with fail-closed fallbacks at the umbrella boundary: an absent nested value becomes `false`, `false`, and `failure`, respectively.
+
+## Breaking Change Guard
+
+When a PR contains a breaking change, its description must contain this exact, case-sensitive line:
+
+```text
+Breaking change acknowledged: I understand that this PR intentionally introduces a breaking change and requires the next release to be a major version.
+```
+
+The guard is mandatory for every PR target branch. PRs without the required acknowledgement fail in the existing `Blocking Checks` job, including drafts. `dry_run: true` reports detection and approval without enforcing the guard.
+
+Caller triggers must include the five activity types in the usage example. `edited` is mandatory so removing or adding the acknowledgement reruns validation. `ready_for_review` is retained for complete validation transitions even though the guard enforces drafts.
+
 ## Secrets
 
 | Secret | Description | Required |
@@ -96,7 +121,6 @@ All other secrets required by the underlying primitives (e.g. `DOCKER_USERNAME`,
 name: PR Validation
 on:
   pull_request:
-    branches: [develop, release-candidate, main]
     types: [opened, edited, synchronize, reopened, ready_for_review]
 
 permissions:
@@ -152,7 +176,7 @@ jobs:
 
 ## Branch protection
 
-Require the aggregator checks `Frontend Analysis` and `Security` (plus the PR metadata checks from `pr-validation.yml`). These names are stable even when the underlying analysis steps change.
+Require the aggregator checks `Frontend Analysis` and `Security` (plus the PR metadata checks from `pr-validation.yml`). Breaking-change enforcement remains inside the existing `Blocking Checks` status; it does not add a branch-protection check. These names are stable even when the underlying analysis steps change.
 
 ## Related
 

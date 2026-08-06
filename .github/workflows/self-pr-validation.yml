@@ -72,6 +72,9 @@ jobs:
       - name: Run breaking-change detector matrix
         run: bash src/validate/breaking-change-guard/test.sh
 
+      - name: Run breaking-change workflow integration tests
+        run: python3 src/validate/breaking-change-guard/test-workflow.py
+
   # ----------------- YAML Lint -----------------
   yamllint:
     name: YAML Lint
