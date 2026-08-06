@@ -54,6 +54,13 @@ workflow owns comment, label, and merge-enforcement controls.
 | `has-breaking-changes` | `true` when at least one pull request head commit is breaking. |
 | `approved` | `true` when the complete acknowledgement occurs in the pull request body. |
 
+## Why `actions/checkout`
+
+Every example below uses the third-party `actions/checkout` action (pinned by commit
+SHA) with `fetch-depth: 0`. The guard reads Git history directly, so the checkout must
+materialize `HEAD` and fetch the full history required to resolve
+`origin/<base-ref>..HEAD`. A shallow clone makes the guard fail closed.
+
 ## Local composite usage
 
 Local paths resolve in the caller repository. Use this form only in this repository

@@ -210,14 +210,14 @@ jobs:
       # Deploy STEPS are delegated to single-responsibility composites under
       # src/deploy/ — no complex shell is inlined in this workflow.
       - name: Sync SPA to S3 (differentiated Cache-Control)
-        uses: LerianStudio/github-actions-shared-workflows/src/deploy/s3-sync@develop # TODO: pin to @v1 once released
+        uses: LerianStudio/github-actions-shared-workflows/src/deploy/s3-sync@v1.51.0-beta.2 # TODO: bump to @v1 once v1.51.0 is released
         with:
           dist-directory: ${{ inputs.dist_directory }}
           s3-bucket: ${{ inputs.s3_bucket }}
           dry-run: ${{ inputs.dry_run }}
 
       - name: Invalidate CloudFront
-        uses: LerianStudio/github-actions-shared-workflows/src/deploy/cloudfront-invalidate@develop # TODO: pin to @v1 once released
+        uses: LerianStudio/github-actions-shared-workflows/src/deploy/cloudfront-invalidate@v1.51.0-beta.2 # TODO: bump to @v1 once v1.51.0 is released
         with:
           distribution-id: ${{ inputs.cloudfront_distribution_id }}
           dry-run: ${{ inputs.dry_run }}
