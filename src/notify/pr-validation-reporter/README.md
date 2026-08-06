@@ -79,7 +79,7 @@ jobs:
           size-result: ${{ needs.advisory-checks.outputs.size-result }}
           label-result: ${{ needs.advisory-checks.outputs.label-result }}
           metadata-result: ${{ needs.advisory-checks.outputs.metadata-result }}
-          breaking-change-result: ${{ needs.blocking-checks.outputs.breaking-change-result || 'skipped' }}
+          breaking-change-result: ${{ needs.blocking-checks.outputs.breaking-change-result }}
 ```
 
 ## Required permissions

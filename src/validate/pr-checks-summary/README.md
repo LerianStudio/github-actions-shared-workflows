@@ -46,7 +46,7 @@ jobs:
           size-result: ${{ needs.advisory-checks.outputs.size-result || 'skipped' }}
           label-result: ${{ needs.advisory-checks.outputs.label-result || 'skipped' }}
           metadata-result: ${{ needs.advisory-checks.outputs.metadata-result || 'skipped' }}
-          breaking-change-result: ${{ needs.blocking-checks.outputs.breaking-change-result || 'skipped' }}
+          breaking-change-result: ${{ needs.blocking-checks.outputs.breaking-change-result }}
           dry-run: "true"
 ```
 
