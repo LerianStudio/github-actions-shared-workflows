@@ -1,5 +1,22 @@
 # Github-actions-shared-workflows Changelog
 
+## [1.52.0](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.52.0)
+
+Features:
+- Add guard reporting support, enhancing validation capabilities. (@fredcamaral)
+
+Fixes:
+- Enable bash strict mode in guard result blocks to improve script reliability. (@fredcamaral)
+- Pass raw guard result without skipped fallback in documentation to ensure accuracy. (@fredcamaral)
+- Address review feedback for guard reporting to refine implementation. (@fredcamaral)
+
+Improvements:
+- Document the cancelled guard result in reporter input, providing clearer guidance. (@fredcamaral)
+
+[Compare changes](https://github.com/LerianStudio/github-actions-shared-workflows/compare/v1.51.0...v1.52.0)
+
+---
+
 ## [1.51.0](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.51.0)
 
 Features:
