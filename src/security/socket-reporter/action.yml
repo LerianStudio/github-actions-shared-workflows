@@ -262,10 +262,13 @@ runs:
 
             lines.push('---');
             lines.push('');
+            // "Full project report" read as project-wide when it is in fact the
+            // scan of this pull request's commit. The short sha removes the doubt.
+            const sha = (api.headSha || '').slice(0, 7);
             const refs = [];
-            if (diffUrl) refs.push(`[Diff on Socket](${diffUrl})`);
-            if (scanUrl) refs.push(`[Full project report](${scanUrl})`);
-            if (runUrl) refs.push(`[Scan logs](${runUrl})`);
+            if (diffUrl) refs.push(`[What this PR changed](${diffUrl})`);
+            if (scanUrl) refs.push(`[Socket scan for ${sha ? `\`${sha}\`` : 'this PR'}](${scanUrl})`);
+            if (runUrl) refs.push(`[Workflow logs](${runUrl})`);
             if (refs.length) lines.push(`<sub>🔍 ${refs.join(' · ')}</sub>`);
           } else if (always) {
             lines.push(`## 🛡️ Socket Supply Chain — \`${appName}\``);

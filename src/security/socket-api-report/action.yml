@@ -378,6 +378,7 @@ runs:
             json.dump({
                 "orgSlug": org,
                 "scanId": scan,
+                "headSha": os.environ.get("HEAD_SHA", ""),
                 "scanScores": head_scores,
                 "artifactCount": len(head_arts),
                 "alertCountRaw": raw_alerts,
