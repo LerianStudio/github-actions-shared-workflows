@@ -269,18 +269,31 @@ runs:
           lines.push('');
 
           // ── Dependency findings (Socket API) ──
-          // Advisory by construction: the App gate decides pass/fail, this section
-          // exists so the findings are visible rather than one click away.
+          // Reads the shape socket-api-report emits: already filtered to alerts
+          // that carry a policy action, and already collapsed per package+type.
+          // Rendering the raw feed instead produced a comment with the same
+          // envVars repeated hundreds of times per package — technically
+          // complete, practically unreadable.
           if (api && api.artifactCount) {
-            const SEV_RANK = { critical: 0, high: 1, middle: 2, medium: 2, low: 3, info: 4 };
-            const SEV_ICON = { critical: '🔴', high: '🟠', middle: '🟡', medium: '🟡', low: '⚪', info: '⚪' };
+            const ACT = {
+              error:   { icon: '🔴', label: 'error' },
+              warn:    { icon: '🟠', label: 'warn' },
+              monitor: { icon: '🟡', label: 'monitor' },
+            };
             const pct = (v) => (typeof v === 'number' ? `${Math.round(v * 100)}` : '—');
+            const raw = api.alertCountRaw || 0;
+            const kept = api.alertCount || 0;
 
             lines.push('---');
             lines.push('');
             lines.push('## Dependency Findings');
             lines.push('');
-            lines.push(`Scanned **${api.artifactCount}** package(s); **${api.flaggedCount}** carry alerts, **${api.alertCount}** alert(s) total.`);
+            lines.push(`Socket analysed **${api.artifactCount}** package(s). Of **${raw}** alerts, `
+              + `**${kept}** carry a policy action across **${api.flaggedCount}** package(s).`);
+            lines.push('');
+            lines.push(`The remaining ${raw - kept} are marked \`ignore\` by Socket — capability observations `
+              + `such as \`envVars\` or \`filesystemAccess\`, which describe what a package does rather than `
+              + `something to act on. Actions included here: ${(api.includedActions || []).map(a => `\`${a}\``).join(', ')}.`);
 
             const sc = api.scanScores;
             if (sc) {
@@ -292,38 +305,51 @@ runs:
 
             if ((api.alertsByType || []).length) {
               lines.push('');
-              lines.push('<details><summary>Alerts by type</summary>');
-              lines.push('');
-              lines.push('| Alert | Count |');
-              lines.push('|-------|-------|');
+              lines.push('| Alert | Action | Occurrences |');
+              lines.push('|-------|--------|-------------|');
               for (const a of api.alertsByType) {
-                lines.push(`| \`${a.type}\` | ${a.count} |`);
+                const m = ACT[(a.action || '').toLowerCase()] || { icon: '•', label: a.action || '?' };
+                lines.push(`| \`${a.type}\` | ${m.icon} ${m.label} | ${a.count} |`);
               }
-              lines.push('');
-              lines.push('</details>');
             }
 
             if ((api.packages || []).length) {
               lines.push('');
-              lines.push('| Package | Version | Scope | Findings |');
-              lines.push('|---------|---------|-------|----------|');
+              lines.push('| Package | Version | Scope | Score | Findings |');
+              lines.push('|---------|---------|-------|-------|----------|');
               for (const p of api.packages) {
-                const worst = (p.alerts || [])
-                  .map(a => (a.severity || 'info').toLowerCase())
-                  .sort((x, y) => (SEV_RANK[x] ?? 9) - (SEV_RANK[y] ?? 9))[0];
+                const m = ACT[(p.worstAction || '').toLowerCase()] || { icon: '•' };
                 const scope = [p.direct ? 'direct' : 'transitive', p.dev ? 'dev' : 'prod'].join(', ');
-                const findings = (p.alerts || [])
-                  .map(a => `${SEV_ICON[(a.severity || '').toLowerCase()] || '•'} \`${a.type}\``)
-                  .join(' ');
-                lines.push(`| ${SEV_ICON[worst] || '•'} \`${p.name}\` | \`${p.version || '?'}\` | ${scope} | ${findings || '—'} |`);
+                const findings = (p.findings || [])
+                  .map(f => {
+                    const fm = ACT[(f.action || '').toLowerCase()] || { icon: '•' };
+                    const n = f.count > 1 ? ` ×${f.count}` : '';
+                    const sev = f.severity ? ` (${f.severity})` : '';
+                    return `${fm.icon} \`${f.type}\`${n}${sev}`;
+                  })
+                  .join('<br/>');
+                lines.push(`| ${m.icon} \`${p.name}\` | \`${p.version || '?'}\` | ${scope} | ${pct(p.overallScore)} | ${findings} |`);
               }
               if (api.truncated) {
                 lines.push('');
-                lines.push(`Showing the most-flagged packages only — more exist beyond the row limit.`);
+                lines.push('Highest-action packages only — more exist beyond the row limit.');
+              }
+
+              // Remediation is the most actionable field Socket returns, and the
+              // easiest to lose in a wide table.
+              const fixes = (api.packages || [])
+                .flatMap(p => (p.findings || []).filter(f => f.fix).map(f => ({ pkg: p.name, ...f })));
+              if (fixes.length) {
+                lines.push('');
+                lines.push('<details><summary>Suggested fixes</summary>');
+                lines.push('');
+                for (const f of fixes) {
+                  lines.push(`- \`${f.pkg}\` — ${f.type}: ${f.fix}`);
+                }
+                lines.push('');
+                lines.push('</details>');
               }
             }
-            lines.push('');
-            lines.push('These are **advisory**: they do not gate the merge. Enforcement comes from the Socket App verdict and from Socket Firewall refusing an install.');
             lines.push('');
           }
 

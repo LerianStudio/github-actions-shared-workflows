@@ -21,6 +21,20 @@ inputs:
     description: 'Full scan id. Overrides the value parsed from report-url.'
     required: false
     default: ''
+  include-actions:
+    description: >-
+      Comma-separated Socket alert actions to treat as findings. Socket marks the overwhelming majority of alerts
+      as "ignore" (capability observations such as envVars or filesystemAccess); on a real tree that is 99% of the
+      volume, so reporting unfiltered turns a handful of findings into thousands of lines of noise.
+    required: false
+    default: 'error,warn,monitor'
+  fail-on-actions:
+    description: >-
+      Comma-separated Socket alert actions that make this a blocking finding. Empty (the default) never blocks —
+      the step still exits 0 and reports. Set to e.g. "error" or "error,warn" to own the merge decision here
+      instead of deferring it to the Socket App's own verdict.
+    required: false
+    default: ''
   max-rows:
     description: 'Maximum package rows kept in the findings file, highest severity first'
     required: false
@@ -42,8 +56,11 @@ outputs:
     description: 'Path to the extracted findings JSON'
     value: ${{ steps.fetch.outputs.findings_file }}
   alert-count:
-    description: 'Total number of alerts across all artifacts in the scan'
+    description: 'Number of alerts carrying an included policy action'
     value: ${{ steps.fetch.outputs.alert_count }}
+  blocking-count:
+    description: 'Number of alerts whose action matches fail-on-actions. Zero when fail-on-actions is empty.'
+    value: ${{ steps.fetch.outputs.blocking_count }}
 
 runs:
   using: composite
@@ -58,6 +75,8 @@ runs:
         ORG_SLUG_IN: ${{ inputs.org-slug }}
         SCAN_ID_IN: ${{ inputs.full-scan-id }}
         MAX_ROWS: ${{ inputs.max-rows }}
+        INCLUDE_ACTIONS: ${{ inputs.include-actions }}
+        FAIL_ON_ACTIONS: ${{ inputs.fail-on-actions }}
         FINDINGS_FILE: ${{ inputs.findings-file }}
         DEBUG_SAMPLE: ${{ inputs.debug-sample }}
       run: |
@@ -67,6 +86,7 @@ runs:
         if [ -z "$SOCKET_API_KEY" ]; then
           echo "skipped=true" >> "$GITHUB_OUTPUT"
           echo "alert_count=0" >> "$GITHUB_OUTPUT"
+          echo "blocking_count=0" >> "$GITHUB_OUTPUT"
           echo "::notice::Socket API report skipped — no Socket API token configured."
           exit 0
         fi
@@ -84,6 +104,7 @@ runs:
         if [ -z "$ORG" ] || [ -z "$SCAN" ]; then
           echo "skipped=true" >> "$GITHUB_OUTPUT"
           echo "alert_count=0" >> "$GITHUB_OUTPUT"
+          echo "blocking_count=0" >> "$GITHUB_OUTPUT"
           echo "::warning::Socket API report skipped — could not resolve org/scan id from '$REPORT_URL'."
           exit 0
         fi
@@ -137,6 +158,7 @@ runs:
         if [ "$HTTP" != "200" ]; then
           echo "skipped=true" >> "$GITHUB_OUTPUT"
           echo "alert_count=0" >> "$GITHUB_OUTPUT"
+          echo "blocking_count=0" >> "$GITHUB_OUTPUT"
           if [ -n "$CF_MITIGATED" ] && [ "$CF_MITIGATED" != "null" ]; then
             echo "::warning::Socket API blocked by a Cloudflare challenge (HTTP $HTTP, cf-mitigated: $CF_MITIGATED)."
             echo "::warning::This is NOT a token or scope problem — the request never reached Socket's API."
@@ -189,22 +211,37 @@ runs:
         fi
 
         # NDJSON: one artifact per line plus a trailing {"_type":"scores", ...} event.
-        # Alert objects are read defensively — `type` is the documented key, with
-        # `key`/`alert` accepted as fallbacks so an API rename degrades to a label
-        # rather than an empty report.
-        jq -s --argjson maxRows "${MAX_ROWS:-25}" '
+        # Alert objects carry: action, actionSource, category, severity, type, key,
+        # file, start, end, fix. Verified against a real 1897-artifact scan.
+        #
+        # Two reductions make this readable:
+        #  1. Keep only alerts whose action is in include-actions. Socket marks
+        #     99% as "ignore" — 4594 of 4636 on the reference scan.
+        #  2. Collapse repeats: an alert fires per source location, so one type
+        #     recurs hundreds of times for the same package. Group by type and
+        #     carry a count plus the first file.
+        ACTIONS_JSON=$(printf '%s' "${INCLUDE_ACTIONS:-error,warn,monitor}" \
+          | jq -R 'split(",") | map(ascii_downcase | gsub("^\\s+|\\s+$";""))')
+
+        jq -s --argjson maxRows "${MAX_ROWS:-25}" --argjson keepActions "$ACTIONS_JSON" '
+          def sevRank(v): {"critical":0,"high":1,"middle":2,"medium":2,"low":3,"info":4}[v // "info"] // 4;
+          def actRank(v): {"error":0,"warn":1,"monitor":2}[v // "monitor"] // 3;
+
           (map(select(._type == "scores")) | last) as $scores
           | (map(select(._type != "scores" and (.name != null)))) as $arts
-          | ($arts | map(select((.alerts // []) | length > 0))) as $flagged
+          | ($arts | map(. + {kept: [(.alerts // [])[] | select((.action // "") | ascii_downcase | IN($keepActions[]))]})) as $withKept
+          | ($withKept | map(select((.kept | length) > 0))) as $flagged
           | {
               scanScores: ($scores | if . == null then null else (.score // .scores // .) end),
               artifactCount: ($arts | length),
+              alertCountRaw: ($arts | map((.alerts // []) | length) | add // 0),
+              includedActions: $keepActions,
               flaggedCount: ($flagged | length),
-              alertCount: ($arts | map((.alerts // []) | length) | add // 0),
+              alertCount: ($flagged | map(.kept | length) | add // 0),
               alertsByType: (
-                $arts | map((.alerts // [])[] | (.type // .key // .alert // "unknown"))
-                | group_by(.) | map({type: .[0], count: length})
-                | sort_by(-.count)
+                $flagged | map(.kept[] | {type: (.type // .key // "unknown"), action: (.action // "")})
+                | group_by(.type) | map({type: .[0].type, count: length, action: .[0].action})
+                | sort_by(actRank(.action), -.count)
               ),
               packages: (
                 $flagged
@@ -213,24 +250,58 @@ runs:
                     version: .version,
                     direct: (.direct // false),
                     dev: (.dev // false),
-                    scores: (.score // null),
-                    alerts: ((.alerts // []) | map({
-                      type: (.type // .key // .alert // "unknown"),
-                      severity: (.severity // .props.severity // null),
-                      category: (.category // null)
-                    })),
-                    alertCount: ((.alerts // []) | length)
+                    overallScore: (.score.overall // null),
+                    worstAction: (.kept | map(.action // "monitor") | sort_by(actRank(.)) | first),
+                    worstSeverity: (.kept | map(.severity // "info") | sort_by(sevRank(.)) | first),
+                    findings: (
+                      .kept
+                      | group_by(.type // .key)
+                      | map({
+                          type: (.[0].type // .[0].key // "unknown"),
+                          action: (.[0].action // ""),
+                          severity: (.[0].severity // null),
+                          category: (.[0].category // null),
+                          count: length,
+                          file: (map(.file) | map(select(. != null)) | first),
+                          fix: (map(.fix) | map(select(. != null)) | first)
+                        })
+                      | sort_by(actRank(.action), sevRank(.severity))
+                    )
                   })
-                | sort_by(-.alertCount)
+                | sort_by(actRank(.worstAction), sevRank(.worstSeverity), -(.findings | length))
                 | .[:$maxRows]
               ),
               truncated: (($flagged | length) > $maxRows)
-            }' "$NDJSON" > "$FINDINGS_FILE" 2>/dev/null || echo '{}' > "$FINDINGS_FILE"
+            }' "$NDJSON" > "$FINDINGS_FILE" 2>"$RUNNER_TEMP/socket-jq.err" || {
+          # Never fail silently into an empty report: a jq error here previously
+          # produced {} and a comment that looked like a clean scan.
+          echo "::warning::Could not extract findings from the scan (jq failed)."
+          head -c 1000 "$RUNNER_TEMP/socket-jq.err" || true
+          echo '{}' > "$FINDINGS_FILE"
+        }
 
         COUNT=$(jq -r '.alertCount // 0' "$FINDINGS_FILE")
+        RAW=$(jq -r '.alertCountRaw // 0' "$FINDINGS_FILE")
         FLAGGED=$(jq -r '.flaggedCount // 0' "$FINDINGS_FILE")
         TOTAL=$(jq -r '.artifactCount // 0' "$FINDINGS_FILE")
         echo "skipped=false" >> "$GITHUB_OUTPUT"
         echo "alert_count=$COUNT" >> "$GITHUB_OUTPUT"
-        echo "Scan covers $TOTAL artifact(s); $FLAGGED carry alerts, $COUNT alert(s) total."
-        jq -r '(.alertsByType // [])[] | "  \(.count)x \(.type)"' "$FINDINGS_FILE" | head -20 || true
+        echo "Scan covers $TOTAL artifact(s). Of $RAW raw alerts, $COUNT carry an actioned policy decision across $FLAGGED package(s)."
+        jq -r '(.alertsByType // [])[] | "  [\(.action)] \(.count)x \(.type)"' "$FINDINGS_FILE" | head -25 || true
+
+        # Policy decision, owned here rather than inferred from the App's verdict.
+        # Deliberately separate from the API-failure paths above: an unreachable
+        # API must never look like a finding, so only real findings can block.
+        BLOCKING=0
+        if [ -n "$FAIL_ON_ACTIONS" ]; then
+          FAIL_JSON=$(printf '%s' "$FAIL_ON_ACTIONS" \
+            | jq -R 'split(",") | map(ascii_downcase | gsub("^\\s+|\\s+$";""))')
+          BLOCKING=$(jq --argjson fail "$FAIL_JSON" '
+            [(.packages // [])[] | (.findings // [])[]
+             | select((.action // "") | ascii_downcase | IN($fail[]))
+             | .count] | add // 0' "$FINDINGS_FILE")
+        fi
+        echo "blocking_count=$BLOCKING" >> "$GITHUB_OUTPUT"
+        if [ "${BLOCKING:-0}" -gt 0 ]; then
+          echo "::error::$BLOCKING Socket finding(s) match the blocking policy (fail-on-actions: $FAIL_ON_ACTIONS)."
+        fi
