@@ -209,15 +209,19 @@ jobs:
 
       # Deploy STEPS are delegated to single-responsibility composites under
       # src/deploy/ — no complex shell is inlined in this workflow.
+      # Composites are pinned to the floating major tag (@v1) per the internal
+      # pinning policy (src/lint/pinned-actions). The v1 tag advances on every
+      # release, so both composites resolve as soon as this promotion ships and
+      # semantic-release moves v1 forward (same bootstrap as end-to-end-tests.yml).
       - name: Sync SPA to S3 (differentiated Cache-Control)
-        uses: LerianStudio/github-actions-shared-workflows/src/deploy/s3-sync@v1.51.0-beta.2 # TODO: bump to @v1 once v1.51.0 is released
+        uses: LerianStudio/github-actions-shared-workflows/src/deploy/s3-sync@v1
         with:
           dist-directory: ${{ inputs.dist_directory }}
           s3-bucket: ${{ inputs.s3_bucket }}
           dry-run: ${{ inputs.dry_run }}
 
       - name: Invalidate CloudFront
-        uses: LerianStudio/github-actions-shared-workflows/src/deploy/cloudfront-invalidate@v1.51.0-beta.2 # TODO: bump to @v1 once v1.51.0 is released
+        uses: LerianStudio/github-actions-shared-workflows/src/deploy/cloudfront-invalidate@v1
         with:
           distribution-id: ${{ inputs.cloudfront_distribution_id }}
           dry-run: ${{ inputs.dry_run }}
