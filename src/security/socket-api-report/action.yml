@@ -192,6 +192,8 @@ runs:
         jq -s '[.[] | (.alerts // [])[] | .action] | group_by(.) | map({action: .[0], count: length})' "$NDJSON" 2>/dev/null || true
         echo "--- alert severity distribution ---"
         jq -s '[.[] | (.alerts // [])[] | .severity] | group_by(.) | map({severity: .[0], count: length})' "$NDJSON" 2>/dev/null || true
+        echo "--- alert fix shape (first non-null) ---"
+        jq -s -c '[.[] | (.alerts // [])[] | .fix | select(. != null)] | .[0]' "$NDJSON" 2>/dev/null || true
         echo "--- alert object keys ---"
         jq -s '[.[] | (.alerts // [])[] | keys] | flatten | unique' "$NDJSON" 2>/dev/null || true
 

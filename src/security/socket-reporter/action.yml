@@ -343,8 +343,21 @@ runs:
                 lines.push('');
                 lines.push('<details><summary>Suggested fixes</summary>');
                 lines.push('');
+                // fix is an object, not a string: rendering it directly printed
+                // [object Object]. Its exact shape is not documented, so prefer
+                // the human-readable fields and fall back to compact JSON rather
+                // than losing the content.
+                const fixText = (fix) => {
+                  if (typeof fix === 'string') return fix;
+                  if (fix && typeof fix === 'object') {
+                    const pick = fix.description || fix.message || fix.target || fix.upgrade || fix.type;
+                    if (typeof pick === 'string') return pick;
+                    return '`' + JSON.stringify(fix).slice(0, 300) + '`';
+                  }
+                  return String(fix);
+                };
                 for (const f of fixes) {
-                  lines.push(`- \`${f.pkg}\` — ${f.type}: ${f.fix}`);
+                  lines.push(`- \`${f.pkg}\` — ${f.type}: ${fixText(f.fix)}`);
                 }
                 lines.push('');
                 lines.push('</details>');
