@@ -215,7 +215,7 @@ runs:
         # Baseline: the most recent scan of the target branch. Without it every
         # finding would read as introduced by this pull request, which on a repo
         # carrying pre-existing debt means blocking every pull request.
-        base_keys, base_scan_id = set(), None
+        base_keys, base_scan_id, base_meta = set(), None, {}
         base_branch = os.environ.get("BASE_BRANCH") or ""
         if base_branch:
             q = urllib.parse.urlencode({"branch": base_branch, "sort": "created_at",
@@ -224,9 +224,11 @@ runs:
             if st == 200:
                 try:
                     results = json.loads(bd.decode("utf-8", "replace")).get("results") or []
-                    base_scan_id = (results[0] or {}).get("id") if results else None
+                    base_meta = (results[0] or {}) if results else {}
+                    base_scan_id = base_meta.get("id")
+                    print(f"Baseline candidates on '{base_branch}': {len(results)}.")
                 except json.JSONDecodeError:
-                    base_scan_id = None
+                    base_scan_id, base_meta = None, {}
             else:
                 explain(st, bd, mit)
             if base_scan_id and base_scan_id != scan:
@@ -237,6 +239,17 @@ runs:
                         key_pkg = f"{pkg_name(art)}@{art.get('version')}"
                         for a in art.get("alerts") or []:
                             base_keys.add((key_pkg, a.get("type") or a.get("key") or "unknown"))
+                    # A baseline much smaller than the head scan means the
+                    # comparison is against an unrelated or incomplete scan, and
+                    # everything will look introduced. Surface it rather than
+                    # reporting a confident but wrong split.
+                    print(f"Baseline scan {base_scan_id} ({base_meta.get('created_at','?')}, "
+                          f"commit {str(base_meta.get('commit_hash'))[:7]}, "
+                          f"state {base_meta.get('scan_state','?')}): "
+                          f"{len(base_arts)} artifact(s), {len(base_keys)} alert key(s).")
+                    if len(base_arts) < len(head_arts) * 0.5:
+                        print(f"::warning::Baseline has {len(base_arts)} artifacts against "
+                              f"{len(head_arts)} in the head scan — the comparison is unreliable.")
                 else:
                     explain(st, bd, mit)
 
