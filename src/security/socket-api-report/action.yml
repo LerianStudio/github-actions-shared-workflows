@@ -162,6 +162,17 @@ runs:
           exit 0
         fi
 
+        # Always logged, compactly: the action distribution is what separates a
+        # finding from a capability observation, and it is the axis the Socket
+        # dashboard filters on. Without it, 4636 raw alerts look like 4636
+        # problems when only a fraction carry a policy action.
+        echo "--- alert action distribution ---"
+        jq -s '[.[] | (.alerts // [])[] | .action] | group_by(.) | map({action: .[0], count: length})' "$NDJSON" 2>/dev/null || true
+        echo "--- alert severity distribution ---"
+        jq -s '[.[] | (.alerts // [])[] | .severity] | group_by(.) | map({severity: .[0], count: length})' "$NDJSON" 2>/dev/null || true
+        echo "--- alert object keys ---"
+        jq -s '[.[] | (.alerts // [])[] | keys] | flatten | unique' "$NDJSON" 2>/dev/null || true
+
         if [ "$DEBUG_SAMPLE" = "true" ]; then
           echo "--- artifact keys ---"
           head -1 "$NDJSON" | jq -r 'keys | join(", ")' || true
