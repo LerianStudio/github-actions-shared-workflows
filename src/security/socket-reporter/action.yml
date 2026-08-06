@@ -150,6 +150,21 @@ runs:
             }
             return String(fix);
           };
+          // Magnitude by action, so the reader sees the shape of a section before
+          // deciding to expand it. A bare collapsed line gives no sense of scale.
+          const actionCounts = (rows) => {
+            const acc = {};
+            for (const p of rows) for (const f of (p.findings || [])) {
+              const k = (f.action || 'unknown').toLowerCase();
+              acc[k] = (acc[k] || 0) + (f.count || 1);
+            }
+            return Object.entries(acc)
+              .sort((a, b) => (ACT[a[0]] ? Object.keys(ACT).indexOf(a[0]) : 9)
+                            - (ACT[b[0]] ? Object.keys(ACT).indexOf(b[0]) : 9))
+              .map(([k, n]) => `${(ACT[k] || { icon: '•' }).icon} ${n} ${k}`)
+              .join(' · ');
+          };
+
           const fixList = (rows) => rows
             .flatMap(p => (p.findings || []).filter(f => f.fix).map(f => ({ pkg: p.name, ...f })));
 
@@ -191,7 +206,9 @@ runs:
             }
 
             if (introduced.length) {
-              lines.push(`### Introduced by this pull request`);
+              lines.push('### Introduced by this pull request');
+              lines.push('');
+              lines.push(`${actionCounts(introduced)} — across ${introduced.length} package(s).`);
               lines.push('');
               lines.push(...pkgTable(introduced, diffUrl || scanUrl));
               if (api.introducedTruncated) {
@@ -216,7 +233,17 @@ runs:
             if (preexisting.length) {
               const n = api.preexistingCount || 0;
               const base = api.baseBranch ? `\`${api.baseBranch}\`` : 'the target branch';
-              lines.push(`<details><summary>Already present on ${base} — ${n} finding(s) across ${preexisting.length} package(s), not introduced here</summary>`);
+              lines.push('---');
+              lines.push('');
+              lines.push('### Existing tree debt');
+              lines.push('');
+              lines.push(introduced.length
+                ? `The tree also carries **${n}** finding(s) already present on ${base}, untouched by this change.`
+                : `This pull request introduces nothing. The tree already carries **${n}** finding(s) on ${base}, unchanged here.`);
+              lines.push('');
+              lines.push(`${actionCounts(preexisting)} — across ${preexisting.length} package(s).`);
+              lines.push('');
+              lines.push(`<details><summary>Show the ${n} pre-existing finding(s)</summary>`);
               lines.push('');
               lines.push(...pkgTable(preexisting, scanUrl));
               if (api.preexistingTruncated) {
@@ -233,6 +260,8 @@ runs:
               lines.push('');
             }
 
+            lines.push('---');
+            lines.push('');
             const refs = [];
             if (diffUrl) refs.push(`[Diff on Socket](${diffUrl})`);
             if (scanUrl) refs.push(`[Full project report](${scanUrl})`);
