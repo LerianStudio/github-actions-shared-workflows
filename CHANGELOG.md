@@ -1,5 +1,31 @@
 # Github-actions-shared-workflows Changelog
 
+## [1.51.0](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.51.0)
+
+Features:
+- Add a reusable workflow for S3 + CloudFront SPA deployments, including composites for deployment steps. (@guimoreirar)
+- Introduce a breaking change guard to enhance validation processes. (@fredcamaral)
+
+Fixes:
+- Pin deploy composites to a floating major tag `@v1` and later to an immutable release tag, ensuring stability. (@fredcamaral)
+- Print `dry_run` and `node_version` in the dry-run plan for better visibility. (@fredcamaral)
+- Avoid expression interpolation of `action_path` in the run step to prevent errors. (@fredcamaral)
+- Guard against empty distribution before using `--delete` in S3 sync, and require a dedicated bucket for operations. (@guimoreirar)
+- Print the resolved dry-run plan at the workflow boundary and clarify the concurrency scope for SPA deployments. (@guimoreirar)
+- Address CodeRabbit review feedback by implementing local dry-run, pruning stale HTML, and fixing documentation. (@guimoreirar)
+- Externalize composite references and remove `workflow_dispatch` from SPA deployment workflows. (@guimoreirar)
+
+Improvements:
+- Harden SPA deployment with environment gating, concurrency control, and scoped short-lived credentials. (@guimoreirar)
+- Add section titles for Build/Deploy in SPA deployment workflows to align with conventions. (@guimoreirar)
+- Document the marketplace-first rationale in deploy composites to provide context. (@guimoreirar)
+- Delegate deploy steps to `src/deploy` composites for better organization. (@guimoreirar)
+- Revalidate stable-named files in S3 sync and complete README examples for clarity. (@guimoreirar)
+
+[Compare changes](https://github.com/LerianStudio/github-actions-shared-workflows/compare/v1.50.1...v1.51.0)
+
+---
+
 ## [1.50.1](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.50.1)
 
 Improvements:
