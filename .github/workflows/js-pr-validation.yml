@@ -344,6 +344,13 @@ on:
           thousands of lines.
         type: string
         default: 'error,warn,monitor'
+      socket_comment_when:
+        description: >-
+          "findings" (the default) posts the Socket comment only when there is something to act on. "always" posts
+          every run. Operational state — whether the scan ran, which checks passed — is never in the comment; it
+          lives in the job log and the Socket status check.
+        type: string
+        default: 'findings'
       socket_api_fail_on_actions:
         description: >-
           Comma-separated Socket alert actions that block the pull request. Empty (the default) reports without
@@ -584,6 +591,10 @@ jobs:
           max-rows: ${{ inputs.socket_api_max_rows }}
           include-actions: ${{ inputs.socket_api_include_actions }}
           fail-on-actions: ${{ inputs.socket_api_fail_on_actions }}
+          # The baseline: findings already on the target branch are reported as
+          # pre-existing and never block, so a repository carrying debt does not
+          # fail every pull request for something none of them caused.
+          base-branch: ${{ github.base_ref }}
 
       - name: Post Socket report to PR
         if: always() && github.event_name == 'pull_request' && !inputs.dry_run
@@ -591,15 +602,12 @@ jobs:
         with:
           github-token: ${{ secrets.MANAGE_TOKEN || github.token }}
           app-name: ${{ env.SOCKET_APP_NAME }}
-          firewall-enabled: ${{ inputs.socket_enable_firewall }}
+          comment-when: ${{ inputs.socket_comment_when }}
           firewall-blocked: ${{ steps.firewall.outputs.blocked || 'false' }}
-          firewall-exit-code: ${{ steps.firewall.outputs.install-exit-code || '0' }}
           firewall-fail-on-block: ${{ inputs.socket_fail_on_block }}
           firewall-findings-file: ${{ steps.firewall.outputs.findings-file }}
-          app-gate-enabled: ${{ inputs.socket_enable_app_gate }}
-          app-findings-file: ${{ steps.app-gate.outputs.findings-file }}
-          app-fail-on-findings: ${{ inputs.socket_app_fail_on_findings }}
           api-findings-file: ${{ steps.api-report.outputs.findings-file }}
+          api-blocking-count: ${{ steps.api-report.outputs.blocking-count || '0' }}
           # yamllint disable-line rule:line-length
           run-url: ${{ format('{0}/{1}/actions/runs/{2}', github.server_url, github.repository, github.run_id) }}
 

@@ -1,5 +1,5 @@
 name: Socket API Report
-description: Reads the full scan the Socket App already computed and extracts per-package alerts, vulnerabilities and scores for reporting.
+description: Reads the Socket full scan for this commit and for the target branch, separating findings this pull request introduces from pre-existing tree debt.
 
 inputs:
   socket-api-key:
@@ -18,25 +18,32 @@ inputs:
     required: false
     default: ''
   full-scan-id:
-    description: 'Full scan id. Overrides the value parsed from report-url.'
+    description: 'Full scan id for this commit. Overrides the value parsed from report-url.'
+    required: false
+    default: ''
+  base-branch:
+    description: >-
+      Target branch of the pull request. Its most recent full scan becomes the baseline, so findings already present
+      there are reported as pre-existing rather than as something this pull request introduced. Empty skips the
+      comparison, and everything is then reported as pre-existing.
     required: false
     default: ''
   include-actions:
     description: >-
-      Comma-separated Socket alert actions to treat as findings. Socket marks the overwhelming majority of alerts
-      as "ignore" (capability observations such as envVars or filesystemAccess); on a real tree that is 99% of the
-      volume, so reporting unfiltered turns a handful of findings into thousands of lines of noise.
+      Comma-separated Socket alert actions to treat as findings. Socket marks roughly 99% of alerts as "ignore"
+      (capability observations such as envVars or filesystemAccess), so reporting unfiltered buries a handful of
+      findings in thousands of lines.
     required: false
     default: 'error,warn,monitor'
   fail-on-actions:
     description: >-
-      Comma-separated Socket alert actions that make this a blocking finding. Empty (the default) never blocks —
-      the step still exits 0 and reports. Set to e.g. "error" or "error,warn" to own the merge decision here
-      instead of deferring it to the Socket App's own verdict.
+      Comma-separated actions that make an **introduced** finding blocking. Pre-existing findings never block:
+      gating a pull request on inherited debt fails every pull request for something none of them caused, and
+      guarantees the gate gets switched off. Empty (the default) blocks nothing.
     required: false
     default: ''
   max-rows:
-    description: 'Maximum package rows kept in the findings file, highest severity first'
+    description: 'Maximum package rows kept per section, highest action first'
     required: false
     default: '25'
   findings-file:
@@ -44,29 +51,32 @@ inputs:
     required: false
     default: 'socket-api-findings.json'
   debug-sample:
-    description: 'Log a redacted sample of the NDJSON artifact shape. Useful when adapting to an API change.'
+    description: 'Log the alert object shape. Useful when adapting to an API change.'
     required: false
     default: 'false'
 
 outputs:
   skipped:
-    description: 'true when the report was not produced (no token, or no scan id to read)'
+    description: 'true when no report was produced (no token, no resolvable scan, or an API error)'
     value: ${{ steps.fetch.outputs.skipped }}
   findings-file:
     description: 'Path to the extracted findings JSON'
     value: ${{ steps.fetch.outputs.findings_file }}
-  alert-count:
-    description: 'Number of alerts carrying an included policy action'
-    value: ${{ steps.fetch.outputs.alert_count }}
+  introduced-count:
+    description: 'Number of actioned findings this pull request introduces'
+    value: ${{ steps.fetch.outputs.introduced_count }}
+  preexisting-count:
+    description: 'Number of actioned findings already present on the target branch'
+    value: ${{ steps.fetch.outputs.preexisting_count }}
   blocking-count:
-    description: 'Number of alerts whose action matches fail-on-actions. Zero when fail-on-actions is empty.'
+    description: 'Introduced findings whose action matches fail-on-actions. Zero when fail-on-actions is empty.'
     value: ${{ steps.fetch.outputs.blocking_count }}
 
 runs:
   using: composite
   steps:
-    # ----------------- Fetch & extract -----------------
-    - name: Read the Socket full scan
+    # ----------------- Fetch, classify & extract -----------------
+    - name: Read Socket scans and classify findings
       id: fetch
       shell: bash
       env:
@@ -74,236 +84,260 @@ runs:
         REPORT_URL: ${{ inputs.report-url }}
         ORG_SLUG_IN: ${{ inputs.org-slug }}
         SCAN_ID_IN: ${{ inputs.full-scan-id }}
-        MAX_ROWS: ${{ inputs.max-rows }}
+        BASE_BRANCH: ${{ inputs.base-branch }}
         INCLUDE_ACTIONS: ${{ inputs.include-actions }}
         FAIL_ON_ACTIONS: ${{ inputs.fail-on-actions }}
+        MAX_ROWS: ${{ inputs.max-rows }}
         FINDINGS_FILE: ${{ inputs.findings-file }}
         DEBUG_SAMPLE: ${{ inputs.debug-sample }}
       run: |
         echo "findings_file=$FINDINGS_FILE" >> "$GITHUB_OUTPUT"
         echo '{}' > "$FINDINGS_FILE"
 
-        if [ -z "$SOCKET_API_KEY" ]; then
-          echo "skipped=true" >> "$GITHUB_OUTPUT"
-          echo "alert_count=0" >> "$GITHUB_OUTPUT"
-          echo "blocking_count=0" >> "$GITHUB_OUTPUT"
-          echo "::notice::Socket API report skipped — no Socket API token configured."
-          exit 0
-        fi
+        # Deliberately python, not curl. Cloudflare fingerprints the HTTP client
+        # in front of api.socket.dev and answers curl with a managed challenge —
+        # 403, an HTML interstitial, cf-mitigated: challenge — regardless of
+        # credentials, headers, auth form, endpoint or egress. Python's stdlib
+        # client is not challenged; it is the stack the official SDK uses, and the
+        # reason sfw reaches Socket from the very runner where curl is blocked.
+        python3 - <<'PYEOF'
+        import base64, json, os, sys, urllib.parse, urllib.request, urllib.error
 
-        # The dashboard URL the App publishes carries both identifiers:
-        #   https://socket.dev/dashboard/org/<org>/sbom/<full-scan-id>
-        # Reusing them means reading the scan the App already computed rather than
-        # creating a second one: no duplicate analysis, one quota unit.
-        ORG="$ORG_SLUG_IN"
-        SCAN="$SCAN_ID_IN"
-        if [ -z "$ORG" ] || [ -z "$SCAN" ]; then
-          [ -z "$ORG" ] && ORG=$(printf '%s' "$REPORT_URL" | sed -n 's#.*/org/\([^/]*\)/.*#\1#p')
-          [ -z "$SCAN" ] && SCAN=$(printf '%s' "$REPORT_URL" | sed -n 's#.*/sbom/\([0-9a-fA-F-]*\).*#\1#p')
-        fi
-        if [ -z "$ORG" ] || [ -z "$SCAN" ]; then
-          echo "skipped=true" >> "$GITHUB_OUTPUT"
-          echo "alert_count=0" >> "$GITHUB_OUTPUT"
-          echo "blocking_count=0" >> "$GITHUB_OUTPUT"
-          echo "::warning::Socket API report skipped — could not resolve org/scan id from '$REPORT_URL'."
-          exit 0
-        fi
-        echo "Reading full scan $SCAN for org $ORG"
+        API = "https://api.socket.dev/v0"
+        out_path = os.environ["FINDINGS_FILE"]
 
-        # Deliberately not curl. Cloudflare fingerprints the TLS/HTTP client in
-        # front of api.socket.dev and answers curl with a managed challenge —
-        # HTTP 403, an HTML interstitial and cf-mitigated: challenge — which is
-        # indistinguishable from a scope denial by status code alone. Python's
-        # stdlib client is not challenged, and it is the same stack the official
-        # socket-sdk-python uses. The token is read from the environment, never
-        # passed as an argument, so it stays out of the process table.
-        NDJSON="$RUNNER_TEMP/socket-full-scan.ndjson"
-        META="$RUNNER_TEMP/socket-full-scan.meta"
-        SOCKET_URL="https://api.socket.dev/v0/orgs/${ORG}/full-scans/${SCAN}" \
-        NDJSON_PATH="$NDJSON" META_PATH="$META" python3 - <<'PYEOF'
-        import base64, json, os, urllib.request, urllib.error
+        def emit(**kv):
+            with open(os.environ["GITHUB_OUTPUT"], "a") as fh:
+                for k, v in kv.items():
+                    fh.write(f"{k}={v}\n")
 
-        token = os.environ["SOCKET_API_KEY"]
-        # Basic auth with the token as the username is the form the official SDK
-        # sends; the API also accepts Bearer.
+        def bail(msg, level="notice"):
+            print(f"::{level}::{msg}")
+            emit(skipped="true", introduced_count=0, preexisting_count=0, blocking_count=0)
+            sys.exit(0)
+
+        token = os.environ.get("SOCKET_API_KEY", "")
+        if not token:
+            bail("Socket API report skipped — no Socket API token configured.")
+
+        report_url = os.environ.get("REPORT_URL", "")
+        org = os.environ.get("ORG_SLUG_IN") or ""
+        scan = os.environ.get("SCAN_ID_IN") or ""
+        if not org or not scan:
+            # The dashboard URL the App publishes carries both identifiers, so the
+            # scan it already computed is reused rather than creating a second one.
+            parts = urllib.parse.urlparse(report_url).path.strip("/").split("/")
+            for marker, target in (("org", "org"), ("sbom", "scan")):
+                if marker in parts:
+                    i = parts.index(marker)
+                    val = parts[i + 1] if len(parts) > i + 1 else ""
+                    if target == "org" and not org:
+                        org = val
+                    elif target == "scan" and not scan:
+                        scan = val
+        if not org or not scan:
+            bail(f"Socket API report skipped — could not resolve org/scan id from '{report_url}'.", "warning")
+
         auth = base64.b64encode(f"{token}:".encode()).decode("ascii")
-        req = urllib.request.Request(
-            os.environ["SOCKET_URL"],
-            headers={
-                "Authorization": f"Basic {auth}",
-                "User-Agent": "LerianStudio-github-actions-shared-workflows",
-                "accept": "application/x-ndjson",
-            },
-        )
-        status, body, mitigated = 0, b"", ""
-        try:
-            with urllib.request.urlopen(req, timeout=120) as r:
-                status, body = r.status, r.read()
-                mitigated = r.headers.get("cf-mitigated") or ""
-        except urllib.error.HTTPError as e:
-            status, body = e.code, e.read()
-            mitigated = e.headers.get("cf-mitigated") or ""
-        except Exception as e:
-            status, body = 0, f"{type(e).__name__}: {e}".encode()
-
-        with open(os.environ["NDJSON_PATH"], "wb") as fh:
-            fh.write(body)
-        with open(os.environ["META_PATH"], "w") as fh:
-            json.dump({"status": status, "cfMitigated": mitigated}, fh)
-        PYEOF
-
-        HTTP=$(jq -r '.status' "$META")
-        CF_MITIGATED=$(jq -r '.cfMitigated' "$META")
-
-        if [ "$HTTP" != "200" ]; then
-          echo "skipped=true" >> "$GITHUB_OUTPUT"
-          echo "alert_count=0" >> "$GITHUB_OUTPUT"
-          echo "blocking_count=0" >> "$GITHUB_OUTPUT"
-          if [ -n "$CF_MITIGATED" ] && [ "$CF_MITIGATED" != "null" ]; then
-            echo "::warning::Socket API blocked by a Cloudflare challenge (HTTP $HTTP, cf-mitigated: $CF_MITIGATED)."
-            echo "::warning::This is NOT a token or scope problem — the request never reached Socket's API."
-            exit 0
-          fi
-          case "$HTTP" in
-            0) HINT="the request did not complete (network or timeout)" ;;
-            401) HINT="the token is invalid or revoked" ;;
-            403) HINT="the token lacks a required scope (full-scans:list)" ;;
-            404) HINT="scan $SCAN not found under org $ORG" ;;
-            429) HINT="quota or rate limit exhausted" ;;
-            *) HINT="unexpected status" ;;
-          esac
-          echo "::warning::Socket API returned HTTP $HTTP — $HINT."
-          # Print the API's own error payload: the status alone is a guess, the
-          # body is where Socket names what is actually wrong.
-          if [ -s "$NDJSON" ]; then
-            echo "--- Socket API response ---"
-            jq . "$NDJSON" 2>/dev/null || head -c 2000 "$NDJSON"
-            echo ""
-          fi
-          # Advisory by construction: this layer informs, the App gate enforces.
-          exit 0
-        fi
-
-        # Always logged, compactly: the action distribution is what separates a
-        # finding from a capability observation, and it is the axis the Socket
-        # dashboard filters on. Without it, 4636 raw alerts look like 4636
-        # problems when only a fraction carry a policy action.
-        echo "--- alert action distribution ---"
-        jq -s '[.[] | (.alerts // [])[] | .action] | group_by(.) | map({action: .[0], count: length})' "$NDJSON" 2>/dev/null || true
-        echo "--- alert severity distribution ---"
-        jq -s '[.[] | (.alerts // [])[] | .severity] | group_by(.) | map({severity: .[0], count: length})' "$NDJSON" 2>/dev/null || true
-        echo "--- alert fix shape (first non-null) ---"
-        jq -s -c '[.[] | (.alerts // [])[] | .fix | select(. != null)] | .[0]' "$NDJSON" 2>/dev/null || true
-        echo "--- alert object keys ---"
-        jq -s '[.[] | (.alerts // [])[] | keys] | flatten | unique' "$NDJSON" 2>/dev/null || true
-
-        if [ "$DEBUG_SAMPLE" = "true" ]; then
-          echo "--- artifact keys ---"
-          head -1 "$NDJSON" | jq -r 'keys | join(", ")' || true
-          echo "--- distinct alert object keys ---"
-          jq -s '[.[] | (.alerts // [])[] | keys] | flatten | unique' "$NDJSON" 2>/dev/null || true
-          echo "--- distinct alert .action values ---"
-          jq -s '[.[] | (.alerts // [])[] | .action] | unique' "$NDJSON" 2>/dev/null || true
-          echo "--- distinct alert .severity values ---"
-          jq -s '[.[] | (.alerts // [])[] | .severity] | unique' "$NDJSON" 2>/dev/null || true
-          echo "--- distinct alert .category values ---"
-          jq -s '[.[] | (.alerts // [])[] | .category] | unique' "$NDJSON" 2>/dev/null || true
-          echo "--- one full alert object ---"
-          jq -c 'select((.alerts // []) | length > 0) | .alerts[0]' "$NDJSON" 2>/dev/null | head -1 || true
-        fi
-
-        # NDJSON: one artifact per line plus a trailing {"_type":"scores", ...} event.
-        # Alert objects carry: action, actionSource, category, severity, type, key,
-        # file, start, end, fix. Verified against a real 1897-artifact scan.
-        #
-        # Two reductions make this readable:
-        #  1. Keep only alerts whose action is in include-actions. Socket marks
-        #     99% as "ignore" — 4594 of 4636 on the reference scan.
-        #  2. Collapse repeats: an alert fires per source location, so one type
-        #     recurs hundreds of times for the same package. Group by type and
-        #     carry a count plus the first file.
-        ACTIONS_JSON=$(printf '%s' "${INCLUDE_ACTIONS:-error,warn,monitor}" \
-          | jq -R 'split(",") | map(ascii_downcase | gsub("^\\s+|\\s+$";""))')
-
-        jq -s --argjson maxRows "${MAX_ROWS:-25}" --argjson keepActions "$ACTIONS_JSON" '
-          def sevRank(v): {"critical":0,"high":1,"middle":2,"medium":2,"low":3,"info":4}[v // "info"] // 4;
-          def actRank(v): {"error":0,"warn":1,"monitor":2}[v // "monitor"] // 3;
-
-          (map(select(._type == "scores")) | last) as $scores
-          | (map(select(._type != "scores" and (.name != null)))) as $arts
-          | ($arts | map(. + {kept: [(.alerts // [])[] | select((.action // "") | ascii_downcase | IN($keepActions[]))]})) as $withKept
-          | ($withKept | map(select((.kept | length) > 0))) as $flagged
-          | {
-              scanScores: ($scores | if . == null then null else (.score // .scores // .) end),
-              artifactCount: ($arts | length),
-              alertCountRaw: ($arts | map((.alerts // []) | length) | add // 0),
-              includedActions: $keepActions,
-              flaggedCount: ($flagged | length),
-              alertCount: ($flagged | map(.kept | length) | add // 0),
-              alertsByType: (
-                $flagged | map(.kept[] | {type: (.type // .key // "unknown"), action: (.action // "")})
-                | group_by(.type) | map({type: .[0].type, count: length, action: .[0].action})
-                | sort_by(actRank(.action), -.count)
-              ),
-              packages: (
-                $flagged
-                | map({
-                    name: (if .namespace then "\(.namespace)/\(.name)" else .name end),
-                    version: .version,
-                    direct: (.direct // false),
-                    dev: (.dev // false),
-                    overallScore: (.score.overall // null),
-                    worstAction: (.kept | map(.action // "monitor") | sort_by(actRank(.)) | first),
-                    worstSeverity: (.kept | map(.severity // "info") | sort_by(sevRank(.)) | first),
-                    findings: (
-                      .kept
-                      | group_by(.type // .key)
-                      | map({
-                          type: (.[0].type // .[0].key // "unknown"),
-                          action: (.[0].action // ""),
-                          severity: (.[0].severity // null),
-                          category: (.[0].category // null),
-                          count: length,
-                          file: (map(.file) | map(select(. != null)) | first),
-                          fix: (map(.fix) | map(select(. != null)) | first)
-                        })
-                      | sort_by(actRank(.action), sevRank(.severity))
-                    )
-                  })
-                | sort_by(actRank(.worstAction), sevRank(.worstSeverity), -(.findings | length))
-                | .[:$maxRows]
-              ),
-              truncated: (($flagged | length) > $maxRows)
-            }' "$NDJSON" > "$FINDINGS_FILE" 2>"$RUNNER_TEMP/socket-jq.err" || {
-          # Never fail silently into an empty report: a jq error here previously
-          # produced {} and a comment that looked like a clean scan.
-          echo "::warning::Could not extract findings from the scan (jq failed)."
-          head -c 1000 "$RUNNER_TEMP/socket-jq.err" || true
-          echo '{}' > "$FINDINGS_FILE"
+        HEADERS = {
+            "Authorization": f"Basic {auth}",
+            "User-Agent": "LerianStudio-github-actions-shared-workflows",
+            "accept": "application/x-ndjson",
         }
 
-        COUNT=$(jq -r '.alertCount // 0' "$FINDINGS_FILE")
-        RAW=$(jq -r '.alertCountRaw // 0' "$FINDINGS_FILE")
-        FLAGGED=$(jq -r '.flaggedCount // 0' "$FINDINGS_FILE")
-        TOTAL=$(jq -r '.artifactCount // 0' "$FINDINGS_FILE")
-        echo "skipped=false" >> "$GITHUB_OUTPUT"
-        echo "alert_count=$COUNT" >> "$GITHUB_OUTPUT"
-        echo "Scan covers $TOTAL artifact(s). Of $RAW raw alerts, $COUNT carry an actioned policy decision across $FLAGGED package(s)."
-        jq -r '(.alertsByType // [])[] | "  [\(.action)] \(.count)x \(.type)"' "$FINDINGS_FILE" | head -25 || true
+        def get(path):
+            req = urllib.request.Request(f"{API}/{path}", headers=HEADERS)
+            try:
+                with urllib.request.urlopen(req, timeout=180) as r:
+                    return r.status, r.read(), (r.headers.get("cf-mitigated") or "")
+            except urllib.error.HTTPError as e:
+                return e.code, e.read(), (e.headers.get("cf-mitigated") or "")
+            except Exception as e:
+                return 0, f"{type(e).__name__}: {e}".encode(), ""
 
-        # Policy decision, owned here rather than inferred from the App's verdict.
-        # Deliberately separate from the API-failure paths above: an unreachable
-        # API must never look like a finding, so only real findings can block.
-        BLOCKING=0
-        if [ -n "$FAIL_ON_ACTIONS" ]; then
-          FAIL_JSON=$(printf '%s' "$FAIL_ON_ACTIONS" \
-            | jq -R 'split(",") | map(ascii_downcase | gsub("^\\s+|\\s+$";""))')
-          BLOCKING=$(jq --argjson fail "$FAIL_JSON" '
-            [(.packages // [])[] | (.findings // [])[]
-             | select((.action // "") | ascii_downcase | IN($fail[]))
-             | .count] | add // 0' "$FINDINGS_FILE")
-        fi
-        echo "blocking_count=$BLOCKING" >> "$GITHUB_OUTPUT"
-        if [ "${BLOCKING:-0}" -gt 0 ]; then
-          echo "::error::$BLOCKING Socket finding(s) match the blocking policy (fail-on-actions: $FAIL_ON_ACTIONS)."
-        fi
+        def explain(status, body, mitigated):
+            if mitigated:
+                print(f"::warning::Socket API blocked by a Cloudflare challenge (HTTP {status}, cf-mitigated: {mitigated}).")
+                print("::warning::This is NOT a token or scope problem — the request never reached Socket's API.")
+                return
+            hint = {
+                0: "the request did not complete (network or timeout)",
+                401: "the token is invalid or revoked",
+                403: "the token lacks the full-scans:list scope",
+                404: "not found",
+                429: "quota or rate limit exhausted",
+            }.get(status, "unexpected status")
+            print(f"::warning::Socket API returned HTTP {status} — {hint}.")
+            # The status alone is a guess; the body is where Socket says what is wrong.
+            print("--- Socket API response ---")
+            print(body[:1000].decode("utf-8", "replace"))
+
+        keep = {a.strip().lower() for a in os.environ.get("INCLUDE_ACTIONS", "").split(",") if a.strip()} \
+               or {"error", "warn", "monitor"}
+        fail_on = {a.strip().lower() for a in os.environ.get("FAIL_ON_ACTIONS", "").split(",") if a.strip()}
+        max_rows = int(os.environ.get("MAX_ROWS") or 25)
+
+        def parse_scan(raw):
+            """NDJSON: one artifact per line plus a trailing {"_type":"scores"} event."""
+            arts, scores = [], None
+            for line in raw.decode("utf-8", "replace").splitlines():
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    obj = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if obj.get("_type") == "scores":
+                    scores = obj.get("score") or obj.get("scores") or obj
+                elif obj.get("name"):
+                    arts.append(obj)
+            return arts, scores
+
+        def pkg_name(art):
+            ns = art.get("namespace")
+            return f"{ns}/{art['name']}" if ns else art.get("name")
+
+        status, body, mitigated = get(f"orgs/{org}/full-scans/{scan}")
+        if status != 200:
+            explain(status, body, mitigated)
+            # Advisory by construction: an unreachable API must never look like a
+            # finding, so every failure path reports zero and exits 0.
+            emit(skipped="true", introduced_count=0, preexisting_count=0, blocking_count=0)
+            sys.exit(0)
+        head_arts, head_scores = parse_scan(body)
+
+        if os.environ.get("DEBUG_SAMPLE") == "true":
+            alerts = [a for art in head_arts for a in (art.get("alerts") or [])]
+            print("--- alert keys ---", sorted({k for a in alerts for k in a}))
+            print("--- first fix ---", json.dumps(next((a["fix"] for a in alerts if a.get("fix")), None))[:400])
+
+        # Baseline: the most recent scan of the target branch. Without it every
+        # finding would read as introduced by this pull request, which on a repo
+        # carrying pre-existing debt means blocking every pull request.
+        base_keys, base_scan_id = set(), None
+        base_branch = os.environ.get("BASE_BRANCH") or ""
+        if base_branch:
+            q = urllib.parse.urlencode({"branch": base_branch, "sort": "created_at",
+                                        "direction": "desc", "per_page": 1})
+            st, bd, mit = get(f"orgs/{org}/full-scans?{q}")
+            if st == 200:
+                try:
+                    results = json.loads(bd.decode("utf-8", "replace")).get("results") or []
+                    base_scan_id = (results[0] or {}).get("id") if results else None
+                except json.JSONDecodeError:
+                    base_scan_id = None
+            else:
+                explain(st, bd, mit)
+            if base_scan_id and base_scan_id != scan:
+                st, bd, mit = get(f"orgs/{org}/full-scans/{base_scan_id}")
+                if st == 200:
+                    base_arts, _ = parse_scan(bd)
+                    for art in base_arts:
+                        key_pkg = f"{pkg_name(art)}@{art.get('version')}"
+                        for a in art.get("alerts") or []:
+                            base_keys.add((key_pkg, a.get("type") or a.get("key") or "unknown"))
+                else:
+                    explain(st, bd, mit)
+
+        has_baseline = bool(base_keys)
+        if not has_baseline:
+            print("::warning::No baseline scan for the target branch — every finding is reported as "
+                  "pre-existing, and nothing is attributed to this pull request.")
+
+        ACT_RANK = {"error": 0, "warn": 1, "monitor": 2}
+        SEV_RANK = {"critical": 0, "high": 1, "middle": 2, "medium": 2, "low": 3, "info": 4}
+
+        introduced, preexisting, raw_alerts = [], [], 0
+        for art in head_arts:
+            raw_alerts += len(art.get("alerts") or [])
+            name = pkg_name(art)
+            key_pkg = f"{name}@{art.get('version')}"
+            kept = [a for a in (art.get("alerts") or []) if (a.get("action") or "").lower() in keep]
+            if not kept:
+                continue
+
+            # Collapse repeats: an alert fires per source location, so one type
+            # recurs many times for the same package. Rendering them raw produced
+            # the same envVars hundreds of times in a single table cell.
+            by_type = {}
+            for a in kept:
+                t = a.get("type") or a.get("key") or "unknown"
+                e = by_type.setdefault(t, {"type": t, "action": a.get("action") or "",
+                                           "severity": a.get("severity"), "count": 0,
+                                           "file": None, "fix": None})
+                e["count"] += 1
+                e["file"] = e["file"] or a.get("file")
+                e["fix"] = e["fix"] or a.get("fix")
+
+            # A finding counts as introduced when this package@version did not
+            # already carry that alert type on the target branch. A version bump
+            # therefore makes the package new, which is the conservative reading.
+            for is_new in (True, False):
+                sel = [e for t, e in by_type.items()
+                       if has_baseline and (((key_pkg, t) not in base_keys) == is_new)]
+                if not has_baseline:
+                    sel = list(by_type.values()) if not is_new else []
+                if not sel:
+                    continue
+                sel.sort(key=lambda e: (ACT_RANK.get((e["action"] or "").lower(), 3),
+                                        SEV_RANK.get((e["severity"] or "info").lower(), 4)))
+                (introduced if is_new else preexisting).append({
+                    "name": name, "version": art.get("version"),
+                    "direct": bool(art.get("direct")), "dev": bool(art.get("dev")),
+                    "overallScore": (art.get("score") or {}).get("overall"),
+                    "worstAction": sel[0]["action"], "worstSeverity": sel[0]["severity"],
+                    "findings": sel,
+                })
+
+        def rank(rows):
+            rows.sort(key=lambda r: (ACT_RANK.get((r["worstAction"] or "").lower(), 3),
+                                     SEV_RANK.get((r["worstSeverity"] or "info").lower(), 4),
+                                     -len(r["findings"])))
+            return rows
+
+        introduced, preexisting = rank(introduced), rank(preexisting)
+        n_intro = sum(f["count"] for r in introduced for f in r["findings"])
+        n_pre = sum(f["count"] for r in preexisting for f in r["findings"])
+        # Only introduced findings can block.
+        blocking = sum(f["count"] for r in introduced for f in r["findings"]
+                       if (f["action"] or "").lower() in fail_on) if fail_on else 0
+
+        by_type = {}
+        for r in introduced + preexisting:
+            for f in r["findings"]:
+                e = by_type.setdefault(f["type"], {"type": f["type"], "action": f["action"], "count": 0})
+                e["count"] += f["count"]
+        alerts_by_type = sorted(by_type.values(),
+                                key=lambda e: (ACT_RANK.get((e["action"] or "").lower(), 3), -e["count"]))
+
+        with open(out_path, "w") as fh:
+            json.dump({
+                "scanScores": head_scores,
+                "artifactCount": len(head_arts),
+                "alertCountRaw": raw_alerts,
+                "includedActions": sorted(keep),
+                "baseBranch": base_branch,
+                "baseScanId": base_scan_id,
+                "hasBaseline": has_baseline,
+                "introducedCount": n_intro,
+                "preexistingCount": n_pre,
+                "alertsByType": alerts_by_type,
+                "introduced": introduced[:max_rows],
+                "preexisting": preexisting[:max_rows],
+                "introducedTruncated": len(introduced) > max_rows,
+                "preexistingTruncated": len(preexisting) > max_rows,
+            }, fh)
+
+        emit(skipped="false", introduced_count=n_intro,
+             preexisting_count=n_pre, blocking_count=blocking)
+
+        print(f"Scan {scan}: {len(head_arts)} artifact(s), {raw_alerts} raw alert(s).")
+        print(f"  actioned: {n_intro} introduced by this PR, {n_pre} pre-existing on "
+              f"'{base_branch or '<no baseline>'}'.")
+        for e in alerts_by_type[:25]:
+            print(f"  [{e['action']}] {e['count']}x {e['type']}")
+        if blocking:
+            print(f"::error::{blocking} introduced finding(s) match the blocking policy "
+                  f"(fail-on-actions: {os.environ.get('FAIL_ON_ACTIONS')}).")
+        PYEOF
