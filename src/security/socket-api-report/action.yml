@@ -232,24 +232,26 @@ runs:
             print("--- alert keys ---", sorted({k for a in alerts for k in a}))
             print("--- first fix ---", json.dumps(next((a["fix"] for a in alerts if a.get("fix")), None))[:400])
 
-        # Baseline: the most recent *complete* scan of the target branch.
+        # Baseline: the most recent scan of the target branch that describes the
+        # same tree as this one.
         #
-        # Two defences, because a bad baseline is worse than none. The first
-        # attempt compared against a scan in state "resolve" — still resolving
-        # dependencies — which carried 1556 artifacts and 1412 alert keys against
-        # 1897 and 4636 in the head scan. Everything missing from it looked
-        # introduced by the pull request, producing 38 false attributions on a
-        # change that touched a single types package.
+        # Two earlier attempts got this wrong, both instructive:
         #
-        #  1. Skip candidates in a known in-progress state.
-        #  2. Verify the candidate is comparable in size to the head scan, which
-        #     tests what actually matters rather than trusting a state label.
+        #  1. Taking the newest scan unconditionally compared against one carrying
+        #     1556 artifacts against 1897 here, so everything missing from it looked
+        #     introduced — 38 false attributions on a change to a single types
+        #     package.
+        #  2. Filtering on scan_state rejected all ten candidates. Every scan in
+        #     this organization persists as 'pending' or 'resolve', including the
+        #     head scan itself, whose data is demonstrably complete. scan_state is
+        #     not a completion signal, so it is logged and otherwise ignored.
         #
-        # If nothing qualifies, report everything as pre-existing: no attribution
-        # is honest, a wrong attribution is not.
-        IN_PROGRESS = {"pending", "precrawl", "resolve"}
-        MIN_RATIO = 0.8
+        # What is left is the measurement that matters: how much of this tree the
+        # candidate actually shares. Package overlap tests that directly, where an
+        # artifact count only approximates it.
+        MIN_OVERLAP = 0.9
 
+        head_pkgs = {f"{pkg_name(a)}@{a.get('version')}" for a in head_arts}
         base_keys, base_scan_id, base_meta = set(), None, {}
         base_branch = os.environ.get("BASE_BRANCH") or ""
         if base_branch:
@@ -267,23 +269,22 @@ runs:
 
             print(f"Baseline candidates on '{base_branch}': {len(candidates)}.")
             for cand in candidates:
-                cid, state = cand.get("id"), (cand.get("scan_state") or "").lower()
+                cid = cand.get("id")
                 if not cid or cid == scan:
-                    continue
-                if state in IN_PROGRESS:
-                    print(f"  skipping {cid} — state '{state}' (still running).")
                     continue
                 st, bd, mit = get(f"orgs/{org}/full-scans/{cid}")
                 if st != 200:
                     explain(st, bd, mit)
                     continue
                 cand_arts, _ = parse_scan(bd)
-                ratio = (len(cand_arts) / len(head_arts)) if head_arts else 0
+                cand_pkgs = {f"{pkg_name(a)}@{a.get('version')}" for a in cand_arts}
+                overlap = (len(cand_pkgs & head_pkgs) / len(head_pkgs)) if head_pkgs else 0
                 print(f"  candidate {cid} ({cand.get('created_at','?')}, "
-                      f"commit {str(cand.get('commit_hash'))[:7]}, state '{state}'): "
-                      f"{len(cand_arts)} artifact(s), {ratio:.0%} of head.")
-                if ratio < MIN_RATIO:
-                    print(f"  rejecting {cid} — only {ratio:.0%} the size of the head scan.")
+                      f"commit {str(cand.get('commit_hash'))[:7]}, state '{cand.get('scan_state')}'): "
+                      f"{len(cand_arts)} artifact(s), {overlap:.1%} package overlap.")
+                if overlap < MIN_OVERLAP:
+                    print(f"  rejecting {cid} — {overlap:.1%} overlap is below "
+                          f"{MIN_OVERLAP:.0%}; it describes a different tree.")
                     continue
                 for art in cand_arts:
                     key_pkg = f"{pkg_name(art)}@{art.get('version')}"
