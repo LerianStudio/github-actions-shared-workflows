@@ -1,13 +1,22 @@
 name: "PR Validation"
 
-# Reusable workflow for comprehensive pull request validation
-# Uses a 2-tier fail-fast model:
-#   Tier 1 (blocking-checks): lightweight validations that block merge — title, source branch, description
-#   Tier 2 (advisory-checks): informational checks — size, labels, metadata, changelog (only runs if Tier 1 passes)
-# Followed by a summary job and optional Slack notification
+# Reusable workflow for pull_request events only.
+# A mandatory fail-closed breaking-change guard runs for every PR, including drafts, and is enforced
+# through Blocking Checks. Non-draft PRs also run the existing title, source branch, description,
+# advisory, reporting, and notification flow.
 
 on:
   workflow_call:
+    outputs:
+      has_breaking_changes:
+        description: 'Whether the PR contains breaking changes (true/false)'
+        value: ${{ jobs.breaking-change-guard.outputs.has-breaking-changes == 'true' && 'true' || 'false' }}
+      breaking_change_approved:
+        description: 'Compatibility field: whether the exact PR author acknowledgement is present (true/false); this does not grant maintainer permission'
+        value: ${{ jobs.breaking-change-guard.outputs.approved == 'true' && 'true' || 'false' }}
+      breaking_change_result:
+        description: 'Breaking change guard result (success/failure)'
+        value: ${{ jobs.breaking-change-guard.outputs.result == 'success' && 'success' || 'failure' }}
     inputs:
       runner_type:
         description: 'GitHub runner type to use'
@@ -77,11 +86,107 @@ permissions:
   issues: write
 
 jobs:
+  # ----------------- Mandatory Breaking Change Detection (always runs, including drafts) -----------------
+  breaking-change-guard:
+    name: Breaking Change Guard
+    runs-on: ${{ vars.GENERAL_RUNNERS || inputs.runner_type }}
+    permissions:
+      contents: read
+    outputs:
+      has-breaking-changes: ${{ steps.normalize.outputs.has-breaking-changes }}
+      approved: ${{ steps.normalize.outputs.approved }}
+      result: ${{ steps.normalize.outputs.result }}
+      detection-succeeded: ${{ steps.normalize.outputs.detection-succeeded }}
+
+    steps:
+      - name: Validate original event
+        id: event-validation
+        continue-on-error: true
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_BASE_REF: ${{ github.event.pull_request.base.ref }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+
+          if [ "$EVENT_NAME" != "pull_request" ]; then
+            echo "PR Validation only accepts pull_request events; received ${EVENT_NAME:-missing}." >&2
+            exit 1
+          fi
+
+          if [ -z "$PR_NUMBER" ] || [ -z "$PR_HEAD_REF" ] || [ -z "$PR_HEAD_SHA" ] \
+            || [ -z "$PR_BASE_REF" ] || [ -z "$PR_BASE_SHA" ]; then
+            echo "The pull_request event is missing required PR number, head, or base data." >&2
+            exit 1
+          fi
+
+      - name: Checkout code
+        id: checkout
+        if: steps.event-validation.outcome == 'success'
+        continue-on-error: true
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Detect breaking changes
+        id: guard
+        if: steps.event-validation.outcome == 'success' && steps.checkout.outcome == 'success'
+        continue-on-error: true
+        uses: LerianStudio/github-actions-shared-workflows/src/validate/breaking-change-guard@v1
+        with:
+          base-ref: ${{ github.base_ref }}
+          breaking-change-acknowledgement: 'Breaking change acknowledged: I understand that this PR intentionally introduces a breaking change and requires the next release to be a major version.'
+          acknowledgement-match-mode: exact-visible-line
+
+      - name: Normalize breaking change result
+        id: normalize
+        if: always()
+        shell: bash
+        env:
+          EVENT_VALIDATION_OUTCOME: ${{ steps.event-validation.outcome }}
+          CHECKOUT_OUTCOME: ${{ steps.checkout.outcome }}
+          GUARD_OUTCOME: ${{ steps.guard.outcome }}
+          RAW_HAS_BREAKING_CHANGES: ${{ steps.guard.outputs.has-breaking-changes }}
+          RAW_APPROVED: ${{ steps.guard.outputs.approved }}
+        run: |
+          set -euo pipefail
+
+          has_breaking_changes=false
+          approved=false
+          result=failure
+          detection_succeeded=false
+
+          if [ "$EVENT_VALIDATION_OUTCOME" = "success" ] \
+            && [ "$CHECKOUT_OUTCOME" = "success" ] && [ "$GUARD_OUTCOME" = "success" ] \
+            && { [ "$RAW_HAS_BREAKING_CHANGES" = "true" ] || [ "$RAW_HAS_BREAKING_CHANGES" = "false" ]; } \
+            && { [ "$RAW_APPROVED" = "true" ] || [ "$RAW_APPROVED" = "false" ]; }; then
+            has_breaking_changes="$RAW_HAS_BREAKING_CHANGES"
+            approved="$RAW_APPROVED"
+            detection_succeeded=true
+
+            if [ "$has_breaking_changes" = "false" ] || [ "$approved" = "true" ]; then
+              result=success
+            fi
+          fi
+
+          {
+            echo "has-breaking-changes=$has_breaking_changes"
+            echo "approved=$approved"
+            echo "result=$result"
+            echo "detection-succeeded=$detection_succeeded"
+          } >> "$GITHUB_OUTPUT"
+
   # ----------------- Tier 1: Blocking Checks (no checkout, fail-fast) -----------------
   blocking-checks:
     name: Blocking Checks
     runs-on: ${{ vars.GENERAL_RUNNERS || inputs.runner_type }}
-    if: github.event.pull_request.draft != true
+    needs: [breaking-change-guard]
+    if: always()
     outputs:
       source-branch-result: ${{ steps.collect.outputs.source_branch }}
       title-result: ${{ steps.collect.outputs.title }}
@@ -91,7 +196,7 @@ jobs:
       # The composite auto-skips when target branch is not in target_branches_for_source_check (default: main)
       - name: Validate source branch
         id: source-branch
-        if: inputs.enforce_source_branches
+        if: github.event_name == 'pull_request' && github.event.pull_request.draft != true && inputs.enforce_source_branches
         continue-on-error: true
         uses: LerianStudio/github-actions-shared-workflows/src/validate/pr-source-branch@v1
         with:
@@ -102,6 +207,7 @@ jobs:
 
       - name: Validate PR title
         id: title
+        if: github.event_name == 'pull_request' && github.event.pull_request.draft != true
         continue-on-error: true
         uses: LerianStudio/github-actions-shared-workflows/src/validate/pr-title@v1
         with:
@@ -112,11 +218,35 @@ jobs:
 
       - name: Validate PR description
         id: description
+        if: github.event_name == 'pull_request' && github.event.pull_request.draft != true
         continue-on-error: true
         uses: LerianStudio/github-actions-shared-workflows/src/validate/pr-description@develop
 
+      - name: Enforce breaking change guard
+        if: always()
+        env:
+          DRY_RUN: ${{ inputs.dry_run && 'true' || 'false' }}
+          GUARD_JOB_RESULT: ${{ needs.breaking-change-guard.result }}
+          GUARD_RESULT: ${{ needs.breaking-change-guard.outputs.result }}
+          HAS_BREAKING_CHANGES: ${{ needs.breaking-change-guard.outputs.has-breaking-changes }}
+          BREAKING_CHANGE_ACKNOWLEDGED: ${{ needs.breaking-change-guard.outputs.approved }}
+          DETECTION_SUCCEEDED: ${{ needs.breaking-change-guard.outputs.detection-succeeded }}
+        run: |
+          set -euo pipefail
+
+          if [ "$DRY_RUN" = "true" ]; then
+            echo "Breaking change guard dry run: job=$GUARD_JOB_RESULT result=${GUARD_RESULT:-missing} has_breaking_changes=${HAS_BREAKING_CHANGES:-missing} acknowledged=${BREAKING_CHANGE_ACKNOWLEDGED:-missing} detection_succeeded=${DETECTION_SUCCEEDED:-missing}"
+            exit 0
+          fi
+
+          if [ "$GUARD_JOB_RESULT" != "success" ] || [ "$GUARD_RESULT" != "success" ]; then
+            echo "Breaking change guard failed: job=$GUARD_JOB_RESULT result=${GUARD_RESULT:-missing} detection_succeeded=${DETECTION_SUCCEEDED:-missing}" >&2
+            exit 1
+          fi
+
       - name: Collect results and enforce blocking
         id: collect
+        if: always() && github.event_name == 'pull_request' && github.event.pull_request.draft != true
         uses: LerianStudio/github-actions-shared-workflows/src/validate/pr-blocking-collect@v1
         with:
           source-branch-outcome: ${{ steps.source-branch.outcome || 'skipped' }}
@@ -128,7 +258,7 @@ jobs:
     name: Advisory Checks
     runs-on: ${{ vars.GENERAL_RUNNERS || inputs.runner_type }}
     needs: [blocking-checks]
-    if: always() && needs.blocking-checks.result == 'success' && github.event.pull_request.draft != true
+    if: always() && github.event_name == 'pull_request' && needs.blocking-checks.result == 'success' && github.event.pull_request.draft != true
     outputs:
       metadata-result: ${{ steps.collect.outputs.metadata }}
       size-result: ${{ steps.collect.outputs.size }}
@@ -179,7 +309,7 @@ jobs:
   pr-checks-summary:
     name: PR Checks Summary
     runs-on: ${{ inputs.pr_checks_summary_runner_type || vars.GENERAL_RUNNERS || inputs.runner_type }}
-    needs: [blocking-checks, advisory-checks]
+    needs: [breaking-change-guard, blocking-checks, advisory-checks]
     if: always()
 
     steps:
@@ -192,14 +322,106 @@ jobs:
           size-result: ${{ needs.advisory-checks.outputs.size-result || 'skipped' }}
           label-result: ${{ needs.advisory-checks.outputs.label-result || 'skipped' }}
           metadata-result: ${{ needs.advisory-checks.outputs.metadata-result || 'skipped' }}
+          breaking-change-result: ${{ needs.breaking-change-guard.result == 'success' && needs.breaking-change-guard.outputs.result == 'success' && 'success' || 'failure' }}
+          blocking-checks-result: ${{ needs.blocking-checks.result == 'success' && 'success' || 'failure' }}
           dry-run: ${{ inputs.dry_run && 'true' || 'false' }}
+
+  # ----------------- Breaking Change Feedback Comment (best effort) -----------------
+  breaking-change-comment:
+    name: Breaking Change Comment
+    runs-on: ${{ vars.GENERAL_RUNNERS || inputs.runner_type }}
+    needs: [breaking-change-guard]
+    if: always() && github.event_name == 'pull_request' && github.event.pull_request.draft != true && !inputs.dry_run
+    permissions:
+      pull-requests: read
+      issues: write
+
+    steps:
+      - name: Manage breaking change guard comment
+        continue-on-error: true
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        env:
+          GUARD_JOB_RESULT: ${{ needs.breaking-change-guard.result }}
+          DETECTION_SUCCEEDED: ${{ needs.breaking-change-guard.outputs.detection-succeeded }}
+          HAS_BREAKING_CHANGES: ${{ needs.breaking-change-guard.outputs.has-breaking-changes }}
+          BREAKING_CHANGE_ACKNOWLEDGED: ${{ needs.breaking-change-guard.outputs.approved }}
+          EVENT_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          ACKNOWLEDGEMENT: 'Breaking change acknowledged: I understand that this PR intentionally introduces a breaking change and requires the next release to be a major version.'
+        with:
+          github-token: ${{ github.token }}
+          script: |
+            const marker = '<!-- lerian-breaking-change-guard -->';
+            const guardJobSucceeded = process.env.GUARD_JOB_RESULT === 'success';
+            const detectionSucceeded = process.env.DETECTION_SUCCEEDED === 'true';
+            const hasBreakingChanges = process.env.HAS_BREAKING_CHANGES === 'true';
+            const acknowledged = process.env.BREAKING_CHANGE_ACKNOWLEDGED === 'true';
+            const eventHeadSha = process.env.EVENT_HEAD_SHA;
+            const acknowledgement = process.env.ACKNOWLEDGEMENT;
+
+            const current = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.issue.number,
+            });
+            if (!eventHeadSha || current.data.head.sha !== eventHeadSha) {
+              core.warning(`Skipping stale breaking change comment update: event head ${eventHeadSha || 'missing'}, current head ${current.data.head.sha}.`);
+              return;
+            }
+
+            const comments = await github.paginate(github.rest.issues.listComments, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              per_page: 100,
+            });
+            const owned = comments.filter(comment =>
+              comment.user?.login === 'github-actions[bot]'
+              && (comment.body === marker || comment.body?.startsWith(`${marker}\n`))
+            );
+            const deleteComment = comment => github.rest.issues.deleteComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              comment_id: comment.id,
+            });
+            const upsertOwned = async body => {
+              const params = { owner: context.repo.owner, repo: context.repo.repo, body };
+
+              if (owned.length > 0) {
+                await github.rest.issues.updateComment({ ...params, comment_id: owned[0].id });
+                await Promise.all(owned.slice(1).map(deleteComment));
+                return;
+              }
+
+              await github.rest.issues.createComment({
+                ...params,
+                issue_number: context.issue.number,
+              });
+            };
+
+            if (!guardJobSucceeded || !detectionSucceeded) {
+              const body = `${marker}\n## Breaking change guard\n\n**Status:** ⚠️ Detection failed\n\nThe workflow could not determine whether this pull request contains breaking changes. Blocking Checks failed closed.`;
+              await upsertOwned(body);
+              return;
+            }
+
+            if (!hasBreakingChanges) {
+              await Promise.all(owned.map(deleteComment));
+              return;
+            }
+
+            const state = acknowledged ? '✅ Author acknowledged' : '🚫 Awaiting author acknowledgement';
+            const detail = acknowledged
+              ? 'The exact visible author acknowledgement line is present in the pull request description. It records intentional awareness and does not grant maintainer permission.'
+              : 'The PR author can acknowledge intentional awareness by adding this exact visible line to the pull request description:';
+            const body = `${marker}\n## Breaking change guard\n\n**Status:** ${state}\n\n${detail}\n\n\`${acknowledgement}\``;
+            await upsertOwned(body);
 
   # ----------------- PR Validation Summary Comment -----------------
   pr-validation-report:
     name: PR Validation Report
     runs-on: ${{ vars.GENERAL_RUNNERS || inputs.runner_type }}
-    needs: [blocking-checks, advisory-checks]
-    if: always() && github.event.pull_request.draft != true
+    needs: [breaking-change-guard, blocking-checks, advisory-checks]
+    if: always() && github.event_name == 'pull_request' && github.event.pull_request.draft != true
 
     steps:
       - name: Post PR validation summary comment
@@ -213,17 +435,19 @@ jobs:
           size-result: ${{ needs.advisory-checks.outputs.size-result || 'skipped' }}
           label-result: ${{ needs.advisory-checks.outputs.label-result || 'skipped' }}
           metadata-result: ${{ needs.advisory-checks.outputs.metadata-result || 'skipped' }}
+          breaking-change-result: ${{ needs.breaking-change-guard.result == 'success' && needs.breaking-change-guard.outputs.result == 'success' && 'success' || 'failure' }}
+          blocking-checks-result: ${{ needs.blocking-checks.result == 'success' && 'success' || 'failure' }}
           dry-run: ${{ inputs.dry_run && 'true' || 'false' }}
 
   # ----------------- Slack Notification -----------------
   notify:
     name: Notify
-    needs: [blocking-checks, advisory-checks, pr-checks-summary]
-    if: always() && github.event.pull_request.draft != true && !inputs.dry_run
+    needs: [breaking-change-guard, blocking-checks, advisory-checks, pr-checks-summary]
+    if: always() && github.event_name == 'pull_request' && github.event.pull_request.draft != true && !inputs.dry_run
     uses: LerianStudio/github-actions-shared-workflows/.github/workflows/slack-notify.yml@v1.28.12
     with:
-      status: ${{ (needs.blocking-checks.outputs.source-branch-result == 'failure' || needs.blocking-checks.outputs.title-result == 'failure' || needs.blocking-checks.outputs.description-result == 'failure') && 'failure' || 'success' }}
+      status: ${{ (needs.breaking-change-guard.result != 'success' || needs.breaking-change-guard.outputs.result != 'success' || needs.blocking-checks.result != 'success' || needs.blocking-checks.outputs.source-branch-result == 'failure' || needs.blocking-checks.outputs.title-result == 'failure' || needs.blocking-checks.outputs.description-result == 'failure') && 'failure' || 'success' }}
       workflow_name: "PR Validation"
-      failed_jobs: ${{ needs.blocking-checks.outputs.source-branch-result == 'failure' && 'Source Branch, ' || '' }}${{ needs.blocking-checks.outputs.title-result == 'failure' && 'PR Title, ' || '' }}${{ needs.blocking-checks.outputs.description-result == 'failure' && 'PR Description' || '' }}
+      failed_jobs: ${{ (needs.breaking-change-guard.result != 'success' || needs.breaking-change-guard.outputs.result != 'success') && 'Breaking Change Guard, ' || '' }}${{ needs.blocking-checks.result != 'success' && 'Blocking Checks, ' || '' }}${{ needs.blocking-checks.outputs.source-branch-result == 'failure' && 'Source Branch, ' || '' }}${{ needs.blocking-checks.outputs.title-result == 'failure' && 'PR Title, ' || '' }}${{ needs.blocking-checks.outputs.description-result == 'failure' && 'PR Description' || '' }}
     secrets:
       SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}

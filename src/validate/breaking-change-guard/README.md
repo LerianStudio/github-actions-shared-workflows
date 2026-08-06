@@ -28,9 +28,22 @@ A commit is breaking when either condition is true:
   `BREAKING-CHANGE` are not accepted by the configured release parser.
 
 Ordinary prose that contains a reserved footer token later in a line is not breaking.
-The acknowledgement is a case-sensitive, exact literal substring of the pull request
-body. It can span multiple lines and can contain regular-expression or shell
-metacharacters. An empty acknowledgement is never approved.
+The acknowledgement supports two matching modes:
+
+- `contains` preserves the original direct-action behavior. The acknowledgement is a
+  case-sensitive, exact literal substring of the pull request body. It can span
+  multiple lines and can contain regular-expression or shell metacharacters.
+- `exact-visible-line` requires one visible line to equal the acknowledgement exactly.
+  Matching is case-sensitive and rejects leading or trailing whitespace, quoted text,
+  and prose that only contains the acknowledgement. Exact lines inside inline or
+  multiline HTML comments or Markdown fenced code blocks are ignored. Fences can be
+  indented and must open with at least three backticks or three tildes. A closing fence
+  must use the same character and be at least as long as its opening fence. Opening
+  fences can include a language suffix. A terminal carriage return is removed before
+  comparison so CRLF pull request bodies remain valid.
+
+An empty acknowledgement is never approved. An empty or unknown matching mode fails
+closed.
 
 The guard fails closed when the repository is shallow, the remote base ref or `HEAD`
 is invalid, or Git cannot read the commit range. An unapproved breaking change is a
@@ -42,7 +55,8 @@ its caller.
 | Input | Description | Required | Default |
 |-------|-------------|----------|---------|
 | `base-ref` | Pull request base branch. The checkout must contain `origin/<base-ref>`. | Yes | — |
-| `breaking-change-acknowledgement` | Exact literal substring required in the pull request description. | Yes | — |
+| `breaking-change-acknowledgement` | Exact string used to approve the breaking change. | Yes | — |
+| `acknowledgement-match-mode` | Internal matching mode: `contains` or `exact-visible-line`. | No | `contains` |
 
 The composite has no `dry-run` input. Detection has no side effects. The reusable
 workflow owns comment, label, and merge-enforcement controls.
@@ -52,7 +66,7 @@ workflow owns comment, label, and merge-enforcement controls.
 | Output | Description |
 |--------|-------------|
 | `has-breaking-changes` | `true` when at least one pull request head commit is breaking. |
-| `approved` | `true` when the complete acknowledgement occurs in the pull request body. |
+| `approved` | `true` when the pull request body satisfies the selected acknowledgement matching mode. |
 
 ## Why `actions/checkout`
 
@@ -142,16 +156,23 @@ jobs:
           breaking-change-acknowledgement: Breaking change approved by the release owner.
 ```
 
-Integration with `.github/workflows/pr-validation.yml` is intentionally deferred. A
-later change will add PR enforcement only after `v1` contains this composite.
+Mandatory `pr-validation` integration always uses `exact-visible-line`. The workflow
+does not expose the matching mode as an opt-out or configuration input. Direct
+composite callers retain `contains` by default and can select `exact-visible-line`
+explicitly when they need the same strict acknowledgement contract.
 
 ## Local test
 
-Run the durable detector matrix from the repository root:
+Run the durable detector and mandatory workflow-integration suites from the repository
+root:
 
 ```bash
 bash src/validate/breaking-change-guard/test.sh
+python3 src/validate/breaking-change-guard/test-workflow.py
 ```
 
-The test always runs with the default `awk`. It also runs the complete matrix with
-GNU `awk` when `gawk` is installed.
+The detector test always runs with the default `awk`. It also runs the complete matrix
+with GNU `awk` when `gawk` is installed. The workflow test executes the Bash bodies
+from `.github/workflows/pr-validation.yml` directly and verifies the mandatory guard
+wiring across the reusable, umbrella, reporting, summary, and self-validation
+workflows.

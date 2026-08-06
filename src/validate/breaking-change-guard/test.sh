@@ -90,6 +90,7 @@ assert_guard() {
   local acknowledgement=$5
   local base_ref=${6:-main}
   local command_path=${7:-${PATH}}
+  local match_mode=${8:-contains}
   local stdout_file="${TEST_ROOT}/stdout"
   local stderr_file="${TEST_ROOT}/stderr"
   local expected_file="${TEST_ROOT}/expected"
@@ -104,7 +105,8 @@ assert_guard() {
   if (
     cd "${CURRENT_REPO}" || exit 99
     PATH="${command_path}" BASE_REF="${base_ref}" PR_BODY="${body}" \
-      ACK="${acknowledgement}" AWK="${AWK_BIN}" bash "${DETECTOR}"
+      ACK="${acknowledgement}" ACKNOWLEDGEMENT_MATCH_MODE="${match_mode}" \
+      AWK="${AWK_BIN}" bash "${DETECTOR}"
   ) >"${stdout_file}" 2>"${stderr_file}"; then
     status=0
   else
@@ -136,7 +138,7 @@ assert_runtime_failure() {
   if (
     cd "${CURRENT_REPO}" || exit 99
     PATH="${command_path}" BASE_REF="${base_ref}" PR_BODY="" ACK="" \
-      AWK="${AWK_BIN}" bash "${DETECTOR}"
+      ACKNOWLEDGEMENT_MATCH_MODE=contains AWK="${AWK_BIN}" bash "${DETECTOR}"
   ) >"${stdout_file}" 2>"${stderr_file}"; then
     status=0
   else
@@ -149,6 +151,40 @@ assert_runtime_failure() {
     record_fail "${label}" "runtime failure emitted machine-safe output [$(<"${stdout_file}")]"
   elif [[ ! -s "${stderr_file}" ]]; then
     record_fail "${label}" "runtime failure did not emit a diagnostic"
+  elif ! cmp -s "${expected_stderr_file}" "${stderr_file}"; then
+    record_fail "${label}" \
+      "expected stderr [${expected_stderr}], got [$(<"${stderr_file}")]"
+  else
+    record_pass "${label}"
+  fi
+}
+
+assert_match_mode_failure() {
+  local label=$1
+  local match_mode=$2
+  local stdout_file="${TEST_ROOT}/stdout"
+  local stderr_file="${TEST_ROOT}/stderr"
+  local expected_stderr_file="${TEST_ROOT}/expected-stderr"
+  local expected_stderr='Breaking Change Guard: ACKNOWLEDGEMENT_MATCH_MODE must be one of: contains, exact-visible-line.'
+  local status
+
+  printf '%s\n' "${expected_stderr}" >"${expected_stderr_file}"
+
+  if (
+    cd "${CURRENT_REPO}" || exit 99
+    BASE_REF=main PR_BODY="Approved for major release." \
+      ACK="Approved for major release." ACKNOWLEDGEMENT_MATCH_MODE="${match_mode}" \
+      AWK="${AWK_BIN}" bash "${DETECTOR}"
+  ) >"${stdout_file}" 2>"${stderr_file}"; then
+    status=0
+  else
+    status=$?
+  fi
+
+  if [[ ${status} -eq 0 ]]; then
+    record_fail "${label}" "expected a nonzero exit, got output [$(<"${stdout_file}")]"
+  elif [[ -s "${stdout_file}" ]]; then
+    record_fail "${label}" "mode failure emitted machine-safe output [$(<"${stdout_file}")]"
   elif ! cmp -s "${expected_stderr_file}" "${stderr_file}"; then
     record_fail "${label}" \
       "expected stderr [${expected_stderr}], got [$(<"${stderr_file}")]"
@@ -341,6 +377,59 @@ EOF
   printf 'info - large body fixture: %d bytes\n' "${#large_body}"
   assert_guard "large body with acknowledgement near start" false true \
     "${large_body}" "Approved for major release."
+
+  new_repo exact-visible-line
+  commit_message "feat: safe exact-line acknowledgement fixture"
+  assert_guard "visible exact acknowledgement line" false true \
+    $'Context\nApproved for major release.\nDetails' "Approved for major release." \
+    main "${PATH}" exact-visible-line
+  assert_guard "leading whitespace rejects exact acknowledgement line" false false \
+    " Approved for major release." "Approved for major release." \
+    main "${PATH}" exact-visible-line
+  assert_guard "trailing whitespace rejects exact acknowledgement line" false false \
+    "Approved for major release. " "Approved for major release." \
+    main "${PATH}" exact-visible-line
+  assert_guard "case mismatch rejects exact acknowledgement line" false false \
+    "approved for major release." "Approved for major release." \
+    main "${PATH}" exact-visible-line
+  assert_guard "inline HTML comment rejects hidden exact acknowledgement" false false \
+    "<!-- Approved for major release. -->" "Approved for major release." \
+    main "${PATH}" exact-visible-line
+  assert_guard "multiline HTML comment rejects hidden exact acknowledgement" false false \
+    $'<!--\nApproved for major release.\n-->' "Approved for major release." \
+    main "${PATH}" exact-visible-line
+  assert_guard "same-line HTML comment closure preserves following visible lines" false true \
+    $'<!-- hidden approval example -->\nApproved for major release.' \
+    "Approved for major release." main "${PATH}" exact-visible-line
+  assert_guard "quoted acknowledgement is not an exact visible line" false false \
+    '> Approved for major release.' "Approved for major release." \
+    main "${PATH}" exact-visible-line
+  assert_guard "prose acknowledgement is not an exact visible line" false false \
+    "Context: Approved for major release." "Approved for major release." \
+    main "${PATH}" exact-visible-line
+  assert_guard "CRLF exact acknowledgement line" false true \
+    $'Context\r\nApproved for major release.\r\nDetails\r' \
+    "Approved for major release." main "${PATH}" exact-visible-line
+  assert_guard "backtick fenced code rejects hidden exact acknowledgement" false false \
+    $'Context\n```text\nApproved for major release.\n```\nDetails' \
+    "Approved for major release." main "${PATH}" exact-visible-line
+  assert_guard "tilde fenced code rejects hidden exact acknowledgement" false false \
+    $'Context\n  ~~~~markdown\nApproved for major release.\n  ~~~~~\nDetails' \
+    "Approved for major release." main "${PATH}" exact-visible-line
+  assert_guard "inline backtick text does not open a fence" false true \
+    $'Context uses ```inline``` text.\nApproved for major release.' \
+    "Approved for major release." main "${PATH}" exact-visible-line
+  assert_guard "acknowledgement after a closed fence remains visible" false true \
+    $'```text\nApproved for major release.\n```\nApproved for major release.' \
+    "Approved for major release." main "${PATH}" exact-visible-line
+  assert_guard "unclosed fence rejects hidden exact acknowledgement" false false \
+    $'Context\n```text\nApproved for major release.' \
+    "Approved for major release." main "${PATH}" exact-visible-line
+  assert_guard "contains mode preserves substring matching" false true \
+    "Before. Approved for major release. After." "Approved for major release." \
+    main "${PATH}" contains
+  assert_match_mode_failure "invalid acknowledgement match mode fails closed" invalid
+  assert_match_mode_failure "empty acknowledgement match mode fails closed" ""
 }
 
 AWK_BIN='awk'

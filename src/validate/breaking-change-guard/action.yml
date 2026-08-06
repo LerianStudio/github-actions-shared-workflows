@@ -1,20 +1,24 @@
 name: Breaking Change Guard
-description: "Detects breaking-change commit(s) in a PR and checks whether the PR description contains the required approval acknowledgement. Reports only — the caller workflow decides whether to block merge."
+description: "Detects breaking-change commit(s) in a PR and checks whether the PR description matches the required approval acknowledgement. Reports only — the caller workflow decides whether to block merge."
 
 inputs:
   base-ref:
     description: Target/base branch of the PR (used to compute the diff range of PR commits)
     required: true
   breaking-change-acknowledgement:
-    description: Exact string that must appear in the PR description body to approve shipping the breaking change
+    description: Exact string used to approve shipping the breaking change
     required: true
+  acknowledgement-match-mode:
+    description: Internal acknowledgement matching mode (contains or exact-visible-line)
+    required: false
+    default: contains
 
 outputs:
   has-breaking-changes:
     description: "Whether the PR contains at least one breaking-change commit (true/false)"
     value: ${{ steps.detect.outputs.has-breaking-changes }}
   approved:
-    description: "Whether the PR description body contains the approval acknowledgement (true/false)"
+    description: "Whether the PR description body matches the approval acknowledgement (true/false)"
     value: ${{ steps.detect.outputs.approved }}
 
 runs:
@@ -26,6 +30,7 @@ runs:
       env:
         BASE_REF: ${{ inputs.base-ref }}
         ACK: ${{ inputs.breaking-change-acknowledgement }}
+        ACKNOWLEDGEMENT_MATCH_MODE: ${{ inputs.acknowledgement-match-mode }}
         PR_BODY: ${{ github.event.pull_request.body }}
       run: |
         set -euo pipefail
