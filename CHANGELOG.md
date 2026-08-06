@@ -1,5 +1,18 @@
 # Github-actions-shared-workflows Changelog
 
+## [1.53.0](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.53.0)
+
+Features:
+- Enforce breaking acknowledgement to ensure that changes requiring attention are properly flagged. (@fredcamaral)
+
+Fixes:
+- Pin release refs and reject malformed acknowledgement configurations to improve validation accuracy. (@fredcamaral)
+- Harden guard tests and enforcement mechanisms based on review feedback to enhance validation robustness. (@fredcamaral)
+
+[Compare changes](https://github.com/LerianStudio/github-actions-shared-workflows/compare/v1.52.0...v1.53.0)
+
+---
+
 ## [1.52.0](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.52.0)
 
 Features:
