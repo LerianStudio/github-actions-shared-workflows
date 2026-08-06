@@ -104,12 +104,24 @@ runs:
           echo "skipped=true" >> "$GITHUB_OUTPUT"
           echo "alert_count=0" >> "$GITHUB_OUTPUT"
           case "$HTTP" in
-            401) echo "::warning::Socket API returned 401 — the token is invalid or revoked." ;;
-            403) echo "::warning::Socket API returned 403 — the token is missing the 'full-scans:list' scope." ;;
-            404) echo "::warning::Socket API returned 404 — scan $SCAN not found under org $ORG." ;;
-            429) echo "::warning::Socket API returned 429 — quota or rate limit exhausted." ;;
-            *) echo "::warning::Socket API returned HTTP $HTTP while reading the full scan." ;;
+            401) HINT="the token is invalid or revoked" ;;
+            403) HINT="the token lacks a required scope" ;;
+            404) HINT="scan $SCAN not found under org $ORG" ;;
+            429) HINT="quota or rate limit exhausted" ;;
+            *) HINT="unexpected status" ;;
           esac
+          echo "::warning::Socket API returned HTTP $HTTP — $HINT."
+          # Print the API's own error payload. The status alone only carries a
+          # guess; the body is where Socket names the missing permission, and
+          # discarding it forces scope debugging to proceed by trial and error.
+          # It is an error document, not scan data — nothing sensitive.
+          if [ -s "$NDJSON" ]; then
+            echo "--- Socket API response ---"
+            jq . "$NDJSON" 2>/dev/null || head -c 2000 "$NDJSON"
+            echo ""
+          else
+            echo "(empty response body)"
+          fi
           # Advisory by construction: this layer informs, the App gate enforces.
           exit 0
         fi
