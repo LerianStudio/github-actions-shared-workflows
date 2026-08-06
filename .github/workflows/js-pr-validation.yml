@@ -337,6 +337,20 @@ on:
         description: 'Maximum package rows kept in the dependency findings table'
         type: number
         default: 25
+      socket_api_include_actions:
+        description: >-
+          Comma-separated Socket alert actions reported as findings. Socket marks roughly 99% of alerts as "ignore"
+          (capability observations such as envVars), so reporting unfiltered buries a handful of findings in
+          thousands of lines.
+        type: string
+        default: 'error,warn,monitor'
+      socket_api_fail_on_actions:
+        description: >-
+          Comma-separated Socket alert actions that block the pull request. Empty (the default) reports without
+          blocking. Set to e.g. "error" to own the merge decision in this workflow rather than deferring it to the
+          Socket App's verdict.
+        type: string
+        default: ''
       socket_app_on_missing:
         description: >-
           What to do when the App published no checks, which is what a repository without it installed looks like:
@@ -568,9 +582,8 @@ jobs:
           socket-api-key: ${{ secrets.SOCKET_SECURITY_API_KEY }}
           report-url: ${{ steps.app-gate.outputs.report-url }}
           max-rows: ${{ inputs.socket_api_max_rows }}
-          # TEMPORARY: logs the real alert object shape so the filtering can be
-          # built against it instead of guessed. Remove once calibrated.
-          debug-sample: 'true'
+          include-actions: ${{ inputs.socket_api_include_actions }}
+          fail-on-actions: ${{ inputs.socket_api_fail_on_actions }}
 
       - name: Post Socket report to PR
         if: always() && github.event_name == 'pull_request' && !inputs.dry_run
@@ -597,10 +610,17 @@ jobs:
         env:
           FIREWALL_OUTCOME: ${{ steps.firewall.outcome }}
           APP_GATE_OUTCOME: ${{ steps.app-gate.outcome }}
+          API_BLOCKING: ${{ steps.api-report.outputs.blocking-count }}
         run: |
           FAILED=""
           [ "$FIREWALL_OUTCOME" = "failure" ] && FAILED="$FAILED Socket-Firewall"
           [ "$APP_GATE_OUTCOME" = "failure" ] && FAILED="$FAILED Socket-App-Gate"
+          # Only real findings from the API layer block. Its API-failure paths
+          # report zero here by construction, so an unreachable Socket cannot
+          # fail a pull request.
+          if [ "${API_BLOCKING:-0}" -gt 0 ] 2>/dev/null; then
+            FAILED="$FAILED Socket-Dependency-Findings"
+          fi
           if [ -n "$FAILED" ]; then
             echo "::error::Socket supply chain gate failed:$FAILED. See the Socket comment on the pull request."
             exit 1
