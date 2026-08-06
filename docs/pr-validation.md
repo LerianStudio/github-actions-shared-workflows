@@ -14,7 +14,7 @@ Comprehensive pull request validation workflow that enforces best practices, cod
 - **Description quality** — Minimum length and required sections
 - **Auto-labeling** — Based on changed files
 - **Auto-assign** — Assigns PR author when no assignee is set (skips bots)
-- **Draft PR support** — Runs and enforces the mandatory guard while deferring title, branch, description, advisory, reporting, and notification work until ready for review
+- **Draft PR support** — Runs and enforces the mandatory guard (and still writes the step summary) while deferring title, branch, description, advisory, PR comments, reporter output, guard comments, and Slack notifications until ready for review
 - **Source branch validation** — Enforce PRs to protected branches come from specific source branches
 - **Mandatory breaking change guard** — Detects breaking-change commits on every target branch and blocks breaking changes without PR author acknowledgement
 - **Dry run mode** — Preview validations without posting comments or labels
@@ -237,7 +237,7 @@ When `dry_run: true`:
 
 ## Draft PR Behavior
 
-When a PR is in draft mode, mandatory breaking-change detection and guard enforcement still run. `Blocking Checks` is the existing required check, so a breaking change without author acknowledgement or a detector failure blocks the draft without adding a new required check. Existing source branch, title, description, and collector steps remain skipped. Advisory checks, reports, guard comments, and Slack also remain skipped until the PR is marked ready for review.
+When a PR is in draft mode, mandatory breaking-change detection and guard enforcement still run. `Blocking Checks` is the existing required check, so a breaking change without author acknowledgement or a detector failure blocks the draft without adding a new required check. Existing source branch, title, description, and collector steps remain skipped, and the step summary is still written. Advisory checks, PR comments, reporter output, guard comments, and Slack also remain skipped until the PR is marked ready for review.
 
 Every caller must include `ready_for_review` so deferred validation runs on that transition. Every caller must include `edited` so adding, changing, or removing the acknowledgement in the PR body reruns enforcement.
 

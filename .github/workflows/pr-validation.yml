@@ -239,7 +239,8 @@ jobs:
             exit 0
           fi
 
-          if [ "$GUARD_JOB_RESULT" != "success" ] || [ "$GUARD_RESULT" != "success" ]; then
+          if [ "$GUARD_JOB_RESULT" != "success" ] || [ "$GUARD_RESULT" != "success" ] \
+            || [ "$DETECTION_SUCCEEDED" != "true" ]; then
             echo "Breaking change guard failed: job=$GUARD_JOB_RESULT result=${GUARD_RESULT:-missing} detection_succeeded=${DETECTION_SUCCEEDED:-missing}" >&2
             exit 1
           fi

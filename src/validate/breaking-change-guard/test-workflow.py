@@ -122,17 +122,22 @@ def extract_mapping_entry(section, key, indent=2):
     return "\n".join(lines[start:end])
 
 
-def extract_workflow_call_section(text, section_name, next_section):
+def extract_workflow_call_section(text, section_name):
     lines = text.splitlines()
     start_marker = f"    {section_name}:"
-    end_marker = f"    {next_section}:"
     try:
         start = lines.index(start_marker)
-        end = lines.index(end_marker, start + 1)
     except ValueError as error:
         raise AssertionError(
             f"workflow_call section not found: {section_name}"
         ) from error
+
+    end = len(lines)
+    for index in range(start + 1, len(lines)):
+        line = lines[index]
+        if line.strip() and indentation(line) <= 4:
+            end = index
+            break
     return "\n".join(lines[start:end])
 
 
@@ -148,7 +153,10 @@ def mapping_keys(section, indent):
 def execute_body(body, env):
     with tempfile.TemporaryDirectory() as temp_dir:
         output_path = Path(temp_dir) / "github-output"
-        controlled_env = os.environ.copy()
+        controlled_env = {
+            "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
+            "HOME": temp_dir,
+        }
         controlled_env.update(env)
         controlled_env["GITHUB_OUTPUT"] = str(output_path)
         result = subprocess.run(
@@ -207,6 +215,12 @@ class EventValidationTests(unittest.TestCase):
     def test_pull_request_with_missing_event_data_fails(self):
         env = self.valid_event_env()
         env["PR_HEAD_SHA"] = ""
+        result, _ = execute_body(EVENT_BODY, env)
+        self.assertNotEqual(0, result.returncode)
+
+    def test_absent_required_variable_fails(self):
+        env = self.valid_event_env()
+        del env["EVENT_NAME"]
         result, _ = execute_body(EVENT_BODY, env)
         self.assertNotEqual(0, result.returncode)
 
@@ -376,6 +390,14 @@ class EnforcementTests(unittest.TestCase):
         result = self.enforce(GUARD_JOB_RESULT="skipped")
         self.assertNotEqual(0, result.returncode)
 
+    def test_live_failed_detection_blocks_even_with_success_output(self):
+        result = self.enforce(DETECTION_SUCCEEDED="false")
+        self.assertNotEqual(0, result.returncode)
+
+    def test_live_missing_detection_flag_blocks_even_with_success_output(self):
+        result = self.enforce(DETECTION_SUCCEEDED="")
+        self.assertNotEqual(0, result.returncode)
+
     def test_dry_run_failed_guard_job_is_non_blocking(self):
         result = self.enforce(
             DRY_RUN="true", GUARD_JOB_RESULT="failure", GUARD_RESULT="failure"
@@ -406,10 +428,15 @@ class EnforcementTests(unittest.TestCase):
         )
         self.assertIn("acknowledged=false", result.stdout)
 
+    def test_dry_run_failed_detection_is_non_blocking(self):
+        result = self.enforce(DRY_RUN="true", DETECTION_SUCCEEDED="false")
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertIn("detection_succeeded=false", result.stdout)
+
 
 class WorkflowStructureTests(unittest.TestCase):
     def test_guard_contract_is_not_configurable_by_workflow_inputs(self):
-        inputs = extract_workflow_call_section(WORKFLOW, "inputs", "secrets")
+        inputs = extract_workflow_call_section(WORKFLOW, "inputs")
         keys = mapping_keys(inputs, 6)
         forbidden = {
             "enable_breaking_change_guard",
@@ -427,16 +454,36 @@ class WorkflowStructureTests(unittest.TestCase):
     def test_guard_uses_fixed_author_acknowledgement_exact_mode_and_released_action(
         self,
     ):
-        step = extract_step(WORKFLOW, "Detect breaking changes")
+        job = extract_job(WORKFLOW, "breaking-change-guard")
+        step = extract_step(job, "Detect breaking changes")
         self.assertIn(
             "uses: LerianStudio/github-actions-shared-workflows/src/validate/breaking-change-guard@v1",
             step,
         )
         self.assertIn(f"breaking-change-acknowledgement: '{ACKNOWLEDGEMENT}'", step)
         self.assertIn("acknowledgement-match-mode: exact-visible-line", step)
-        outputs = extract_workflow_call_section(WORKFLOW, "outputs", "inputs")
+        outputs = extract_workflow_call_section(WORKFLOW, "outputs")
         self.assertIn("exact PR author acknowledgement", outputs)
         self.assertIn("does not grant maintainer permission", outputs)
+
+    def test_detector_and_comment_acknowledgement_literals_are_identical(self):
+        detector_step = extract_step(
+            extract_job(WORKFLOW, "breaking-change-guard"), "Detect breaking changes"
+        )
+        comment_job = extract_job(WORKFLOW, "breaking-change-comment")
+        detector_literal = re.search(
+            r"(?m)^\s*breaking-change-acknowledgement: '(?P<value>[^']*)'$",
+            detector_step,
+        )
+        comment_literal = re.search(
+            r"(?m)^\s*ACKNOWLEDGEMENT: '(?P<value>[^']*)'$", comment_job
+        )
+        self.assertIsNotNone(detector_literal)
+        self.assertIsNotNone(comment_literal)
+        self.assertEqual(ACKNOWLEDGEMENT, detector_literal.group("value"))
+        self.assertEqual(
+            detector_literal.group("value"), comment_literal.group("value")
+        )
 
     def test_guard_checkout_has_full_history_without_persisted_credentials(self):
         job = extract_job(WORKFLOW, "breaking-change-guard")
@@ -510,9 +557,13 @@ class WorkflowStructureTests(unittest.TestCase):
         )
 
     def test_reporter_and_summary_receive_guard_and_blocking_runtime_results(self):
-        for step_name in ("PR Checks Summary", "Post PR validation summary comment"):
+        for job_id, step_name in (
+            ("pr-checks-summary", "PR Checks Summary"),
+            ("pr-validation-report", "Post PR validation summary comment"),
+        ):
             with self.subTest(step=step_name):
-                step = extract_step(WORKFLOW, step_name)
+                job = extract_job(WORKFLOW, job_id)
+                step = extract_step(job, step_name)
                 self.assertIn("breaking-change-result:", step)
                 self.assertIn("needs.breaking-change-guard.result == 'success'", step)
                 self.assertIn(
@@ -533,7 +584,7 @@ class WorkflowStructureTests(unittest.TestCase):
                 self.assertGreaterEqual(job.count(expression), 2)
 
     def test_public_outputs_fail_closed(self):
-        outputs = extract_workflow_call_section(WORKFLOW, "outputs", "inputs")
+        outputs = extract_workflow_call_section(WORKFLOW, "outputs")
         self.assertIn(
             "value: ${{ jobs.breaking-change-guard.outputs.has-breaking-changes == 'true' && 'true' || 'false' }}",
             outputs,
@@ -550,8 +601,8 @@ class WorkflowStructureTests(unittest.TestCase):
     def test_go_and_js_workflows_forward_fail_closed_outputs_without_guard_inputs(self):
         for name, text in (("go", GO_WORKFLOW), ("js", JS_WORKFLOW)):
             with self.subTest(workflow=name):
-                outputs = extract_workflow_call_section(text, "outputs", "inputs")
-                inputs = extract_workflow_call_section(text, "inputs", "secrets")
+                outputs = extract_workflow_call_section(text, "outputs")
+                inputs = extract_workflow_call_section(text, "inputs")
                 self.assertIn(
                     "jobs.metadata.outputs.has_breaking_changes || 'false'", outputs
                 )
