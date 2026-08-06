@@ -29,14 +29,36 @@ inputs:
     description: Result of PR metadata check (success/failure/skipped)
     required: false
     default: "skipped"
+  breaking-change-result:
+    description: Result of breaking change guard (success/failure/cancelled/skipped)
+    required: false
+    default: skipped
   dry-run:
     description: When true, skip posting the summary comment
     required: false
     default: "false"
 
+outputs:
+  has-breaking-change-guard:
+    description: Whether the breaking change guard result was reported (true/false)
+    value: ${{ steps.guard-state.outputs.has-breaking-change-guard }}
+
 runs:
   using: composite
   steps:
+    - name: Resolve breaking change guard state
+      id: guard-state
+      shell: bash
+      env:
+        BREAKING_CHANGE_RESULT: ${{ inputs.breaking-change-result }}
+      run: |
+        set -euo pipefail
+        if [ "$BREAKING_CHANGE_RESULT" != "skipped" ]; then
+          echo "has-breaking-change-guard=true" >> "$GITHUB_OUTPUT"
+        else
+          echo "has-breaking-change-guard=false" >> "$GITHUB_OUTPUT"
+        fi
+
     - name: Post PR validation summary
       if: inputs.dry-run != 'true'
       uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
@@ -47,6 +69,7 @@ runs:
         SIZE_RESULT: ${{ inputs.size-result }}
         LABEL_RESULT: ${{ inputs.label-result }}
         METADATA_RESULT: ${{ inputs.metadata-result }}
+        BREAKING_CHANGE_RESULT: ${{ inputs.breaking-change-result }}
       with:
         github-token: ${{ inputs.github-token }}
         script: |
@@ -59,9 +82,20 @@ runs:
             { label: 'PR Metadata',    result: process.env.METADATA_RESULT,      blocking: false },
           ];
 
+          if (process.env.BREAKING_CHANGE_RESULT !== 'skipped') {
+            checks.splice(3, 0, {
+              label: 'Breaking Change Guard',
+              result: process.env.BREAKING_CHANGE_RESULT,
+              blocking: true,
+              strict: true,
+            });
+          }
+
           const icon = (r) => ({ success: '✅', failure: '❌', skipped: '⏭️' }[r] ?? '⚠️');
 
-          const blockingFailures = checks.filter(c => c.blocking && c.result === 'failure');
+          const blockingFailures = checks.filter(c =>
+            c.blocking && (c.strict ? c.result !== 'success' : c.result === 'failure')
+          );
           const verdictHeader = blockingFailures.length > 0
             ? `## 🚫 PR Blocked — ${blockingFailures.length} blocking failure${blockingFailures.length === 1 ? '' : 's'}\n\n`
             : `## ✅ PR Mergeable — no blocking failures\n\n`;

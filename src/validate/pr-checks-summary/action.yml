@@ -26,14 +26,36 @@ inputs:
     description: Result of PR metadata check
     required: false
     default: skipped
+  breaking-change-result:
+    description: Result of breaking change guard
+    required: false
+    default: skipped
   dry-run:
     description: Whether this is a dry run
     required: false
     default: "false"
 
+outputs:
+  has-breaking-change-guard:
+    description: Whether the breaking change guard result was reported (true/false)
+    value: ${{ steps.guard-state.outputs.has-breaking-change-guard }}
+
 runs:
   using: composite
   steps:
+    - name: Resolve breaking change guard state
+      id: guard-state
+      shell: bash
+      env:
+        BREAKING_CHANGE_RESULT: ${{ inputs.breaking-change-result }}
+      run: |
+        set -euo pipefail
+        if [ "$BREAKING_CHANGE_RESULT" != "skipped" ]; then
+          echo "has-breaking-change-guard=true" >> "$GITHUB_OUTPUT"
+        else
+          echo "has-breaking-change-guard=false" >> "$GITHUB_OUTPUT"
+        fi
+
     - name: Summary
       shell: bash
       env:
@@ -43,13 +65,15 @@ runs:
         DESCRIPTION_RESULT: ${{ inputs.description-result }}
         LABEL_RESULT: ${{ inputs.label-result }}
         METADATA_RESULT: ${{ inputs.metadata-result }}
+        BREAKING_CHANGE_RESULT: ${{ inputs.breaking-change-result }}
         DRY_RUN: ${{ inputs.dry-run }}
       run: |
         icon() {
           case "$1" in
             success) echo "✅" ;;
-            failure) echo "❌" ;;
-            *)       echo "⏭️" ;;
+            failure|cancelled) echo "❌" ;;
+            skipped) echo "⏭️" ;;
+            *)       echo "⚠️" ;;
           esac
         }
 
@@ -67,6 +91,9 @@ runs:
           echo "| Source Branch | $(icon "$SOURCE_BRANCH_RESULT") ${SOURCE_BRANCH_RESULT} |"
           echo "| PR Title | $(icon "$TITLE_RESULT") ${TITLE_RESULT} |"
           echo "| PR Description | $(icon "$DESCRIPTION_RESULT") ${DESCRIPTION_RESULT} |"
+          if [ "$BREAKING_CHANGE_RESULT" != "skipped" ]; then
+            echo "| Breaking Change Guard | $(icon "$BREAKING_CHANGE_RESULT") ${BREAKING_CHANGE_RESULT} |"
+          fi
           echo ""
           echo "### Advisory"
           echo ""
