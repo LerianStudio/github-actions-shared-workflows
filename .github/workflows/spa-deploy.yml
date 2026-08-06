@@ -163,6 +163,8 @@ jobs:
       - name: Dry-run deployment plan (resolved inputs)
         if: ${{ inputs.dry_run }}
         env:
+          DRY_RUN: ${{ inputs.dry_run }}
+          NODE_VERSION: ${{ inputs.node_version }}
           WORKING_DIR: ${{ inputs.working_directory }}
           BUILD_COMMAND: ${{ inputs.build_command }}
           DIST: ${{ inputs.dist_directory }}
@@ -174,6 +176,8 @@ jobs:
         run: |
           set -euo pipefail
           echo "::notice::DRY RUN — no AWS credentials assumed, no objects written, no invalidation"
+          echo "  dry run           : ${DRY_RUN}"
+          echo "  node version      : ${NODE_VERSION}"
           echo "  working directory : ${WORKING_DIR}"
           echo "  build command     : ${BUILD_COMMAND}"
           echo "  dist directory    : ${DIST}"
