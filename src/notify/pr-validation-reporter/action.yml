@@ -30,7 +30,7 @@ inputs:
     required: false
     default: "skipped"
   breaking-change-result:
-    description: Result of breaking change guard (success/failure/skipped)
+    description: Result of breaking change guard (success/failure/cancelled/skipped)
     required: false
     default: skipped
   dry-run:
