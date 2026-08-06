@@ -22,6 +22,12 @@ Generates a summary table of all PR validation check results in the GitHub Actio
 
 When `breaking-change-result` is `skipped` or omitted, the summary omits the guard row and preserves existing behavior. This optional default exists only for backward compatibility with direct action consumers. The mandatory `pr-validation` integration always supplies the guard result and offers no guard opt-out.
 
+## Outputs
+
+| Output | Description |
+|--------|-------------|
+| `has-breaking-change-guard` | Whether the breaking change guard result was reported, i.e. `breaking-change-result` was not `skipped` (`true`/`false`) |
+
 ## Usage as composite step
 
 ```yaml

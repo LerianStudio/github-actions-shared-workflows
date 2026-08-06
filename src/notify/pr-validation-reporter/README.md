@@ -23,10 +23,47 @@ Posts a single mergeability summary comment aggregating all PR validation check 
 
 When `breaking-change-result` is `skipped` or omitted, the report omits the guard row and preserves existing mergeability behavior. This optional default exists only for backward compatibility with direct action consumers. The mandatory `pr-validation` integration always supplies the guard result and offers no guard opt-out. When supplied, only `success` is mergeable.
 
+## Outputs
+
+| Output | Description |
+|--------|-------------|
+| `has-breaking-change-guard` | Whether the breaking change guard result was reported, i.e. `breaking-change-result` was not `skipped` (`true`/`false`) |
+
 ## Usage as composite step
+
+The `blocking-checks` job must define a `breaking-change-result` output normalized to `success`/`failure`/`cancelled`/`skipped`, derived from the [`breaking-change-guard`](../../validate/breaking-change-guard/README.md) step:
 
 ```yaml
 jobs:
+  blocking-checks:
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    outputs:
+      # ...other check outputs...
+      breaking-change-result: ${{ steps.breaking-change-result.outputs.result }}
+    steps:
+      # ...other checks...
+      - name: Breaking Change Guard
+        id: breaking-change-guard
+        uses: LerianStudio/github-actions-shared-workflows/src/validate/breaking-change-guard@v1.x.x
+        with:
+          base-ref: ${{ github.base_ref }}
+          breaking-change-acknowledgement: 'BREAKING CHANGE APPROVED'
+      - name: Resolve breaking change result
+        id: breaking-change-result
+        if: always()
+        env:
+          GUARD_OUTCOME: ${{ steps.breaking-change-guard.outcome }}
+          HAS_BREAKING_CHANGES: ${{ steps.breaking-change-guard.outputs.has-breaking-changes }}
+          APPROVED: ${{ steps.breaking-change-guard.outputs.approved }}
+        run: |
+          if [ "$GUARD_OUTCOME" != "success" ]; then
+            echo "result=$GUARD_OUTCOME" >> "$GITHUB_OUTPUT"
+          elif [ "$HAS_BREAKING_CHANGES" = "true" ] && [ "$APPROVED" != "true" ]; then
+            echo "result=failure" >> "$GITHUB_OUTPUT"
+          else
+            echo "result=success" >> "$GITHUB_OUTPUT"
+          fi
+
   pr-validation-report:
     runs-on: blacksmith-4vcpu-ubuntu-2404
     needs: [blocking-checks, advisory-checks]
@@ -42,7 +79,7 @@ jobs:
           size-result: ${{ needs.advisory-checks.outputs.size-result }}
           label-result: ${{ needs.advisory-checks.outputs.label-result }}
           metadata-result: ${{ needs.advisory-checks.outputs.metadata-result }}
-          breaking-change-result: ${{ needs.blocking-checks.outputs.breaking-change-result }}
+          breaking-change-result: ${{ needs.blocking-checks.outputs.breaking-change-result || 'skipped' }}
 ```
 
 ## Required permissions

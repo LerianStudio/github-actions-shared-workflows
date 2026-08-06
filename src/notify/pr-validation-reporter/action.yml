@@ -38,9 +38,26 @@ inputs:
     required: false
     default: "false"
 
+outputs:
+  has-breaking-change-guard:
+    description: Whether the breaking change guard result was reported (true/false)
+    value: ${{ steps.guard-state.outputs.has-breaking-change-guard }}
+
 runs:
   using: composite
   steps:
+    - name: Resolve breaking change guard state
+      id: guard-state
+      shell: bash
+      env:
+        BREAKING_CHANGE_RESULT: ${{ inputs.breaking-change-result }}
+      run: |
+        if [ "$BREAKING_CHANGE_RESULT" != "skipped" ]; then
+          echo "has-breaking-change-guard=true" >> "$GITHUB_OUTPUT"
+        else
+          echo "has-breaking-change-guard=false" >> "$GITHUB_OUTPUT"
+        fi
+
     - name: Post PR validation summary
       if: inputs.dry-run != 'true'
       uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
