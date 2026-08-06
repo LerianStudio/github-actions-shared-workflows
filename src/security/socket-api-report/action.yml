@@ -232,72 +232,70 @@ runs:
             print("--- alert keys ---", sorted({k for a in alerts for k in a}))
             print("--- first fix ---", json.dumps(next((a["fix"] for a in alerts if a.get("fix")), None))[:400])
 
-        # Baseline: the most recent scan of the target branch that describes the
-        # same tree as this one.
+        # Attribution comes from Socket's own diff scan, not from a baseline this
+        # action picks. Two home-grown attempts failed instructively:
         #
-        # Two earlier attempts got this wrong, both instructive:
+        #  1. Comparing against the newest scan of the target branch produced 38
+        #     false attributions on a change to a single types package.
+        #  2. Filtering candidates by scan_state rejected all ten. Every scan in
+        #     this organization persists as 'pending' or 'resolve', the head scan
+        #     included, so scan_state carries no completion meaning here.
         #
-        #  1. Taking the newest scan unconditionally compared against one carrying
-        #     1556 artifacts against 1897 here, so everything missing from it looked
-        #     introduced — 38 false attributions on a change to a single types
-        #     package.
-        #  2. Filtering on scan_state rejected all ten candidates. Every scan in
-        #     this organization persists as 'pending' or 'resolve', including the
-        #     head scan itself, whose data is demonstrably complete. scan_state is
-        #     not a completion signal, so it is logged and otherwise ignored.
-        #
-        # What is left is the measurement that matters: how much of this tree the
-        # candidate actually shares. Package overlap tests that directly, where an
-        # artifact count only approximates it.
-        MIN_OVERLAP = 0.9
-
-        head_pkgs = {f"{pkg_name(a)}@{a.get('version')}" for a in head_arts}
-        base_keys, base_scan_id, base_meta = set(), None, {}
+        # Measuring package overlap then showed why no baseline was usable: the
+        # newest target-branch scan shared only 31.8% of this tree's
+        # package@version set despite holding 82% as many artifacts. The Socket App
+        # already computes the correct diff per pull request, so it is read instead
+        # of approximated — the diff scan is keyed on the head full scan, which
+        # makes the lookup exact rather than heuristic.
+        introduced_pkgs, diff_scan_id = set(), None
+        has_baseline = False
         base_branch = os.environ.get("BASE_BRANCH") or ""
-        if base_branch:
-            q = urllib.parse.urlencode({"branch": base_branch, "sort": "created_at",
-                                        "direction": "desc", "per_page": 10})
-            st, bd, mit = get(f"orgs/{org}/full-scans?{q}")
-            candidates = []
+
+        q = urllib.parse.urlencode({"after_full_scan_id": scan, "per_page": 1})
+        st, bd, mit = get(f"orgs/{org}/diff-scans?{q}")
+        if st == 200:
+            try:
+                results = json.loads(bd.decode("utf-8", "replace")).get("results") or []
+                if results:
+                    diff_scan_id = (results[0] or {}).get("id")
+                    before_id = (results[0] or {}).get("before_full_scan_id")
+                    print(f"Diff scan {diff_scan_id} (before {before_id}, after {scan}).")
+            except json.JSONDecodeError:
+                pass
+        else:
+            explain(st, bd, mit)
+
+        if diff_scan_id:
+            # omit_unchanged keeps the payload to what changed; the unchanged set is
+            # already covered by the head full scan read above.
+            st, bd, mit = get(f"orgs/{org}/diff-scans/{diff_scan_id}?omit_unchanged=true")
             if st == 200:
                 try:
-                    candidates = json.loads(bd.decode("utf-8", "replace")).get("results") or []
+                    diff = json.loads(bd.decode("utf-8", "replace"))
                 except json.JSONDecodeError:
-                    candidates = []
+                    diff = {}
+                # added: new to this pull request. updated/replaced: same package at
+                # a different version or source, so its findings are this change's
+                # responsibility too. removed needs no reporting.
+                counts = {}
+                for bucket in ("added", "updated", "replaced"):
+                    arts = diff.get(bucket) or []
+                    counts[bucket] = len(arts)
+                    for art in arts:
+                        introduced_pkgs.add(f"{pkg_name(art)}@{art.get('version')}")
+                print("Diff buckets: " + ", ".join(f"{k}={v}" for k, v in counts.items())
+                      + f" — {len(introduced_pkgs)} package(s) attributed to this pull request.")
+                has_baseline = True
             else:
                 explain(st, bd, mit)
+        else:
+            print(f"::warning::No Socket diff scan found for full scan {scan}. Nothing can be "
+                  f"attributed to this pull request, so every finding is reported as pre-existing.")
 
-            print(f"Baseline candidates on '{base_branch}': {len(candidates)}.")
-            for cand in candidates:
-                cid = cand.get("id")
-                if not cid or cid == scan:
-                    continue
-                st, bd, mit = get(f"orgs/{org}/full-scans/{cid}")
-                if st != 200:
-                    explain(st, bd, mit)
-                    continue
-                cand_arts, _ = parse_scan(bd)
-                cand_pkgs = {f"{pkg_name(a)}@{a.get('version')}" for a in cand_arts}
-                overlap = (len(cand_pkgs & head_pkgs) / len(head_pkgs)) if head_pkgs else 0
-                print(f"  candidate {cid} ({cand.get('created_at','?')}, "
-                      f"commit {str(cand.get('commit_hash'))[:7]}, state '{cand.get('scan_state')}'): "
-                      f"{len(cand_arts)} artifact(s), {overlap:.1%} package overlap.")
-                if overlap < MIN_OVERLAP:
-                    print(f"  rejecting {cid} — {overlap:.1%} overlap is below "
-                          f"{MIN_OVERLAP:.0%}; it describes a different tree.")
-                    continue
-                for art in cand_arts:
-                    key_pkg = f"{pkg_name(art)}@{art.get('version')}"
-                    for a in art.get("alerts") or []:
-                        base_keys.add((key_pkg, a.get("type") or a.get("key") or "unknown"))
-                base_scan_id, base_meta = cid, cand
-                print(f"  using {cid} as baseline: {len(base_keys)} alert key(s).")
-                break
-
-        has_baseline = bool(base_keys)
+        # Kept for the report: which branch the comparison is against.
         if not has_baseline:
-            print("::warning::No baseline scan for the target branch — every finding is reported as "
-                  "pre-existing, and nothing is attributed to this pull request.")
+            print("::warning::No diff scan available — every finding is reported as pre-existing "
+                  "and nothing is attributed to this pull request.")
 
         ACT_RANK = {"error": 0, "warn": 1, "monitor": 2}
         SEV_RANK = {"critical": 0, "high": 1, "middle": 2, "medium": 2, "low": 3, "info": 4}
@@ -324,14 +322,13 @@ runs:
                 e["file"] = e["file"] or a.get("file")
                 e["fix"] = e["fix"] or a.get("fix")
 
-            # A finding counts as introduced when this package@version did not
-            # already carry that alert type on the target branch. A version bump
-            # therefore makes the package new, which is the conservative reading.
+            # A package is introduced when Socket's diff scan lists it as added,
+            # updated or replaced. Without a diff scan nothing is attributed, and
+            # everything is reported as pre-existing — no attribution is honest, a
+            # confident wrong one is not.
+            pkg_is_new = has_baseline and key_pkg in introduced_pkgs
             for is_new in (True, False):
-                sel = [e for t, e in by_type.items()
-                       if has_baseline and (((key_pkg, t) not in base_keys) == is_new)]
-                if not has_baseline:
-                    sel = list(by_type.values()) if not is_new else []
+                sel = list(by_type.values()) if is_new == pkg_is_new else []
                 if not sel:
                     continue
                 sel.sort(key=lambda e: (ACT_RANK.get((e["action"] or "").lower(), 3),
@@ -372,7 +369,7 @@ runs:
                 "alertCountRaw": raw_alerts,
                 "includedActions": sorted(keep),
                 "baseBranch": base_branch,
-                "baseScanId": base_scan_id,
+                "diffScanId": diff_scan_id,
                 "hasBaseline": has_baseline,
                 "introducedCount": n_intro,
                 "preexistingCount": n_pre,
