@@ -595,6 +595,7 @@ jobs:
           # pre-existing and never block, so a repository carrying debt does not
           # fail every pull request for something none of them caused.
           base-branch: ${{ github.base_ref }}
+          head-sha: ${{ github.event.pull_request.head.sha }}
 
       - name: Post Socket report to PR
         if: always() && github.event_name == 'pull_request' && !inputs.dry_run
