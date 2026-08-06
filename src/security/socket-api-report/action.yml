@@ -96,16 +96,40 @@ runs:
         printf 'header = "Authorization: Bearer %s"\n' "$SOCKET_API_KEY" > "$CFG"
 
         NDJSON="$RUNNER_TEMP/socket-full-scan.ndjson"
-        HTTP=$(curl -sS --config "$CFG" -o "$NDJSON" -w '%{http_code}' \
+        HEADERS="$RUNNER_TEMP/socket-full-scan.headers"
+        # Headers are kept so a Cloudflare challenge can be told apart from a real
+        # authorization failure: both surface as 403, and confusing them sends you
+        # hunting for a token scope that was never the problem.
+        HTTP=$(curl -sS --config "$CFG" -D "$HEADERS" -o "$NDJSON" -w '%{http_code}' \
+          -H 'Accept: application/x-ndjson' \
+          -A "LerianStudio-github-actions-shared-workflows" \
           "https://api.socket.dev/v0/orgs/${ORG}/full-scans/${SCAN}" || echo "000")
         rm -f "$CFG"
 
         if [ "$HTTP" != "200" ]; then
           echo "skipped=true" >> "$GITHUB_OUTPUT"
           echo "alert_count=0" >> "$GITHUB_OUTPUT"
+          # A Cloudflare managed challenge answers 403 with an HTML interstitial
+          # and a cf-mitigated header. It is indistinguishable from a scope denial
+          # by status code alone, so classify on the evidence rather than guessing.
+          CHALLENGED=false
+          if grep -qi '^cf-mitigated:[[:space:]]*challenge' "$HEADERS" 2>/dev/null \
+             || grep -qi 'Just a moment' "$NDJSON" 2>/dev/null; then
+            CHALLENGED=true
+          fi
+
+          if [ "$CHALLENGED" = "true" ]; then
+            echo "::warning::Socket API blocked by a Cloudflare challenge (HTTP $HTTP, cf-mitigated)."
+            echo "::warning::This is NOT a token or scope problem — the request never reached Socket's API."
+            echo "  The runner's egress is being challenged. Socket support has to allow it, or the call"
+            echo "  has to originate from an allowed network."
+            grep -iE '^(cf-ray|cf-mitigated|server):' "$HEADERS" 2>/dev/null || true
+            exit 0
+          fi
+
           case "$HTTP" in
             401) HINT="the token is invalid or revoked" ;;
-            403) HINT="the token lacks a required scope" ;;
+            403) HINT="the token lacks a required scope (full-scans:list)" ;;
             404) HINT="scan $SCAN not found under org $ORG" ;;
             429) HINT="quota or rate limit exhausted" ;;
             *) HINT="unexpected status" ;;

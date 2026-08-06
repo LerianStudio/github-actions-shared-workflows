@@ -50,10 +50,19 @@ HTTP failures are classified rather than lumped together, because they call for 
 
 | Status | Reported as |
 |---|---|
+| `403` + `cf-mitigated: challenge` | **Blocked by Cloudflare before reaching Socket** — not a token problem |
 | `401` | Token invalid or revoked |
 | `403` | Token missing the `full-scans:list` scope |
 | `404` | Scan not found under that org |
 | `429` | Quota or rate limit exhausted |
+
+### The Cloudflare case, specifically
+
+`api.socket.dev` sits behind a Cloudflare managed challenge that answers non-browser clients with `HTTP 403`, an HTML interstitial and a `cf-mitigated: challenge` header. By status code alone that is **indistinguishable** from a scope denial, which sends you auditing token permissions that were never the cause.
+
+Observed from both a developer machine and a Blacksmith CI runner, and reproduced with every documented auth form — `Authorization: Bearer`, HTTP Basic with the token as username, a custom User-Agent, and the exact header shape the official `socket-sdk-python` sends — on `/v0/quota` as well as the full-scan endpoint. It is not transient.
+
+The action therefore checks for `cf-mitigated` and the interstitial before classifying, and says plainly that the request never reached the API. Resolving it needs Socket to allow the runner's egress; no change on this side helps.
 
 ## Advisory by construction
 
