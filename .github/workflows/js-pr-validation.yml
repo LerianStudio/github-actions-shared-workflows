@@ -580,6 +580,26 @@ jobs:
 
       # Reads the scan the App already produced, addressed by the dashboard URL the
       # gate captured — no new scan, one quota unit, no duplicate analysis.
+      # The App publishes the diff scan id in its own comment. Looking it up by
+      # after_full_scan_id does not work: the App diffs against a different full
+      # scan than the one its Project Report check links to.
+      - name: Resolve Socket diff scan id
+        id: diff-scan
+        if: always() && inputs.socket_enable_api_report && github.event_name == 'pull_request'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.MANAGE_TOKEN || github.token }}
+          PR: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          ID=$(gh api "repos/$REPO/issues/$PR/comments" --paginate                  --jq '[.[] | select(.user.login == "socket-security[bot]") | .body] | last // ""'                | grep -oE 'diff-scan/[0-9a-fA-F-]{36}' | head -1 | cut -d/ -f2 || true)
+          if [ -n "$ID" ]; then
+            echo "Resolved diff scan $ID from the Socket App comment."
+          else
+            echo "No diff scan id in the Socket App comment — it only posts one when dependencies change."
+          fi
+          echo "id=$ID" >> "$GITHUB_OUTPUT"
+
       - name: Socket API Report
         id: api-report
         if: always() && inputs.socket_enable_api_report && github.event_name == 'pull_request'
@@ -596,6 +616,7 @@ jobs:
           # fail every pull request for something none of them caused.
           base-branch: ${{ github.base_ref }}
           head-sha: ${{ github.event.pull_request.head.sha }}
+          diff-scan-id: ${{ steps.diff-scan.outputs.id }}
 
       - name: Post Socket report to PR
         if: always() && github.event_name == 'pull_request' && !inputs.dry_run

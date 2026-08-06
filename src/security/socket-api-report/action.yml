@@ -32,6 +32,13 @@ inputs:
     description: 'Head commit SHA, used only to log the state its own scan reports so the baseline state filter can be validated.'
     required: false
     default: ''
+  diff-scan-id:
+    description: >-
+      Socket diff scan id for this pull request. The App publishes it in its own comment; looking it up by
+      after_full_scan_id does not work, because the App diffs against a different full scan than the one its
+      Project Report check links to. Empty falls back to that lookup, then to no attribution.
+    required: false
+    default: ''
   include-actions:
     description: >-
       Comma-separated Socket alert actions to treat as findings. Socket marks roughly 99% of alerts as "ignore"
@@ -89,6 +96,7 @@ runs:
         ORG_SLUG_IN: ${{ inputs.org-slug }}
         SCAN_ID_IN: ${{ inputs.full-scan-id }}
         BASE_BRANCH: ${{ inputs.base-branch }}
+        DIFF_SCAN_ID_IN: ${{ inputs.diff-scan-id }}
         HEAD_SHA: ${{ inputs.head-sha }}
         INCLUDE_ACTIONS: ${{ inputs.include-actions }}
         FAIL_ON_ACTIONS: ${{ inputs.fail-on-actions }}
@@ -247,13 +255,16 @@ runs:
         # already computes the correct diff per pull request, so it is read instead
         # of approximated — the diff scan is keyed on the head full scan, which
         # makes the lookup exact rather than heuristic.
-        introduced_pkgs, diff_scan_id = set(), None
+        introduced_pkgs = set()
         has_baseline = False
         base_branch = os.environ.get("BASE_BRANCH") or ""
 
+        diff_scan_id = os.environ.get("DIFF_SCAN_ID_IN") or None
+        if diff_scan_id:
+            print(f"Diff scan {diff_scan_id} (supplied).")
         q = urllib.parse.urlencode({"after_full_scan_id": scan, "per_page": 1})
-        st, bd, mit = get(f"orgs/{org}/diff-scans?{q}")
-        if st == 200:
+        st, bd, mit = (200, b'{"results":[]}', "") if diff_scan_id else get(f"orgs/{org}/diff-scans?{q}")
+        if st == 200 and not diff_scan_id:
             try:
                 results = json.loads(bd.decode("utf-8", "replace")).get("results") or []
                 if results:
@@ -335,6 +346,7 @@ runs:
                                         SEV_RANK.get((e["severity"] or "info").lower(), 4)))
                 (introduced if is_new else preexisting).append({
                     "name": name, "version": art.get("version"),
+                    "artifactId": art.get("id"),
                     "direct": bool(art.get("direct")), "dev": bool(art.get("dev")),
                     "overallScore": (art.get("score") or {}).get("overall"),
                     "worstAction": sel[0]["action"], "worstSeverity": sel[0]["severity"],
@@ -364,6 +376,8 @@ runs:
 
         with open(out_path, "w") as fh:
             json.dump({
+                "orgSlug": org,
+                "scanId": scan,
                 "scanScores": head_scores,
                 "artifactCount": len(head_arts),
                 "alertCountRaw": raw_alerts,

@@ -107,11 +107,25 @@ runs:
           const pct = (v) => (typeof v === 'number' ? `${Math.round(v * 100)}` : '—');
           const marker = `<!-- socket-supply-chain-${appName} -->`;
 
-          const pkgTable = (rows) => {
+          // Dashboard URLs, in the shapes the Socket App itself emits — the only
+          // ones observed to resolve. A package row deep-links into the scan when
+          // Socket gave the artifact an id; without one the name stays plain
+          // rather than pointing somewhere that may not exist.
+          const org = api.orgSlug;
+          const base = org ? `https://socket.dev/dashboard/org/${org}` : null;
+          const diffUrl = base && api.diffScanId ? `${base}/diff-scan/${api.diffScanId}?tab=dependencies` : null;
+          const scanUrl = base && api.scanId ? `${base}/sbom/${api.scanId}` : null;
+          const pkgUrl = (p, root) => (root && p.artifactId
+            ? `${root}${root.includes('?') ? '&' : '?'}dependency_item_key=${p.artifactId}`
+            : null);
+
+          const pkgTable = (rows, root) => {
             const out = ['| Package | Version | Scope | Score | Findings |',
                          '|---------|---------|-------|-------|----------|'];
             for (const p of rows) {
               const m = ACT[(p.worstAction || '').toLowerCase()] || { icon: '•' };
+              const href = pkgUrl(p, root);
+              const label = href ? `[\`${p.name}\`](${href})` : `\`${p.name}\``;
               const scope = [p.direct ? 'direct' : 'transitive', p.dev ? 'dev' : 'prod'].join(', ');
               const findings = (p.findings || []).map(f => {
                 const fm = ACT[(f.action || '').toLowerCase()] || { icon: '•' };
@@ -119,7 +133,7 @@ runs:
                 const sev = f.severity ? ` (${f.severity})` : '';
                 return `${fm.icon} \`${f.type}\`${n}${sev}`;
               }).join('<br/>');
-              out.push(`| ${m.icon} \`${p.name}\` | \`${p.version || '?'}\` | ${scope} | ${pct(p.overallScore)} | ${findings} |`);
+              out.push(`| ${m.icon} ${label} | \`${p.version || '?'}\` | ${scope} | ${pct(p.overallScore)} | ${findings} |`);
             }
             return out;
           };
@@ -147,9 +161,14 @@ runs:
           if (hasFindings) {
             lines.push(`## 🛡️ Socket Supply Chain — \`${appName}\``);
             lines.push('');
+            // The header states what this pull request is responsible for. Only
+            // pre-existing debt is a pass: nothing here was introduced, so a
+            // warning icon would train people to ignore the one that matters.
             lines.push(blockingCount > 0
-              ? `### ❌ ${blockingCount} blocking finding(s)`
-              : '### ⚠️ Findings to review — none blocking');
+              ? `### ❌ ${blockingCount} blocking finding(s) introduced`
+              : introduced.length
+                ? `### ⚠️ ${api.introducedCount || introduced.length} finding(s) introduced — none blocking`
+                : '### ✅ No new findings in this pull request');
             lines.push('');
 
             if (hasFirewallFinding) {
@@ -174,7 +193,7 @@ runs:
             if (introduced.length) {
               lines.push(`### Introduced by this pull request`);
               lines.push('');
-              lines.push(...pkgTable(introduced));
+              lines.push(...pkgTable(introduced, diffUrl || scanUrl));
               if (api.introducedTruncated) {
                 lines.push('');
                 lines.push('Highest-action packages only — more exist beyond the row limit.');
@@ -199,7 +218,7 @@ runs:
               const base = api.baseBranch ? `\`${api.baseBranch}\`` : 'the target branch';
               lines.push(`<details><summary>Already present on ${base} — ${n} finding(s) across ${preexisting.length} package(s), not introduced here</summary>`);
               lines.push('');
-              lines.push(...pkgTable(preexisting));
+              lines.push(...pkgTable(preexisting, scanUrl));
               if (api.preexistingTruncated) {
                 lines.push('');
                 lines.push('Highest-action packages only — more exist beyond the row limit.');
@@ -214,7 +233,11 @@ runs:
               lines.push('');
             }
 
-            if (runUrl) lines.push(`<sub>🔍 [Full scan logs](${runUrl})</sub>`);
+            const refs = [];
+            if (diffUrl) refs.push(`[Diff on Socket](${diffUrl})`);
+            if (scanUrl) refs.push(`[Full project report](${scanUrl})`);
+            if (runUrl) refs.push(`[Scan logs](${runUrl})`);
+            if (refs.length) lines.push(`<sub>🔍 ${refs.join(' · ')}</sub>`);
           } else if (always) {
             lines.push(`## 🛡️ Socket Supply Chain — \`${appName}\``);
             lines.push('');
