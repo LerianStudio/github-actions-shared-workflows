@@ -29,6 +29,10 @@ inputs:
     description: Result of PR metadata check (success/failure/skipped)
     required: false
     default: "skipped"
+  breaking-change-result:
+    description: Result of breaking change guard (success/failure/skipped)
+    required: false
+    default: skipped
   dry-run:
     description: When true, skip posting the summary comment
     required: false
@@ -47,6 +51,7 @@ runs:
         SIZE_RESULT: ${{ inputs.size-result }}
         LABEL_RESULT: ${{ inputs.label-result }}
         METADATA_RESULT: ${{ inputs.metadata-result }}
+        BREAKING_CHANGE_RESULT: ${{ inputs.breaking-change-result }}
       with:
         github-token: ${{ inputs.github-token }}
         script: |
@@ -59,9 +64,20 @@ runs:
             { label: 'PR Metadata',    result: process.env.METADATA_RESULT,      blocking: false },
           ];
 
+          if (process.env.BREAKING_CHANGE_RESULT !== 'skipped') {
+            checks.splice(3, 0, {
+              label: 'Breaking Change Guard',
+              result: process.env.BREAKING_CHANGE_RESULT,
+              blocking: true,
+              strict: true,
+            });
+          }
+
           const icon = (r) => ({ success: '✅', failure: '❌', skipped: '⏭️' }[r] ?? '⚠️');
 
-          const blockingFailures = checks.filter(c => c.blocking && c.result === 'failure');
+          const blockingFailures = checks.filter(c =>
+            c.blocking && (c.strict ? c.result !== 'success' : c.result === 'failure')
+          );
           const verdictHeader = blockingFailures.length > 0
             ? `## 🚫 PR Blocked — ${blockingFailures.length} blocking failure${blockingFailures.length === 1 ? '' : 's'}\n\n`
             : `## ✅ PR Mergeable — no blocking failures\n\n`;

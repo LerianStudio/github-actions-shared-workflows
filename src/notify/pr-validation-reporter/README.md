@@ -18,7 +18,10 @@ Posts a single mergeability summary comment aggregating all PR validation check 
 | `size-result` | Result of PR size check | No | `skipped` |
 | `label-result` | Result of auto-label step | No | `skipped` |
 | `metadata-result` | Result of PR metadata check | No | `skipped` |
+| `breaking-change-result` | Result of the blocking breaking change guard | No | `skipped` |
 | `dry-run` | When `true`, skip posting the summary comment | No | `false` |
+
+When `breaking-change-result` is `skipped` or omitted, the report omits the guard row and preserves existing mergeability behavior. This optional default exists only for backward compatibility with direct action consumers. The mandatory `pr-validation` integration always supplies the guard result and offers no guard opt-out. When supplied, only `success` is mergeable.
 
 ## Usage as composite step
 
@@ -39,6 +42,7 @@ jobs:
           size-result: ${{ needs.advisory-checks.outputs.size-result }}
           label-result: ${{ needs.advisory-checks.outputs.label-result }}
           metadata-result: ${{ needs.advisory-checks.outputs.metadata-result }}
+          breaking-change-result: ${{ needs.blocking-checks.outputs.breaking-change-result }}
 ```
 
 ## Required permissions
