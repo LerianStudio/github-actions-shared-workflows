@@ -212,46 +212,66 @@ runs:
             print("--- alert keys ---", sorted({k for a in alerts for k in a}))
             print("--- first fix ---", json.dumps(next((a["fix"] for a in alerts if a.get("fix")), None))[:400])
 
-        # Baseline: the most recent scan of the target branch. Without it every
-        # finding would read as introduced by this pull request, which on a repo
-        # carrying pre-existing debt means blocking every pull request.
+        # Baseline: the most recent *complete* scan of the target branch.
+        #
+        # Two defences, because a bad baseline is worse than none. The first
+        # attempt compared against a scan in state "resolve" — still resolving
+        # dependencies — which carried 1556 artifacts and 1412 alert keys against
+        # 1897 and 4636 in the head scan. Everything missing from it looked
+        # introduced by the pull request, producing 38 false attributions on a
+        # change that touched a single types package.
+        #
+        #  1. Skip candidates in a known in-progress state.
+        #  2. Verify the candidate is comparable in size to the head scan, which
+        #     tests what actually matters rather than trusting a state label.
+        #
+        # If nothing qualifies, report everything as pre-existing: no attribution
+        # is honest, a wrong attribution is not.
+        IN_PROGRESS = {"pending", "precrawl", "resolve"}
+        MIN_RATIO = 0.8
+
         base_keys, base_scan_id, base_meta = set(), None, {}
         base_branch = os.environ.get("BASE_BRANCH") or ""
         if base_branch:
             q = urllib.parse.urlencode({"branch": base_branch, "sort": "created_at",
-                                        "direction": "desc", "per_page": 1})
+                                        "direction": "desc", "per_page": 10})
             st, bd, mit = get(f"orgs/{org}/full-scans?{q}")
+            candidates = []
             if st == 200:
                 try:
-                    results = json.loads(bd.decode("utf-8", "replace")).get("results") or []
-                    base_meta = (results[0] or {}) if results else {}
-                    base_scan_id = base_meta.get("id")
-                    print(f"Baseline candidates on '{base_branch}': {len(results)}.")
+                    candidates = json.loads(bd.decode("utf-8", "replace")).get("results") or []
                 except json.JSONDecodeError:
-                    base_scan_id, base_meta = None, {}
+                    candidates = []
             else:
                 explain(st, bd, mit)
-            if base_scan_id and base_scan_id != scan:
-                st, bd, mit = get(f"orgs/{org}/full-scans/{base_scan_id}")
-                if st == 200:
-                    base_arts, _ = parse_scan(bd)
-                    for art in base_arts:
-                        key_pkg = f"{pkg_name(art)}@{art.get('version')}"
-                        for a in art.get("alerts") or []:
-                            base_keys.add((key_pkg, a.get("type") or a.get("key") or "unknown"))
-                    # A baseline much smaller than the head scan means the
-                    # comparison is against an unrelated or incomplete scan, and
-                    # everything will look introduced. Surface it rather than
-                    # reporting a confident but wrong split.
-                    print(f"Baseline scan {base_scan_id} ({base_meta.get('created_at','?')}, "
-                          f"commit {str(base_meta.get('commit_hash'))[:7]}, "
-                          f"state {base_meta.get('scan_state','?')}): "
-                          f"{len(base_arts)} artifact(s), {len(base_keys)} alert key(s).")
-                    if len(base_arts) < len(head_arts) * 0.5:
-                        print(f"::warning::Baseline has {len(base_arts)} artifacts against "
-                              f"{len(head_arts)} in the head scan — the comparison is unreliable.")
-                else:
+
+            print(f"Baseline candidates on '{base_branch}': {len(candidates)}.")
+            for cand in candidates:
+                cid, state = cand.get("id"), (cand.get("scan_state") or "").lower()
+                if not cid or cid == scan:
+                    continue
+                if state in IN_PROGRESS:
+                    print(f"  skipping {cid} — state '{state}' (still running).")
+                    continue
+                st, bd, mit = get(f"orgs/{org}/full-scans/{cid}")
+                if st != 200:
                     explain(st, bd, mit)
+                    continue
+                cand_arts, _ = parse_scan(bd)
+                ratio = (len(cand_arts) / len(head_arts)) if head_arts else 0
+                print(f"  candidate {cid} ({cand.get('created_at','?')}, "
+                      f"commit {str(cand.get('commit_hash'))[:7]}, state '{state}'): "
+                      f"{len(cand_arts)} artifact(s), {ratio:.0%} of head.")
+                if ratio < MIN_RATIO:
+                    print(f"  rejecting {cid} — only {ratio:.0%} the size of the head scan.")
+                    continue
+                for art in cand_arts:
+                    key_pkg = f"{pkg_name(art)}@{art.get('version')}"
+                    for a in art.get("alerts") or []:
+                        base_keys.add((key_pkg, a.get("type") or a.get("key") or "unknown"))
+                base_scan_id, base_meta = cid, cand
+                print(f"  using {cid} as baseline: {len(base_keys)} alert key(s).")
+                break
 
         has_baseline = bool(base_keys)
         if not has_baseline:
