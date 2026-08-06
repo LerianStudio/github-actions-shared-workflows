@@ -89,45 +89,61 @@ runs:
         fi
         echo "Reading full scan $SCAN for org $ORG"
 
-        # The token goes through a curl config file rather than the command line,
-        # so it never appears in the process table of a shared runner.
-        CFG="$RUNNER_TEMP/socket-curl.cfg"
-        umask 077
-        printf 'header = "Authorization: Bearer %s"\n' "$SOCKET_API_KEY" > "$CFG"
-
+        # Deliberately not curl. Cloudflare fingerprints the TLS/HTTP client in
+        # front of api.socket.dev and answers curl with a managed challenge —
+        # HTTP 403, an HTML interstitial and cf-mitigated: challenge — which is
+        # indistinguishable from a scope denial by status code alone. Python's
+        # stdlib client is not challenged, and it is the same stack the official
+        # socket-sdk-python uses. The token is read from the environment, never
+        # passed as an argument, so it stays out of the process table.
         NDJSON="$RUNNER_TEMP/socket-full-scan.ndjson"
-        HEADERS="$RUNNER_TEMP/socket-full-scan.headers"
-        # Headers are kept so a Cloudflare challenge can be told apart from a real
-        # authorization failure: both surface as 403, and confusing them sends you
-        # hunting for a token scope that was never the problem.
-        HTTP=$(curl -sS --config "$CFG" -D "$HEADERS" -o "$NDJSON" -w '%{http_code}' \
-          -H 'Accept: application/x-ndjson' \
-          -A "LerianStudio-github-actions-shared-workflows" \
-          "https://api.socket.dev/v0/orgs/${ORG}/full-scans/${SCAN}" || echo "000")
-        rm -f "$CFG"
+        META="$RUNNER_TEMP/socket-full-scan.meta"
+        SOCKET_URL="https://api.socket.dev/v0/orgs/${ORG}/full-scans/${SCAN}" \
+        NDJSON_PATH="$NDJSON" META_PATH="$META" python3 - <<'PYEOF'
+        import base64, json, os, urllib.request, urllib.error
+
+        token = os.environ["SOCKET_API_KEY"]
+        # Basic auth with the token as the username is the form the official SDK
+        # sends; the API also accepts Bearer.
+        auth = base64.b64encode(f"{token}:".encode()).decode("ascii")
+        req = urllib.request.Request(
+            os.environ["SOCKET_URL"],
+            headers={
+                "Authorization": f"Basic {auth}",
+                "User-Agent": "LerianStudio-github-actions-shared-workflows",
+                "accept": "application/x-ndjson",
+            },
+        )
+        status, body, mitigated = 0, b"", ""
+        try:
+            with urllib.request.urlopen(req, timeout=120) as r:
+                status, body = r.status, r.read()
+                mitigated = r.headers.get("cf-mitigated") or ""
+        except urllib.error.HTTPError as e:
+            status, body = e.code, e.read()
+            mitigated = e.headers.get("cf-mitigated") or ""
+        except Exception as e:
+            status, body = 0, f"{type(e).__name__}: {e}".encode()
+
+        with open(os.environ["NDJSON_PATH"], "wb") as fh:
+            fh.write(body)
+        with open(os.environ["META_PATH"], "w") as fh:
+            json.dump({"status": status, "cfMitigated": mitigated}, fh)
+        PYEOF
+
+        HTTP=$(jq -r '.status' "$META")
+        CF_MITIGATED=$(jq -r '.cfMitigated' "$META")
 
         if [ "$HTTP" != "200" ]; then
           echo "skipped=true" >> "$GITHUB_OUTPUT"
           echo "alert_count=0" >> "$GITHUB_OUTPUT"
-          # A Cloudflare managed challenge answers 403 with an HTML interstitial
-          # and a cf-mitigated header. It is indistinguishable from a scope denial
-          # by status code alone, so classify on the evidence rather than guessing.
-          CHALLENGED=false
-          if grep -qi '^cf-mitigated:[[:space:]]*challenge' "$HEADERS" 2>/dev/null \
-             || grep -qi 'Just a moment' "$NDJSON" 2>/dev/null; then
-            CHALLENGED=true
-          fi
-
-          if [ "$CHALLENGED" = "true" ]; then
-            echo "::warning::Socket API blocked by a Cloudflare challenge (HTTP $HTTP, cf-mitigated)."
+          if [ -n "$CF_MITIGATED" ] && [ "$CF_MITIGATED" != "null" ]; then
+            echo "::warning::Socket API blocked by a Cloudflare challenge (HTTP $HTTP, cf-mitigated: $CF_MITIGATED)."
             echo "::warning::This is NOT a token or scope problem — the request never reached Socket's API."
-            echo "  The runner's egress is being challenged. Socket support has to allow it, or the call"
-            echo "  has to originate from an allowed network."
-            grep -iE '^(cf-ray|cf-mitigated|server):' "$HEADERS" 2>/dev/null || true
             exit 0
           fi
-
           case "$HTTP" in
+            0) HINT="the request did not complete (network or timeout)" ;;
             401) HINT="the token is invalid or revoked" ;;
             403) HINT="the token lacks a required scope (full-scans:list)" ;;
             404) HINT="scan $SCAN not found under org $ORG" ;;
@@ -135,16 +151,12 @@ runs:
             *) HINT="unexpected status" ;;
           esac
           echo "::warning::Socket API returned HTTP $HTTP — $HINT."
-          # Print the API's own error payload. The status alone only carries a
-          # guess; the body is where Socket names the missing permission, and
-          # discarding it forces scope debugging to proceed by trial and error.
-          # It is an error document, not scan data — nothing sensitive.
+          # Print the API's own error payload: the status alone is a guess, the
+          # body is where Socket names what is actually wrong.
           if [ -s "$NDJSON" ]; then
             echo "--- Socket API response ---"
             jq . "$NDJSON" 2>/dev/null || head -c 2000 "$NDJSON"
             echo ""
-          else
-            echo "(empty response body)"
           fi
           # Advisory by construction: this layer informs, the App gate enforces.
           exit 0

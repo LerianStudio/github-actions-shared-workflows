@@ -56,13 +56,13 @@ HTTP failures are classified rather than lumped together, because they call for 
 | `404` | Scan not found under that org |
 | `429` | Quota or rate limit exhausted |
 
-### The Cloudflare case, specifically
+### Why this does not use curl
 
-`api.socket.dev` sits behind a Cloudflare managed challenge that answers non-browser clients with `HTTP 403`, an HTML interstitial and a `cf-mitigated: challenge` header. By status code alone that is **indistinguishable** from a scope denial, which sends you auditing token permissions that were never the cause.
+`api.socket.dev` sits behind Cloudflare, which **fingerprints the HTTP client**. `curl` is answered with a managed challenge — `HTTP 403`, an HTML interstitial and `cf-mitigated: challenge` — that by status code alone is indistinguishable from a scope denial, and sends you auditing token permissions that were never the cause.
 
-Observed from both a developer machine and a Blacksmith CI runner, and reproduced with every documented auth form — `Authorization: Bearer`, HTTP Basic with the token as username, a custom User-Agent, and the exact header shape the official `socket-sdk-python` sends — on `/v0/quota` as well as the full-scan endpoint. It is not transient.
+It is not about credentials, headers or egress. The challenge reproduced with `Authorization: Bearer`, with HTTP Basic, with a custom User-Agent, with the exact header shape `socket-sdk-python` sends, on `/v0/quota` as well as the full-scan endpoint, from a developer machine and from a Blacksmith CI runner, across three spaced retries.
 
-The action therefore checks for `cf-mitigated` and the interstitial before classifying, and says plainly that the request never reached the API. Resolving it needs Socket to allow the runner's egress; no change on this side helps.
+Python's stdlib client is not challenged: the same request returns real JSON from the API. That is also the stack the official SDK uses, and the reason `sfw` reaches Socket from the very runner where `curl` is blocked. So the fetch is done with `python3` and the `cf-mitigated` check is kept as a regression guard in case the fingerprint policy widens.
 
 ## Advisory by construction
 
@@ -132,4 +132,4 @@ No GitHub scope beyond checkout — it talks to the Socket API, not to GitHub.
 
 ## Third-party actions used
 
-None. It uses the preinstalled `curl` and `jq`. The token is passed through a `curl --config` file rather than the command line, so it never appears in the process table of a shared runner.
+None. It uses the preinstalled `python3` (stdlib only, no `pip install`) and `jq`. The token is read from the environment inside the Python process, never passed as an argument, so it never appears in the process table of a shared runner.
