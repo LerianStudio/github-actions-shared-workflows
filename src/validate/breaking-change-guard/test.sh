@@ -404,6 +404,18 @@ EOF
   assert_guard "quoted acknowledgement is not an exact visible line" false false \
     '> Approved for major release.' "Approved for major release." \
     main "${PATH}" exact-visible-line
+  assert_guard "acknowledgement configured with leading whitespace is rejected" false false \
+    " Approved for major release." " Approved for major release." \
+    main "${PATH}" exact-visible-line
+  assert_guard "acknowledgement configured with trailing whitespace is rejected" false false \
+    "Approved for major release. " "Approved for major release. " \
+    main "${PATH}" exact-visible-line
+  assert_guard "acknowledgement configured as a blockquote is rejected" false false \
+    "> Approved for major release." "> Approved for major release." \
+    main "${PATH}" exact-visible-line
+  assert_guard "acknowledgement configured as an unspaced blockquote is rejected" false false \
+    ">Approved for major release." ">Approved for major release." \
+    main "${PATH}" exact-visible-line
   assert_guard "prose acknowledgement is not an exact visible line" false false \
     "Context: Approved for major release." "Approved for major release." \
     main "${PATH}" exact-visible-line

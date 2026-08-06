@@ -220,7 +220,7 @@ jobs:
         id: description
         if: github.event_name == 'pull_request' && github.event.pull_request.draft != true
         continue-on-error: true
-        uses: LerianStudio/github-actions-shared-workflows/src/validate/pr-description@develop
+        uses: LerianStudio/github-actions-shared-workflows/src/validate/pr-description@v1
 
       - name: Enforce breaking change guard
         if: always()

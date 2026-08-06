@@ -181,7 +181,10 @@ if [[ -n "${ACK}" ]]; then
               }
             }
 
-            if (line == acknowledgement) {
+            if (line !~ /^[[:space:]]/ &&
+                line !~ /[[:space:]]$/ &&
+                line !~ /^[[:space:]]*>/ &&
+                line == acknowledgement) {
               found = 1
             }
           }

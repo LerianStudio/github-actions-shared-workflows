@@ -73,7 +73,7 @@ permissions:
 
 jobs:
   validate:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/pr-validation.yml@v1
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/pr-validation.yml@v1.53.0
     secrets: inherit
 ```
 
@@ -82,7 +82,7 @@ jobs:
 ```yaml
 jobs:
   validate:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/pr-validation.yml@v1
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/pr-validation.yml@v1.53.0
     with:
       pr_title_types: |
         feat
@@ -101,7 +101,7 @@ jobs:
 ```yaml
 jobs:
   validate:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/pr-validation.yml@v1
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/pr-validation.yml@v1.53.0
     with:
       enforce_source_branches: true
       allowed_source_branches: 'develop|release-candidate|hotfix/*'
@@ -113,7 +113,7 @@ jobs:
 ```yaml
 jobs:
   validate:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/pr-validation.yml@v1
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/pr-validation.yml@v1.53.0
     with:
       dry_run: true
     secrets: inherit
