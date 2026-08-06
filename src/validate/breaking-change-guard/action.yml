@@ -29,4 +29,4 @@ runs:
         PR_BODY: ${{ github.event.pull_request.body }}
       run: |
         set -euo pipefail
-        bash "${{ github.action_path }}/detect.sh" >> "${GITHUB_OUTPUT}"
+        bash "${GITHUB_ACTION_PATH}/detect.sh" >> "${GITHUB_OUTPUT}"
