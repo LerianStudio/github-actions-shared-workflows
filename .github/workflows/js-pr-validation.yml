@@ -592,7 +592,10 @@ jobs:
           PR: ${{ github.event.pull_request.number }}
           REPO: ${{ github.repository }}
         run: |
-          ID=$(gh api "repos/$REPO/issues/$PR/comments" --paginate                  --jq '[.[] | select(.user.login == "socket-security[bot]") | .body] | last // ""'                | grep -oE 'diff-scan/[0-9a-fA-F-]{36}' | head -1 | cut -d/ -f2 || true)
+          JQ='[.[] | select(.user.login == "socket-security[bot]") | .body] | last // ""'
+          BODY=$(gh api "repos/$REPO/issues/$PR/comments" --paginate --jq "$JQ")
+          ID=$(printf '%s' "$BODY" \
+            | grep -oE 'diff-scan/[0-9a-fA-F-]{36}' | head -1 | cut -d/ -f2 || true)
           if [ -n "$ID" ]; then
             echo "Resolved diff scan $ID from the Socket App comment."
           else
