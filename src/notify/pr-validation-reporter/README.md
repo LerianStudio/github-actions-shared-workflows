@@ -56,6 +56,7 @@ jobs:
           HAS_BREAKING_CHANGES: ${{ steps.breaking-change-guard.outputs.has-breaking-changes }}
           APPROVED: ${{ steps.breaking-change-guard.outputs.approved }}
         run: |
+          set -euo pipefail
           if [ "$GUARD_OUTCOME" != "success" ]; then
             echo "result=$GUARD_OUTCOME" >> "$GITHUB_OUTPUT"
           elif [ "$HAS_BREAKING_CHANGES" = "true" ] && [ "$APPROVED" != "true" ]; then

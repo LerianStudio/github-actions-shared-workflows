@@ -52,6 +52,7 @@ runs:
       env:
         BREAKING_CHANGE_RESULT: ${{ inputs.breaking-change-result }}
       run: |
+        set -euo pipefail
         if [ "$BREAKING_CHANGE_RESULT" != "skipped" ]; then
           echo "has-breaking-change-guard=true" >> "$GITHUB_OUTPUT"
         else
