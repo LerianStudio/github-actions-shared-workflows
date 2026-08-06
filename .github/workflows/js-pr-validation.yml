@@ -568,6 +568,9 @@ jobs:
           socket-api-key: ${{ secrets.SOCKET_SECURITY_API_KEY }}
           report-url: ${{ steps.app-gate.outputs.report-url }}
           max-rows: ${{ inputs.socket_api_max_rows }}
+          # TEMPORARY: logs the real alert object shape so the filtering can be
+          # built against it instead of guessed. Remove once calibrated.
+          debug-sample: 'true'
 
       - name: Post Socket report to PR
         if: always() && github.event_name == 'pull_request' && !inputs.dry_run

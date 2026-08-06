@@ -163,9 +163,17 @@ runs:
         fi
 
         if [ "$DEBUG_SAMPLE" = "true" ]; then
-          echo "--- first artifact, keys only ---"
+          echo "--- artifact keys ---"
           head -1 "$NDJSON" | jq -r 'keys | join(", ")' || true
-          echo "--- first alert object ---"
+          echo "--- distinct alert object keys ---"
+          jq -s '[.[] | (.alerts // [])[] | keys] | flatten | unique' "$NDJSON" 2>/dev/null || true
+          echo "--- distinct alert .action values ---"
+          jq -s '[.[] | (.alerts // [])[] | .action] | unique' "$NDJSON" 2>/dev/null || true
+          echo "--- distinct alert .severity values ---"
+          jq -s '[.[] | (.alerts // [])[] | .severity] | unique' "$NDJSON" 2>/dev/null || true
+          echo "--- distinct alert .category values ---"
+          jq -s '[.[] | (.alerts // [])[] | .category] | unique' "$NDJSON" 2>/dev/null || true
+          echo "--- one full alert object ---"
           jq -c 'select((.alerts // []) | length > 0) | .alerts[0]' "$NDJSON" 2>/dev/null | head -1 || true
         fi
 
