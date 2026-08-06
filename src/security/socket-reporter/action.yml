@@ -120,13 +120,23 @@ runs:
             : null);
 
           const pkgTable = (rows, root) => {
-            const out = ['| Package | Version | Scope | Score | Findings |',
-                         '|---------|---------|-------|-------|----------|'];
+            const out = ['| Package | Version | Reached via | Score | Findings |',
+                         '|---------|---------|-------------|-------|----------|'];
             for (const p of rows) {
               const m = ACT[(p.worstAction || '').toLowerCase()] || { icon: '•' };
               const href = pkgUrl(p, root);
               const label = href ? `[\`${p.name}\`](${href})` : `\`${p.name}\``;
-              const scope = [p.direct ? 'direct' : 'transitive', p.dev ? 'dev' : 'prod'].join(', ');
+              // For a transitive package the direct dependency that pulls it in is
+              // the actionable part: "bump eslint" instead of "someone fix
+              // brace-expansion". Falls back to the plain scope when Socket gave
+              // no ancestors.
+              const anc = (p.ancestors || []).filter(a => a !== `${p.name}@${p.version}`);
+              const scope = p.direct
+                ? (p.dev ? 'direct, dev' : 'direct, prod')
+                : anc.length
+                  ? `via ${anc.slice(0, 2).map(a => `\`${a.replace(/@[^@]*$/, '')}\``).join(', ')}`
+                    + (anc.length > 2 ? ` +${anc.length - 2}` : '')
+                  : (p.dev ? 'transitive, dev' : 'transitive, prod');
               const findings = (p.findings || []).map(f => {
                 const fm = ACT[(f.action || '').toLowerCase()] || { icon: '•' };
                 const n = f.count > 1 ? ` ×${f.count}` : '';

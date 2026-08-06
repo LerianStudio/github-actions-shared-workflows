@@ -235,6 +235,35 @@ runs:
             sys.exit(0)
         head_arts, head_scores = parse_scan(body)
 
+        # The blame chain. A transitive finding is not actionable on its own —
+        # nobody installed brace-expansion on purpose — so the direct dependency
+        # that pulls it in is the part a reviewer can act on. topLevelAncestors is
+        # documented as carrying artifact references; whether it is populated in
+        # this organization's scans is logged rather than assumed.
+        by_id = {}
+        for art in head_arts:
+            if art.get("id") is not None:
+                by_id[str(art["id"])] = f"{pkg_name(art)}@{art.get('version')}"
+
+        with_anc = [a for a in head_arts if a.get("topLevelAncestors")]
+        print(f"Blame chain: {len(with_anc)}/{len(head_arts)} artifact(s) carry topLevelAncestors; "
+              f"{len(by_id)} artifact id(s) available for resolution.")
+        if with_anc:
+            sample = with_anc[0]
+            raw = sample.get("topLevelAncestors") or []
+            resolved = [by_id.get(str(r)) for r in raw[:3]]
+            print(f"  sample {pkg_name(sample)}@{sample.get('version')}: raw={raw[:3]} "
+                  f"resolved={resolved}")
+
+        def ancestors_of(art):
+            """Direct dependencies that pull this artifact in, as name@version."""
+            out = []
+            for ref in (art.get("topLevelAncestors") or []):
+                name = by_id.get(str(ref))
+                if name and name not in out:
+                    out.append(name)
+            return out
+
         if os.environ.get("DEBUG_SAMPLE") == "true":
             alerts = [a for art in head_arts for a in (art.get("alerts") or [])]
             print("--- alert keys ---", sorted({k for a in alerts for k in a}))
@@ -347,6 +376,7 @@ runs:
                 (introduced if is_new else preexisting).append({
                     "name": name, "version": art.get("version"),
                     "artifactId": art.get("id"),
+                    "ancestors": ancestors_of(art),
                     "direct": bool(art.get("direct")), "dev": bool(art.get("dev")),
                     "overallScore": (art.get("score") or {}).get("overall"),
                     "worstAction": sel[0]["action"], "worstSeverity": sel[0]["severity"],
