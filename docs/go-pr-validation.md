@@ -8,10 +8,11 @@
 Umbrella reusable workflow for Go service repositories. A caller references this single workflow and it orchestrates everything a Go service PR needs:
 
 1. **PR metadata** — title, source branch, size, labels (delegates to `pr-validation.yml`).
-2. **Change gate** — detects whether the PR touches anything beyond docs/meta (`src/config/non-doc-changes`); documentation-only PRs skip the heavy pipelines.
-3. **Go analysis** — lint, tests, coverage and build (delegates to `go-pr-analysis.yml`), opt-in via `run_go_analysis`.
-4. **Security scan** — Trivy, CodeQL, prerelease checks (delegates to `pr-security-scan.yml`), opt-in via `run_security`.
-5. **Lerian lib version check** — fails when a direct Lerian library is behind its latest stable release (delegates to `lerian-lib-version-check.yml`), opt-in via `run_lib_version_check`.
+2. **Breaking Change Guard** — mandatory detection and enforcement inherited from `pr-validation.yml` for every PR target branch.
+3. **Change gate** — detects whether the PR touches anything beyond docs/meta (`src/config/non-doc-changes`); documentation-only PRs skip the heavy pipelines.
+4. **Go analysis** — lint, tests, coverage and build (delegates to `go-pr-analysis.yml`), opt-in via `run_go_analysis`.
+5. **Security scan** — Trivy, CodeQL, prerelease checks (delegates to `pr-security-scan.yml`), opt-in via `run_security`.
+6. **Lerian lib version check** — fails when a direct Lerian library is behind its latest stable release (delegates to `lerian-lib-version-check.yml`), opt-in via `run_lib_version_check`.
 
 The `go-analysis`, `security` and `lib-version` pipelines each have a `*-gate` aggregator job that exposes a single stable status-check name (`Go Analysis`, `Security`, `Lib Version`) for branch protection, regardless of the internal job names. All three are gated by the change detector, so documentation-only PRs skip them (and the aggregators still report success). If the change detector (`changes`) job itself fails, the aggregators propagate that failure instead of passing — so broken change detection cannot let the required checks go green.
 
@@ -72,6 +73,30 @@ The `go-analysis`, `security` and `lib-version` pipelines each have a `*-gate` a
 | `trivy_skip_dirs` | Comma-separated directories to skip in every Trivy filesystem scan (appended to the built-in skip list). Useful for excluding sub-modules from the root scan (e.g. `"tools/mock-sta-server"`). | string | `''` |
 | `shared_paths` | Path patterns that trigger analysis/security for all components | string | `''` |
 
+The Breaking Change Guard has no input, enable flag, target-branch filter, or opt-out. This umbrella inherits the guard automatically from `pr-validation.yml`.
+
+## Outputs
+
+| Output | Values | Description |
+|--------|--------|-------------|
+| `has_breaking_changes` | `true` / `false` | Whether the PR contains at least one breaking-change commit |
+| `breaking_change_approved` | `true` / `false` | Whether the PR description contains the exact acknowledgement |
+| `breaking_change_result` | `success` / `failure` | Normalized guard result used by the nested `Blocking Checks` job |
+
+These outputs forward the nested `pr-validation` job outputs with fail-closed fallbacks at the umbrella boundary: an absent nested value becomes `false`, `false`, and `failure`, respectively.
+
+## Breaking Change Guard
+
+When a PR contains a breaking change, its description must contain this exact, case-sensitive line:
+
+```text
+Breaking change acknowledged: I understand that this PR intentionally introduces a breaking change and requires the next release to be a major version.
+```
+
+The guard is mandatory for every PR target branch. PRs without the required acknowledgement fail in the existing `Blocking Checks` job, including drafts. `dry_run: true` reports detection and approval without enforcing the guard.
+
+Caller triggers must include the five activity types in the usage example. `edited` is mandatory so removing or adding the acknowledgement reruns validation. `ready_for_review` is retained for complete validation transitions even though the guard enforces drafts.
+
 ## Secrets
 
 | Secret | Description | Required |
@@ -86,7 +111,6 @@ The `go-analysis`, `security` and `lib-version` pipelines each have a `*-gate` a
 name: PR Validation
 on:
   pull_request:
-    branches: [develop, release-candidate, main]
     types: [opened, edited, synchronize, reopened, ready_for_review]
 
 permissions:
@@ -121,7 +145,7 @@ jobs:
 
 ## Branch protection
 
-Require the aggregator checks `Go Analysis`, `Security` and `Lib Version` (plus the PR metadata checks from `pr-validation.yml`). These names are stable even when the underlying analysis matrix changes.
+Require the aggregator checks `Go Analysis`, `Security` and `Lib Version` (plus the PR metadata checks from `pr-validation.yml`). Breaking-change enforcement remains inside the existing `Blocking Checks` status; it does not add a branch-protection check. These names are stable even when the underlying analysis matrix changes.
 
 ## Related
 

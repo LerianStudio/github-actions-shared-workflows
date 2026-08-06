@@ -33,6 +33,10 @@ inputs:
     description: Result of breaking change guard (success/failure/cancelled/skipped)
     required: false
     default: skipped
+  blocking-checks-result:
+    description: Runtime result of the blocking checks job
+    required: false
+    default: skipped
   dry-run:
     description: When true, skip posting the summary comment
     required: false
@@ -42,6 +46,9 @@ outputs:
   has-breaking-change-guard:
     description: Whether the breaking change guard result was reported (true/false)
     value: ${{ steps.guard-state.outputs.has-breaking-change-guard }}
+  has-blocking-checks-runtime-failure:
+    description: Whether the blocking checks runtime result is non-success and non-skipped (true/false)
+    value: ${{ steps.guard-state.outputs.has-blocking-checks-runtime-failure }}
 
 runs:
   using: composite
@@ -51,12 +58,18 @@ runs:
       shell: bash
       env:
         BREAKING_CHANGE_RESULT: ${{ inputs.breaking-change-result }}
+        BLOCKING_CHECKS_RESULT: ${{ inputs.blocking-checks-result }}
       run: |
         set -euo pipefail
         if [ "$BREAKING_CHANGE_RESULT" != "skipped" ]; then
           echo "has-breaking-change-guard=true" >> "$GITHUB_OUTPUT"
         else
           echo "has-breaking-change-guard=false" >> "$GITHUB_OUTPUT"
+        fi
+        if [ "$BLOCKING_CHECKS_RESULT" != "success" ] && [ "$BLOCKING_CHECKS_RESULT" != "skipped" ]; then
+          echo "has-blocking-checks-runtime-failure=true" >> "$GITHUB_OUTPUT"
+        else
+          echo "has-blocking-checks-runtime-failure=false" >> "$GITHUB_OUTPUT"
         fi
 
     - name: Post PR validation summary
@@ -70,6 +83,7 @@ runs:
         LABEL_RESULT: ${{ inputs.label-result }}
         METADATA_RESULT: ${{ inputs.metadata-result }}
         BREAKING_CHANGE_RESULT: ${{ inputs.breaking-change-result }}
+        BLOCKING_CHECKS_RESULT: ${{ inputs.blocking-checks-result }}
       with:
         github-token: ${{ inputs.github-token }}
         script: |
@@ -81,6 +95,16 @@ runs:
             { label: 'Auto Labels',    result: process.env.LABEL_RESULT,         blocking: false },
             { label: 'PR Metadata',    result: process.env.METADATA_RESULT,      blocking: false },
           ];
+
+          if (process.env.BLOCKING_CHECKS_RESULT !== 'success' &&
+              process.env.BLOCKING_CHECKS_RESULT !== 'skipped') {
+            checks.splice(3, 0, {
+              label: 'Blocking Checks Runtime',
+              result: process.env.BLOCKING_CHECKS_RESULT,
+              blocking: true,
+              strict: true,
+            });
+          }
 
           if (process.env.BREAKING_CHANGE_RESULT !== 'skipped') {
             checks.splice(3, 0, {
