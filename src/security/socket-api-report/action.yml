@@ -305,6 +305,29 @@ runs:
         else:
             explain(st, bd, mit)
 
+        # Staleness check. The diff scan id comes from the App's comment, which the
+        # App publishes asynchronously — so a job that starts before that comment is
+        # updated reads the diff for a *previous* push. Observed in practice: a
+        # newly added package showed up in the scan (1898 artifacts against 1897)
+        # while the diff reported added=0, and the package was filed as pre-existing
+        # debt. Attribution failing silently is worse than not attributing at all,
+        # because fail-on-actions then passes a pull request it should have blocked.
+        if diff_scan_id:
+            q = urllib.parse.urlencode({"after_full_scan_id": scan, "per_page": 1})
+            st, bd, _ = get(f"orgs/{org}/diff-scans?{q}")
+            fresh = False
+            if st == 200:
+                try:
+                    fresh = bool(json.loads(bd.decode("utf-8", "replace")).get("results"))
+                except json.JSONDecodeError:
+                    fresh = False
+            if not fresh:
+                print(f"::warning::Diff scan {diff_scan_id} is not keyed on this commit's scan "
+                      f"({scan}) — the Socket App has not published a diff for this push yet. "
+                      f"Nothing is attributed to this pull request; findings are reported as "
+                      f"pre-existing and fail-on-actions cannot fire.")
+                diff_scan_id = None
+
         if diff_scan_id:
             # omit_unchanged keeps the payload to what changed; the unchanged set is
             # already covered by the head full scan read above.
@@ -317,6 +340,7 @@ runs:
                 # added: new to this pull request. updated/replaced: same package at
                 # a different version or source, so its findings are this change's
                 # responsibility too. removed needs no reporting.
+                print("Diff scan top-level keys: " + ", ".join(sorted(diff.keys())))
                 counts = {}
                 for bucket in ("added", "updated", "replaced"):
                     arts = diff.get(bucket) or []
