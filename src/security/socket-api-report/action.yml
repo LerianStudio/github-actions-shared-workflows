@@ -292,11 +292,11 @@ runs:
             if art.get("id") is not None:
                 by_id[str(art["id"])] = f"{pkg_name(art)}@{art.get('version')}"
 
-        with_anc = [a for a in head_arts if a.get("topLevelAncestors")]
-        print(f"Blame chain: {len(with_anc)}/{len(head_arts)} artifact(s) carry topLevelAncestors; "
+        with_ancestors = [a for a in head_arts if a.get("topLevelAncestors")]
+        print(f"Blame chain: {len(with_ancestors)}/{len(head_arts)} artifact(s) carry topLevelAncestors; "
               f"{len(by_id)} artifact id(s) available for resolution.")
-        if with_anc:
-            sample = with_anc[0]
+        if with_ancestors:
+            sample = with_ancestors[0]
             raw = sample.get("topLevelAncestors") or []
             resolved = [by_id.get(str(r)) for r in raw[:3]]
             print(f"  sample {pkg_name(sample)}@{sample.get('version')}: raw={raw[:3]} "

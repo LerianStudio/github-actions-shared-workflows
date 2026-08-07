@@ -142,12 +142,12 @@ runs:
               // the actionable part: "bump eslint" instead of "someone fix
               // brace-expansion". Falls back to the plain scope when Socket gave
               // no ancestors.
-              const anc = (p.ancestors || []).filter(a => a !== `${p.name}@${p.version}`);
+              const ancestors = (p.ancestors || []).filter(a => a !== `${p.name}@${p.version}`);
               const scope = p.direct
                 ? (p.dev ? 'direct, dev' : 'direct, prod')
-                : anc.length
-                  ? `via ${anc.slice(0, 2).map(a => `\`${cell(a.replace(/@[^@]*$/, ''))}\``).join(', ')}`
-                    + (anc.length > 2 ? ` +${anc.length - 2}` : '')
+                : ancestors.length
+                  ? `via ${ancestors.slice(0, 2).map(a => `\`${cell(a.replace(/@[^@]*$/, ''))}\``).join(', ')}`
+                    + (ancestors.length > 2 ? ` +${ancestors.length - 2}` : '')
                   : (p.dev ? 'transitive, dev' : 'transitive, prod');
               const findings = (p.findings || []).map(f => {
                 const fm = ACT[(f.action || '').toLowerCase()] || { icon: '•' };
