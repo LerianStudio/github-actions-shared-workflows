@@ -7,7 +7,9 @@
 
 Composite action that installs [Socket Firewall](https://github.com/SocketDev/sfw-free) (free edition, no account required) and then runs the project's dependency install through it as `sfw npm ci` (or the `yarn`/`pnpm` equivalent). `sfw` intercepts the package manager's network traffic, inspects each package as it is fetched and refuses the ones whose behavior matches a supply-chain attack — malicious install scripts, credential exfiltration, typosquats, hijacked patch releases.
 
-This is the free tier of Socket. It catches malicious packages at install time but produces no PR report and enforces no central policy — for that, see [`socket-scan`](../socket-scan/README.md).
+This is the install-time layer. It refuses a malicious package before it reaches disk, but reports nothing about what it allowed and enforces no policy of its own — for the verdict see [`socket-app-gate`](../socket-app-gate/README.md), and for per-package findings see [`socket-api-report`](../socket-api-report/README.md).
+
+> Most installs in the pipeline go through [`setup-node-guarded`](../../setup/setup-node-guarded/README.md), which wraps this same firewall around each analysis job's install. This composite is the dedicated one in the `socket` job, used as the reporting source.
 
 ## Inputs
 

@@ -11,7 +11,7 @@ Umbrella reusable workflow for JavaScript/TypeScript repositories. A caller refe
 2. **Change gate** — detects whether the PR touches anything beyond docs/meta (`src/config/non-doc-changes`); documentation-only PRs skip the heavy pipelines.
 3. **Frontend analysis** — lint, typecheck, npm audit, tests, coverage and build (delegates to `frontend-pr-analysis.yml`), opt-in via `run_frontend_analysis`.
 4. **Security scan** — Trivy, CodeQL, prerelease checks (delegates to `pr-security-scan.yml`), opt-in via `run_security`.
-5. **Socket supply chain** — blocks malicious packages at install time and, optionally, runs the full Socket CLI report (`src/security/socket-firewall`, `src/security/socket-scan`). Enabled by default; disable with `run_socket: false`.
+5. **Socket supply chain** — refuses malicious packages at install time, turns the Socket App's advisory verdict into an enforceable check, and reports per-package findings split into what this pull request introduced and what the tree already carried. Enabled by default; disable with `run_socket: false`.
 
 The `frontend-analysis`, `security` and `socket` pipelines each have a `*-gate` aggregator job that exposes a single stable status-check name (`Frontend Analysis`, `Security`, `Socket`) for branch protection, regardless of the internal job names. All are gated by the change detector, so documentation-only PRs skip them (and the aggregators still report success). If the change detector (`changes`) job itself fails, the aggregators propagate that failure instead of passing.
 
@@ -93,7 +93,10 @@ The `frontend-analysis`, `security` and `socket` pipelines each have a `*-gate` 
 | `socket_app_on_inconclusive` | `block` or `warn` when the App reached no verdict | string | `block` |
 | `socket_app_on_missing` | `warn` or `block` when the App published no checks | string | `warn` |
 | `socket_enable_api_report` | Read the App's full scan and report per-package alerts, vulnerabilities and scores (advisory) | boolean | `true` |
-| `socket_api_max_rows` | Maximum package rows in the dependency findings table | number | `25` |
+| `socket_api_max_rows` | Maximum package rows per findings section | number | `25` |
+| `socket_api_include_actions` | Socket alert actions reported as findings | string | `error,warn,monitor` |
+| `socket_api_fail_on_actions` | Actions that block the PR — **introduced findings only**. Empty blocks nothing | string | `''` |
+| `socket_comment_when` | `findings` posts the comment only when there is something to act on; `always` posts every run | string | `findings` |
 
 > **Monorepo note:** `filter_paths`/`shared_paths`/`path_level`/`normalize_to_filter` scope the `frontend-analysis` job only. They are not passed to the `security` job because `frontend-pr-analysis.yml` and `pr-security-scan.yml` use different formats for that input (JSON array vs. newline-separated). For a path-scoped security scan too, call `pr-security-scan.yml` directly.
 
@@ -214,35 +217,37 @@ with:
   socket_app_on_missing: 'block'       # default 'warn' — require the App
 ```
 
-### Layer 3 — Dependency findings, advisory
+### Layer 3 — Dependency findings
 
-The first two layers answer narrow questions. The firewall reports what it **refused**, never an assessment of what it allowed. The App's checks carry a status and a dashboard link — `Project Report`'s `output.text` is literally `null`. Neither can tell you *which package has which vulnerability*.
+The first two layers answer narrow questions. The firewall reports what it **refused**, never what it allowed. The App's checks carry a status and a dashboard link — `Project Report`'s `output.text` is literally `null`. Neither can say *which package has which problem, and whether this pull request caused it*.
 
-[`socket-api-report`](../src/security/socket-api-report/README.md) closes that. It parses the org slug and scan id out of the dashboard URL the App publishes, then reads that scan back through `GET /v0/orgs/{org}/full-scans/{id}`. Nothing is re-analysed and no scan is created — one quota unit — and the comment gains scan scores, an alerts-by-type breakdown and a per-package table with severity, alert type and whether the dependency is direct or transitive, prod or dev.
+[`socket-api-report`](../src/security/socket-api-report/README.md) closes that. It reads the scan Socket already computed for the commit, plus the diff scan the App computed for the pull request, and reports per-package findings split by origin.
 
-This layer needs `SOCKET_SECURITY_API_KEY` with the `full-scans:list` scope. Without it, it skips with a notice.
+**Filtering.** Measured on a real 1897-package tree: of 4636 alerts, `ignore` accounted for 4594 and only 42 carried an action. Severity is not a usable filter — 118 alerts were `high` and still ignored. Capabilities like `envVars` or `networkAccess` are normal in isolation; Socket has already judged them by the time it assigns an action, so action is the axis used here.
 
-It is **advisory by construction**: every failure path exits `0`. A Socket outage or an exhausted quota must not look like a security finding, so enforcement stays with layer 2's verdict and layer 1's refusal to install.
+**Attribution, and why it matters for gating.** `socket_api_fail_on_actions` applies **only to findings this pull request introduces**. On `product-console` the tree already carries 43 actioned findings; gating on those would fail every pull request in the repository for something none of them caused, and the gate would be switched off within a week. Pre-existing findings are collapsed into a `<details>` and never block.
+
+**Provenance.** Transitive findings name the direct dependency that reaches them — `oauth@0.9.15` reads as `via next-auth`, because `oauth` is nobody's decision and `next-auth` is. Coverage on the reference tree was 1755 of 1897 artifacts; the rest are direct dependencies, which have no ancestor.
+
+**Scopes.** `full-scans:list` and `diff-scans:list` on `SOCKET_SECURITY_API_KEY`. Without the token the layer skips with a notice.
+
+**Advisory by construction.** Every API failure path exits `0` and reports zero blocking findings. A Socket outage or an exhausted quota must never read as a security finding — enforcement stays with layer 2's verdict, layer 1's refusal to install, and `socket_api_fail_on_actions` when a repository opts in.
 
 ```yaml
 with:
-  socket_enable_api_report: false   # default true
-  socket_api_max_rows: 50           # default 25
+  socket_api_fail_on_actions: 'error'   # default '' — report only
+  socket_api_include_actions: 'error,warn'
 ```
+
+> **Known coupling.** The diff scan id is read from the Socket App's own pull request comment: looking it up by `after_full_scan_id` returns nothing, because the App diffs against a different full scan than the one its `Project Report` check links to. Disabling the App's comments therefore breaks attribution — everything reverts to pre-existing and `socket_api_fail_on_actions` goes inert, silently.
 
 ### The PR comment
 
-The `socket` job posts one upserted comment per pull request under the marker `<!-- socket-supply-chain-<app> -->`, in the same `Stage | Status | Blocking?` layout as the security scan comment, with a section per layer. It is a separate comment from the security one by necessity: `pr-security-reporter` runs inside the `security_scan` job of `pr-security-scan.yml`, and step outputs do not cross jobs.
+One upserted comment per pull request, under `<!-- socket-supply-chain-<app> -->`, carrying **findings only**. Whether the scan ran, which App checks passed and how many alerts were filtered out live in the job log and in the `Socket` status check — see [`socket-reporter`](../src/security/socket-reporter/README.md).
 
-`dry_run: true` skips the comment entirely — posting is a side effect a dry run must not have.
+With `socket_comment_when: findings` (the default) nothing is posted when there is nothing to act on, and a comment from an earlier run collapses to a resolved note once its findings are gone. `dry_run: true` skips posting entirely.
 
-### About `SOCKET_SECURITY_API_KEY`
-
-Neither layer needs a Socket token: the firewall inspects local traffic, and the App gate reads the GitHub checks API. The secret is nevertheless **declared** on `workflow_call`, because a reusable workflow cannot receive a secret it does not declare — not even through `secrets: inherit` — so declaring it now means an organization secret becomes usable without cutting a release.
-
-Its intended consumer is **Socket Firewall enterprise**, which lifts the free edition's two limits: no custom/private registries, and no Go, NuGet or Ruby ecosystems. Wiring that is not part of this workflow yet.
-
-If you are creating the token, scope it to least privilege. `full-scans:create`, `full-scans:list`, `security-policy:read` and `report:write` are the documented needs for a CI scan; `repo:list` and `repo:create` are likely required on a repository Socket has not seen before. Socket's docs list all 60 scopes but publish no command-to-scope matrix, so start with the documented four and let the API's 403 name what else it wants. Never grant `api-tokens:*` or any policy `:update`/`:delete` scope to a CI token.
+It is a separate comment from both the security scan comment and the Socket App's, and duplicates neither: the App shows version transitions and score deltas for changed direct dependencies, this one shows action, severity, remediation and provenance.
 
 ### Turning it off
 
