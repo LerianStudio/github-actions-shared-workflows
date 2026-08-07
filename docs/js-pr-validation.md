@@ -255,6 +255,8 @@ The first two layers answer narrow questions. The firewall reports what it **ref
 
 **Scopes.** `full-scans:list`, `diff-scans:list` and `diff-scans:create` on `SOCKET_SECURITY_API_KEY` — the last one covers the diff the layer rebuilds when Socket has not diffed this commit's scan. Without the token the layer skips with a notice.
 
+**Not previewable.** This layer does not run under `dry_run: true`: resolving attribution can create a diff scan on the Socket organization, which is the side effect a preview must not have. The dry-run notice therefore reports the blocking count as *not computed* rather than as zero — a number nobody measured is not a clean result.
+
 **Advisory by construction.** Every API failure path exits `0` and reports zero blocking findings. A Socket outage or an exhausted quota must never read as a security finding — enforcement stays with layer 2's verdict, layer 1's refusal to install, and `socket_api_fail_on_actions` when a repository opts in.
 
 ```yaml

@@ -108,8 +108,18 @@ runs:
           # across two consecutive polls, which needs no hardcoded check names.
           SIG=$(jq -r '[.[].name] | sort | join(",")' "$RAW_FILE")
           if [ "$TOTAL" -gt 0 ] && [ "$PENDING" -eq 0 ]; then
-            if [ "$SIG" = "${PREV_SIG:-}" ] || [ "$EXPIRED" = "true" ]; then
+            if [ "$SIG" = "${PREV_SIG:-}" ]; then
               echo "timed_out=false" >> "$GITHUB_OUTPUT"
+              break
+            fi
+            # The deadline stops the wait but does not decide it: the second
+            # stable snapshot never happened, so the set may still be growing
+            # and reporting a clean wait here would be the race this loop exists
+            # to close. Downstream this reads as inconclusive, unless an adverse
+            # check was already observed.
+            if [ "$EXPIRED" = "true" ]; then
+              echo "::warning::Timed out after ${TIMEOUT}s with '$APP_SLUG' still publishing checks (last seen: $TOTAL)."
+              echo "timed_out=true" >> "$GITHUB_OUTPUT"
               break
             fi
             echo "All $TOTAL check(s) complete; confirming the set is stable before deciding."

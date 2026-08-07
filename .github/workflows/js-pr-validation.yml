@@ -680,7 +680,11 @@ jobs:
           echo "::notice::DRY RUN — Socket gate not enforced"
           echo "  Socket Firewall  : $FIREWALL_OUTCOME"
           echo "  Socket App gate  : $APP_GATE_OUTCOME"
-          echo "  Blocking findings: ${API_BLOCKING:-0}"
+          # Never render an unmeasured count as zero: the API layer is skipped on
+          # a dry run because resolving attribution creates a scan, so there is
+          # no number here and printing 0 would read as "previewed, nothing found".
+          echo "  Blocking findings: not computed — the API layer does not run on a dry run"
+          echo "  Socket API Report: skipped (it would create a diff scan)"
 
   socket-gate:
     name: Socket
