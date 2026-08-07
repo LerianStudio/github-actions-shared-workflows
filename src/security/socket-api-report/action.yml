@@ -39,10 +39,6 @@ inputs:
       Project Report check links to. Empty falls back to that lookup, then to no attribution.
     required: false
     default: ''
-  probe-package:
-    description: 'Diagnostic only: log whether this package name is present in the head scan.'
-    required: false
-    default: ''
   include-actions:
     description: >-
       Comma-separated Socket alert actions to treat as findings. Socket marks roughly 99% of alerts as "ignore"
@@ -101,7 +97,6 @@ runs:
         SCAN_ID_IN: ${{ inputs.full-scan-id }}
         BASE_BRANCH: ${{ inputs.base-branch }}
         DIFF_SCAN_ID_IN: ${{ inputs.diff-scan-id }}
-        PROBE_PACKAGE: ${{ inputs.probe-package }}
         HEAD_SHA: ${{ inputs.head-sha }}
         INCLUDE_ACTIONS: ${{ inputs.include-actions }}
         FAIL_ON_ACTIONS: ${{ inputs.fail-on-actions }}
@@ -272,16 +267,6 @@ runs:
             sys.exit(0)
         head_arts, head_scores = parse_scan(body)
 
-        # Cross-check: is a package this pull request added actually in the scan?
-        # The diff reporting added=0 while the scan grew by exactly one artifact
-        # points at either the diff's before side or its semantics, and this
-        # separates the two.
-        probe = os.environ.get("PROBE_PACKAGE", "")
-        if probe:
-            hits = [f"{pkg_name(a)}@{a.get('version')}" for a in head_arts
-                    if pkg_name(a) == probe]
-            print(f"Probe '{probe}' in {scan_url(scan)}: {hits or 'ABSENT'}")
-
         # The blame chain. A transitive finding is not actionable on its own —
         # nobody installed brace-expansion on purpose — so the direct dependency
         # that pulls it in is the part a reviewer can act on. topLevelAncestors is
@@ -413,8 +398,8 @@ runs:
                                             "description": "js-pr-validation supply chain gate"})
                 st, bd = post(f"orgs/{org}/diff-scans/from-ids?{q}")
                 if st in (200, 201):
-                    body = as_map(bd)
-                    obj = body.get("diff_scan") or body
+                    created = as_map(bd)
+                    obj = created.get("diff_scan") or created
                     diff_scan_id = obj.get("id") or diff_scan_id
                     # The create response names both sides with commit and branch.
                     # Logged because the before side is inherited from the App's
@@ -574,12 +559,12 @@ runs:
         blocking = sum(f["count"] for r in introduced for f in r["findings"]
                        if (f["action"] or "").lower() in fail_on) if fail_on else 0
 
-        by_type = {}
+        type_totals = {}
         for r in introduced + preexisting:
             for f in r["findings"]:
-                e = by_type.setdefault(f["type"], {"type": f["type"], "action": f["action"], "count": 0})
+                e = type_totals.setdefault(f["type"], {"type": f["type"], "action": f["action"], "count": 0})
                 e["count"] += f["count"]
-        alerts_by_type = sorted(by_type.values(),
+        alerts_by_type = sorted(type_totals.values(),
                                 key=lambda e: (ACT_RANK.get((e["action"] or "").lower(), 3), -e["count"]))
 
         with open(out_path, "w") as fh:

@@ -23,7 +23,7 @@ inputs:
     required: false
     default: 'latest'
   job-summary:
-    description: "Socket Firewall job summary verbosity (all, errors, none)"
+    description: "Socket Firewall job summary verbosity (all, errors). 'none' is coerced to 'errors' — the report is what block detection reads."
     required: false
     default: 'errors'
   use-cache:
@@ -137,7 +137,10 @@ runs:
       with:
         mode: firewall-free
         firewall-version: ${{ inputs.firewall-version }}
-        job-summary: ${{ inputs.job-summary }}
+        # 'none' is coerced away: the pinned action exports SFW_JSON_REPORT_PATH
+        # only when job-summary != none, and without the report a real block is
+        # misreported as an ordinary install failure.
+        job-summary: ${{ inputs.job-summary == 'none' && 'errors' || inputs.job-summary }}
         use-cache: ${{ inputs.use-cache }}
         github-token: ${{ inputs.github-token != '' && inputs.github-token || github.token }}
 

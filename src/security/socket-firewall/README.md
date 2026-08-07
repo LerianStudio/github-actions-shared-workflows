@@ -19,7 +19,7 @@ This is the install-time layer. It refuses a malicious package before it reaches
 | `node-version` | Node.js version used for the guarded install | No | `22` |
 | `working-dir` | Directory holding the `package.json` and lockfile | No | `.` |
 | `firewall-version` | Socket Firewall binary version. `latest` tracks the newest release | No | `latest` |
-| `job-summary` | Socket Firewall job summary verbosity (`all`, `errors`, `none`) | No | `all` |
+| `job-summary` | Socket Firewall job summary verbosity (`all`, `errors`). `none` is coerced to `errors` | No | `all` |
 | `use-cache` | Cache the `sfw` binary between runs. Unrelated to the package-manager cache, which is always purged | No | `true` |
 | `github-token` | Token used by Socket Firewall to download its binaries. Empty falls back to `github.token` | No | `''` |
 | `fail-on-block` | Fail the step when Socket Firewall blocks a package | No | `true` |
@@ -30,7 +30,9 @@ This is the install-time layer. It refuses a malicious package before it reaches
 | Output | Description |
 |---|---|
 | `skipped` | `true` when no lockfile was found in `working-dir`, so nothing was installed or inspected |
-| `blocked` | `true` when the install failed and the output carries a Socket Firewall block marker |
+| `blocked` | `true` when the Socket Firewall report records at least one blocked package |
+| `blocked-count` | Number of packages Socket Firewall refused |
+| `findings-file` | Path to the report JSON, for consumption by `socket-reporter` |
 | `install-exit-code` | Exit code returned by the package manager install |
 | `report-path` | Path to the Socket Firewall report JSON produced by the underlying action |
 
@@ -52,18 +54,20 @@ That keeps monorepos — whose manifests live under a subdirectory — from goin
 
 ## How the verdict is decided
 
-A blocked package surfaces as a non-zero exit from the package manager running under `sfw`, so a failing install is either a Socket block or an ordinary dependency resolution problem. The action separates the two by looking for a Socket block marker in the install output:
+A blocked package surfaces as a non-zero exit from the package manager running under `sfw`, so a failing install is either a Socket block or an ordinary dependency resolution problem. The action separates the two by reading the **Socket Firewall JSON report** (`blocked[]`), not by matching text in the install output — the report is the only source that names the refused packages and survives a truncated log.
 
-| Install exit | Block marker | `fail-on-block` | Result |
+That is also why `job-summary: none` is coerced to `errors`: the pinned action exports the report path only when the summary is not `none`, and without the report a genuine block is indistinguishable from a broken install.
+
+| Install exit | Report records a block | `fail-on-block` | Result |
 |---|---|---|---|
-| `0` | — | any | Step passes |
-| non-zero | present | `true` | `::error::` + step fails |
-| non-zero | present | `false` | `::warning::` + step passes |
-| non-zero | absent | any | `::error::` + step fails |
+| `0` | no | any | Step passes |
+| any | yes | `true` | `::error::` + step fails |
+| any | yes | `false` | `::warning::` + step passes |
+| non-zero | no | any | `::error::` + step fails |
 
 A broken install is **always** a failure. Swallowing it would hide a genuine problem behind a security toggle, so `fail-on-block: false` only softens confirmed Socket blocks.
 
-With `dry-run: true` the install still runs through the firewall and everything is reported, but the step never fails.
+With `dry-run: true` nothing is fetched and nothing is installed: the action prints the resolved configuration and skips the firewall setup, the cache purge, the install and the evaluation. A dry run is a preview, not a scan.
 
 ## Usage
 

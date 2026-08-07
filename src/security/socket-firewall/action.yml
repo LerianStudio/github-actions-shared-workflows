@@ -19,7 +19,7 @@ inputs:
     required: false
     default: 'latest'
   job-summary:
-    description: "Socket Firewall job summary verbosity (all, errors, none)"
+    description: "Socket Firewall job summary verbosity (all, errors). 'none' is coerced to 'errors' — the report is what block detection reads."
     required: false
     default: 'all'
   use-cache:

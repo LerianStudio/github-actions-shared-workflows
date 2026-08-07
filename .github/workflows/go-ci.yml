@@ -168,8 +168,11 @@ jobs:
           cache: true
 
       - name: Build cross-platform binaries
+        env:
+          BUILD_TARGETS: ${{ inputs.build_targets }}
+          BUILD_PATH: ${{ inputs.build_path }}
         run: |
-          targets='${{ inputs.build_targets }}'
+          targets="$BUILD_TARGETS"
           if [ "$targets" = "[]" ] || [ -z "$targets" ]; then
             echo "No build targets specified, using defaults"
             targets='[
@@ -191,7 +194,7 @@ jobs:
             fi
 
             echo "Building for $os/$arch..."
-            GOOS="$os" GOARCH="$arch" go build -o "build/$binary_name" ${{ inputs.build_path }}
+            GOOS="$os" GOARCH="$arch" go build -o "build/$binary_name" "$BUILD_PATH"
           done
 
       - name: Upload build artifacts

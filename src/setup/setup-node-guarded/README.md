@@ -18,7 +18,7 @@ It replaces the pnpm-setup + node-setup + install trio that `frontend-pr-analysi
 | `working-dir` | Directory holding the `package.json` and lockfile | No | `.` |
 | `guard` | Route the install through Socket Firewall. `false` restores the pre-Socket behaviour, cache included | No | `true` |
 | `firewall-version` | Socket Firewall binary version | No | `latest` |
-| `job-summary` | Socket Firewall job summary verbosity (`all`, `errors`, `none`) | No | `errors` |
+| `job-summary` | Socket Firewall job summary verbosity (`all`, `errors`). `none` is coerced to `errors` | No | `errors` |
 | `use-cache` | Cache the `sfw` binary. Unrelated to the package-manager cache | No | `true` |
 | `github-token` | Token used by Socket Firewall to download its binaries. Empty falls back to `github.token` | No | `''` |
 | `fail-on-block` | Fail the step when Socket Firewall blocks a package | No | `true` |
@@ -27,8 +27,11 @@ It replaces the pnpm-setup + node-setup + install trio that `frontend-pr-analysi
 
 | Output | Description |
 |---|---|
+| `skipped` | `true` when no lockfile was found in `working-dir`, so nothing was installed or inspected |
 | `guarded` | `true` when the install actually ran through Socket Firewall |
-| `blocked` | `true` when the guarded install failed and the output carries a Socket block marker |
+| `blocked` | `true` when the Socket Firewall report records at least one blocked package |
+| `blocked-count` | Number of packages Socket Firewall refused |
+| `findings-file` | Path to the report JSON, for consumption by `socket-reporter` |
 | `install-exit-code` | Exit code returned by the package manager install |
 | `report-path` | Path to the Socket Firewall report JSON, empty when unguarded |
 
@@ -48,12 +51,14 @@ The measured cost of losing the cache is small: a cold `sfw npm ci` over ~2000 p
 
 ## How the verdict is decided
 
-| Install exit | Block marker | `fail-on-block` | Result |
+The verdict is read from the **Socket Firewall JSON report** (`blocked[]`), not from text in the install output. `job-summary: none` is therefore coerced to `errors`: the pinned action exports the report path only when the summary is not `none`, and without it a genuine block would be reported as an ordinary install failure.
+
+| Install exit | Report records a block | `fail-on-block` | Result |
 |---|---|---|---|
-| `0` | — | any | Step passes |
-| non-zero | present | `true` | `::error::` + step fails |
-| non-zero | present | `false` | `::warning::` + step passes |
-| non-zero | absent | any | `::error::` + step fails |
+| `0` | no | any | Step passes |
+| any | yes | `true` | `::error::` + step fails |
+| any | yes | `false` | `::warning::` + step passes |
+| non-zero | no | any | `::error::` + step fails |
 
 A broken install is **always** a failure — swallowing it would hide a genuine problem behind a security toggle, so `fail-on-block: false` only softens confirmed Socket blocks.
 

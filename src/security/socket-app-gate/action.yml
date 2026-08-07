@@ -75,13 +75,19 @@ runs:
         DEADLINE=$(( $(date +%s) + TIMEOUT ))
 
         while :; do
+          # Evaluated once per iteration so every branch below honours it. Checking
+          # it only on the pending path let a stability loop that never converges
+          # (the App still publishing checks) run past TIMEOUT to the job timeout.
+          EXPIRED=false
+          [ "$(date +%s)" -ge "$DEADLINE" ] && EXPIRED=true
+
           API_ERR="$RUNNER_TEMP/socket-app-api.err"
           API_RC=0
           gh api "repos/$REPO/commits/$SHA/check-runs?per_page=100" \
-            --jq "[.check_runs[] | select(.app.slug == \"$APP_SLUG\")
+            --jq '[.check_runs[] | select(.app.slug == $ENV.APP_SLUG)
                    | {name, status, conclusion, url: .details_url,
-                      title: (.output.title // \"\"),
-                      summary: (.output.summary // \"\")}]" > "$RAW_FILE" 2>"$API_ERR" || API_RC=$?
+                      title: (.output.title // ""),
+                      summary: (.output.summary // "")}]' > "$RAW_FILE" 2>"$API_ERR" || API_RC=$?
 
           # An unreadable API must never look like an empty result: "no checks"
           # is classified downstream as "App not installed", which only warns.
@@ -102,7 +108,7 @@ runs:
           # across two consecutive polls, which needs no hardcoded check names.
           SIG=$(jq -r '[.[].name] | sort | join(",")' "$RAW_FILE")
           if [ "$TOTAL" -gt 0 ] && [ "$PENDING" -eq 0 ]; then
-            if [ "$SIG" = "${PREV_SIG:-}" ]; then
+            if [ "$SIG" = "${PREV_SIG:-}" ] || [ "$EXPIRED" = "true" ]; then
               echo "timed_out=false" >> "$GITHUB_OUTPUT"
               break
             fi
@@ -112,7 +118,7 @@ runs:
             continue
           fi
           PREV_SIG=""
-          if [ "$(date +%s)" -ge "$DEADLINE" ]; then
+          if [ "$EXPIRED" = "true" ]; then
             echo "::warning::Timed out after ${TIMEOUT}s waiting for '$APP_SLUG' checks (found $TOTAL, $PENDING still running)."
             echo "timed_out=true" >> "$GITHUB_OUTPUT"
             break
@@ -146,11 +152,18 @@ runs:
         UNDECIDED=$(jq '[.[] | select(.conclusion == "neutral" or .conclusion == "skipped")] | length' "$RAW_FILE")
         REPORT_URL=$(jq -r '[.[] | select(.url != null and (.url | test("dashboard")))] | .[0].url // ""' "$RAW_FILE")
 
-        if [ "$TOTAL" -eq 0 ]; then
-          VERDICT=missing
-        elif [ "$BAD" -gt 0 ]; then
+        # TIMED_OUT is tested before TOTAL: a deadline that expires with no checks
+        # yet published is not evidence the App is uninstalled, and `missing`
+        # only warns by default — the gate would go green having seen nothing.
+        # BAD keeps priority over it, so an adverse conclusion already observed
+        # is still reported as `findings`.
+        if [ "$BAD" -gt 0 ]; then
           VERDICT=findings
-        elif [ "$TIMED_OUT" = "true" ] || [ "$UNDECIDED" -gt 0 ]; then
+        elif [ "$TIMED_OUT" = "true" ]; then
+          VERDICT=inconclusive
+        elif [ "$TOTAL" -eq 0 ]; then
+          VERDICT=missing
+        elif [ "$UNDECIDED" -gt 0 ]; then
           VERDICT=inconclusive
         else
           VERDICT=pass

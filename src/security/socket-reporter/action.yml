@@ -97,7 +97,12 @@ runs:
           const apiBlocking = parseInt(process.env.API_BLOCKING_COUNT || '0', 10) || 0;
 
           const hasFindings = hasFirewallFinding || introduced.length > 0 || preexisting.length > 0;
-          const blockingCount = (hasFirewallFinding && fwBlocking ? 1 : 0) + apiBlocking;
+          // Count the packages actually refused, not the fact that a block happened:
+          // the heading is the number people read, and it has to agree with the
+          // rows in the table below it. 1 is the floor for a block whose report
+          // could not be parsed.
+          const fwBlockingCount = hasFirewallFinding && fwBlocking ? (blockedPkgs.length || 1) : 0;
+          const blockingCount = fwBlockingCount + apiBlocking;
 
           const ACT = {
             error:   { icon: '🔴', label: 'error' },
@@ -175,7 +180,7 @@ runs:
             if (fix && typeof fix === 'object') {
               const pick = fix.description || fix.message || fix.target || fix.upgrade || fix.type;
               if (typeof pick === 'string') return pick;
-              return '`' + JSON.stringify(fix).slice(0, 300) + '`';
+              return JSON.stringify(fix).slice(0, 300);
             }
             return String(fix);
           };
@@ -269,14 +274,14 @@ runs:
             // part that this change is actually responsible for.
             if (preexisting.length) {
               const n = api.preexistingCount || 0;
-              const base = api.baseBranch ? `\`${api.baseBranch}\`` : 'the target branch';
+              const baseLabel = api.baseBranch ? `\`${cell(api.baseBranch)}\`` : 'the target branch';
               lines.push('---');
               lines.push('');
               lines.push('### Existing tree debt');
               lines.push('');
               lines.push(introduced.length
-                ? `The tree also carries **${n}** finding(s) already present on ${base}, untouched by this change.`
-                : `This pull request introduces nothing. The tree already carries **${n}** finding(s) on ${base}, unchanged here.`);
+                ? `The tree also carries **${n}** finding(s) already present on ${baseLabel}, untouched by this change.`
+                : `This pull request introduces nothing. The tree already carries **${n}** finding(s) on ${baseLabel}, unchanged here.`);
               lines.push('');
               const hidden = api.preexistingHidden || 0;
               lines.push(`${actionCounts(preexisting)} — across ${preexisting.length} package(s) shown`

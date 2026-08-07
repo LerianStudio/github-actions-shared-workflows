@@ -339,8 +339,8 @@ on:
       socket_enable_api_report:
         description: >-
           Read the full scan the Socket App already computed and report per-package alerts, vulnerabilities and
-          scores in the pull request comment. Requires SOCKET_SECURITY_API_KEY with the full-scans:list scope.
-          Advisory only — it never gates the merge.
+          scores in the pull request comment. Requires SOCKET_SECURITY_API_KEY with the full-scans:list,
+          diff-scans:list and diff-scans:create scopes. Advisory unless socket_api_fail_on_actions is set.
         type: boolean
         default: true
       socket_api_max_rows:
@@ -379,12 +379,11 @@ on:
         required: false
       SLACK_WEBHOOK_URL:
         required: false
-      # Declared but not consumed by any job today: the Socket layers here run
-      # token-free (the firewall inspects traffic locally, the App gate reads the
-      # GitHub checks API). It is declared so an organization secret reaches this
-      # workflow through `secrets: inherit` without a release, which a reusable
-      # workflow cannot do for an undeclared secret. Do not delete as dead —
-      # Socket Firewall enterprise is the intended consumer.
+      # Consumed by the Socket API Report step, which reads the scan and the diff
+      # that drive per-package findings and attribution. Needs the scopes
+      # full-scans:list, diff-scans:list and diff-scans:create. Left optional:
+      # without it that step skips with a notice, and the firewall and App gate
+      # layers keep working token-free.
       SOCKET_SECURITY_API_KEY:
         required: false
 
@@ -586,9 +585,10 @@ jobs:
 
       # Reads the scan the App already produced, addressed by the dashboard URL the
       # gate captured — no new scan, one quota unit, no duplicate analysis.
-      # The App publishes the diff scan id in its own comment. Looking it up by
-      # after_full_scan_id does not work: the App diffs against a different full
-      # scan than the one its Project Report check links to.
+      # A hint, not the answer: the API report first looks the diff up by
+      # after_full_scan_id, and only falls back to this id — for its before side —
+      # when Socket has not diffed this commit's scan. The App diffs against a
+      # different full scan than the one its Project Report check links to.
       - name: Resolve Socket diff scan id
         id: diff-scan
         if: always() && inputs.socket_enable_api_report && github.event_name == 'pull_request'
@@ -609,9 +609,11 @@ jobs:
           fi
           echo "id=$ID" >> "$GITHUB_OUTPUT"
 
+      # Skipped on a dry run: resolving attribution can POST diff-scans/from-ids,
+      # which creates a scan on the Socket organization. A preview must not.
       - name: Socket API Report
         id: api-report
-        if: always() && inputs.socket_enable_api_report && github.event_name == 'pull_request'
+        if: always() && inputs.socket_enable_api_report && github.event_name == 'pull_request' && !inputs.dry_run
         continue-on-error: true
         uses: LerianStudio/github-actions-shared-workflows/src/security/socket-api-report@v1
         with:

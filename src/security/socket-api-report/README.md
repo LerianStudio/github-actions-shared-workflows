@@ -62,7 +62,13 @@ Measuring package overlap then showed why no baseline was usable: the newest tar
 
 So the diff is read, not approximated. `added`, `updated` and `replaced` define what the pull request is responsible for; `updated` and `replaced` count because a version or source change makes those findings this change's problem too.
 
-**The diff scan id comes from the App's own comment**, passed in as `diff-scan-id`. Looking it up by `after_full_scan_id` returns nothing: the App diffs against a different full scan than the one its `Project Report` check links to. This is a dependency on a third-party bot's comment — if its format changes, or its comments are disabled, attribution degrades silently to "everything pre-existing" and `fail-on-actions` goes inert. Replacing it with a `diff-scans?repository_id=` lookup removes that coupling.
+The diff is resolved in three steps, in this order:
+
+1. **Look the diff up by `after_full_scan_id`**, keyed on the scan for this commit. When Socket has already diffed that exact scan, this is authoritative and nothing else runs.
+2. **Fall back to the id in the App's comment** (`diff-scan-id`). It is used only as a hint: its *before* side is read and a fresh diff is built against this commit's scan via `POST diff-scans/from-ids`. The App diffs against a different full scan than the one its `Project Report` check links to, so its published id is frequently keyed on the wrong *after* side — reusing it directly would attribute against a tree that is not this one.
+3. **Otherwise, no attribution.** Everything is reported as pre-existing.
+
+Step 2 is the only place a third-party bot's comment is involved, and it is degradable: with the App's comments disabled, step 1 still resolves whenever Socket has diffed this scan.
 
 Without a diff scan nothing is attributed and everything is reported as pre-existing. No attribution is honest; a confident wrong one is not.
 
@@ -78,8 +84,9 @@ Measured coverage on the reference tree: **1755 of 1897** artifacts carry the fi
 |---|---|
 | `full-scans:list` | Reading the scan for the commit |
 | `diff-scans:list` | Reading the diff scan that drives attribution |
+| `diff-scans:create` | Rebuilding the diff when the App's published id is keyed on another scan |
 
-Grant nothing else — this action only reads.
+Grant nothing else. The single write is that rebuilt diff scan; `on_duplicate=redirect` makes reruns idempotent rather than creating one per run.
 
 ## Why this does not use curl
 
@@ -122,7 +129,8 @@ Every failure path exits `0`, and HTTP statuses are classified separately (`401`
     }
   ],
   "introducedTruncated": false,
-  "preexistingTruncated": true
+  "preexistingHidden": 18,
+  "preexistingHiddenFindings": 24
 }
 ```
 

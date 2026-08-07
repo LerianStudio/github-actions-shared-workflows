@@ -82,7 +82,7 @@ Folding the Socket rows into the security comment is not reachable: `pr-security
 
 It also does not replace the **Socket App's** comment, which stays useful and is not duplicated here: the App shows version transitions and score deltas for changed direct dependencies (`@types/lodash@4.17.24 ⏵ 4.17.25`, Quality `+1`). This action shows action, severity, remediation and provenance. Two different questions.
 
-> The App's comment is also where `socket-api-report` reads its diff scan id, so disabling it breaks attribution.
+> The App's comment is one of the inputs `socket-api-report` uses to resolve its diff scan, so disabling it narrows attribution to the commits Socket has already diffed.
 
 ## Stale comments
 
@@ -95,27 +95,35 @@ With `comment-when: findings` (the default), nothing is posted when there is not
 Both upstream steps need `continue-on-error: true` so the report stays reachable when a layer fails, with the verdict re-applied by a gate step afterwards:
 
 ```yaml
-- id: firewall
-  continue-on-error: true
-  uses: LerianStudio/github-actions-shared-workflows/src/security/socket-firewall@v1
+jobs:
+  socket:
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: write
+    steps:
+      - id: firewall
+        continue-on-error: true
+        uses: LerianStudio/github-actions-shared-workflows/src/security/socket-firewall@v1
 
-- id: api-report
-  continue-on-error: true
-  uses: LerianStudio/github-actions-shared-workflows/src/security/socket-api-report@v1
-  with:
-    socket-api-key: ${{ secrets.SOCKET_SECURITY_API_KEY }}
-    report-url: ${{ steps.app-gate.outputs.report-url }}
+      - id: api-report
+        continue-on-error: true
+        uses: LerianStudio/github-actions-shared-workflows/src/security/socket-api-report@v1
+        with:
+          socket-api-key: ${{ secrets.SOCKET_SECURITY_API_KEY }}
+          report-url: ${{ steps.app-gate.outputs.report-url }}
 
-- name: Post Socket findings to PR
-  if: always()
-  uses: LerianStudio/github-actions-shared-workflows/src/security/socket-reporter@v1
-  with:
-    github-token: ${{ github.token }}
-    app-name: ${{ github.event.repository.name }}
-    firewall-blocked: ${{ steps.firewall.outputs.blocked || 'false' }}
-    firewall-findings-file: ${{ steps.firewall.outputs.findings-file }}
-    api-findings-file: ${{ steps.api-report.outputs.findings-file }}
-    api-blocking-count: ${{ steps.api-report.outputs.blocking-count || '0' }}
+      - name: Post Socket findings to PR
+        if: always()
+        uses: LerianStudio/github-actions-shared-workflows/src/security/socket-reporter@v1
+        with:
+          github-token: ${{ github.token }}
+          app-name: ${{ github.event.repository.name }}
+          firewall-blocked: ${{ steps.firewall.outputs.blocked || 'false' }}
+          firewall-findings-file: ${{ steps.firewall.outputs.findings-file }}
+          api-findings-file: ${{ steps.api-report.outputs.findings-file }}
+          api-blocking-count: ${{ steps.api-report.outputs.blocking-count || '0' }}
 ```
 
 ### Via the reusable workflow

@@ -131,7 +131,7 @@ Caller triggers must include the five activity types in the usage example. `edit
 |--------|-------------|----------|
 | `MANAGE_TOKEN` | Token for PR operations and private package access | No |
 | `SLACK_WEBHOOK_URL` | Slack webhook for pipeline notifications | No |
-| `SOCKET_SECURITY_API_KEY` | Socket API token. Not consumed by any job today — declared so an org secret reaches this workflow via `secrets: inherit` without a release. See below | No |
+| `SOCKET_SECURITY_API_KEY` | Socket API token for the Socket API Report step. Scopes: `full-scans:list`, `diff-scans:list`, `diff-scans:create`. Absent, that step skips with a notice and the other Socket layers keep working | No |
 
 All other secrets required by the underlying primitives (e.g. `DOCKER_USERNAME`, `DOCKERHUB_IMAGE_PULL_TOKEN`, `NPMRC_TOKEN`) are forwarded automatically via `secrets: inherit`.
 
@@ -253,7 +253,7 @@ The first two layers answer narrow questions. The firewall reports what it **ref
 
 **Provenance.** Transitive findings name the direct dependency that reaches them — `oauth@0.9.15` reads as `via next-auth`, because `oauth` is nobody's decision and `next-auth` is. Coverage on the reference tree was 1755 of 1897 artifacts; the rest are direct dependencies, which have no ancestor.
 
-**Scopes.** `full-scans:list` and `diff-scans:list` on `SOCKET_SECURITY_API_KEY`. Without the token the layer skips with a notice.
+**Scopes.** `full-scans:list`, `diff-scans:list` and `diff-scans:create` on `SOCKET_SECURITY_API_KEY` — the last one covers the diff the layer rebuilds when Socket has not diffed this commit's scan. Without the token the layer skips with a notice.
 
 **Advisory by construction.** Every API failure path exits `0` and reports zero blocking findings. A Socket outage or an exhausted quota must never read as a security finding — enforcement stays with layer 2's verdict, layer 1's refusal to install, and `socket_api_fail_on_actions` when a repository opts in.
 
