@@ -113,10 +113,17 @@ runs:
           // package or alert field could rewrite rows of a security report.
           // Registry naming rules make that unlikely, not impossible, and a
           // security report is the wrong place to rely on someone else's validation.
+          // Brackets and angle brackets matter as much as pipes: `fix` is free text
+          // from Socket, so `[approved fix](https://attacker.example)` would render
+          // as a link in the remediation list, and raw HTML renders in a comment.
           const cell = (v) => String(v ?? '')
             .replace(/[|\\]/g, '\\$&')
             .replace(/[\r\n]+/g, ' ')
-            .replace(/`/g, '\u2018');
+            .replace(/`/g, '\u2018')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/\[/g, '&#91;')
+            .replace(/\]/g, '&#93;');
           const urlPart = (v) => encodeURIComponent(String(v ?? ''));
 
           // Dashboard URLs, in the shapes the Socket App itself emits — the only

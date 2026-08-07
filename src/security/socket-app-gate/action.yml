@@ -95,10 +95,23 @@ runs:
           TOTAL=$(jq 'length' "$RAW_FILE")
           PENDING=$(jq '[.[] | select(.status != "completed")] | length' "$RAW_FILE")
 
+          # Completing on the first all-done snapshot is a time-of-check race: the
+          # App creates its checks independently, so Project Report can finish
+          # before Pull Request Alerts exists, and the gate would pass having never
+          # seen the adverse one. Require the set to be complete AND unchanged
+          # across two consecutive polls, which needs no hardcoded check names.
+          SIG=$(jq -r '[.[].name] | sort | join(",")' "$RAW_FILE")
           if [ "$TOTAL" -gt 0 ] && [ "$PENDING" -eq 0 ]; then
-            echo "timed_out=false" >> "$GITHUB_OUTPUT"
-            break
+            if [ "$SIG" = "${PREV_SIG:-}" ]; then
+              echo "timed_out=false" >> "$GITHUB_OUTPUT"
+              break
+            fi
+            echo "All $TOTAL check(s) complete; confirming the set is stable before deciding."
+            PREV_SIG="$SIG"
+            sleep "$INTERVAL"
+            continue
           fi
+          PREV_SIG=""
           if [ "$(date +%s)" -ge "$DEADLINE" ]; then
             echo "::warning::Timed out after ${TIMEOUT}s waiting for '$APP_SLUG' checks (found $TOTAL, $PENDING still running)."
             echo "timed_out=true" >> "$GITHUB_OUTPUT"

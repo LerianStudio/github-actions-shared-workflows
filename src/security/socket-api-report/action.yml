@@ -475,17 +475,35 @@ runs:
                 # same diff correctly. omit_unchanged=true made it worse by
                 # returning a flattened shape whose buckets were present and empty,
                 # which looked like a genuine "nothing changed".
-                buckets = ((diff.get("diff_scan") or {}).get("artifacts")
-                           or diff.get("artifacts") or diff)
+                # A malformed payload decodes to {} and would fall through to the
+                # last fallback, yielding empty buckets, has_baseline=true and a
+                # blocking count of zero — a gate that passes because it could not
+                # read the answer. Only a mapping that actually carries a bucket
+                # counts as a readable diff.
+                def buckets_of(d):
+                    for cand in ((d.get("diff_scan") or {}).get("artifacts"),
+                                 d.get("artifacts"), d):
+                        if isinstance(cand, dict) and any(
+                                isinstance(cand.get(b), list)
+                                for b in ("added", "updated", "replaced", "removed")):
+                            return cand
+                    return None
+
+                buckets = buckets_of(diff) if isinstance(diff, dict) else None
+                if buckets is None:
+                    print("::warning::The diff scan payload carried no readable "
+                          "added/updated/replaced buckets; nothing is attributed to "
+                          "this pull request.")
+                    diff_scan_id = None
                 counts = {}
-                for bucket in ("added", "updated", "replaced"):
+                for bucket in ("added", "updated", "replaced") if buckets else ():
                     arts = buckets.get(bucket) or []
                     counts[bucket] = len(arts)
                     for art in arts:
                         introduced_pkgs.add(f"{pkg_name(art)}@{art.get('version')}")
                 print("Diff buckets: " + ", ".join(f"{k}={v}" for k, v in counts.items())
                       + f" — {len(introduced_pkgs)} package(s) attributed to this pull request.")
-                has_baseline = True
+                has_baseline = buckets is not None
             else:
                 explain(st, bd, mit)
         else:

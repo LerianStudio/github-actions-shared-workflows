@@ -40,6 +40,9 @@ inputs:
     default: 'true'
 
 outputs:
+  skipped:
+    description: 'true when no lockfile was found in working-dir, so nothing was installed or inspected'
+    value: ${{ steps.resolve.outputs.skipped }}
   guarded:
     description: 'true when the install actually ran through Socket Firewall'
     value: ${{ steps.resolve.outputs.guarded }}
@@ -83,18 +86,26 @@ runs:
 
         if [ "$GUARD" != "true" ]; then
           echo "guarded=false" >> "$GITHUB_OUTPUT"
+          echo "skipped=false" >> "$GITHUB_OUTPUT"
           exit 0
         fi
         if [ ! -f "$WORKING_DIR/$LOCKFILE" ]; then
+          # Distinct from an opt-out: with no lockfile there is nothing to install.
+          # Falling through to the cached setup would point cache-dependency-path
+          # at a file that does not exist and fail the action, and `npm ci` needs a
+          # lockfile anyway — so the documented "skip with a warning" has to skip
+          # the install too, not just the guarding.
           echo "guarded=false" >> "$GITHUB_OUTPUT"
-          echo "::warning::Socket Firewall skipped — no $LOCKFILE in '$WORKING_DIR'. Installing unguarded."
+          echo "skipped=true" >> "$GITHUB_OUTPUT"
+          echo "::warning::No $LOCKFILE in '$WORKING_DIR' — nothing installed and nothing inspected."
           exit 0
         fi
+        echo "skipped=false" >> "$GITHUB_OUTPUT"
         echo "guarded=true" >> "$GITHUB_OUTPUT"
 
     # ----------------- Toolchain -----------------
     - name: Set up pnpm
-      if: inputs.package-manager == 'pnpm'
+      if: steps.resolve.outputs.skipped != 'true' && inputs.package-manager == 'pnpm'
       uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
       with:
         package_json_file: ${{ inputs.working-dir }}/package.json
@@ -111,7 +122,7 @@ runs:
         node-version: ${{ inputs.node-version }}
 
     - name: Setup Node.js (cached)
-      if: steps.resolve.outputs.guarded != 'true'
+      if: steps.resolve.outputs.skipped != 'true' && steps.resolve.outputs.guarded != 'true'
       uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v6
       with:
         node-version: ${{ inputs.node-version }}
@@ -148,6 +159,7 @@ runs:
     # ----------------- Install -----------------
     - name: Install dependencies
       id: install
+      if: steps.resolve.outputs.skipped != 'true'
       shell: bash
       working-directory: ${{ inputs.working-dir }}
       env:
@@ -174,7 +186,7 @@ runs:
 
     - name: Evaluate install result
       id: evaluate
-      if: always() && steps.install.conclusion != 'skipped'
+      if: always() && steps.resolve.outputs.skipped != 'true' && steps.install.conclusion != 'skipped'
       shell: bash
       env:
         EXIT_CODE: ${{ steps.install.outputs.exit_code }}
