@@ -156,6 +156,15 @@ runs:
         if not org or not scan:
             bail(f"Socket API report skipped — could not resolve org/scan id from '{report_url}'.", "warning")
 
+        # Printed as full URLs, not bare ids: the Actions log viewer linkifies
+        # them, so a reader can open the exact scan or diff from the log instead
+        # of hand-assembling a dashboard path.
+        DASH = f"https://socket.dev/dashboard/org/{org}"
+        def scan_url(i):
+            return f"{DASH}/sbom/{i}" if i else "<none>"
+        def diff_url(i):
+            return f"{DASH}/diff-scan/{i}?tab=dependencies" if i else "<none>"
+
         auth = base64.b64encode(f"{token}:".encode()).decode("ascii")
         HEADERS = {
             "Authorization": f"Basic {auth}",
@@ -248,7 +257,7 @@ runs:
         if probe:
             hits = [f"{pkg_name(a)}@{a.get('version')}" for a in head_arts
                     if pkg_name(a) == probe]
-            print(f"Probe '{probe}' in head scan {scan}: {hits or 'ABSENT'}")
+            print(f"Probe '{probe}' in {scan_url(scan)}: {hits or 'ABSENT'}")
 
         # The blame chain. A transitive finding is not actionable on its own —
         # nobody installed brace-expansion on purpose — so the direct dependency
@@ -307,7 +316,7 @@ runs:
         # It is a hint, not a source of truth — the verification below decides.
         diff_scan_id = os.environ.get("DIFF_SCAN_ID_IN") or None
         if diff_scan_id:
-            print(f"Diff scan {diff_scan_id} supplied by the Socket App comment.")
+            print(f"Diff scan supplied by the Socket App comment: {diff_url(diff_scan_id)}")
 
         # The diff scan id from the App's comment is only usable if it is keyed on
         # this commit's scan. The App publishes that comment asynchronously, so a
@@ -361,7 +370,7 @@ runs:
         fresh_id = diff_for_head()
         if fresh_id:
             if fresh_id != diff_scan_id:
-                print(f"Using diff scan {fresh_id}, keyed on this commit's scan.")
+                print(f"Using the diff scan keyed on this commit: {diff_url(fresh_id)}")
             diff_scan_id = fresh_id
         elif diff_scan_id:
             before = base_scan_from(diff_scan_id)
@@ -384,10 +393,11 @@ runs:
                         def side(k):
                             v = obj.get(k) or {}
                             if isinstance(v, dict):
-                                return (f"id={v.get('id')} branch={v.get('branch')} "
-                                        f"commit={str(v.get('commit_hash'))[:7]}")
+                                return (f"{scan_url(v.get('id'))} "
+                                        f"(branch {v.get('branch')}, "
+                                        f"commit {str(v.get('commit_hash'))[:7]})")
                             return str(v)
-                        print(f"Created diff scan {diff_scan_id}")
+                        print(f"Created diff scan: {diff_url(diff_scan_id)}")
                         print(f"  before: {side('before_full_scan')}")
                         print(f"  after:  {side('after_full_scan')}")
                     except json.JSONDecodeError:
@@ -399,8 +409,8 @@ runs:
                     print(bd[:500].decode("utf-8", "replace"))
                     diff_scan_id = None
             else:
-                print(f"::warning::Diff scan {diff_scan_id} is not keyed on this commit's scan "
-                      f"({scan}) and its base could not be resolved.")
+                print(f"::warning::The diff scan is not keyed on this commit's scan and its base "
+                      f"could not be resolved: {diff_url(diff_scan_id)}")
                 diff_scan_id = None
 
         if not diff_scan_id:
@@ -556,7 +566,7 @@ runs:
         emit(skipped="false", introduced_count=n_intro,
              preexisting_count=n_pre, blocking_count=blocking)
 
-        print(f"Scan {scan}: {len(head_arts)} artifact(s), {raw_alerts} raw alert(s).")
+        print(f"Scan {scan_url(scan)}\n  {len(head_arts)} artifact(s), {raw_alerts} raw alert(s).")
         print(f"  actioned: {n_intro} introduced by this PR, {n_pre} pre-existing on "
               f"'{base_branch or '<no baseline>'}'.")
         for e in alerts_by_type[:25]:
