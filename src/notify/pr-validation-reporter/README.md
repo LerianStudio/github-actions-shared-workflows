@@ -18,19 +18,64 @@ Posts a single mergeability summary comment aggregating all PR validation check 
 | `size-result` | Result of PR size check | No | `skipped` |
 | `label-result` | Result of auto-label step | No | `skipped` |
 | `metadata-result` | Result of PR metadata check | No | `skipped` |
+| `breaking-change-result` | Result of the blocking breaking change guard | No | `skipped` |
+| `blocking-checks-result` | Runtime result of the blocking checks job | No | `skipped` |
 | `dry-run` | When `true`, skip posting the summary comment | No | `false` |
+
+When `breaking-change-result` is `skipped` or omitted, the report omits the guard row and preserves existing mergeability behavior. This optional default exists only for backward compatibility with direct action consumers. The mandatory `pr-validation` integration always supplies the guard result and offers no guard opt-out. When supplied, only `success` is mergeable.
+
+When `blocking-checks-result` is omitted, `skipped`, or `success`, the report remains unchanged and omits the runtime row. Any other supplied value, including `failure`, `cancelled`, an empty value, or an unknown value, adds a blocking `Blocking Checks Runtime` row and blocks the reporter verdict. This optional default exists only for backward compatibility with direct action consumers. The mandatory `pr-validation` integration always supplies this internal runtime result; it is not an opt-out.
+
+## Outputs
+
+| Output | Description |
+|--------|-------------|
+| `has-breaking-change-guard` | Whether the breaking change guard result was reported, i.e. `breaking-change-result` was not `skipped` (`true`/`false`) |
+| `has-blocking-checks-runtime-failure` | Whether `blocking-checks-result` was supplied as a non-`success`, non-`skipped` value (`true`/`false`) |
 
 ## Usage as composite step
 
+The `blocking-checks` job must define a `breaking-change-result` output normalized to `success`/`failure`/`cancelled`/`skipped`, derived from the [`breaking-change-guard`](../../validate/breaking-change-guard/README.md) step:
+
 ```yaml
 jobs:
+  blocking-checks:
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    outputs:
+      # ...other check outputs...
+      breaking-change-result: ${{ steps.breaking-change-result.outputs.result }}
+    steps:
+      # ...other checks...
+      - name: Breaking Change Guard
+        id: breaking-change-guard
+        uses: LerianStudio/github-actions-shared-workflows/src/validate/breaking-change-guard@v1
+        with:
+          base-ref: ${{ github.base_ref }}
+          breaking-change-acknowledgement: 'BREAKING CHANGE APPROVED'
+      - name: Resolve breaking change result
+        id: breaking-change-result
+        if: always()
+        env:
+          GUARD_OUTCOME: ${{ steps.breaking-change-guard.outcome }}
+          HAS_BREAKING_CHANGES: ${{ steps.breaking-change-guard.outputs.has-breaking-changes }}
+          APPROVED: ${{ steps.breaking-change-guard.outputs.approved }}
+        run: |
+          set -euo pipefail
+          if [ "$GUARD_OUTCOME" != "success" ]; then
+            echo "result=$GUARD_OUTCOME" >> "$GITHUB_OUTPUT"
+          elif [ "$HAS_BREAKING_CHANGES" = "true" ] && [ "$APPROVED" != "true" ]; then
+            echo "result=failure" >> "$GITHUB_OUTPUT"
+          else
+            echo "result=success" >> "$GITHUB_OUTPUT"
+          fi
+
   pr-validation-report:
     runs-on: blacksmith-4vcpu-ubuntu-2404
     needs: [blocking-checks, advisory-checks]
     if: always() && github.event.pull_request.draft != true
     steps:
       - name: Post PR Validation Summary
-        uses: LerianStudio/github-actions-shared-workflows/src/notify/pr-validation-reporter@v1.x.x
+        uses: LerianStudio/github-actions-shared-workflows/src/notify/pr-validation-reporter@v1
         with:
           github-token: ${{ secrets.MANAGE_TOKEN || github.token }}
           source-branch-result: ${{ needs.blocking-checks.outputs.source-branch-result }}
@@ -39,6 +84,8 @@ jobs:
           size-result: ${{ needs.advisory-checks.outputs.size-result }}
           label-result: ${{ needs.advisory-checks.outputs.label-result }}
           metadata-result: ${{ needs.advisory-checks.outputs.metadata-result }}
+          breaking-change-result: ${{ needs.blocking-checks.outputs.breaking-change-result }}
+          blocking-checks-result: ${{ needs.blocking-checks.result }}
 ```
 
 ## Required permissions

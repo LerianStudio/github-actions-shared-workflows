@@ -1,0 +1,40 @@
+name: CloudFront Invalidate
+description: Create a CloudFront invalidation for the given paths; skipped (and logged) when dry-run is true.
+
+inputs:
+  distribution-id:
+    description: CloudFront distribution ID to invalidate.
+    required: true
+  paths:
+    description: Space-separated list of invalidation paths.
+    required: false
+    default: "/ /index.html"
+  dry-run:
+    description: Skip the invalidation and log what would happen.
+    required: false
+    default: "false"
+
+runs:
+  using: composite
+  steps:
+    - name: Invalidate CloudFront
+      if: ${{ inputs.dry-run != 'true' }}
+      shell: bash
+      env:
+        DISTRIBUTION_ID: ${{ inputs.distribution-id }}
+        PATHS: ${{ inputs.paths }}
+      run: |
+        set -euo pipefail
+        read -ra invalidation_paths <<< "$PATHS"
+        aws cloudfront create-invalidation \
+          --distribution-id "$DISTRIBUTION_ID" \
+          --paths "${invalidation_paths[@]}"
+
+    - name: Dry run — skipped invalidation
+      if: ${{ inputs.dry-run == 'true' }}
+      shell: bash
+      env:
+        DISTRIBUTION_ID: ${{ inputs.distribution-id }}
+        PATHS: ${{ inputs.paths }}
+      run: |
+        echo "::notice::DRY RUN — would invalidate distribution ${DISTRIBUTION_ID} paths: ${PATHS}"

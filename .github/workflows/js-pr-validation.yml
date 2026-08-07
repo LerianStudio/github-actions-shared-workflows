@@ -7,6 +7,16 @@ name: "JS/TS PR Validation"
 
 on:
   workflow_call:
+    outputs:
+      has_breaking_changes:
+        description: 'Whether the PR contains breaking changes (true/false)'
+        value: ${{ jobs.metadata.outputs.has_breaking_changes || 'false' }}
+      breaking_change_approved:
+        description: 'Whether the exact breaking change acknowledgement is present (true/false)'
+        value: ${{ jobs.metadata.outputs.breaking_change_approved || 'false' }}
+      breaking_change_result:
+        description: 'Breaking change guard result (success/failure)'
+        value: ${{ jobs.metadata.outputs.breaking_change_result || 'failure' }}
     inputs:
       runner_type:
         description: 'GitHub runner type to use'
