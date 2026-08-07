@@ -140,6 +140,14 @@ jobs:
     secrets: inherit
 ```
 
+## Guarded dependency installs
+
+Every job that installs dependencies does so through [`setup-node-guarded`](../src/setup/setup-node-guarded/README.md), which runs `sfw npm ci` (or the `yarn`/`pnpm` equivalent) under [Socket Firewall](https://github.com/SocketDev/sfw-free) instead of a bare install. A malicious package is refused mid-fetch, so it never reaches disk and its install scripts never execute — in **any** of these jobs, not just one.
+
+Guarded installs deliberately run **without a package-manager cache**: Socket Firewall only inspects what crosses the network, and a cached tarball produces no request. The cache is also purged before each install, since runner images can arrive pre-warmed. Measured cost is roughly 20s for a cold install of ~2000 packages.
+
+Set `enable_socket_firewall: false` to restore the previous behaviour (cached, unguarded) — necessary for repositories that install from a private registry, which the free edition does not support.
+
 ## Inputs
 
 | Input | Description | Required | Default |
@@ -152,6 +160,9 @@ jobs:
 | `app_name_prefix` | Prefix for app names in matrix output | No | `''` |
 | `node_version` | Node.js version to use | No | `22` |
 | `package_manager` | Package manager (npm, yarn, pnpm) | No | `npm` |
+| `enable_socket_firewall` | Route every dependency install through Socket Firewall (free tier, no token) so a malicious package is refused before any install script runs. `false` restores the previous behaviour, package-manager cache included | No | `true` |
+| `socket_firewall_version` | Socket Firewall binary version | No | `latest` |
+| `socket_fail_on_block` | Fail the job when Socket Firewall blocks a package | No | `true` |
 | `eslint_args` | Additional ESLint arguments | No | `''` |
 | `audit_level` | npm audit severity level (low, moderate, high, critical) | No | `high` |
 | `coverage_threshold` | Minimum coverage percentage (0-100) | No | `80` |

@@ -1,0 +1,246 @@
+name: Socket Firewall
+description: Installs Socket Firewall (free edition) and runs the project dependency install through it, blocking malicious packages at install time.
+
+inputs:
+  package-manager:
+    description: 'Package manager used to install dependencies (npm, yarn, pnpm)'
+    required: false
+    default: 'npm'
+  node-version:
+    description: 'Node.js version used for the guarded install'
+    required: false
+    default: '22'
+  working-dir:
+    description: 'Directory holding the package.json and lockfile'
+    required: false
+    default: '.'
+  firewall-version:
+    description: 'Socket Firewall binary version. Empty or "latest" tracks the newest release.'
+    required: false
+    default: 'latest'
+  job-summary:
+    description: "Socket Firewall job summary verbosity (all, errors, none)"
+    required: false
+    default: 'all'
+  use-cache:
+    description: 'Cache the Socket Firewall binaries between runs'
+    required: false
+    default: 'true'
+  github-token:
+    description: 'Token used by Socket Firewall to download its binaries'
+    required: false
+    default: ''
+  fail-on-block:
+    description: 'Fail the step when Socket Firewall blocks a package. Set to false to report the block as a warning instead.'
+    required: false
+    default: 'true'
+  dry-run:
+    description: 'Print the resolved configuration and never fail the step'
+    required: false
+    default: 'false'
+
+outputs:
+  skipped:
+    description: 'true when no lockfile was found in working-dir, so nothing was installed or inspected'
+    value: ${{ steps.guard.outputs.skipped }}
+  blocked:
+    description: 'true when the Socket Firewall report records at least one blocked package'
+    value: ${{ steps.evaluate.outputs.blocked }}
+  blocked-count:
+    description: 'Number of packages Socket Firewall refused'
+    value: ${{ steps.evaluate.outputs.blocked_count }}
+  findings-file:
+    description: 'Path to the Socket Firewall report JSON, for consumption by socket-reporter'
+    value: ${{ steps.evaluate.outputs.findings_file }}
+  install-exit-code:
+    description: 'Exit code returned by the package manager install'
+    value: ${{ steps.install.outputs.exit_code }}
+  report-path:
+    description: 'Path to the Socket Firewall report JSON produced by the underlying action'
+    value: ${{ steps.firewall.outputs.firewall-path-report }}
+
+runs:
+  using: composite
+  steps:
+    # ----------------- Guard -----------------
+    - name: Resolve lockfile presence
+      id: guard
+      shell: bash
+      env:
+        PKG_MANAGER: ${{ inputs.package-manager }}
+        WORKING_DIR: ${{ inputs.working-dir }}
+      run: |
+        # Without a lockfile there is nothing to install and therefore nothing to
+        # inspect. Skipping with a warning keeps monorepos — whose manifests live
+        # under a subdirectory — from failing until they set working-dir, instead
+        # of turning the check red on a configuration gap.
+        case "$PKG_MANAGER" in
+          yarn) LOCKFILE='yarn.lock' ;;
+          pnpm) LOCKFILE='pnpm-lock.yaml' ;;
+          *) LOCKFILE='package-lock.json' ;;
+        esac
+        echo "lockfile=$LOCKFILE" >> "$GITHUB_OUTPUT"
+
+        if [ -f "$WORKING_DIR/$LOCKFILE" ]; then
+          echo "skipped=false" >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
+        echo "skipped=true" >> "$GITHUB_OUTPUT"
+        echo "::warning::Socket Firewall skipped — no $LOCKFILE found in '$WORKING_DIR'. Point working-dir at the directory holding the lockfile."
+
+    # ----------------- Toolchain -----------------
+    - name: Set up pnpm
+      if: steps.guard.outputs.skipped != 'true' && inputs.package-manager == 'pnpm'
+      uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+      with:
+        package_json_file: ${{ inputs.working-dir }}/package.json
+
+    # Deliberately no `cache:` here. Socket Firewall free works by intercepting
+    # the package manager's network requests, and per its documentation "if there
+    # are no network requests, as is the case when artifacts are cached locally,
+    # there is nothing for sfw to block". Restoring a package-manager cache would
+    # let cached tarballs install uninspected. Dropping `cache:` also keeps this
+    # job from writing a post-run cache entry that other jobs would restore.
+    - name: Setup Node.js
+      if: steps.guard.outputs.skipped != 'true'
+      uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v6
+      with:
+        node-version: ${{ inputs.node-version }}
+
+    # ----------------- Socket Firewall -----------------
+    - name: Dry run summary
+      if: steps.guard.outputs.skipped != 'true' && inputs.dry-run == 'true'
+      shell: bash
+      env:
+        PKG_MANAGER: ${{ inputs.package-manager }}
+        WORKING_DIR: ${{ inputs.working-dir }}
+        FIREWALL_VERSION: ${{ inputs.firewall-version }}
+        FAIL_ON_BLOCK: ${{ inputs.fail-on-block }}
+      run: |
+        echo "::notice::DRY RUN — nothing is installed and no package is fetched"
+        echo "  package manager  : $PKG_MANAGER"
+        echo "  working dir      : $WORKING_DIR"
+        echo "  firewall version : $FIREWALL_VERSION"
+        echo "  fail on block    : $FAIL_ON_BLOCK (would apply outside dry-run)"
+
+    - name: Install Socket Firewall
+      id: firewall
+      if: steps.guard.outputs.skipped != 'true' && inputs.dry-run != 'true'
+      uses: SocketDev/action@ba6de6cc0565af1f42295590380973573297e31f # v1.3.2
+      with:
+        mode: firewall-free
+        firewall-version: ${{ inputs.firewall-version }}
+        # 'none' is coerced away: the pinned action exports SFW_JSON_REPORT_PATH
+        # only when job-summary != none, and without the report a real block is
+        # misreported as an ordinary install failure.
+        job-summary: ${{ inputs.job-summary == 'none' && 'errors' || inputs.job-summary }}
+        use-cache: ${{ inputs.use-cache }}
+        github-token: ${{ inputs.github-token != '' && inputs.github-token || github.token }}
+
+    # ----------------- Guarded install -----------------
+    - name: Clear package manager cache
+      if: steps.guard.outputs.skipped != 'true' && inputs.dry-run != 'true'
+      shell: bash
+      env:
+        PKG_MANAGER: ${{ inputs.package-manager }}
+      run: |
+        # sfw can only inspect what crosses the network. Anything already in the
+        # package manager's cache installs without a request and therefore
+        # uninspected, so the cache is purged first — the exact remedy Socket
+        # documents. A pre-warmed runner image is enough to hide a package
+        # otherwise. Failures here are non-fatal: an empty cache is also fine.
+        case "$PKG_MANAGER" in
+          yarn) yarn cache clean || true ;;
+          pnpm) pnpm store prune || true ;;
+          *) npm cache clean --force || true ;;
+        esac
+
+    - name: Install dependencies through Socket Firewall
+      id: install
+      if: steps.guard.outputs.skipped != 'true' && inputs.dry-run != 'true'
+      shell: bash
+      working-directory: ${{ inputs.working-dir }}
+      env:
+        PKG_MANAGER: ${{ inputs.package-manager }}
+      run: |
+        # Every command is prefixed with sfw so the package manager runs as its
+        # child and sfw sees the traffic. This is the only supported form in the
+        # pinned release — it exposes no shims input, so a bare `npm ci` would
+        # install completely uninspected while still reporting success.
+        # The exit code is captured instead of failing here so the evaluate step
+        # can tell a Socket block apart from an ordinary install failure.
+        LOG_FILE="$RUNNER_TEMP/socket-firewall-install.log"
+        EXIT_CODE=0
+        set -o pipefail
+        case "$PKG_MANAGER" in
+          yarn) sfw yarn install --frozen-lockfile 2>&1 | tee "$LOG_FILE" || EXIT_CODE=$? ;;
+          pnpm) sfw pnpm install --frozen-lockfile 2>&1 | tee "$LOG_FILE" || EXIT_CODE=$? ;;
+          *) sfw npm ci 2>&1 | tee "$LOG_FILE" || EXIT_CODE=$? ;;
+        esac
+        echo "exit_code=$EXIT_CODE" >> "$GITHUB_OUTPUT"
+        echo "log_file=$LOG_FILE" >> "$GITHUB_OUTPUT"
+
+    - name: Evaluate Socket Firewall result
+      id: evaluate
+      if: always() && steps.guard.outputs.skipped != 'true' && inputs.dry-run != 'true'
+      shell: bash
+      env:
+        EXIT_CODE: ${{ steps.install.outputs.exit_code }}
+        REPORT_PATH: ${{ steps.firewall.outputs.firewall-path-report }}
+        FINDINGS_FILE: socket-firewall-findings.json
+        FAIL_ON_BLOCK: ${{ inputs.fail-on-block }}
+      run: |
+        # Socket Firewall always writes a JSON report, whose schema (verified
+        # against the v1.15.0 binary) is:
+        #   {"blocked":[{"name","namespace","version","purlString","registryFqdn",
+        #                "alerts":[{"alert","action","actionSource","inputPurl"}]}]|null,
+        #    "parseFail":[{"registryFqdn","urlPath"}]|null}
+        # Reading it is deterministic; the previous approach grepped the install
+        # output for block wording, which could misattribute a real block as an
+        # ordinary failure and report blocked=false on a genuine finding.
+        EXIT_CODE="${EXIT_CODE:-1}"
+        echo "exit_code=$EXIT_CODE" >> "$GITHUB_OUTPUT"
+
+        BLOCKED=false
+        BLOCKED_COUNT=0
+        REPORT="${REPORT_PATH:-$SFW_JSON_REPORT_PATH}"
+        if [ -n "$REPORT" ] && [ -f "$REPORT" ]; then
+          BLOCKED_COUNT=$(jq '(.blocked // []) | length' "$REPORT" 2>/dev/null || echo 0)
+          PARSE_FAIL=$(jq '(.parseFail // []) | length' "$REPORT" 2>/dev/null || echo 0)
+          [ "$BLOCKED_COUNT" -gt 0 ] && BLOCKED=true
+          if [ "$PARSE_FAIL" -gt 0 ]; then
+            echo "::warning::Socket Firewall could not parse $PARSE_FAIL request(s); those packages were not inspected."
+          fi
+          cp "$REPORT" "$FINDINGS_FILE" 2>/dev/null || echo '{}' > "$FINDINGS_FILE"
+        else
+          echo '{}' > "$FINDINGS_FILE"
+          if [ "$EXIT_CODE" -ne 0 ]; then
+            # No report to read on a failed guarded install: refuse to call it clean.
+            echo "::warning::Socket Firewall report not found at '${REPORT:-<unset>}'; cannot attribute the install failure."
+          fi
+        fi
+        echo "blocked=$BLOCKED" >> "$GITHUB_OUTPUT"
+        echo "blocked_count=$BLOCKED_COUNT" >> "$GITHUB_OUTPUT"
+        echo "findings_file=$FINDINGS_FILE" >> "$GITHUB_OUTPUT"
+
+        if [ "$BLOCKED" = "true" ]; then
+          echo "Socket Firewall blocked $BLOCKED_COUNT package(s):"
+          jq -r '(.blocked // [])[] | "  \(.purlString)  [\((.alerts // []) | map(.alert) | join(", "))]"' "$REPORT" || true
+        fi
+
+        if [ "$EXIT_CODE" -eq 0 ] && [ "$BLOCKED" = "false" ]; then
+          echo "Socket Firewall allowed every package in the lockfile."
+          exit 0
+        fi
+
+        if [ "$BLOCKED" = "true" ]; then
+          if [ "$FAIL_ON_BLOCK" = "true" ]; then
+            echo "::error::Socket Firewall blocked $BLOCKED_COUNT package(s) during install."
+            exit 1
+          fi
+          echo "::warning::Socket Firewall blocked $BLOCKED_COUNT package(s) (advisory — fail-on-block is false)."
+          exit 0
+        fi
+
+        echo "::error::Dependency install failed with exit code $EXIT_CODE (no Socket Firewall block recorded in the report)."
+        exit 1
