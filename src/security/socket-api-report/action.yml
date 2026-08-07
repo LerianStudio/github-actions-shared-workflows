@@ -408,9 +408,11 @@ runs:
                   "request, findings are reported as pre-existing, and fail-on-actions cannot fire.")
 
         if diff_scan_id:
-            # omit_unchanged keeps the payload to what changed; the unchanged set is
-            # already covered by the head full scan read above.
-            st, bd, mit = get(f"orgs/{org}/diff-scans/{diff_scan_id}?omit_unchanged=true")
+            # omit_unchanged was passed to keep the payload small. The dashboard
+            # shows this exact diff populated while the API returned every bucket
+            # empty, so it is dropped: a smaller payload is worth nothing if it
+            # arrives empty.
+            st, bd, mit = get(f"orgs/{org}/diff-scans/{diff_scan_id}")
             if st == 200:
                 try:
                     diff = json.loads(bd.decode("utf-8", "replace"))
@@ -419,7 +421,17 @@ runs:
                 # added: new to this pull request. updated/replaced: same package at
                 # a different version or source, so its findings are this change's
                 # responsibility too. removed needs no reporting.
-                print("Diff scan top-level keys: " + ", ".join(sorted(diff.keys())))
+                # Log the shape, not just the key names: the previous diagnostic
+                # confirmed added/updated/replaced exist and said nothing about
+                # them being empty arrays versus the payload living elsewhere.
+                def shape(v):
+                    if isinstance(v, list):
+                        return f"list[{len(v)}]"
+                    if isinstance(v, dict):
+                        return f"dict{{{','.join(sorted(v.keys())[:6])}}}"
+                    return type(v).__name__
+                print("Diff scan shape: " + ", ".join(
+                    f"{k}={shape(v)}" for k, v in sorted(diff.items())))
                 counts = {}
                 for bucket in ("added", "updated", "replaced"):
                     arts = diff.get(bucket) or []
