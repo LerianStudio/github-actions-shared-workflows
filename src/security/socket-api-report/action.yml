@@ -288,45 +288,95 @@ runs:
         has_baseline = False
         base_branch = os.environ.get("BASE_BRANCH") or ""
 
+        # Starting point: the id the App published, if the workflow could read it.
+        # It is a hint, not a source of truth — the verification below decides.
         diff_scan_id = os.environ.get("DIFF_SCAN_ID_IN") or None
         if diff_scan_id:
-            print(f"Diff scan {diff_scan_id} (supplied).")
-        q = urllib.parse.urlencode({"after_full_scan_id": scan, "per_page": 1})
-        st, bd, mit = (200, b'{"results":[]}', "") if diff_scan_id else get(f"orgs/{org}/diff-scans?{q}")
-        if st == 200 and not diff_scan_id:
-            try:
-                results = json.loads(bd.decode("utf-8", "replace")).get("results") or []
-                if results:
-                    diff_scan_id = (results[0] or {}).get("id")
-                    before_id = (results[0] or {}).get("before_full_scan_id")
-                    print(f"Diff scan {diff_scan_id} (before {before_id}, after {scan}).")
-            except json.JSONDecodeError:
-                pass
-        else:
-            explain(st, bd, mit)
+            print(f"Diff scan {diff_scan_id} supplied by the Socket App comment.")
 
-        # Staleness check. The diff scan id comes from the App's comment, which the
-        # App publishes asynchronously — so a job that starts before that comment is
-        # updated reads the diff for a *previous* push. Observed in practice: a
-        # newly added package showed up in the scan (1898 artifacts against 1897)
-        # while the diff reported added=0, and the package was filed as pre-existing
-        # debt. Attribution failing silently is worse than not attributing at all,
-        # because fail-on-actions then passes a pull request it should have blocked.
-        if diff_scan_id:
+        # The diff scan id from the App's comment is only usable if it is keyed on
+        # this commit's scan. The App publishes that comment asynchronously, so a
+        # job that starts first reads the diff for a *previous* push: observed with
+        # a newly added package present in the scan (1898 artifacts against 1897)
+        # while its diff reported added=0, filing the new package as pre-existing
+        # debt and letting fail-on-actions pass a pull request it should have
+        # blocked. Silent wrong attribution is the worst outcome here, so the diff
+        # is verified and, when stale, rebuilt rather than trusted.
+        def post(path):
+            req = urllib.request.Request(f"{API}/{path}", headers=HEADERS, method="POST")
+            try:
+                with urllib.request.urlopen(req, timeout=180) as r:
+                    return r.status, r.read()
+            except urllib.error.HTTPError as e:
+                return e.code, e.read()
+            except Exception as e:
+                return 0, f"{type(e).__name__}: {e}".encode()
+
+        def diff_for_head():
+            """The diff scan Socket already holds for this exact scan, if any."""
             q = urllib.parse.urlencode({"after_full_scan_id": scan, "per_page": 1})
             st, bd, _ = get(f"orgs/{org}/diff-scans?{q}")
-            fresh = False
-            if st == 200:
-                try:
-                    fresh = bool(json.loads(bd.decode("utf-8", "replace")).get("results"))
-                except json.JSONDecodeError:
-                    fresh = False
-            if not fresh:
+            if st != 200:
+                return None
+            try:
+                res = json.loads(bd.decode("utf-8", "replace")).get("results") or []
+            except json.JSONDecodeError:
+                return None
+            return (res[0] or {}).get("id") if res else None
+
+        def base_scan_from(known_id):
+            """The before-side of a known diff scan, i.e. the base Socket itself chose.
+
+            Preferred over the newest scan of the target branch: that one is only a
+            guess at the comparison point, and a stale guess inflates the added set,
+            which would attribute other people's packages to this pull request and
+            block it for them.
+            """
+            st, bd, _ = get(f"orgs/{org}/diff-scans?per_page=30")
+            if st != 200:
+                return None
+            try:
+                for r in (json.loads(bd.decode("utf-8", "replace")).get("results") or []):
+                    if r.get("id") == known_id:
+                        return r.get("before_full_scan_id")
+            except json.JSONDecodeError:
+                pass
+            return None
+
+        fresh_id = diff_for_head()
+        if fresh_id:
+            if fresh_id != diff_scan_id:
+                print(f"Using diff scan {fresh_id}, keyed on this commit's scan.")
+            diff_scan_id = fresh_id
+        elif diff_scan_id:
+            before = base_scan_from(diff_scan_id)
+            if before:
+                # on_duplicate=redirect makes reruns idempotent instead of 409.
+                q = urllib.parse.urlencode({"before": before, "after": scan,
+                                            "on_duplicate": "redirect",
+                                            "description": "js-pr-validation supply chain gate"})
+                st, bd = post(f"orgs/{org}/diff-scans/from-ids?{q}")
+                if st in (200, 201):
+                    try:
+                        body = json.loads(bd.decode("utf-8", "replace"))
+                        diff_scan_id = (body.get("diff_scan") or body).get("id") or diff_scan_id
+                        print(f"Created diff scan {diff_scan_id} (before {before}, after {scan}).")
+                    except json.JSONDecodeError:
+                        print("::warning::Could not read the created diff scan id.")
+                        diff_scan_id = None
+                else:
+                    print(f"::warning::Could not create a diff scan (HTTP {st}). "
+                          f"Needs the diff-scans:create scope.")
+                    print(bd[:500].decode("utf-8", "replace"))
+                    diff_scan_id = None
+            else:
                 print(f"::warning::Diff scan {diff_scan_id} is not keyed on this commit's scan "
-                      f"({scan}) — the Socket App has not published a diff for this push yet. "
-                      f"Nothing is attributed to this pull request; findings are reported as "
-                      f"pre-existing and fail-on-actions cannot fire.")
+                      f"({scan}) and its base could not be resolved.")
                 diff_scan_id = None
+
+        if not diff_scan_id:
+            print("::warning::No diff scan for this commit — nothing is attributed to this pull "
+                  "request, findings are reported as pre-existing, and fail-on-actions cannot fire.")
 
         if diff_scan_id:
             # omit_unchanged keeps the payload to what changed; the unchanged set is
@@ -443,10 +493,15 @@ runs:
                 "introducedCount": n_intro,
                 "preexistingCount": n_pre,
                 "alertsByType": alerts_by_type,
-                "introduced": introduced[:max_rows],
+                # The introduced set is never truncated: it is what this pull
+                # request answers for, and a monitor-level row silently dropped
+                # below the cap is exactly the one someone needed to see.
+                "introduced": introduced,
                 "preexisting": preexisting[:max_rows],
-                "introducedTruncated": len(introduced) > max_rows,
-                "preexistingTruncated": len(preexisting) > max_rows,
+                "introducedTruncated": False,
+                "preexistingHidden": max(0, len(preexisting) - max_rows),
+                "preexistingHiddenFindings": sum(
+                    f["count"] for r in preexisting[max_rows:] for f in r["findings"]),
             }, fh)
 
         emit(skipped="false", introduced_count=n_intro,

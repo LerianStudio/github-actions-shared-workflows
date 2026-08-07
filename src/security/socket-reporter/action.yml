@@ -241,10 +241,6 @@ runs:
               lines.push(`${actionCounts(introduced)} — across ${introduced.length} package(s).`);
               lines.push('');
               lines.push(...pkgTable(introduced, diffUrl || scanUrl));
-              if (api.introducedTruncated) {
-                lines.push('');
-                lines.push('Highest-action packages only — more exist beyond the row limit.');
-              }
               lines.push(...fixBlock(introduced, 'Suggested fixes'));
               lines.push('');
             }
@@ -263,15 +259,13 @@ runs:
                 ? `The tree also carries **${n}** finding(s) already present on ${base}, untouched by this change.`
                 : `This pull request introduces nothing. The tree already carries **${n}** finding(s) on ${base}, unchanged here.`);
               lines.push('');
-              lines.push(`${actionCounts(preexisting)} — across ${preexisting.length} package(s).`);
+              const hidden = api.preexistingHidden || 0;
+              lines.push(`${actionCounts(preexisting)} — across ${preexisting.length} package(s) shown`
+                + (hidden ? `, ${hidden} more package(s) with ${api.preexistingHiddenFindings || 0} finding(s) not listed.` : '.'));
               lines.push('');
               lines.push(`<details><summary>Show the ${n} pre-existing finding(s)</summary>`);
               lines.push('');
               lines.push(...pkgTable(preexisting, scanUrl));
-              if (api.preexistingTruncated) {
-                lines.push('');
-                lines.push('Highest-action packages only — more exist beyond the row limit.');
-              }
               lines.push(...fixBlock(preexisting, 'Suggested fixes for the above'));
               lines.push('');
               lines.push('</details>');
