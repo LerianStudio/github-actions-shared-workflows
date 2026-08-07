@@ -39,6 +39,10 @@ inputs:
       Project Report check links to. Empty falls back to that lookup, then to no attribution.
     required: false
     default: ''
+  probe-package:
+    description: 'Diagnostic only: log whether this package name is present in the head scan.'
+    required: false
+    default: ''
   include-actions:
     description: >-
       Comma-separated Socket alert actions to treat as findings. Socket marks roughly 99% of alerts as "ignore"
@@ -97,6 +101,7 @@ runs:
         SCAN_ID_IN: ${{ inputs.full-scan-id }}
         BASE_BRANCH: ${{ inputs.base-branch }}
         DIFF_SCAN_ID_IN: ${{ inputs.diff-scan-id }}
+        PROBE_PACKAGE: ${{ inputs.probe-package }}
         HEAD_SHA: ${{ inputs.head-sha }}
         INCLUDE_ACTIONS: ${{ inputs.include-actions }}
         FAIL_ON_ACTIONS: ${{ inputs.fail-on-actions }}
@@ -235,6 +240,16 @@ runs:
             sys.exit(0)
         head_arts, head_scores = parse_scan(body)
 
+        # Cross-check: is a package this pull request added actually in the scan?
+        # The diff reporting added=0 while the scan grew by exactly one artifact
+        # points at either the diff's before side or its semantics, and this
+        # separates the two.
+        probe = os.environ.get("PROBE_PACKAGE", "")
+        if probe:
+            hits = [f"{pkg_name(a)}@{a.get('version')}" for a in head_arts
+                    if pkg_name(a) == probe]
+            print(f"Probe '{probe}' in head scan {scan}: {hits or 'ABSENT'}")
+
         # The blame chain. A transitive finding is not actionable on its own —
         # nobody installed brace-expansion on purpose — so the direct dependency
         # that pulls it in is the part a reviewer can act on. topLevelAncestors is
@@ -359,8 +374,22 @@ runs:
                 if st in (200, 201):
                     try:
                         body = json.loads(bd.decode("utf-8", "replace"))
-                        diff_scan_id = (body.get("diff_scan") or body).get("id") or diff_scan_id
-                        print(f"Created diff scan {diff_scan_id} (before {before}, after {scan}).")
+                        obj = body.get("diff_scan") or body
+                        diff_scan_id = obj.get("id") or diff_scan_id
+                        # The create response names both sides with commit and
+                        # branch. Logged because the before side is inherited from
+                        # the App's diff and has never been confirmed to be the
+                        # target branch rather than an earlier head of this one —
+                        # which would explain a diff reporting nothing added.
+                        def side(k):
+                            v = obj.get(k) or {}
+                            if isinstance(v, dict):
+                                return (f"id={v.get('id')} branch={v.get('branch')} "
+                                        f"commit={str(v.get('commit_hash'))[:7]}")
+                            return str(v)
+                        print(f"Created diff scan {diff_scan_id}")
+                        print(f"  before: {side('before_full_scan')}")
+                        print(f"  after:  {side('after_full_scan')}")
                     except json.JSONDecodeError:
                         print("::warning::Could not read the created diff scan id.")
                         diff_scan_id = None
