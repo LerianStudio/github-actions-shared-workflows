@@ -1,0 +1,607 @@
+name: Socket API Report
+description: Reads the Socket full scan for this commit and for the target branch, separating findings this pull request introduces from pre-existing tree debt.
+
+inputs:
+  socket-api-key:
+    description: 'Socket API token. Empty (the default) skips with a notice, so repositories without one are unaffected.'
+    required: false
+    default: ''
+  report-url:
+    description: >-
+      Socket dashboard URL of the scan to read, as exposed by socket-app-gate
+      (https://socket.dev/dashboard/org/<org>/sbom/<full-scan-id>). The org slug and scan id are parsed from it,
+      so no new scan is created and the App's own analysis is reused.
+    required: false
+    default: ''
+  org-slug:
+    description: 'Socket organization slug. Overrides the value parsed from report-url.'
+    required: false
+    default: ''
+  full-scan-id:
+    description: 'Full scan id for this commit. Overrides the value parsed from report-url.'
+    required: false
+    default: ''
+  base-branch:
+    description: >-
+      Target branch of the pull request. Its most recent full scan becomes the baseline, so findings already present
+      there are reported as pre-existing rather than as something this pull request introduced. Empty skips the
+      comparison, and everything is then reported as pre-existing.
+    required: false
+    default: ''
+  head-sha:
+    description: 'Head commit SHA, used to label the scan link in the pull request comment.'
+    required: false
+    default: ''
+  diff-scan-id:
+    description: >-
+      Socket diff scan id for this pull request. The App publishes it in its own comment; looking it up by
+      after_full_scan_id does not work, because the App diffs against a different full scan than the one its
+      Project Report check links to. Empty falls back to that lookup, then to no attribution.
+    required: false
+    default: ''
+  include-actions:
+    description: >-
+      Comma-separated Socket alert actions to treat as findings. Socket marks roughly 99% of alerts as "ignore"
+      (capability observations such as envVars or filesystemAccess), so reporting unfiltered buries a handful of
+      findings in thousands of lines.
+    required: false
+    default: 'error,warn,monitor'
+  fail-on-actions:
+    description: >-
+      Comma-separated actions that make an **introduced** finding blocking. Pre-existing findings never block:
+      gating a pull request on inherited debt fails every pull request for something none of them caused, and
+      guarantees the gate gets switched off. Empty (the default) blocks nothing.
+    required: false
+    default: ''
+  max-rows:
+    description: 'Maximum package rows kept per section, highest action first'
+    required: false
+    default: '25'
+  findings-file:
+    description: 'Path where the extracted findings JSON is written for socket-reporter'
+    required: false
+    default: 'socket-api-findings.json'
+  debug-sample:
+    description: 'Log the alert object shape. Useful when adapting to an API change.'
+    required: false
+    default: 'false'
+
+outputs:
+  skipped:
+    description: 'true when no report was produced (no token, no resolvable scan, or an API error)'
+    value: ${{ steps.fetch.outputs.skipped }}
+  findings-file:
+    description: 'Path to the extracted findings JSON'
+    value: ${{ steps.fetch.outputs.findings_file }}
+  introduced-count:
+    description: 'Number of actioned findings this pull request introduces'
+    value: ${{ steps.fetch.outputs.introduced_count }}
+  preexisting-count:
+    description: 'Number of actioned findings already present on the target branch'
+    value: ${{ steps.fetch.outputs.preexisting_count }}
+  blocking-count:
+    description: 'Introduced findings whose action matches fail-on-actions. Zero when fail-on-actions is empty.'
+    value: ${{ steps.fetch.outputs.blocking_count }}
+
+runs:
+  using: composite
+  steps:
+    # ----------------- Fetch, classify & extract -----------------
+    - name: Read Socket scans and classify findings
+      id: fetch
+      shell: bash
+      env:
+        SOCKET_API_KEY: ${{ inputs.socket-api-key }}
+        REPORT_URL: ${{ inputs.report-url }}
+        ORG_SLUG_IN: ${{ inputs.org-slug }}
+        SCAN_ID_IN: ${{ inputs.full-scan-id }}
+        BASE_BRANCH: ${{ inputs.base-branch }}
+        DIFF_SCAN_ID_IN: ${{ inputs.diff-scan-id }}
+        HEAD_SHA: ${{ inputs.head-sha }}
+        INCLUDE_ACTIONS: ${{ inputs.include-actions }}
+        FAIL_ON_ACTIONS: ${{ inputs.fail-on-actions }}
+        MAX_ROWS: ${{ inputs.max-rows }}
+        FINDINGS_FILE: ${{ inputs.findings-file }}
+        DEBUG_SAMPLE: ${{ inputs.debug-sample }}
+      run: |
+        echo "findings_file=$FINDINGS_FILE" >> "$GITHUB_OUTPUT"
+        echo '{}' > "$FINDINGS_FILE"
+
+        # Deliberately python, not curl. Cloudflare fingerprints the HTTP client
+        # in front of api.socket.dev and answers curl with a managed challenge —
+        # 403, an HTML interstitial, cf-mitigated: challenge — regardless of
+        # credentials, headers, auth form, endpoint or egress. Python's stdlib
+        # client is not challenged; it is the stack the official SDK uses, and the
+        # reason sfw reaches Socket from the very runner where curl is blocked.
+        python3 - <<'PYEOF'
+        import base64, json, os, sys, urllib.parse, urllib.request, urllib.error
+
+        API = "https://api.socket.dev/v0"
+        out_path = os.environ["FINDINGS_FILE"]
+
+        def emit(**kv):
+            with open(os.environ["GITHUB_OUTPUT"], "a") as fh:
+                for k, v in kv.items():
+                    fh.write(f"{k}={v}\n")
+
+        def bail(msg, level="notice"):
+            print(f"::{level}::{msg}")
+            emit(skipped="true", introduced_count=0, preexisting_count=0, blocking_count=0)
+            sys.exit(0)
+
+        token = os.environ.get("SOCKET_API_KEY", "")
+        if not token:
+            bail("Socket API report skipped — no Socket API token configured.")
+
+        report_url = os.environ.get("REPORT_URL", "")
+        org = os.environ.get("ORG_SLUG_IN") or ""
+        scan = os.environ.get("SCAN_ID_IN") or ""
+        if not org or not scan:
+            # The dashboard URL the App publishes carries both identifiers, so the
+            # scan it already computed is reused rather than creating a second one.
+            parts = urllib.parse.urlparse(report_url).path.strip("/").split("/")
+            for marker, target in (("org", "org"), ("sbom", "scan")):
+                if marker in parts:
+                    i = parts.index(marker)
+                    val = parts[i + 1] if len(parts) > i + 1 else ""
+                    if target == "org" and not org:
+                        org = val
+                    elif target == "scan" and not scan:
+                        scan = val
+        if not org or not scan:
+            bail(f"Socket API report skipped — could not resolve org/scan id from '{report_url}'.", "warning")
+
+        # Printed as full URLs, not bare ids: the Actions log viewer linkifies
+        # them, so a reader can open the exact scan or diff from the log instead
+        # of hand-assembling a dashboard path.
+        DASH = f"https://socket.dev/dashboard/org/{org}"
+        def scan_url(i):
+            return f"{DASH}/sbom/{i}" if i else "<none>"
+        def diff_url(i):
+            return f"{DASH}/diff-scan/{i}?tab=dependencies" if i else "<none>"
+
+        auth = base64.b64encode(f"{token}:".encode()).decode("ascii")
+        HEADERS = {
+            "Authorization": f"Basic {auth}",
+            "User-Agent": "LerianStudio-github-actions-shared-workflows",
+            "accept": "application/x-ndjson",
+        }
+
+        # urllib re-sends Authorization on redirect, so a redirect off api.socket.dev
+        # would hand the Socket token to another origin — or to plain HTTP. Same-host
+        # HTTPS redirects are still needed: on_duplicate=redirect answers a duplicate
+        # diff-scan creation with a 302 back to the existing resource.
+        API_HOST = urllib.parse.urlparse(API).netloc
+
+        class SameHostRedirect(urllib.request.HTTPRedirectHandler):
+            def redirect_request(self, req, fp, code, msg, headers, newurl):
+                parts = urllib.parse.urlparse(newurl)
+                if parts.scheme != "https" or parts.netloc != API_HOST:
+                    raise urllib.error.HTTPError(
+                        newurl, code,
+                        f"refused redirect to {parts.scheme}://{parts.netloc} "
+                        f"(credential is only sent to https://{API_HOST})",
+                        headers, fp)
+                return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+        opener = urllib.request.build_opener(SameHostRedirect)
+
+        def get(path):
+            req = urllib.request.Request(f"{API}/{path}", headers=HEADERS)
+            try:
+                with opener.open(req, timeout=180) as r:
+                    return r.status, r.read(), (r.headers.get("cf-mitigated") or "")
+            except urllib.error.HTTPError as e:
+                return e.code, e.read(), (e.headers.get("cf-mitigated") or "")
+            except Exception as e:
+                return 0, f"{type(e).__name__}: {e}".encode(), ""
+
+        def explain(status, body, mitigated):
+            if mitigated:
+                print(f"::warning::Socket API blocked by a Cloudflare challenge (HTTP {status}, cf-mitigated: {mitigated}).")
+                print("::warning::This is NOT a token or scope problem — the request never reached Socket's API.")
+                return
+            hint = {
+                0: "the request did not complete (network or timeout)",
+                401: "the token is invalid or revoked",
+                403: "the token lacks the full-scans:list scope",
+                404: "not found",
+                429: "quota or rate limit exhausted",
+            }.get(status, "unexpected status")
+            print(f"::warning::Socket API returned HTTP {status} — {hint}.")
+            # The status alone is a guess; the body is where Socket says what is wrong.
+            print("--- Socket API response ---")
+            print(body[:1000].decode("utf-8", "replace"))
+
+        keep = {a.strip().lower() for a in os.environ.get("INCLUDE_ACTIONS", "").split(",") if a.strip()} \
+               or {"error", "warn", "monitor"}
+        fail_on = {a.strip().lower() for a in os.environ.get("FAIL_ON_ACTIONS", "").split(",") if a.strip()}
+        try:
+            max_rows = max(1, int(os.environ.get("MAX_ROWS") or 25))
+        except ValueError:
+            print("::warning::max-rows is not a number; falling back to 25.")
+            max_rows = 25
+
+        def as_map(raw):
+            """Decode to a mapping, or {}. A JSON array or null is valid JSON and
+            would otherwise raise AttributeError on .get, killing the process before
+            it emits its outputs."""
+            try:
+                v = json.loads(raw.decode("utf-8", "replace"))
+            except json.JSONDecodeError:
+                return {}
+            return v if isinstance(v, dict) else {}
+
+        def as_results(raw):
+            """The results list, keeping only mapping entries."""
+            v = as_map(raw).get("results")
+            return [r for r in v if isinstance(r, dict)] if isinstance(v, list) else []
+
+        def parse_scan(raw):
+            """NDJSON: one artifact per line plus a trailing {"_type":"scores"} event."""
+            arts, scores = [], None
+            for line in raw.decode("utf-8", "replace").splitlines():
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    obj = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if obj.get("_type") == "scores":
+                    scores = obj.get("score") or obj.get("scores") or obj
+                elif obj.get("name"):
+                    arts.append(obj)
+            return arts, scores
+
+        def pkg_name(art):
+            ns = art.get("namespace")
+            return f"{ns}/{art['name']}" if ns else art.get("name")
+
+        status, body, mitigated = get(f"orgs/{org}/full-scans/{scan}")
+        if status != 200:
+            explain(status, body, mitigated)
+            # Advisory by construction: an unreachable API must never look like a
+            # finding, so every failure path reports zero and exits 0.
+            emit(skipped="true", introduced_count=0, preexisting_count=0, blocking_count=0)
+            sys.exit(0)
+        head_arts, head_scores = parse_scan(body)
+
+        # The blame chain. A transitive finding is not actionable on its own —
+        # nobody installed brace-expansion on purpose — so the direct dependency
+        # that pulls it in is the part a reviewer can act on. topLevelAncestors is
+        # documented as carrying artifact references; whether it is populated in
+        # this organization's scans is logged rather than assumed.
+        by_id = {}
+        for art in head_arts:
+            if art.get("id") is not None:
+                by_id[str(art["id"])] = f"{pkg_name(art)}@{art.get('version')}"
+
+        with_ancestors = [a for a in head_arts if a.get("topLevelAncestors")]
+        print(f"Blame chain: {len(with_ancestors)}/{len(head_arts)} artifact(s) carry topLevelAncestors; "
+              f"{len(by_id)} artifact id(s) available for resolution.")
+        if with_ancestors:
+            sample = with_ancestors[0]
+            raw = sample.get("topLevelAncestors") or []
+            resolved = [by_id.get(str(r)) for r in raw[:3]]
+            print(f"  sample {pkg_name(sample)}@{sample.get('version')}: raw={raw[:3]} "
+                  f"resolved={resolved}")
+
+        def ancestors_of(art):
+            """Direct dependencies that pull this artifact in, as name@version."""
+            out = []
+            for ref in (art.get("topLevelAncestors") or []):
+                name = by_id.get(str(ref))
+                if name and name not in out:
+                    out.append(name)
+            return out
+
+        if os.environ.get("DEBUG_SAMPLE") == "true":
+            alerts = [a for art in head_arts for a in (art.get("alerts") or [])]
+            print("--- alert keys ---", sorted({k for a in alerts for k in a}))
+            print("--- first fix ---", json.dumps(next((a["fix"] for a in alerts if a.get("fix")), None))[:400])
+
+        # Attribution comes from Socket's own diff scan, not from a baseline this
+        # action picks. Two home-grown attempts failed instructively:
+        #
+        #  1. Comparing against the newest scan of the target branch produced 38
+        #     false attributions on a change to a single types package.
+        #  2. Filtering candidates by scan_state rejected all ten. Every scan in
+        #     this organization persists as 'pending' or 'resolve', the head scan
+        #     included, so scan_state carries no completion meaning here.
+        #
+        # Measuring package overlap then showed why no baseline was usable: the
+        # newest target-branch scan shared only 31.8% of this tree's
+        # package@version set despite holding 82% as many artifacts. The Socket App
+        # already computes the correct diff per pull request, so it is read instead
+        # of approximated — the diff scan is keyed on the head full scan, which
+        # makes the lookup exact rather than heuristic.
+        introduced_pkgs = set()
+        has_baseline = False
+        base_branch = os.environ.get("BASE_BRANCH") or ""
+
+        # Starting point: the id the App published, if the workflow could read it.
+        # It is a hint, not a source of truth — the verification below decides.
+        diff_scan_id = os.environ.get("DIFF_SCAN_ID_IN") or None
+        if diff_scan_id:
+            print(f"Diff scan supplied by the Socket App comment: {diff_url(diff_scan_id)}")
+
+        # The diff scan id from the App's comment is only usable if it is keyed on
+        # this commit's scan. The App publishes that comment asynchronously, so a
+        # job that starts first reads the diff for a *previous* push: observed with
+        # a newly added package present in the scan (1898 artifacts against 1897)
+        # while its diff reported added=0, filing the new package as pre-existing
+        # debt and letting fail-on-actions pass a pull request it should have
+        # blocked. Silent wrong attribution is the worst outcome here, so the diff
+        # is verified and, when stale, rebuilt rather than trusted.
+        def post(path):
+            req = urllib.request.Request(f"{API}/{path}", headers=HEADERS, method="POST")
+            try:
+                with opener.open(req, timeout=180) as r:
+                    return r.status, r.read()
+            except urllib.error.HTTPError as e:
+                return e.code, e.read()
+            except Exception as e:
+                return 0, f"{type(e).__name__}: {e}".encode()
+
+        def diff_for_head():
+            """The diff scan Socket already holds for this exact scan, if any."""
+            q = urllib.parse.urlencode({"after_full_scan_id": scan, "per_page": 1})
+            st, bd, _ = get(f"orgs/{org}/diff-scans?{q}")
+            if st != 200:
+                return None
+            res = as_results(bd)
+            return res[0].get("id") if res else None
+
+        def base_scan_from(known_id):
+            """The before-side of a known diff scan, i.e. the base Socket itself chose.
+
+            Preferred over the newest scan of the target branch: that one is only a
+            guess at the comparison point, and a stale guess inflates the added set,
+            which would attribute other people's packages to this pull request and
+            block it for them.
+            """
+            # Paginated: the list is org-wide and ordered by recency, so a busy
+            # organization pushes this pull request's diff past any single page.
+            # Falling off the end returned None, which classified every finding as
+            # pre-existing and silently zeroed the blocking count.
+            cursor, pages = None, 0
+            while pages < 10:
+                q = {"per_page": 100}
+                if cursor:
+                    q["cursor"] = cursor
+                st, bd, _ = get(f"orgs/{org}/diff-scans?{urllib.parse.urlencode(q)}")
+                if st != 200:
+                    return None
+                for r in as_results(bd):
+                    if r.get("id") == known_id:
+                        return r.get("before_full_scan_id")
+                cursor = as_map(bd).get("next_cursor")
+                pages += 1
+                if not cursor:
+                    break
+            print(f"::warning::Diff scan {known_id} not found in {pages} page(s) of the "
+                  f"diff-scan list; its base could not be resolved.")
+            return None
+
+        fresh_id = diff_for_head()
+        if fresh_id:
+            if fresh_id != diff_scan_id:
+                print(f"Using the diff scan keyed on this commit: {diff_url(fresh_id)}")
+            diff_scan_id = fresh_id
+        elif diff_scan_id:
+            before = base_scan_from(diff_scan_id)
+            if before:
+                # on_duplicate=redirect makes reruns idempotent instead of 409.
+                q = urllib.parse.urlencode({"before": before, "after": scan,
+                                            "on_duplicate": "redirect",
+                                            "description": "js-pr-validation supply chain gate"})
+                st, bd = post(f"orgs/{org}/diff-scans/from-ids?{q}")
+                if st in (200, 201):
+                    created = as_map(bd)
+                    obj = created.get("diff_scan") or created
+                    diff_scan_id = obj.get("id") or diff_scan_id
+                    # The create response names both sides with commit and branch.
+                    # Logged because the before side is inherited from the App's
+                    # diff and has never been confirmed to be the target branch
+                    # rather than an earlier head of this one.
+                    def side(k):
+                        v = obj.get(k) or {}
+                        if isinstance(v, dict):
+                            return (f"{scan_url(v.get('id'))} "
+                                    f"(branch {v.get('branch')}, "
+                                    f"commit {str(v.get('commit_hash'))[:7]})")
+                        return str(v)
+                    if not diff_scan_id:
+                        print("::warning::The created diff scan carried no id.")
+                    else:
+                        print(f"Created diff scan: {diff_url(diff_scan_id)}")
+                        print(f"  before: {side('before_full_scan')}")
+                        print(f"  after:  {side('after_full_scan')}")
+                else:
+                    print(f"::warning::Could not create a diff scan (HTTP {st}). "
+                          f"Needs the diff-scans:create scope.")
+                    print(bd[:500].decode("utf-8", "replace"))
+                    diff_scan_id = None
+            else:
+                print(f"::warning::The diff scan is not keyed on this commit's scan and its base "
+                      f"could not be resolved: {diff_url(diff_scan_id)}")
+                diff_scan_id = None
+
+        if not diff_scan_id:
+            print("::warning::No diff scan for this commit — nothing is attributed to this pull "
+                  "request, findings are reported as pre-existing, and fail-on-actions cannot fire.")
+
+        if diff_scan_id:
+            # omit_unchanged was passed to keep the payload small. The dashboard
+            # shows this exact diff populated while the API returned every bucket
+            # empty, so it is dropped: a smaller payload is worth nothing if it
+            # arrives empty.
+            st, bd, mit = get(f"orgs/{org}/diff-scans/{diff_scan_id}")
+            if st == 200:
+                diff = as_map(bd)
+                # added: new to this pull request. updated/replaced: same package at
+                # a different version or source, so its findings are this change's
+                # responsibility too. removed needs no reporting.
+                # Log the shape, not just the key names: the previous diagnostic
+                # confirmed added/updated/replaced exist and said nothing about
+                # them being empty arrays versus the payload living elsewhere.
+                def shape(v):
+                    if isinstance(v, list):
+                        return f"list[{len(v)}]"
+                    if isinstance(v, dict):
+                        return f"dict{{{','.join(sorted(v.keys())[:6])}}}"
+                    return type(v).__name__
+                print("Diff scan shape: " + ", ".join(
+                    f"{k}={shape(v)}" for k, v in sorted(diff.items())))
+                # The buckets are nested under diff_scan.artifacts, not at the top
+                # level. Reading the top level returned None for every bucket and
+                # therefore attributed nothing, while the dashboard rendered the
+                # same diff correctly. omit_unchanged=true made it worse by
+                # returning a flattened shape whose buckets were present and empty,
+                # which looked like a genuine "nothing changed".
+                # A malformed payload decodes to {} and would fall through to the
+                # last fallback, yielding empty buckets, has_baseline=true and a
+                # blocking count of zero — a gate that passes because it could not
+                # read the answer. Only a mapping that actually carries a bucket
+                # counts as a readable diff.
+                def buckets_of(d):
+                    for cand in ((d.get("diff_scan") or {}).get("artifacts"),
+                                 d.get("artifacts"), d):
+                        if isinstance(cand, dict) and any(
+                                isinstance(cand.get(b), list)
+                                for b in ("added", "updated", "replaced", "removed")):
+                            return cand
+                    return None
+
+                buckets = buckets_of(diff) if isinstance(diff, dict) else None
+                if buckets is None:
+                    print("::warning::The diff scan payload carried no readable "
+                          "added/updated/replaced buckets; nothing is attributed to "
+                          "this pull request.")
+                    diff_scan_id = None
+                counts = {}
+                for bucket in ("added", "updated", "replaced") if buckets else ():
+                    arts = buckets.get(bucket) or []
+                    counts[bucket] = len(arts)
+                    for art in arts:
+                        introduced_pkgs.add(f"{pkg_name(art)}@{art.get('version')}")
+                print("Diff buckets: " + ", ".join(f"{k}={v}" for k, v in counts.items())
+                      + f" — {len(introduced_pkgs)} package(s) attributed to this pull request.")
+                has_baseline = buckets is not None
+            else:
+                explain(st, bd, mit)
+        else:
+            print(f"::warning::No Socket diff scan found for full scan {scan}. Nothing can be "
+                  f"attributed to this pull request, so every finding is reported as pre-existing.")
+
+        # Kept for the report: which branch the comparison is against.
+        if not has_baseline:
+            print("::warning::No diff scan available — every finding is reported as pre-existing "
+                  "and nothing is attributed to this pull request.")
+
+        ACT_RANK = {"error": 0, "warn": 1, "monitor": 2}
+        SEV_RANK = {"critical": 0, "high": 1, "middle": 2, "medium": 2, "low": 3, "info": 4}
+
+        introduced, preexisting, raw_alerts = [], [], 0
+        for art in head_arts:
+            raw_alerts += len(art.get("alerts") or [])
+            name = pkg_name(art)
+            key_pkg = f"{name}@{art.get('version')}"
+            kept = [a for a in (art.get("alerts") or []) if (a.get("action") or "").lower() in keep]
+            if not kept:
+                continue
+
+            # Collapse repeats: an alert fires per source location, so one type
+            # recurs many times for the same package. Rendering them raw produced
+            # the same envVars hundreds of times in a single table cell.
+            by_type = {}
+            for a in kept:
+                t = a.get("type") or a.get("key") or "unknown"
+                e = by_type.setdefault(t, {"type": t, "action": a.get("action") or "",
+                                           "severity": a.get("severity"), "count": 0,
+                                           "file": None, "fix": None})
+                e["count"] += 1
+                e["file"] = e["file"] or a.get("file")
+                e["fix"] = e["fix"] or a.get("fix")
+
+            # A package is introduced when Socket's diff scan lists it as added,
+            # updated or replaced. Without a diff scan nothing is attributed, and
+            # everything is reported as pre-existing — no attribution is honest, a
+            # confident wrong one is not.
+            pkg_is_new = has_baseline and key_pkg in introduced_pkgs
+            for is_new in (True, False):
+                sel = list(by_type.values()) if is_new == pkg_is_new else []
+                if not sel:
+                    continue
+                sel.sort(key=lambda e: (ACT_RANK.get((e["action"] or "").lower(), 3),
+                                        SEV_RANK.get((e["severity"] or "info").lower(), 4)))
+                (introduced if is_new else preexisting).append({
+                    "name": name, "version": art.get("version"),
+                    "artifactId": art.get("id"),
+                    "ancestors": ancestors_of(art),
+                    "direct": bool(art.get("direct")), "dev": bool(art.get("dev")),
+                    "overallScore": (art.get("score") or {}).get("overall"),
+                    "worstAction": sel[0]["action"], "worstSeverity": sel[0]["severity"],
+                    "findings": sel,
+                })
+
+        def rank(rows):
+            rows.sort(key=lambda r: (ACT_RANK.get((r["worstAction"] or "").lower(), 3),
+                                     SEV_RANK.get((r["worstSeverity"] or "info").lower(), 4),
+                                     -len(r["findings"])))
+            return rows
+
+        introduced, preexisting = rank(introduced), rank(preexisting)
+        n_intro = sum(f["count"] for r in introduced for f in r["findings"])
+        n_pre = sum(f["count"] for r in preexisting for f in r["findings"])
+        # Only introduced findings can block.
+        blocking = sum(f["count"] for r in introduced for f in r["findings"]
+                       if (f["action"] or "").lower() in fail_on) if fail_on else 0
+
+        type_totals = {}
+        for r in introduced + preexisting:
+            for f in r["findings"]:
+                e = type_totals.setdefault(f["type"], {"type": f["type"], "action": f["action"], "count": 0})
+                e["count"] += f["count"]
+        alerts_by_type = sorted(type_totals.values(),
+                                key=lambda e: (ACT_RANK.get((e["action"] or "").lower(), 3), -e["count"]))
+
+        with open(out_path, "w") as fh:
+            json.dump({
+                "orgSlug": org,
+                "scanId": scan,
+                "headSha": os.environ.get("HEAD_SHA", ""),
+                "scanScores": head_scores,
+                "artifactCount": len(head_arts),
+                "alertCountRaw": raw_alerts,
+                "includedActions": sorted(keep),
+                "baseBranch": base_branch,
+                "diffScanId": diff_scan_id,
+                "hasBaseline": has_baseline,
+                "introducedCount": n_intro,
+                "preexistingCount": n_pre,
+                "alertsByType": alerts_by_type,
+                # The introduced set is never truncated: it is what this pull
+                # request answers for, and a monitor-level row silently dropped
+                # below the cap is exactly the one someone needed to see.
+                "introduced": introduced,
+                "preexisting": preexisting[:max_rows],
+                "introducedTruncated": False,
+                "preexistingHidden": max(0, len(preexisting) - max_rows),
+                "preexistingHiddenFindings": sum(
+                    f["count"] for r in preexisting[max_rows:] for f in r["findings"]),
+            }, fh)
+
+        emit(skipped="false", introduced_count=n_intro,
+             preexisting_count=n_pre, blocking_count=blocking)
+
+        print(f"Scan {scan_url(scan)}\n  {len(head_arts)} artifact(s), {raw_alerts} raw alert(s).")
+        print(f"  actioned: {n_intro} introduced by this PR, {n_pre} pre-existing on "
+              f"'{base_branch or '<no baseline>'}'.")
+        for e in alerts_by_type[:25]:
+            print(f"  [{e['action']}] {e['count']}x {e['type']}")
+        if blocking:
+            print(f"::error::{blocking} introduced finding(s) match the blocking policy "
+                  f"(fail-on-actions: {os.environ.get('FAIL_ON_ACTIONS')}).")
+        PYEOF

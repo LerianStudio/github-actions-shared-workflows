@@ -37,6 +37,10 @@ on:
         description: 'Run the security scan pipeline (Trivy, CodeQL, prerelease checks)'
         type: boolean
         default: true
+      run_socket:
+        description: 'Run the Socket supply-chain pipeline (Socket Firewall and, when enabled, the Socket CLI scan)'
+        type: boolean
+        default: true
 
       # ----------------- Change gate -----------------
       ignore_globs:
@@ -282,14 +286,110 @@ on:
         description: 'Comma-separated directories to skip in every Trivy filesystem scan (appended to the built-in skip list).'
         type: string
         default: ''
+
+      # ----------------- Socket supply chain (src/security/socket-*) -----------------
+      socket_enable_firewall:
+        description: 'Run Socket Firewall (free tier, no token) and install dependencies through it, blocking malicious packages at install time.'
+        type: boolean
+        default: true
+      socket_working_dir:
+        description: 'Directory holding the package.json and lockfile scanned by the Socket jobs'
+        type: string
+        default: '.'
+      socket_firewall_version:
+        description: 'Socket Firewall binary version. Empty or "latest" tracks the newest release.'
+        type: string
+        default: 'latest'
+      socket_job_summary:
+        description: 'Socket Firewall job summary verbosity (all, errors, none)'
+        type: string
+        default: 'all'
+      socket_use_cache:
+        description: 'Cache the sfw binary between runs. Unrelated to the package-manager cache, which is always purged before the guarded install.'
+        type: boolean
+        default: true
+      socket_fail_on_block:
+        description: 'Fail the Socket job when Socket Firewall blocks a package. Set to false to report the block as a warning instead.'
+        type: boolean
+        default: true
+      socket_enable_app_gate:
+        description: >-
+          Turn the Socket GitHub App checks into an enforceable gate. The App analyses the dependency graph and
+          posts advisory checks; this makes an adverse verdict block the pull request. Needs no token.
+        type: boolean
+        default: true
+      socket_app_slug:
+        description: 'GitHub App slug whose checks the gate reads'
+        type: string
+        default: 'socket-security'
+      socket_app_timeout:
+        description: 'Seconds to wait for the Socket App checks to complete before treating the result as inconclusive'
+        type: number
+        default: 300
+      socket_app_fail_on_findings:
+        description: 'Fail the Socket job when the App reports adverse checks'
+        type: boolean
+        default: true
+      socket_app_on_inconclusive:
+        description: >-
+          What to do when the App ran but reached no verdict (neutral/skipped/timeout): "block" (default) or "warn".
+          A conflicted pull request is the common cause, and it must not read as clean.
+        type: string
+        default: 'block'
+      socket_enable_api_report:
+        description: >-
+          Read the full scan the Socket App already computed and report per-package alerts, vulnerabilities and
+          scores in the pull request comment. Requires SOCKET_SECURITY_API_KEY with the full-scans:list,
+          diff-scans:list and diff-scans:create scopes. Advisory unless socket_api_fail_on_actions is set.
+        type: boolean
+        default: true
+      socket_api_max_rows:
+        description: 'Maximum package rows kept in the dependency findings table'
+        type: number
+        default: 25
+      socket_api_include_actions:
+        description: >-
+          Comma-separated Socket alert actions reported as findings. Socket marks roughly 99% of alerts as "ignore"
+          (capability observations such as envVars), so reporting unfiltered buries a handful of findings in
+          thousands of lines.
+        type: string
+        default: 'error,warn,monitor'
+      socket_comment_when:
+        description: >-
+          "findings" (the default) posts the Socket comment only when there is something to act on. "always" posts
+          every run. Operational state — whether the scan ran, which checks passed — is never in the comment; it
+          lives in the job log and the Socket status check.
+        type: string
+        default: 'findings'
+      socket_api_fail_on_actions:
+        description: >-
+          Comma-separated Socket alert actions that block the pull request. Empty (the default) reports without
+          blocking. Set to e.g. "error" to own the merge decision in this workflow rather than deferring it to the
+          Socket App's verdict.
+        type: string
+        default: ''
+      socket_app_on_missing:
+        description: >-
+          What to do when the App published no checks, which is what a repository without it installed looks like:
+          "warn" (default) keeps those repositories green, "block" requires the App.
+        type: string
+        default: 'warn'
     secrets:
       MANAGE_TOKEN:
         required: false
       SLACK_WEBHOOK_URL:
         required: false
+      # Consumed by the Socket API Report step, which reads the scan and the diff
+      # that drive per-package findings and attribution. Needs the scopes
+      # full-scans:list, diff-scans:list and diff-scans:create. Left optional:
+      # without it that step skips with a notice, and the firewall and App gate
+      # layers keep working token-free.
+      SOCKET_SECURITY_API_KEY:
+        required: false
 
 permissions:
   actions: read
+  checks: read
   contents: read
   id-token: write
   issues: write
@@ -351,6 +451,9 @@ jobs:
       path_level: ${{ inputs.path_level }}
       normalize_to_filter: ${{ inputs.normalize_to_filter }}
       app_name_prefix: ${{ inputs.app_name_prefix }}
+      enable_socket_firewall: ${{ inputs.socket_enable_firewall }}
+      socket_firewall_version: ${{ inputs.socket_firewall_version }}
+      socket_fail_on_block: ${{ inputs.socket_fail_on_block }}
       enable_lint: ${{ inputs.enable_lint }}
       enable_typecheck: ${{ inputs.enable_typecheck }}
       enable_security: ${{ inputs.enable_security }}
@@ -426,6 +529,176 @@ jobs:
         with:
           result: ${{ needs.changes.result != 'success' && needs.changes.result || needs.security.result }}
           label: Security
+
+  # ----------------- Socket Supply Chain -----------------
+  socket:
+    name: Socket (checks)
+    needs: changes
+    if: inputs.run_socket && needs.changes.outputs.code == 'true'
+    runs-on: ${{ vars.GENERAL_RUNNERS || inputs.runner_type }}
+    permissions:
+      contents: read
+      checks: read
+      issues: write
+      pull-requests: write
+    env:
+      SOCKET_APP_NAME: ${{ inputs.app_name_prefix != '' && inputs.app_name_prefix || github.event.repository.name }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+        with:
+          persist-credentials: false
+
+      # This install is the reporting source of truth for the Socket Firewall
+      # row below. Enforcement itself is broader: every install in
+      # frontend-pr-analysis.yml also runs through the firewall, so a malicious
+      # package cannot execute install scripts in any analysis job either.
+      - name: Socket Firewall
+        id: firewall
+        if: inputs.socket_enable_firewall
+        continue-on-error: true
+        uses: LerianStudio/github-actions-shared-workflows/src/security/socket-firewall@v1
+        with:
+          package-manager: ${{ inputs.package_manager }}
+          node-version: ${{ inputs.node_version }}
+          working-dir: ${{ inputs.socket_working_dir }}
+          firewall-version: ${{ inputs.socket_firewall_version }}
+          job-summary: ${{ inputs.socket_job_summary }}
+          use-cache: ${{ inputs.socket_use_cache }}
+          fail-on-block: ${{ inputs.socket_fail_on_block }}
+          dry-run: ${{ inputs.dry_run }}
+
+      - name: Socket App Gate
+        id: app-gate
+        if: inputs.socket_enable_app_gate && github.event_name == 'pull_request'
+        continue-on-error: true
+        uses: LerianStudio/github-actions-shared-workflows/src/security/socket-app-gate@v1
+        with:
+          github-token: ${{ secrets.MANAGE_TOKEN || github.token }}
+          # The App reports against the pull request head, not the merge commit.
+          commit-sha: ${{ github.event.pull_request.head.sha }}
+          app-slug: ${{ inputs.socket_app_slug }}
+          timeout-seconds: ${{ inputs.socket_app_timeout }}
+          fail-on-findings: ${{ inputs.socket_app_fail_on_findings }}
+          on-inconclusive: ${{ inputs.socket_app_on_inconclusive }}
+          on-missing-app: ${{ inputs.socket_app_on_missing }}
+
+      # Reads the scan the App already produced, addressed by the dashboard URL the
+      # gate captured — no new scan, one quota unit, no duplicate analysis.
+      # A hint, not the answer: the API report first looks the diff up by
+      # after_full_scan_id, and only falls back to this id — for its before side —
+      # when Socket has not diffed this commit's scan. The App diffs against a
+      # different full scan than the one its Project Report check links to.
+      - name: Resolve Socket diff scan id
+        id: diff-scan
+        if: always() && inputs.socket_enable_api_report && github.event_name == 'pull_request'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.MANAGE_TOKEN || github.token }}
+          PR: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          JQ='[.[] | select(.user.login == "socket-security[bot]") | .body] | last // ""'
+          BODY=$(gh api "repos/$REPO/issues/$PR/comments" --paginate --jq "$JQ")
+          ID=$(printf '%s' "$BODY" \
+            | grep -oE 'diff-scan/[0-9a-fA-F-]{36}' | head -1 | cut -d/ -f2 || true)
+          if [ -n "$ID" ]; then
+            echo "Resolved diff scan $ID from the Socket App comment."
+          else
+            echo "No diff scan id in the Socket App comment — it only posts one when dependencies change."
+          fi
+          echo "id=$ID" >> "$GITHUB_OUTPUT"
+
+      # Skipped on a dry run: resolving attribution can POST diff-scans/from-ids,
+      # which creates a scan on the Socket organization. A preview must not.
+      - name: Socket API Report
+        id: api-report
+        if: always() && inputs.socket_enable_api_report && github.event_name == 'pull_request' && !inputs.dry_run
+        continue-on-error: true
+        uses: LerianStudio/github-actions-shared-workflows/src/security/socket-api-report@v1
+        with:
+          socket-api-key: ${{ secrets.SOCKET_SECURITY_API_KEY }}
+          report-url: ${{ steps.app-gate.outputs.report-url }}
+          max-rows: ${{ inputs.socket_api_max_rows }}
+          include-actions: ${{ inputs.socket_api_include_actions }}
+          fail-on-actions: ${{ inputs.socket_api_fail_on_actions }}
+          # The baseline: findings already on the target branch are reported as
+          # pre-existing and never block, so a repository carrying debt does not
+          # fail every pull request for something none of them caused.
+          base-branch: ${{ github.base_ref }}
+          head-sha: ${{ github.event.pull_request.head.sha }}
+          diff-scan-id: ${{ steps.diff-scan.outputs.id }}
+
+      - name: Post Socket report to PR
+        if: always() && github.event_name == 'pull_request' && !inputs.dry_run
+        uses: LerianStudio/github-actions-shared-workflows/src/security/socket-reporter@v1
+        with:
+          github-token: ${{ secrets.MANAGE_TOKEN || github.token }}
+          app-name: ${{ env.SOCKET_APP_NAME }}
+          comment-when: ${{ inputs.socket_comment_when }}
+          firewall-blocked: ${{ steps.firewall.outputs.blocked || 'false' }}
+          firewall-fail-on-block: ${{ inputs.socket_fail_on_block }}
+          firewall-findings-file: ${{ steps.firewall.outputs.findings-file }}
+          api-findings-file: ${{ steps.api-report.outputs.findings-file }}
+          api-blocking-count: ${{ steps.api-report.outputs.blocking-count || '0' }}
+          # yamllint disable-line rule:line-length
+          run-url: ${{ format('{0}/{1}/actions/runs/{2}', github.server_url, github.repository, github.run_id) }}
+
+      # continue-on-error above keeps the report reachable even when a layer
+      # fails, so the verdict is re-applied here.
+      # dry_run is a preview across the whole umbrella, so the gate reports the
+      # verdict it would have applied instead of applying it.
+      - name: Gate - Fail on Socket findings
+        if: always() && !inputs.dry_run
+        env:
+          FIREWALL_OUTCOME: ${{ steps.firewall.outcome }}
+          APP_GATE_OUTCOME: ${{ steps.app-gate.outcome }}
+          API_BLOCKING: ${{ steps.api-report.outputs.blocking-count }}
+        run: |
+          FAILED=""
+          [ "$FIREWALL_OUTCOME" = "failure" ] && FAILED="$FAILED Socket-Firewall"
+          [ "$APP_GATE_OUTCOME" = "failure" ] && FAILED="$FAILED Socket-App-Gate"
+          # Only real findings from the API layer block. Its API-failure paths
+          # report zero here by construction, so an unreachable Socket cannot
+          # fail a pull request.
+          if [ "${API_BLOCKING:-0}" -gt 0 ] 2>/dev/null; then
+            FAILED="$FAILED Socket-Dependency-Findings"
+          fi
+          if [ -n "$FAILED" ]; then
+            echo "::error::Socket supply chain gate failed:$FAILED. See the Socket comment on the pull request."
+            exit 1
+          fi
+          echo "Socket supply chain gate passed."
+
+      - name: Gate - Socket findings (dry run)
+        if: always() && inputs.dry_run
+        env:
+          FIREWALL_OUTCOME: ${{ steps.firewall.outcome }}
+          APP_GATE_OUTCOME: ${{ steps.app-gate.outcome }}
+          API_BLOCKING: ${{ steps.api-report.outputs.blocking-count }}
+        run: |
+          echo "::notice::DRY RUN — Socket gate not enforced"
+          echo "  Socket Firewall  : $FIREWALL_OUTCOME"
+          echo "  Socket App gate  : $APP_GATE_OUTCOME"
+          # Never render an unmeasured count as zero: the API layer is skipped on
+          # a dry run because resolving attribution creates a scan, so there is
+          # no number here and printing 0 would read as "previewed, nothing found".
+          echo "  Blocking findings: not computed — the API layer does not run on a dry run"
+          echo "  Socket API Report: skipped (it would create a diff scan)"
+
+  socket-gate:
+    name: Socket
+    needs: [changes, socket]
+    if: always()
+    runs-on: ${{ vars.GENERAL_RUNNERS || inputs.runner_type }}
+    permissions:
+      contents: read
+    steps:
+      - name: Aggregate Socket result
+        uses: LerianStudio/github-actions-shared-workflows/src/validate/result-gate@v1
+        with:
+          result: ${{ needs.changes.result != 'success' && needs.changes.result || needs.socket.result }}
+          label: Socket
 
   # ----------------- Org ruleset compatibility stubs -----------------
   # Go Analysis and Lib Version are required status checks in the Lerian org

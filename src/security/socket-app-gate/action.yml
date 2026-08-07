@@ -1,0 +1,219 @@
+name: Socket App Gate
+description: Waits for the Socket Security GitHub App check runs on a commit and turns their advisory conclusions into an enforceable verdict.
+
+inputs:
+  github-token:
+    description: 'Token used to read check runs on the commit'
+    required: true
+  commit-sha:
+    description: 'Commit SHA whose check runs are inspected. Should be the pull request head SHA, not the merge SHA.'
+    required: true
+  app-slug:
+    description: 'GitHub App slug that owns the checks to gate on'
+    required: false
+    default: 'socket-security'
+  timeout-seconds:
+    description: 'How long to wait for the App checks to complete before giving up'
+    required: false
+    default: '300'
+  poll-interval-seconds:
+    description: 'Delay between check-run polls'
+    required: false
+    default: '15'
+  fail-on-findings:
+    description: 'Fail the step when an App check concludes as failure, action_required, cancelled or timed_out'
+    required: false
+    default: 'true'
+  on-inconclusive:
+    description: >-
+      What to do when the App ran but reached no verdict (neutral, skipped, or the wait timed out): "block" treats
+      it as a failure because "could not analyse" is not "clean", "warn" annotates and passes.
+    required: false
+    default: 'block'
+  on-missing-app:
+    description: >-
+      What to do when the App published no checks at all, which is what a repository without the Socket App
+      installed looks like: "warn" (the default) keeps such repositories green, "block" requires the App.
+    required: false
+    default: 'warn'
+  findings-file:
+    description: 'Path where the JSON verdict is written for consumption by socket-reporter'
+    required: false
+    default: 'socket-app-findings.json'
+
+outputs:
+  verdict:
+    description: 'pass | findings | inconclusive | missing'
+    value: ${{ steps.evaluate.outputs.verdict }}
+  report-url:
+    description: 'Link to the Socket dashboard report, when one of the checks exposed it'
+    value: ${{ steps.evaluate.outputs.report_url }}
+  findings-file:
+    description: 'Path to the JSON verdict file'
+    value: ${{ steps.evaluate.outputs.findings_file }}
+
+runs:
+  using: composite
+  steps:
+    # ----------------- Wait for the App -----------------
+    - name: Wait for Socket App checks
+      id: wait
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+        REPO: ${{ github.repository }}
+        SHA: ${{ inputs.commit-sha }}
+        APP_SLUG: ${{ inputs.app-slug }}
+        TIMEOUT: ${{ inputs.timeout-seconds }}
+        INTERVAL: ${{ inputs.poll-interval-seconds }}
+      run: |
+        # The App publishes its checks asynchronously, so this job can easily
+        # start before they exist. Poll until every check owned by the App has
+        # completed, or until the timeout — a timeout is reported as pending and
+        # classified downstream, never silently as success.
+        RAW_FILE="$RUNNER_TEMP/socket-app-checks.json"
+        DEADLINE=$(( $(date +%s) + TIMEOUT ))
+
+        while :; do
+          # Evaluated once per iteration so every branch below honours it. Checking
+          # it only on the pending path let a stability loop that never converges
+          # (the App still publishing checks) run past TIMEOUT to the job timeout.
+          EXPIRED=false
+          [ "$(date +%s)" -ge "$DEADLINE" ] && EXPIRED=true
+
+          API_ERR="$RUNNER_TEMP/socket-app-api.err"
+          API_RC=0
+          gh api "repos/$REPO/commits/$SHA/check-runs?per_page=100" \
+            --jq '[.check_runs[] | select(.app.slug == $ENV.APP_SLUG)
+                   | {name, status, conclusion, url: .details_url,
+                      title: (.output.title // ""),
+                      summary: (.output.summary // "")}]' > "$RAW_FILE" 2>"$API_ERR" || API_RC=$?
+
+          # An unreadable API must never look like an empty result: "no checks"
+          # is classified downstream as "App not installed", which only warns.
+          # A missing checks:read scope would then pass silently.
+          if [ "$API_RC" -ne 0 ]; then
+            echo "::error::Could not read check runs for $REPO@$SHA (gh exited $API_RC). Does the job grant 'checks: read'?"
+            cat "$API_ERR" >&2 || true
+            exit 1
+          fi
+
+          TOTAL=$(jq 'length' "$RAW_FILE")
+          PENDING=$(jq '[.[] | select(.status != "completed")] | length' "$RAW_FILE")
+
+          # Completing on the first all-done snapshot is a time-of-check race: the
+          # App creates its checks independently, so Project Report can finish
+          # before Pull Request Alerts exists, and the gate would pass having never
+          # seen the adverse one. Require the set to be complete AND unchanged
+          # across two consecutive polls, which needs no hardcoded check names.
+          SIG=$(jq -r '[.[].name] | sort | join(",")' "$RAW_FILE")
+          if [ "$TOTAL" -gt 0 ] && [ "$PENDING" -eq 0 ]; then
+            if [ "$SIG" = "${PREV_SIG:-}" ]; then
+              echo "timed_out=false" >> "$GITHUB_OUTPUT"
+              break
+            fi
+            # The deadline stops the wait but does not decide it: the second
+            # stable snapshot never happened, so the set may still be growing
+            # and reporting a clean wait here would be the race this loop exists
+            # to close. Downstream this reads as inconclusive, unless an adverse
+            # check was already observed.
+            if [ "$EXPIRED" = "true" ]; then
+              echo "::warning::Timed out after ${TIMEOUT}s with '$APP_SLUG' still publishing checks (last seen: $TOTAL)."
+              echo "timed_out=true" >> "$GITHUB_OUTPUT"
+              break
+            fi
+            echo "All $TOTAL check(s) complete; confirming the set is stable before deciding."
+            PREV_SIG="$SIG"
+            sleep "$INTERVAL"
+            continue
+          fi
+          PREV_SIG=""
+          if [ "$EXPIRED" = "true" ]; then
+            echo "::warning::Timed out after ${TIMEOUT}s waiting for '$APP_SLUG' checks (found $TOTAL, $PENDING still running)."
+            echo "timed_out=true" >> "$GITHUB_OUTPUT"
+            break
+          fi
+          echo "Waiting for $APP_SLUG checks — found $TOTAL, $PENDING pending. Retrying in ${INTERVAL}s."
+          sleep "$INTERVAL"
+        done
+
+        echo "raw_file=$RAW_FILE" >> "$GITHUB_OUTPUT"
+        jq -r '.[] | "  \(.name): \(.status)/\(.conclusion // "-")"' "$RAW_FILE"
+
+    # ----------------- Verdict -----------------
+    - name: Evaluate Socket App verdict
+      id: evaluate
+      shell: bash
+      env:
+        RAW_FILE: ${{ steps.wait.outputs.raw_file }}
+        TIMED_OUT: ${{ steps.wait.outputs.timed_out }}
+        APP_SLUG: ${{ inputs.app-slug }}
+        FAIL_ON_FINDINGS: ${{ inputs.fail-on-findings }}
+        ON_INCONCLUSIVE: ${{ inputs.on-inconclusive }}
+        ON_MISSING_APP: ${{ inputs.on-missing-app }}
+        FINDINGS_FILE: ${{ inputs.findings-file }}
+      run: |
+        TOTAL=$(jq 'length' "$RAW_FILE")
+        # failure/action_required/cancelled/timed_out are real adverse verdicts.
+        # neutral/skipped mean the App declined to judge — on this repo that is
+        # what an un-mergeable pull request produces, and it must not read as clean.
+        BAD=$(jq '[.[] | select(.conclusion == "failure" or .conclusion == "action_required"
+                                or .conclusion == "cancelled" or .conclusion == "timed_out")] | length' "$RAW_FILE")
+        UNDECIDED=$(jq '[.[] | select(.conclusion == "neutral" or .conclusion == "skipped")] | length' "$RAW_FILE")
+        REPORT_URL=$(jq -r '[.[] | select(.url != null and (.url | test("dashboard")))] | .[0].url // ""' "$RAW_FILE")
+
+        # TIMED_OUT is tested before TOTAL: a deadline that expires with no checks
+        # yet published is not evidence the App is uninstalled, and `missing`
+        # only warns by default — the gate would go green having seen nothing.
+        # BAD keeps priority over it, so an adverse conclusion already observed
+        # is still reported as `findings`.
+        if [ "$BAD" -gt 0 ]; then
+          VERDICT=findings
+        elif [ "$TIMED_OUT" = "true" ]; then
+          VERDICT=inconclusive
+        elif [ "$TOTAL" -eq 0 ]; then
+          VERDICT=missing
+        elif [ "$UNDECIDED" -gt 0 ]; then
+          VERDICT=inconclusive
+        else
+          VERDICT=pass
+        fi
+
+        echo "verdict=$VERDICT" >> "$GITHUB_OUTPUT"
+        echo "report_url=$REPORT_URL" >> "$GITHUB_OUTPUT"
+        echo "findings_file=$FINDINGS_FILE" >> "$GITHUB_OUTPUT"
+
+        jq --arg verdict "$VERDICT" --arg app "$APP_SLUG" --arg url "$REPORT_URL" \
+           --argjson timedOut "$([ "$TIMED_OUT" = "true" ] && echo true || echo false)" \
+           '{app: $app, verdict: $verdict, reportUrl: $url, timedOut: $timedOut, checks: .}' \
+           "$RAW_FILE" > "$FINDINGS_FILE"
+
+        case "$VERDICT" in
+          pass)
+            echo "Socket App reported no adverse findings across $TOTAL check(s)."
+            ;;
+          missing)
+            MSG="No '$APP_SLUG' check found on this commit — the Socket GitHub App does not appear to be installed."
+            if [ "$ON_MISSING_APP" = "block" ]; then
+              echo "::error::$MSG"
+              exit 1
+            fi
+            echo "::warning::$MSG Install-time protection still applies via Socket Firewall."
+            ;;
+          inconclusive)
+            MSG="Socket App reached no verdict ($UNDECIDED neutral/skipped check(s), timed out: $TIMED_OUT). This is not the same as clean."
+            if [ "$ON_INCONCLUSIVE" = "block" ]; then
+              echo "::error::$MSG Resolve the cause (a conflicted pull request is the common one) and re-run."
+              exit 1
+            fi
+            echo "::warning::$MSG"
+            ;;
+          findings)
+            MSG="Socket App reported $BAD adverse check(s)."
+            if [ "$FAIL_ON_FINDINGS" = "true" ]; then
+              echo "::error::$MSG Review the Socket report${REPORT_URL:+ at $REPORT_URL}."
+              exit 1
+            fi
+            echo "::warning::$MSG (advisory — fail-on-findings is false)"
+            ;;
+        esac

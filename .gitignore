@@ -37,3 +37,6 @@ go.list
 # ── Temporary files ────────────────────────────────────────────────────────────
 tmp/
 temp/
+
+# Linter binaries fetched ad hoc for local verification
+/typos

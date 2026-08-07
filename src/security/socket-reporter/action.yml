@@ -1,0 +1,374 @@
+name: Socket Supply Chain Reporter
+description: Posts Socket supply-chain findings as a single upserted pull request comment. Reports findings only — whether the scan ran belongs in the job log and the status check.
+
+inputs:
+  github-token:
+    description: 'Token used to post the pull request comment'
+    required: true
+  app-name:
+    description: 'Application name used in the comment heading and the comment marker'
+    required: true
+  comment-when:
+    description: >-
+      "findings" (the default) posts only when there is something to act on, and collapses an existing comment to a
+      resolved note once the findings are gone so a stale one never reads as current. "always" posts every run.
+    required: false
+    default: 'findings'
+  firewall-blocked:
+    description: 'true when Socket Firewall refused at least one package'
+    required: false
+    default: 'false'
+  firewall-fail-on-block:
+    description: 'Whether a Socket Firewall block is blocking for this repository'
+    required: false
+    default: 'true'
+  firewall-findings-file:
+    description: 'Path to the Socket Firewall report JSON (schema: blocked[], parseFail[])'
+    required: false
+    default: ''
+  api-findings-file:
+    description: 'Path to the JSON written by socket-api-report (introduced and pre-existing findings)'
+    required: false
+    default: ''
+  api-blocking-count:
+    description: 'Number of introduced dependency findings matching the blocking policy'
+    required: false
+    default: '0'
+  run-url:
+    description: 'Link to the workflow run, shown in the comment footer'
+    required: false
+    default: ''
+
+outputs:
+  has-findings:
+    description: 'true when any layer reported a finding, blocking or not'
+    value: ${{ steps.parse.outputs.has_findings }}
+  posted:
+    description: 'true when a comment was created or updated'
+    value: ${{ steps.parse.outputs.posted }}
+
+runs:
+  using: composite
+  steps:
+    # ----------------- PR Comment -----------------
+    - name: Post Socket findings to PR
+      id: report
+      uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+      env:
+        APP_NAME: ${{ inputs.app-name }}
+        COMMENT_WHEN: ${{ inputs.comment-when }}
+        FIREWALL_BLOCKED: ${{ inputs.firewall-blocked }}
+        FIREWALL_FAIL_ON_BLOCK: ${{ inputs.firewall-fail-on-block }}
+        FIREWALL_FINDINGS_FILE: ${{ inputs.firewall-findings-file }}
+        API_FINDINGS_FILE: ${{ inputs.api-findings-file }}
+        API_BLOCKING_COUNT: ${{ inputs.api-blocking-count }}
+        RUN_URL: ${{ inputs.run-url }}
+      with:
+        github-token: ${{ inputs.github-token }}
+        # Without this the action JSON-encodes the returned string, so the output
+        # arrives as a quoted string and the parse step below cannot read it.
+        result-encoding: string
+        script: |
+          const fs = require('fs');
+          const appName = process.env.APP_NAME;
+          const bool = (v) => v === 'true';
+          const readJson = (p) => {
+            if (!p || !fs.existsSync(p)) return null;
+            try { return JSON.parse(fs.readFileSync(p, 'utf8')); }
+            catch (e) { core.warning(`Could not parse ${p}: ${e.message}`); return null; }
+          };
+
+          const runUrl = process.env.RUN_URL;
+          const always = process.env.COMMENT_WHEN === 'always';
+
+          // ── Socket Firewall: refused packages ──
+          // parseFail is read by the composite but not rendered here: an unparsed
+          // request is a coverage gap for the job log to warn about, not a finding
+          // about a package.
+          const fwReport = readJson(process.env.FIREWALL_FINDINGS_FILE);
+          const blockedPkgs = (fwReport && fwReport.blocked) || [];
+          const hasFirewallFinding = bool(process.env.FIREWALL_BLOCKED) || blockedPkgs.length > 0;
+          const fwBlocking = bool(process.env.FIREWALL_FAIL_ON_BLOCK);
+
+          // ── Dependency findings, split by origin ──
+          const api = readJson(process.env.API_FINDINGS_FILE) || {};
+          const introduced = api.introduced || [];
+          const preexisting = api.preexisting || [];
+          const apiBlocking = parseInt(process.env.API_BLOCKING_COUNT || '0', 10) || 0;
+
+          const hasFindings = hasFirewallFinding || introduced.length > 0 || preexisting.length > 0;
+          // Count the packages actually refused, not the fact that a block happened:
+          // the heading is the number people read, and it has to agree with the
+          // rows in the table below it. 1 is the floor for a block whose report
+          // could not be parsed.
+          const fwBlockingCount = hasFirewallFinding && fwBlocking ? (blockedPkgs.length || 1) : 0;
+          const blockingCount = fwBlockingCount + apiBlocking;
+
+          const ACT = {
+            error:   { icon: '🔴', label: 'error' },
+            warn:    { icon: '🟠', label: 'warn' },
+            monitor: { icon: '🟡', label: 'monitor' },
+          };
+          const pct = (v) => (typeof v === 'number' ? `${Math.round(v * 100)}` : '—');
+          const marker = `<!-- socket-supply-chain-${appName} -->`;
+
+          // Every value below originates in a Socket finding, i.e. in metadata
+          // published by the very dependency being reported on. A pipe breaks the
+          // table it sits in and a bracket can restructure a link, so a crafted
+          // package or alert field could rewrite rows of a security report.
+          // Registry naming rules make that unlikely, not impossible, and a
+          // security report is the wrong place to rely on someone else's validation.
+          // Brackets and angle brackets matter as much as pipes: `fix` is free text
+          // from Socket, so `[approved fix](https://attacker.example)` would render
+          // as a link in the remediation list, and raw HTML renders in a comment.
+          const cell = (v) => String(v ?? '')
+            .replace(/[|\\]/g, '\\$&')
+            .replace(/[\r\n]+/g, ' ')
+            .replace(/`/g, '\u2018')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/\[/g, '&#91;')
+            .replace(/\]/g, '&#93;');
+          const urlPart = (v) => encodeURIComponent(String(v ?? ''));
+
+          // Dashboard URLs, in the shapes the Socket App itself emits — the only
+          // ones observed to resolve. A package row deep-links into the scan when
+          // Socket gave the artifact an id; without one the name stays plain
+          // rather than pointing somewhere that may not exist.
+          const org = api.orgSlug;
+          const base = org ? `https://socket.dev/dashboard/org/${urlPart(org)}` : null;
+          const diffUrl = base && api.diffScanId ? `${base}/diff-scan/${urlPart(api.diffScanId)}?tab=dependencies` : null;
+          const scanUrl = base && api.scanId ? `${base}/sbom/${urlPart(api.scanId)}` : null;
+          const pkgUrl = (p, root) => (root && p.artifactId
+            ? `${root}${root.includes('?') ? '&' : '?'}dependency_item_key=${urlPart(p.artifactId)}`
+            : null);
+
+          const pkgTable = (rows, root) => {
+            const out = ['| Package | Version | Reached via | Score | Findings |',
+                         '|---------|---------|-------------|-------|----------|'];
+            for (const p of rows) {
+              const m = ACT[(p.worstAction || '').toLowerCase()] || { icon: '•' };
+              const href = pkgUrl(p, root);
+              const label = href ? `[\`${cell(p.name)}\`](${href})` : `\`${cell(p.name)}\``;
+              // For a transitive package the direct dependency that pulls it in is
+              // the actionable part: "bump eslint" instead of "someone fix
+              // brace-expansion". Falls back to the plain scope when Socket gave
+              // no ancestors.
+              const ancestors = (p.ancestors || []).filter(a => a !== `${p.name}@${p.version}`);
+              const scope = p.direct
+                ? (p.dev ? 'direct, dev' : 'direct, prod')
+                : ancestors.length
+                  ? `via ${ancestors.slice(0, 2).map(a => `\`${cell(a.replace(/@[^@]*$/, ''))}\``).join(', ')}`
+                    + (ancestors.length > 2 ? ` +${ancestors.length - 2}` : '')
+                  : (p.dev ? 'transitive, dev' : 'transitive, prod');
+              const findings = (p.findings || []).map(f => {
+                const fm = ACT[(f.action || '').toLowerCase()] || { icon: '•' };
+                const n = f.count > 1 ? ` ×${f.count}` : '';
+                const sev = f.severity ? ` (${cell(f.severity)})` : '';
+                return `${fm.icon} \`${cell(f.type)}\`${n}${sev}`;
+              }).join('<br/>');
+              out.push(`| ${m.icon} ${label} | \`${cell(p.version || '?')}\` | ${scope} | ${pct(p.overallScore)} | ${findings} |`);
+            }
+            return out;
+          };
+
+          // fix is an object, not a string; its shape is undocumented, so prefer
+          // the readable fields and fall back to compact JSON rather than losing
+          // the most actionable field Socket returns.
+          const fixText = (fix) => {
+            if (typeof fix === 'string') return fix;
+            if (fix && typeof fix === 'object') {
+              const pick = fix.description || fix.message || fix.target || fix.upgrade || fix.type;
+              if (typeof pick === 'string') return pick;
+              return JSON.stringify(fix).slice(0, 300);
+            }
+            return String(fix);
+          };
+          // Magnitude by action, so the reader sees the shape of a section before
+          // deciding to expand it. A bare collapsed line gives no sense of scale.
+          const actionCounts = (rows) => {
+            const acc = {};
+            for (const p of rows) for (const f of (p.findings || [])) {
+              const k = (f.action || 'unknown').toLowerCase();
+              acc[k] = (acc[k] || 0) + (f.count || 1);
+            }
+            return Object.entries(acc)
+              .sort((a, b) => (ACT[a[0]] ? Object.keys(ACT).indexOf(a[0]) : 9)
+                            - (ACT[b[0]] ? Object.keys(ACT).indexOf(b[0]) : 9))
+              .map(([k, n]) => `${(ACT[k] || { icon: '•' }).icon} ${n} ${k}`)
+              .join(' · ');
+          };
+
+          const fixList = (rows) => rows
+            .flatMap(p => (p.findings || []).filter(f => f.fix).map(f => ({ pkg: p.name, ...f })));
+
+          // Remediation is the most actionable field Socket returns, and it was
+          // only wired into the introduced section — so on a pull request that
+          // introduces nothing, which is the common case, no fix ever rendered.
+          const fixBlock = (rows, label) => {
+            const fixes = fixList(rows);
+            if (!fixes.length) return [];
+            const seen = new Set();
+            const out = ['', `<details><summary>${label} (${fixes.length})</summary>`, ''];
+            for (const f of fixes) {
+              const line = `- \`${cell(f.pkg)}\` — ${cell(f.type)}: ${cell(fixText(f.fix))}`;
+              // The same advisory reaches several packages, so identical lines
+              // repeat; listing each once keeps the block scannable.
+              if (seen.has(line)) continue;
+              seen.add(line);
+              out.push(line);
+            }
+            out.push('', '</details>');
+            return out;
+          };
+
+          // ── Body: findings only ──
+          // Whether the scan ran, which checks passed, and how many alerts were
+          // filtered out are operational facts. They belong in the job log and the
+          // Socket status check, not in a comment people are asked to read.
+          const lines = [];
+          if (hasFindings) {
+            lines.push(`## 🛡️ Socket Supply Chain — \`${appName}\``);
+            lines.push('');
+            // The header states what this pull request is responsible for. Only
+            // pre-existing debt is a pass: nothing here was introduced, so a
+            // warning icon would train people to ignore the one that matters.
+            lines.push(blockingCount > 0
+              ? `### ❌ ${blockingCount} blocking finding(s) introduced`
+              : introduced.length
+                ? `### ⚠️ ${api.introducedCount || introduced.length} finding(s) introduced — none blocking`
+                : '### ✅ No new findings in this pull request');
+            lines.push('');
+
+            if (hasFirewallFinding) {
+              lines.push('### Refused at install');
+              lines.push('');
+              lines.push('These never reached disk, so their install scripts never ran.');
+              lines.push('');
+              if (blockedPkgs.length) {
+                lines.push('| Package | Version | Registry | Findings |');
+                lines.push('|---------|---------|----------|----------|');
+                for (const p of blockedPkgs) {
+                  const name = p.namespace ? `${p.namespace}/${p.name}` : p.name;
+                  const f = (p.alerts || []).map(a => `\`${cell(a.alert)}\``).join(', ') || '—';
+                  lines.push(`| 🔴 \`${cell(name)}\` | \`${cell(p.version || '?')}\` | ${cell(p.registryFqdn || '—')} | ${f} |`);
+                }
+                lines.push('');
+              }
+              lines.push('There is no ignore file for install-time blocks — a false positive needs the package reviewed, not suppressed.');
+              lines.push('');
+            }
+
+            if (introduced.length) {
+              lines.push('### Introduced by this pull request');
+              lines.push('');
+              lines.push(`${actionCounts(introduced)} — across ${introduced.length} package(s).`);
+              lines.push('');
+              lines.push(...pkgTable(introduced, diffUrl || scanUrl));
+              lines.push(...fixBlock(introduced, 'Suggested fixes'));
+              lines.push('');
+            }
+
+            // Pre-existing debt is collapsed and never blocking. It is the same on
+            // every pull request in the repository, so promoting it would drown the
+            // part that this change is actually responsible for.
+            if (preexisting.length) {
+              const n = api.preexistingCount || 0;
+              const baseLabel = api.baseBranch ? `\`${cell(api.baseBranch)}\`` : 'the target branch';
+              lines.push('---');
+              lines.push('');
+              lines.push('### Existing tree debt');
+              lines.push('');
+              lines.push(introduced.length
+                ? `The tree also carries **${n}** finding(s) already present on ${baseLabel}, untouched by this change.`
+                : `This pull request introduces nothing. The tree already carries **${n}** finding(s) on ${baseLabel}, unchanged here.`);
+              lines.push('');
+              const hidden = api.preexistingHidden || 0;
+              lines.push(`${actionCounts(preexisting)} — across ${preexisting.length} package(s) shown`
+                + (hidden ? `, ${hidden} more package(s) with ${api.preexistingHiddenFindings || 0} finding(s) not listed.` : '.'));
+              lines.push('');
+              lines.push(`<details><summary>Show the ${n} pre-existing finding(s)</summary>`);
+              lines.push('');
+              lines.push(...pkgTable(preexisting, scanUrl));
+              lines.push(...fixBlock(preexisting, 'Suggested fixes for the above'));
+              lines.push('');
+              lines.push('</details>');
+              lines.push('');
+            }
+
+            if (!api.hasBaseline && (introduced.length || preexisting.length)) {
+              lines.push('> No baseline scan was available for the target branch, so nothing could be attributed to this pull request specifically.');
+              lines.push('');
+            }
+
+            lines.push('---');
+            lines.push('');
+            // "Full project report" read as project-wide when it is in fact the
+            // scan of this pull request's commit. The short sha removes the doubt.
+            const sha = (api.headSha || '').slice(0, 7);
+            const refs = [];
+            if (diffUrl) refs.push(`[What this PR changed](${diffUrl})`);
+            if (scanUrl) refs.push(`[Socket scan for ${sha ? `\`${sha}\`` : 'this PR'}](${scanUrl})`);
+            if (runUrl) refs.push(`[Workflow logs](${runUrl})`);
+            if (refs.length) lines.push(`<sub>🔍 ${refs.join(' · ')}</sub>`);
+          } else if (always) {
+            lines.push(`## 🛡️ Socket Supply Chain — \`${appName}\``);
+            lines.push('');
+            lines.push('✅ No supply-chain findings.');
+          }
+
+          // ── Upsert ──
+          let posted = false;
+          if (context.issue.number) {
+            try {
+              const comments = await github.paginate(github.rest.issues.listComments, {
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                per_page: 100,
+              });
+              const existing = comments.find(c => c.body?.includes(marker));
+              const params = { owner: context.repo.owner, repo: context.repo.repo };
+
+              if (hasFindings || always) {
+                const body = marker + '\n' + lines.join('\n');
+                if (existing) {
+                  await github.rest.issues.updateComment({ ...params, comment_id: existing.id, body });
+                } else {
+                  await github.rest.issues.createComment({ ...params, issue_number: context.issue.number, body });
+                }
+                posted = true;
+              } else if (existing) {
+                // A previous run reported findings and they are gone. Leaving the
+                // old body would keep showing resolved findings as current, so it
+                // is collapsed rather than deleted — the history stays auditable.
+                const body = marker + '\n### 🛡️ Socket Supply Chain — `' + appName + '`\n\n'
+                  + '✅ Previously reported findings are no longer present.';
+                await github.rest.issues.updateComment({ ...params, comment_id: existing.id, body });
+                posted = true;
+              }
+            } catch (e) {
+              core.warning(`Could not post Socket PR comment: ${e.message}`);
+            }
+          }
+
+          if (lines.length) await core.summary.addRaw(lines.join('\n')).write();
+          return JSON.stringify({ has_findings: hasFindings, posted });
+
+    - name: Parse outputs
+      id: parse
+      shell: bash
+      env:
+        RESULT: ${{ steps.report.outputs.result }}
+      run: |
+        set -euo pipefail
+        if [ -z "$RESULT" ]; then
+          echo "::error::socket-reporter: github-script produced no output. The script step likely failed — check the previous step's logs."
+          exit 1
+        fi
+        if ! echo "$RESULT" | jq -e 'has("has_findings") and (.has_findings | type == "boolean")' >/dev/null 2>&1; then
+          echo "::error::socket-reporter: invalid output. Raw: $RESULT"
+          exit 1
+        fi
+        echo "has_findings=$(echo "$RESULT" | jq -r '.has_findings')" >> "$GITHUB_OUTPUT"
+        echo "posted=$(echo "$RESULT" | jq -r '.posted')" >> "$GITHUB_OUTPUT"
