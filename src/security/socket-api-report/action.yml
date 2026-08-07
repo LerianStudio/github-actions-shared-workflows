@@ -172,10 +172,29 @@ runs:
             "accept": "application/x-ndjson",
         }
 
+        # urllib re-sends Authorization on redirect, so a redirect off api.socket.dev
+        # would hand the Socket token to another origin — or to plain HTTP. Same-host
+        # HTTPS redirects are still needed: on_duplicate=redirect answers a duplicate
+        # diff-scan creation with a 302 back to the existing resource.
+        API_HOST = urllib.parse.urlparse(API).netloc
+
+        class SameHostRedirect(urllib.request.HTTPRedirectHandler):
+            def redirect_request(self, req, fp, code, msg, headers, newurl):
+                parts = urllib.parse.urlparse(newurl)
+                if parts.scheme != "https" or parts.netloc != API_HOST:
+                    raise urllib.error.HTTPError(
+                        newurl, code,
+                        f"refused redirect to {parts.scheme}://{parts.netloc} "
+                        f"(credential is only sent to https://{API_HOST})",
+                        headers, fp)
+                return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+        opener = urllib.request.build_opener(SameHostRedirect)
+
         def get(path):
             req = urllib.request.Request(f"{API}/{path}", headers=HEADERS)
             try:
-                with urllib.request.urlopen(req, timeout=180) as r:
+                with opener.open(req, timeout=180) as r:
                     return r.status, r.read(), (r.headers.get("cf-mitigated") or "")
             except urllib.error.HTTPError as e:
                 return e.code, e.read(), (e.headers.get("cf-mitigated") or "")
@@ -202,7 +221,26 @@ runs:
         keep = {a.strip().lower() for a in os.environ.get("INCLUDE_ACTIONS", "").split(",") if a.strip()} \
                or {"error", "warn", "monitor"}
         fail_on = {a.strip().lower() for a in os.environ.get("FAIL_ON_ACTIONS", "").split(",") if a.strip()}
-        max_rows = int(os.environ.get("MAX_ROWS") or 25)
+        try:
+            max_rows = max(1, int(os.environ.get("MAX_ROWS") or 25))
+        except ValueError:
+            print("::warning::max-rows is not a number; falling back to 25.")
+            max_rows = 25
+
+        def as_map(raw):
+            """Decode to a mapping, or {}. A JSON array or null is valid JSON and
+            would otherwise raise AttributeError on .get, killing the process before
+            it emits its outputs."""
+            try:
+                v = json.loads(raw.decode("utf-8", "replace"))
+            except json.JSONDecodeError:
+                return {}
+            return v if isinstance(v, dict) else {}
+
+        def as_results(raw):
+            """The results list, keeping only mapping entries."""
+            v = as_map(raw).get("results")
+            return [r for r in v if isinstance(r, dict)] if isinstance(v, list) else []
 
         def parse_scan(raw):
             """NDJSON: one artifact per line plus a trailing {"_type":"scores"} event."""
@@ -314,7 +352,7 @@ runs:
         def post(path):
             req = urllib.request.Request(f"{API}/{path}", headers=HEADERS, method="POST")
             try:
-                with urllib.request.urlopen(req, timeout=180) as r:
+                with opener.open(req, timeout=180) as r:
                     return r.status, r.read()
             except urllib.error.HTTPError as e:
                 return e.code, e.read()
@@ -327,11 +365,8 @@ runs:
             st, bd, _ = get(f"orgs/{org}/diff-scans?{q}")
             if st != 200:
                 return None
-            try:
-                res = json.loads(bd.decode("utf-8", "replace")).get("results") or []
-            except json.JSONDecodeError:
-                return None
-            return (res[0] or {}).get("id") if res else None
+            res = as_results(bd)
+            return res[0].get("id") if res else None
 
         def base_scan_from(known_id):
             """The before-side of a known diff scan, i.e. the base Socket itself chose.
@@ -341,15 +376,27 @@ runs:
             which would attribute other people's packages to this pull request and
             block it for them.
             """
-            st, bd, _ = get(f"orgs/{org}/diff-scans?per_page=30")
-            if st != 200:
-                return None
-            try:
-                for r in (json.loads(bd.decode("utf-8", "replace")).get("results") or []):
+            # Paginated: the list is org-wide and ordered by recency, so a busy
+            # organization pushes this pull request's diff past any single page.
+            # Falling off the end returned None, which classified every finding as
+            # pre-existing and silently zeroed the blocking count.
+            cursor, pages = None, 0
+            while pages < 10:
+                q = {"per_page": 100}
+                if cursor:
+                    q["cursor"] = cursor
+                st, bd, _ = get(f"orgs/{org}/diff-scans?{urllib.parse.urlencode(q)}")
+                if st != 200:
+                    return None
+                for r in as_results(bd):
                     if r.get("id") == known_id:
                         return r.get("before_full_scan_id")
-            except json.JSONDecodeError:
-                pass
+                cursor = as_map(bd).get("next_cursor")
+                pages += 1
+                if not cursor:
+                    break
+            print(f"::warning::Diff scan {known_id} not found in {pages} page(s) of the "
+                  f"diff-scan list; its base could not be resolved.")
             return None
 
         fresh_id = diff_for_head()
@@ -366,28 +413,26 @@ runs:
                                             "description": "js-pr-validation supply chain gate"})
                 st, bd = post(f"orgs/{org}/diff-scans/from-ids?{q}")
                 if st in (200, 201):
-                    try:
-                        body = json.loads(bd.decode("utf-8", "replace"))
-                        obj = body.get("diff_scan") or body
-                        diff_scan_id = obj.get("id") or diff_scan_id
-                        # The create response names both sides with commit and
-                        # branch. Logged because the before side is inherited from
-                        # the App's diff and has never been confirmed to be the
-                        # target branch rather than an earlier head of this one —
-                        # which would explain a diff reporting nothing added.
-                        def side(k):
-                            v = obj.get(k) or {}
-                            if isinstance(v, dict):
-                                return (f"{scan_url(v.get('id'))} "
-                                        f"(branch {v.get('branch')}, "
-                                        f"commit {str(v.get('commit_hash'))[:7]})")
-                            return str(v)
+                    body = as_map(bd)
+                    obj = body.get("diff_scan") or body
+                    diff_scan_id = obj.get("id") or diff_scan_id
+                    # The create response names both sides with commit and branch.
+                    # Logged because the before side is inherited from the App's
+                    # diff and has never been confirmed to be the target branch
+                    # rather than an earlier head of this one.
+                    def side(k):
+                        v = obj.get(k) or {}
+                        if isinstance(v, dict):
+                            return (f"{scan_url(v.get('id'))} "
+                                    f"(branch {v.get('branch')}, "
+                                    f"commit {str(v.get('commit_hash'))[:7]})")
+                        return str(v)
+                    if not diff_scan_id:
+                        print("::warning::The created diff scan carried no id.")
+                    else:
                         print(f"Created diff scan: {diff_url(diff_scan_id)}")
                         print(f"  before: {side('before_full_scan')}")
                         print(f"  after:  {side('after_full_scan')}")
-                    except json.JSONDecodeError:
-                        print("::warning::Could not read the created diff scan id.")
-                        diff_scan_id = None
                 else:
                     print(f"::warning::Could not create a diff scan (HTTP {st}). "
                           f"Needs the diff-scans:create scope.")
@@ -409,10 +454,7 @@ runs:
             # arrives empty.
             st, bd, mit = get(f"orgs/{org}/diff-scans/{diff_scan_id}")
             if st == 200:
-                try:
-                    diff = json.loads(bd.decode("utf-8", "replace"))
-                except json.JSONDecodeError:
-                    diff = {}
+                diff = as_map(bd)
                 # added: new to this pull request. updated/replaced: same package at
                 # a different version or source, so its findings are this change's
                 # responsibility too. removed needs no reporting.

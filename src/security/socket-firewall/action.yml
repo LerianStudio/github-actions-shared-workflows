@@ -117,26 +117,29 @@ runs:
         FIREWALL_VERSION: ${{ inputs.firewall-version }}
         FAIL_ON_BLOCK: ${{ inputs.fail-on-block }}
       run: |
-        echo "::notice::DRY RUN — Socket Firewall runs but never fails the step"
+        echo "::notice::DRY RUN — nothing is installed and no package is fetched"
         echo "  package manager  : $PKG_MANAGER"
         echo "  working dir      : $WORKING_DIR"
         echo "  firewall version : $FIREWALL_VERSION"
-        echo "  fail on block    : $FAIL_ON_BLOCK (ignored while dry-run is on)"
+        echo "  fail on block    : $FAIL_ON_BLOCK (would apply outside dry-run)"
 
     - name: Install Socket Firewall
       id: firewall
-      if: steps.guard.outputs.skipped != 'true'
+      if: steps.guard.outputs.skipped != 'true' && inputs.dry-run != 'true'
       uses: SocketDev/action@ba6de6cc0565af1f42295590380973573297e31f # v1.3.2
       with:
         mode: firewall-free
         firewall-version: ${{ inputs.firewall-version }}
-        job-summary: ${{ inputs.job-summary }}
+        # 'none' is coerced away: the pinned action exports SFW_JSON_REPORT_PATH
+        # only when job-summary != none, and without the report a real block is
+        # misreported as an ordinary install failure.
+        job-summary: ${{ inputs.job-summary == 'none' && 'errors' || inputs.job-summary }}
         use-cache: ${{ inputs.use-cache }}
         github-token: ${{ inputs.github-token != '' && inputs.github-token || github.token }}
 
     # ----------------- Guarded install -----------------
     - name: Clear package manager cache
-      if: steps.guard.outputs.skipped != 'true'
+      if: steps.guard.outputs.skipped != 'true' && inputs.dry-run != 'true'
       shell: bash
       env:
         PKG_MANAGER: ${{ inputs.package-manager }}
@@ -154,7 +157,7 @@ runs:
 
     - name: Install dependencies through Socket Firewall
       id: install
-      if: steps.guard.outputs.skipped != 'true'
+      if: steps.guard.outputs.skipped != 'true' && inputs.dry-run != 'true'
       shell: bash
       working-directory: ${{ inputs.working-dir }}
       env:
@@ -179,11 +182,10 @@ runs:
 
     - name: Evaluate Socket Firewall result
       id: evaluate
-      if: always() && steps.guard.outputs.skipped != 'true'
+      if: always() && steps.guard.outputs.skipped != 'true' && inputs.dry-run != 'true'
       shell: bash
       env:
         EXIT_CODE: ${{ steps.install.outputs.exit_code }}
-        GUARDED: 'true'
         REPORT_PATH: ${{ steps.firewall.outputs.firewall-path-report }}
         FINDINGS_FILE: socket-firewall-findings.json
         FAIL_ON_BLOCK: ${{ inputs.fail-on-block }}
@@ -202,7 +204,7 @@ runs:
         BLOCKED=false
         BLOCKED_COUNT=0
         REPORT="${REPORT_PATH:-$SFW_JSON_REPORT_PATH}"
-        if [ "$GUARDED" = "true" ] && [ -n "$REPORT" ] && [ -f "$REPORT" ]; then
+        if [ -n "$REPORT" ] && [ -f "$REPORT" ]; then
           BLOCKED_COUNT=$(jq '(.blocked // []) | length' "$REPORT" 2>/dev/null || echo 0)
           PARSE_FAIL=$(jq '(.parseFail // []) | length' "$REPORT" 2>/dev/null || echo 0)
           [ "$BLOCKED_COUNT" -gt 0 ] && BLOCKED=true
@@ -212,7 +214,7 @@ runs:
           cp "$REPORT" "$FINDINGS_FILE" 2>/dev/null || echo '{}' > "$FINDINGS_FILE"
         else
           echo '{}' > "$FINDINGS_FILE"
-          if [ "$GUARDED" = "true" ] && [ "$EXIT_CODE" -ne 0 ]; then
+          if [ "$EXIT_CODE" -ne 0 ]; then
             # No report to read on a failed guarded install: refuse to call it clean.
             echo "::warning::Socket Firewall report not found at '${REPORT:-<unset>}'; cannot attribute the install failure."
           fi
@@ -227,7 +229,7 @@ runs:
         fi
 
         if [ "$EXIT_CODE" -eq 0 ] && [ "$BLOCKED" = "false" ]; then
-          [ "$GUARDED" = "true" ] && echo "Socket Firewall allowed every package in the lockfile."
+          echo "Socket Firewall allowed every package in the lockfile."
           exit 0
         fi
 

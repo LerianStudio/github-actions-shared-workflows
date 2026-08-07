@@ -644,8 +644,10 @@ jobs:
 
       # continue-on-error above keeps the report reachable even when a layer
       # fails, so the verdict is re-applied here.
+      # dry_run is a preview across the whole umbrella, so the gate reports the
+      # verdict it would have applied instead of applying it.
       - name: Gate - Fail on Socket findings
-        if: always()
+        if: always() && !inputs.dry_run
         env:
           FIREWALL_OUTCOME: ${{ steps.firewall.outcome }}
           APP_GATE_OUTCOME: ${{ steps.app-gate.outcome }}
@@ -665,6 +667,18 @@ jobs:
             exit 1
           fi
           echo "Socket supply chain gate passed."
+
+      - name: Gate - Socket findings (dry run)
+        if: always() && inputs.dry_run
+        env:
+          FIREWALL_OUTCOME: ${{ steps.firewall.outcome }}
+          APP_GATE_OUTCOME: ${{ steps.app-gate.outcome }}
+          API_BLOCKING: ${{ steps.api-report.outputs.blocking-count }}
+        run: |
+          echo "::notice::DRY RUN — Socket gate not enforced"
+          echo "  Socket Firewall  : $FIREWALL_OUTCOME"
+          echo "  Socket App gate  : $APP_GATE_OUTCOME"
+          echo "  Blocking findings: ${API_BLOCKING:-0}"
 
   socket-gate:
     name: Socket

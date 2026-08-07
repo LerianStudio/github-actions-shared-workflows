@@ -107,16 +107,28 @@ runs:
           const pct = (v) => (typeof v === 'number' ? `${Math.round(v * 100)}` : '—');
           const marker = `<!-- socket-supply-chain-${appName} -->`;
 
+          // Every value below originates in a Socket finding, i.e. in metadata
+          // published by the very dependency being reported on. A pipe breaks the
+          // table it sits in and a bracket can restructure a link, so a crafted
+          // package or alert field could rewrite rows of a security report.
+          // Registry naming rules make that unlikely, not impossible, and a
+          // security report is the wrong place to rely on someone else's validation.
+          const cell = (v) => String(v ?? '')
+            .replace(/[|\\]/g, '\\$&')
+            .replace(/[\r\n]+/g, ' ')
+            .replace(/`/g, '\u2018');
+          const urlPart = (v) => encodeURIComponent(String(v ?? ''));
+
           // Dashboard URLs, in the shapes the Socket App itself emits — the only
           // ones observed to resolve. A package row deep-links into the scan when
           // Socket gave the artifact an id; without one the name stays plain
           // rather than pointing somewhere that may not exist.
           const org = api.orgSlug;
-          const base = org ? `https://socket.dev/dashboard/org/${org}` : null;
-          const diffUrl = base && api.diffScanId ? `${base}/diff-scan/${api.diffScanId}?tab=dependencies` : null;
-          const scanUrl = base && api.scanId ? `${base}/sbom/${api.scanId}` : null;
+          const base = org ? `https://socket.dev/dashboard/org/${urlPart(org)}` : null;
+          const diffUrl = base && api.diffScanId ? `${base}/diff-scan/${urlPart(api.diffScanId)}?tab=dependencies` : null;
+          const scanUrl = base && api.scanId ? `${base}/sbom/${urlPart(api.scanId)}` : null;
           const pkgUrl = (p, root) => (root && p.artifactId
-            ? `${root}${root.includes('?') ? '&' : '?'}dependency_item_key=${p.artifactId}`
+            ? `${root}${root.includes('?') ? '&' : '?'}dependency_item_key=${urlPart(p.artifactId)}`
             : null);
 
           const pkgTable = (rows, root) => {
@@ -125,7 +137,7 @@ runs:
             for (const p of rows) {
               const m = ACT[(p.worstAction || '').toLowerCase()] || { icon: '•' };
               const href = pkgUrl(p, root);
-              const label = href ? `[\`${p.name}\`](${href})` : `\`${p.name}\``;
+              const label = href ? `[\`${cell(p.name)}\`](${href})` : `\`${cell(p.name)}\``;
               // For a transitive package the direct dependency that pulls it in is
               // the actionable part: "bump eslint" instead of "someone fix
               // brace-expansion". Falls back to the plain scope when Socket gave
@@ -134,16 +146,16 @@ runs:
               const scope = p.direct
                 ? (p.dev ? 'direct, dev' : 'direct, prod')
                 : anc.length
-                  ? `via ${anc.slice(0, 2).map(a => `\`${a.replace(/@[^@]*$/, '')}\``).join(', ')}`
+                  ? `via ${anc.slice(0, 2).map(a => `\`${cell(a.replace(/@[^@]*$/, ''))}\``).join(', ')}`
                     + (anc.length > 2 ? ` +${anc.length - 2}` : '')
                   : (p.dev ? 'transitive, dev' : 'transitive, prod');
               const findings = (p.findings || []).map(f => {
                 const fm = ACT[(f.action || '').toLowerCase()] || { icon: '•' };
                 const n = f.count > 1 ? ` ×${f.count}` : '';
-                const sev = f.severity ? ` (${f.severity})` : '';
-                return `${fm.icon} \`${f.type}\`${n}${sev}`;
+                const sev = f.severity ? ` (${cell(f.severity)})` : '';
+                return `${fm.icon} \`${cell(f.type)}\`${n}${sev}`;
               }).join('<br/>');
-              out.push(`| ${m.icon} ${label} | \`${p.version || '?'}\` | ${scope} | ${pct(p.overallScore)} | ${findings} |`);
+              out.push(`| ${m.icon} ${label} | \`${cell(p.version || '?')}\` | ${scope} | ${pct(p.overallScore)} | ${findings} |`);
             }
             return out;
           };
@@ -187,7 +199,7 @@ runs:
             const seen = new Set();
             const out = ['', `<details><summary>${label} (${fixes.length})</summary>`, ''];
             for (const f of fixes) {
-              const line = `- \`${f.pkg}\` — ${f.type}: ${fixText(f.fix)}`;
+              const line = `- \`${cell(f.pkg)}\` — ${cell(f.type)}: ${cell(fixText(f.fix))}`;
               // The same advisory reaches several packages, so identical lines
               // repeat; listing each once keeps the block scannable.
               if (seen.has(line)) continue;
@@ -226,8 +238,8 @@ runs:
                 lines.push('|---------|---------|----------|----------|');
                 for (const p of blockedPkgs) {
                   const name = p.namespace ? `${p.namespace}/${p.name}` : p.name;
-                  const f = (p.alerts || []).map(a => `\`${a.alert}\``).join(', ') || '—';
-                  lines.push(`| 🔴 \`${name}\` | \`${p.version || '?'}\` | ${p.registryFqdn || '—'} | ${f} |`);
+                  const f = (p.alerts || []).map(a => `\`${cell(a.alert)}\``).join(', ') || '—';
+                  lines.push(`| 🔴 \`${cell(name)}\` | \`${cell(p.version || '?')}\` | ${cell(p.registryFqdn || '—')} | ${f} |`);
                 }
                 lines.push('');
               }
