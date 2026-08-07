@@ -432,9 +432,17 @@ runs:
                     return type(v).__name__
                 print("Diff scan shape: " + ", ".join(
                     f"{k}={shape(v)}" for k, v in sorted(diff.items())))
+                # The buckets are nested under diff_scan.artifacts, not at the top
+                # level. Reading the top level returned None for every bucket and
+                # therefore attributed nothing, while the dashboard rendered the
+                # same diff correctly. omit_unchanged=true made it worse by
+                # returning a flattened shape whose buckets were present and empty,
+                # which looked like a genuine "nothing changed".
+                buckets = ((diff.get("diff_scan") or {}).get("artifacts")
+                           or diff.get("artifacts") or diff)
                 counts = {}
                 for bucket in ("added", "updated", "replaced"):
-                    arts = diff.get(bucket) or []
+                    arts = buckets.get(bucket) or []
                     counts[bucket] = len(arts)
                     for art in arts:
                         introduced_pkgs.add(f"{pkg_name(art)}@{art.get('version')}")
