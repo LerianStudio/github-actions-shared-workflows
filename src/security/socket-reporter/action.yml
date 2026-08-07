@@ -178,6 +178,26 @@ runs:
           const fixList = (rows) => rows
             .flatMap(p => (p.findings || []).filter(f => f.fix).map(f => ({ pkg: p.name, ...f })));
 
+          // Remediation is the most actionable field Socket returns, and it was
+          // only wired into the introduced section — so on a pull request that
+          // introduces nothing, which is the common case, no fix ever rendered.
+          const fixBlock = (rows, label) => {
+            const fixes = fixList(rows);
+            if (!fixes.length) return [];
+            const seen = new Set();
+            const out = ['', `<details><summary>${label} (${fixes.length})</summary>`, ''];
+            for (const f of fixes) {
+              const line = `- \`${f.pkg}\` — ${f.type}: ${fixText(f.fix)}`;
+              // The same advisory reaches several packages, so identical lines
+              // repeat; listing each once keeps the block scannable.
+              if (seen.has(line)) continue;
+              seen.add(line);
+              out.push(line);
+            }
+            out.push('', '</details>');
+            return out;
+          };
+
           // ── Body: findings only ──
           // Whether the scan ran, which checks passed, and how many alerts were
           // filtered out are operational facts. They belong in the job log and the
@@ -225,15 +245,7 @@ runs:
                 lines.push('');
                 lines.push('Highest-action packages only — more exist beyond the row limit.');
               }
-              const fixes = fixList(introduced);
-              if (fixes.length) {
-                lines.push('');
-                lines.push('<details><summary>Suggested fixes</summary>');
-                lines.push('');
-                for (const f of fixes) lines.push(`- \`${f.pkg}\` — ${f.type}: ${fixText(f.fix)}`);
-                lines.push('');
-                lines.push('</details>');
-              }
+              lines.push(...fixBlock(introduced, 'Suggested fixes'));
               lines.push('');
             }
 
@@ -260,6 +272,7 @@ runs:
                 lines.push('');
                 lines.push('Highest-action packages only — more exist beyond the row limit.');
               }
+              lines.push(...fixBlock(preexisting, 'Suggested fixes for the above'));
               lines.push('');
               lines.push('</details>');
               lines.push('');
