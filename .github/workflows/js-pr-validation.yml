@@ -620,9 +620,6 @@ jobs:
           base-branch: ${{ github.base_ref }}
           head-sha: ${{ github.event.pull_request.head.sha }}
           diff-scan-id: ${{ steps.diff-scan.outputs.id }}
-          # TEMPORARY diagnostic for a diff reporting added=0 on a package the
-          # pull request demonstrably added. Remove once resolved.
-          probe-package: 'abab'
 
       - name: Post Socket report to PR
         if: always() && github.event_name == 'pull_request' && !inputs.dry_run

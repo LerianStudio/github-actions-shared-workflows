@@ -29,7 +29,7 @@ inputs:
     required: false
     default: ''
   head-sha:
-    description: 'Head commit SHA, used only to log the state its own scan reports so the baseline state filter can be validated.'
+    description: 'Head commit SHA, used to label the scan link in the pull request comment.'
     required: false
     default: ''
   diff-scan-id:
@@ -224,21 +224,6 @@ runs:
         def pkg_name(art):
             ns = art.get("namespace")
             return f"{ns}/{art['name']}" if ns else art.get("name")
-
-        # Log the head scan's own state. The state filter below assumes
-        # pending/precrawl/resolve mean incomplete, which is an inference from the
-        # documented enum, not something the docs state. If the head scan — whose
-        # data is demonstrably complete — reports one of those, the assumption is
-        # wrong and the size check is the only trustworthy signal.
-        st, bd, _ = get(f"orgs/{org}/full-scans?" + urllib.parse.urlencode(
-            {"commit_hash": os.environ.get("HEAD_SHA", ""), "per_page": 5}))
-        if st == 200:
-            try:
-                for r in (json.loads(bd.decode("utf-8", "replace")).get("results") or []):
-                    print(f"Head-side scan {r.get('id')}: state '{r.get('scan_state')}', "
-                          f"branch '{r.get('branch')}', created {r.get('created_at')}")
-            except json.JSONDecodeError:
-                pass
 
         status, body, mitigated = get(f"orgs/{org}/full-scans/{scan}")
         if status != 200:
