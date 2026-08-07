@@ -1,5 +1,14 @@
 # Github-actions-shared-workflows Changelog
 
+## [1.53.1](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.53.1)
+
+Fixes:
+- Aligned CodeQL `init` and `analyze` pins with `autobuild` to enhance security. (@fredcamaral)
+
+[Compare changes](https://github.com/LerianStudio/github-actions-shared-workflows/compare/v1.53.0...v1.53.1)
+
+---
+
 ## [1.53.0](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.53.0)
 
 Features:
