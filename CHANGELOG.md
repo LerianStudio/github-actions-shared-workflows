@@ -1,5 +1,61 @@
 # Github-actions-shared-workflows Changelog
 
+## [1.54.0](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.54.0)
+
+Features:
+- Introduce a supply chain gate using socket.dev to enhance security checks. (@bedatty)
+- Add functionality to report per-package vulnerabilities and Socket Firewall findings via the Socket API. (@bedatty)
+- Separate introduced findings from pre-existing debt to improve clarity in reports. (@bedatty)
+- Expose the socket findings policy on the umbrella to provide better visibility. (@bedatty)
+- Filter socket findings by action and own the decision-making process. (@bedatty)
+- Declare `SOCKET_SECURITY_API_KEY` as optional, allowing more flexible configurations. (@bedatty)
+- Guard every install and gate on the Socket App to ensure security compliance. (@bedatty)
+
+Fixes:
+- Correct the process of reporting unmeasured socket states as clean. (@bedatty)
+- Address review findings related to the socket layer to enhance security and correctness. (@bedatty)
+- Pin external actions by SHA and resolve shellcheck warnings in the Go CI workflow. (@bedatty)
+- Close silent-pass paths identified in the socket layer review to improve robustness. (@bedatty)
+- Rename components to pass spell checks and improve readability. (@bedatty)
+- Print dashboard URLs instead of bare scan IDs for better user experience. (@bedatty)
+- Read diff buckets from `diff_scan.artifacts` and drop `omit_unchanged` from the diff scan read to streamline the process. (@bedatty)
+- Detect stale diff scans instead of relying on potentially outdated data. (@bedatty)
+- Restore the suggested fixes block to provide actionable insights. (@bedatty)
+- Label scan links to clearly indicate their association with the current PR. (@bedatty)
+- Attribute findings via Socket's diff scan for accurate reporting. (@bedatty)
+- Select the socket baseline by package overlap to ensure relevant comparisons. (@bedatty)
+- Reject incomplete socket baselines to maintain data integrity. (@bedatty)
+- Render the socket fix object correctly instead of displaying `[object Object]`. (@bedatty)
+- Fetch the Socket API using Python instead of curl to improve reliability. (@bedatty)
+- Differentiate between a Cloudflare challenge and a scope denial to handle errors appropriately. (@bedatty)
+- Surface the Socket API error payload for better debugging. (@bedatty)
+- Grant `checks:read` permissions and stop swallowing API errors to enhance transparency. (@bedatty)
+- Set result encoding on the socket reporter for consistent output. (@bedatty)
+- Pin the `socketsecurity` CLI release to ensure stability. (@bedatty)
+- Enforce SFW inspection and purge the package cache to maintain a clean environment. (@bedatty)
+
+Improvements:
+- Pin the socket composites back to `@v1` for consistent behavior. (@bedatty)
+- Drop resolved diagnostics to reduce noise in the workflow. (@bedatty)
+- Correct the Socket documentation for accuracy and clarity. (@bedatty)
+- Give the pre-existing section a defined shape for better organization. (@bedatty)
+- Split the diff-scan lookup across lines for improved readability. (@bedatty)
+- Implement a green header with no new findings and include dashboard links for quick access. (@bedatty)
+
+Testing:
+- Diagnose a diff scan reporting issue where `added=0` to identify potential problems. (@bedatty)
+- Log the head scan's own `scan_state` for better traceability. (@bedatty)
+- Log the socket baseline scan identity to ensure accurate tracking. (@bedatty)
+- Log the socket alert action distribution for better understanding of alert handling. (@bedatty)
+- Widen the socket alert debug sample to capture more data for analysis. (@bedatty)
+- Drop the socket token reachability probe after initial testing. (@bedatty)
+- Add a temporary socket token reachability probe for initial testing. (@bedatty)
+- Point socket composites at the current branch for testing purposes. (@bedatty)
+
+[Compare changes](https://github.com/LerianStudio/github-actions-shared-workflows/compare/v1.53.1...v1.54.0)
+
+---
+
 ## [1.53.1](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.53.1)
 
 Fixes:
