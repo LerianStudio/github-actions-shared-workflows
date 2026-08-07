@@ -522,10 +522,6 @@ jobs:
           label: Security
 
   # ----------------- Socket Supply Chain -----------------
-  # TEMPORARY: the two composite refs below point at this feature branch so the
-  # new actions resolve during end-to-end validation. Revert to @v1 before merge
-  # — the tag does not carry them yet, and the internal pinning policy requires
-  # a floating major tag for composites.
   socket:
     name: Socket (checks)
     needs: changes
@@ -552,7 +548,7 @@ jobs:
         id: firewall
         if: inputs.socket_enable_firewall
         continue-on-error: true
-        uses: LerianStudio/github-actions-shared-workflows/src/security/socket-firewall@feat/js-pr-validation-socket
+        uses: LerianStudio/github-actions-shared-workflows/src/security/socket-firewall@v1
         with:
           package-manager: ${{ inputs.package_manager }}
           node-version: ${{ inputs.node_version }}
@@ -567,7 +563,7 @@ jobs:
         id: app-gate
         if: inputs.socket_enable_app_gate && github.event_name == 'pull_request'
         continue-on-error: true
-        uses: LerianStudio/github-actions-shared-workflows/src/security/socket-app-gate@feat/js-pr-validation-socket
+        uses: LerianStudio/github-actions-shared-workflows/src/security/socket-app-gate@v1
         with:
           github-token: ${{ secrets.MANAGE_TOKEN || github.token }}
           # The App reports against the pull request head, not the merge commit.
@@ -607,7 +603,7 @@ jobs:
         id: api-report
         if: always() && inputs.socket_enable_api_report && github.event_name == 'pull_request'
         continue-on-error: true
-        uses: LerianStudio/github-actions-shared-workflows/src/security/socket-api-report@feat/js-pr-validation-socket
+        uses: LerianStudio/github-actions-shared-workflows/src/security/socket-api-report@v1
         with:
           socket-api-key: ${{ secrets.SOCKET_SECURITY_API_KEY }}
           report-url: ${{ steps.app-gate.outputs.report-url }}
@@ -623,7 +619,7 @@ jobs:
 
       - name: Post Socket report to PR
         if: always() && github.event_name == 'pull_request' && !inputs.dry_run
-        uses: LerianStudio/github-actions-shared-workflows/src/security/socket-reporter@feat/js-pr-validation-socket
+        uses: LerianStudio/github-actions-shared-workflows/src/security/socket-reporter@v1
         with:
           github-token: ${{ secrets.MANAGE_TOKEN || github.token }}
           app-name: ${{ env.SOCKET_APP_NAME }}
