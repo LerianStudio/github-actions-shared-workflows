@@ -32,6 +32,7 @@ The `go-analysis`, `security` and `lib-version` pipelines each have a `*-gate` a
 | `security_scan_runner_type` | Optional runner override for the security_scan jobs only | string | `''` |
 | `pr_checks_summary_runner_type` | Optional runner override for the PR Checks Summary job only | string | `''` |
 | `dry_run` | Preview metadata validations without posting comments/labels | boolean | `false` |
+| `run_metadata` | Run the PR metadata pipeline (title, scopes, labeler, size, breaking-change guard). Set `false` in a multi-component repository that also calls `js-pr-validation.yml`, so exactly one umbrella owns PR metadata | boolean | `true` |
 | `run_go_analysis` | Run the Go analysis pipeline | boolean | `true` |
 | `run_security` | Run the security scan pipeline | boolean | `true` |
 | `run_lib_version_check` | Run the Lerian library version check | boolean | `true` |

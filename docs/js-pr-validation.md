@@ -22,6 +22,7 @@ The `frontend-analysis`, `security` and `socket` pipelines each have a `*-gate` 
 |-------|-------------|------|---------|
 | `runner_type` | GitHub runner type | string | `blacksmith-4vcpu-ubuntu-2404` |
 | `dry_run` | Preview metadata validations without posting comments/labels | boolean | `false` |
+| `run_metadata` | Run the PR metadata pipeline (title, scopes, labeler, size, breaking-change guard). Set `false` in a multi-component repository that also calls `go-pr-validation.yml`, so exactly one umbrella owns PR metadata | boolean | `true` |
 | `run_frontend_analysis` | Run the frontend analysis pipeline | boolean | `true` |
 | `run_security` | Run the security scan pipeline | boolean | `true` |
 | `run_socket` | Run the Socket supply-chain pipeline | boolean | `true` |
