@@ -68,6 +68,7 @@ The `go-analysis`, `security` and `lib-version` pipelines each have a `*-gate` a
 | `ignore_file` | Path to Trivy ignore file | string | `''` |
 | `enable_docker_scan` | Build and scan a Docker image with Trivy; set `false` for repos without a root Dockerfile (monorepos with Dockerfiles under `components/`/`cmd/`) | boolean | `true` |
 | `dockerfile_path` | Explicit path to a single Dockerfile to build and scan (e.g. `components/ledger/Dockerfile`); lets monorepos without a root Dockerfile keep `enable_docker_scan: true` | string | `''` |
+| `build_context_from_working_dir` | Build each component image with its own `working_dir` as the Docker build context instead of the repository root. Required for type1 monorepos whose components are independent modules — a component Dockerfile starting with `COPY go.mod go.sum ./` cannot build from the repository root | boolean | `false` |
 | `enable_codeql` | Enable CodeQL static analysis | boolean | `false` |
 | `codeql_languages` | CodeQL languages (comma-separated) | string | `''` |
 | `monorepo_type` | Monorepo layout for the security scan. `"type1"` = components in separate folders (default). `"type2"` = backend at repo root + one independent component in a sub-folder. | string | `'type1'` |

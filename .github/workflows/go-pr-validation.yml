@@ -208,6 +208,13 @@ on:
         description: 'Explicit path to a single Dockerfile to build and scan (e.g. components/ledger/Dockerfile). Lets monorepos without a root Dockerfile keep enable_docker_scan: true.'
         type: string
         default: ''
+      build_context_from_working_dir:
+        description: >-
+          Build each component image with its own working_dir as the Docker build context instead of the
+          repository root. Required for type1 monorepos whose components are independent modules: a component
+          Dockerfile starting with `COPY go.mod go.sum ./` cannot build from the repository root.
+        type: boolean
+        default: false
       enable_codeql:
         description: 'Enable CodeQL static analysis. Requires codeql_languages to be set.'
         type: boolean
@@ -367,6 +374,7 @@ jobs:
       ignore_file: ${{ inputs.ignore_file }}
       enable_docker_scan: ${{ inputs.enable_docker_scan }}
       dockerfile_path: ${{ inputs.dockerfile_path }}
+      build_context_from_working_dir: ${{ inputs.build_context_from_working_dir }}
       enable_codeql: ${{ inputs.enable_codeql }}
       codeql_languages: ${{ inputs.codeql_languages }}
       filter_paths: ${{ inputs.filter_paths }}
