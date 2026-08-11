@@ -13,6 +13,7 @@ Umbrella reusable workflow for Go service repositories. A caller references this
 4. **Go analysis** — lint, tests, coverage and build (delegates to `go-pr-analysis.yml`), opt-in via `run_go_analysis`.
 5. **Security scan** — Trivy, CodeQL, prerelease checks (delegates to `pr-security-scan.yml`), opt-in via `run_security`.
 6. **Lerian lib version check** — fails when a direct Lerian library is behind its latest stable release (delegates to `lerian-lib-version-check.yml`), opt-in via `run_lib_version_check`.
+7. **Permission manifest nudge (RI)** — **non-blocking** reminder that warns via a sticky PR comment when a `lib-auth` repo has no `permissions.yaml` manifest (delegates to `src/validate/permission-manifest-nudge`), opt-in via `run_manifest_nudge`. Never fails and is **not** a required check.
 
 The `go-analysis`, `security` and `lib-version` pipelines each have a `*-gate` aggregator job that exposes a single stable status-check name (`Go Analysis`, `Security`, `Lib Version`) for branch protection, regardless of the internal job names. All three are gated by the change detector, so documentation-only PRs skip them (and the aggregators still report success). If the change detector (`changes`) job itself fails, the aggregators propagate that failure instead of passing — so broken change detection cannot let the required checks go green.
 
@@ -34,6 +35,7 @@ The `go-analysis`, `security` and `lib-version` pipelines each have a `*-gate` a
 | `run_go_analysis` | Run the Go analysis pipeline | boolean | `true` |
 | `run_security` | Run the security scan pipeline | boolean | `true` |
 | `run_lib_version_check` | Run the Lerian library version check | boolean | `true` |
+| `run_manifest_nudge` | Run the **non-blocking** Access-Manager RI nudge: warns via a sticky PR comment when a `lib-auth` repo has no `permissions.yaml`. Never fails or blocks the PR. | boolean | `true` |
 | `ignore_globs` | Space-separated globs treated as docs/meta for the change gate | string | `*.md docs/* .github/* LICENSE* .gitignore` |
 | `lib_version_go_mod_path` | Path to go.mod for the Lerian lib check | string | `go.mod` |
 | `lib_version_check_indirect` | Also check transitive (indirect) Lerian deps | boolean | `false` |
@@ -96,6 +98,17 @@ Breaking change acknowledged: I understand that this PR intentionally introduces
 The guard is mandatory for every PR target branch. PRs without the required acknowledgement fail in the existing `Blocking Checks` job, including drafts. `dry_run: true` reports detection and approval without enforcing the guard.
 
 Caller triggers must include the five activity types in the usage example. `edited` is mandatory so removing or adding the acknowledgement reruns validation. `ready_for_review` is retained for complete validation transitions even though the guard enforces drafts.
+
+## Permission Manifest Nudge (RI) — non-blocking
+
+Part of the Access-Manager **Inversão de Responsabilidade (RI)** rollout. The `permission-manifest-nudge` job reminds a plugin/service to declare its permissions in a `permissions.yaml` manifest instead of relying on manual Access-Manager configuration.
+
+- **Scope gate:** only acts when `go.mod` has a **direct** dependency on `github.com/LerianStudio/lib-auth`. Repos with no `go.mod` or no direct lib-auth dependency are skipped silently. (This is the intended scoping — tune the `grep` in the composite to widen or narrow it.)
+- **Presence check:** globs every `permissions.yaml` (excluding `vendor/`, `node_modules/`, `.git/`) and only counts files with top-level `service:` **and** `permissions:` keys.
+- **Idempotent comment:** posts / updates a single find-by-marker (`<!-- permission-manifest-nudge -->`) sticky comment — never spams per push. When a manifest is present it flips any prior nudge to a positive state.
+- **Never blocks:** the job runs with `continue-on-error: true`, the composite always exits 0, and there is **no** `*-gate` aggregator for it — so it must **not** be added to branch protection. Disable it entirely with `run_manifest_nudge: false`.
+
+See [`src/validate/permission-manifest-nudge`](../src/validate/permission-manifest-nudge/README.md) for the composite action details.
 
 ## Secrets
 

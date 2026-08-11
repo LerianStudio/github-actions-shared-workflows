@@ -45,6 +45,10 @@ on:
         description: 'Run the Lerian library version check (fails when a direct Lerian lib is behind latest stable)'
         type: boolean
         default: true
+      run_manifest_nudge:
+        description: 'Run the NON-BLOCKING Access-Manager RI nudge: warns via a sticky PR comment when a lib-auth repo has no permissions.yaml manifest. Never fails or blocks the PR.'
+        type: boolean
+        default: true
 
       # ----------------- Change gate -----------------
       ignore_globs:
@@ -410,3 +414,37 @@ jobs:
         with:
           result: ${{ needs.changes.result != 'success' && needs.changes.result || needs.lib-version.result }}
           label: Lib Version
+
+  # ----------------- Permission Manifest Nudge (RI) — NON-BLOCKING -----------------
+  # Part of the Access-Manager "Inversão de Responsabilidade" (RI) rollout. Reminds
+  # a lib-auth plugin/service to declare its permissions in a permissions.yaml
+  # manifest by posting a sticky, idempotent PR comment.
+  #
+  # This job is INTENTIONALLY non-blocking:
+  #   * `continue-on-error: true` — a failure here never fails the umbrella run.
+  #   * There is NO `*-gate` aggregator for it, so it is not a stable/required
+  #     status check. Do NOT add it to branch protection.
+  #   * The underlying composite is best-effort and always exits 0.
+  # It is a standalone job (no `needs`) so it never affects the required gates above.
+  permission-manifest-nudge:
+    name: Permission Manifest Nudge
+    if: inputs.run_manifest_nudge && github.event_name == 'pull_request'
+    continue-on-error: true
+    runs-on: ${{ inputs.gate_runner_type || vars.GENERAL_RUNNERS || inputs.runner_type }}
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+        with:
+          fetch-depth: 1
+
+      - name: Nudge when no permissions.yaml manifest exists
+        uses: LerianStudio/github-actions-shared-workflows/src/validate/permission-manifest-nudge@v1
+        with:
+          # Direct job of the umbrella (not a nested reusable), so github.token is
+          # scoped to the caller repo and can post the comment; MANAGE_TOKEN is used
+          # when provided (parity with the coverage/lib-version commenters).
+          github-token: ${{ secrets.MANAGE_TOKEN || github.token }}
+          go-mod-path: ${{ inputs.lib_version_go_mod_path }}

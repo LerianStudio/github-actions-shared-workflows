@@ -1,0 +1,233 @@
+name: Permission Manifest Nudge (RI)
+description: |
+  NON-BLOCKING reminder that nudges a Go plugin/service to adopt the Access-Manager
+  "Inversão de Responsabilidade" (RI) by declaring its permissions in a
+  `permissions.yaml` manifest.
+
+  Scope gate: only acts when the repository looks like a plugin/service that SHOULD
+  declare permissions — i.e. its go.mod has a DIRECT dependency on
+  `github.com/LerianStudio/lib-auth`. Otherwise it exits cleanly with no comment.
+
+  When in scope and no qualifying manifest exists, it posts / updates a single
+  sticky PR comment (find-by-marker) inviting the team to adopt the RI. It NEVER
+  fails: every step is best-effort and exits 0. Pair it with `continue-on-error: true`
+  on the calling job so a hiccup here can never gate a merge.
+
+inputs:
+  github-token:
+    description: Token used to post / update the sticky PR comment. Needs pull-requests:write on the caller repo.
+    required: true
+  go-mod-path:
+    description: Path to go.mod (relative to repo root). Used only for the lib-auth scope gate.
+    required: false
+    default: "go.mod"
+  guide-url:
+    description: Link to the RI adoption guide surfaced in the nudge comment.
+    required: false
+    default: "https://alfarrabio.lerian.net/reports/brecci/declaracao-de-permissoes-v1-0"
+  comment-on-pr:
+    description: Post / update the sticky PR comment. When false, the check still runs but stays silent.
+    required: false
+    default: "true"
+
+outputs:
+  applicable:
+    description: "true if the repo is in scope (go.mod depends on lib-auth); false = skipped."
+    value: ${{ steps.check.outputs.applicable }}
+  has_manifest:
+    description: "true if at least one qualifying permissions.yaml manifest was found."
+    value: ${{ steps.check.outputs.has_manifest }}
+  state:
+    description: "One of: skip (out of scope), compliant (manifest present), nudge (in scope, no manifest)."
+    value: ${{ steps.check.outputs.state }}
+
+runs:
+  using: composite
+  steps:
+    - name: Detect lib-auth scope and permission manifest
+      id: check
+      shell: bash
+      env:
+        GO_MOD_PATH: ${{ inputs.go-mod-path }}
+        GUIDE_URL: ${{ inputs.guide-url }}
+      run: |
+        # Best-effort by design: never `set -e`. Any internal hiccup degrades to a
+        # skip (state=skip) and exits 0 so this reminder can never gate a merge.
+        set -uo pipefail
+
+        REPORT_PATH="${RUNNER_TEMP:-/tmp}/permission-manifest-nudge.md"
+        : > "${REPORT_PATH}"
+
+        emit() { echo "$1=$2" >> "${GITHUB_OUTPUT}"; }
+
+        # ---------------------------------------------------------------------------
+        # 1. SCOPE GATE — only nudge repos that SHOULD declare permissions.
+        #
+        #    Signal: a DIRECT dependency on github.com/LerianStudio/lib-auth in go.mod.
+        #    A repo with no go.mod, or one that does not import lib-auth directly, is
+        #    out of scope and exits silently (state=skip, no comment).
+        #
+        #    REVIEWER KNOB: to widen/narrow the scope, change the grep below. E.g. drop
+        #    the `// indirect` exclusion to also catch transitive lib-auth, or match a
+        #    different lib (lib-commons, a plugin marker file, a topic, ...).
+        # ---------------------------------------------------------------------------
+        if [[ ! -f "${GO_MOD_PATH}" ]]; then
+          echo "::notice title=Permission manifest nudge::No go.mod at '${GO_MOD_PATH}' — not a Go service, skipping."
+          emit applicable false
+          emit has_manifest false
+          emit state skip
+          emit report_path "${REPORT_PATH}"
+          exit 0
+        fi
+
+        # Match `github.com/LerianStudio/lib-auth` or `.../lib-auth/vN`, as a whole
+        # module token (space/tab after it), excluding `// indirect` lines so only a
+        # DIRECT dependency counts. The `[[:space:]]` after the optional /vN prevents
+        # matching a longer name like `lib-auth-something`.
+        if grep -E '^[[:space:]]*github\.com/LerianStudio/lib-auth(/v[0-9]+)?[[:space:]]' "${GO_MOD_PATH}" \
+             | grep -qv '// indirect'; then
+          echo "Scope gate: direct github.com/LerianStudio/lib-auth dependency found — repo is in scope."
+        else
+          echo "::notice title=Permission manifest nudge::go.mod has no direct lib-auth dependency — out of scope, skipping."
+          emit applicable false
+          emit has_manifest false
+          emit state skip
+          emit report_path "${REPORT_PATH}"
+          exit 0
+        fi
+
+        emit applicable true
+
+        # ---------------------------------------------------------------------------
+        # 2. MANIFEST PRESENCE — search for a permission-declaration manifest.
+        #
+        #    Glob every `permissions.yaml` (excluding vendor / node_modules / .git),
+        #    then keep only files that look like a real declaration: top-level
+        #    `service:` AND `permissions:` keys. This light content check avoids false
+        #    positives from unrelated files that happen to be named permissions.yaml.
+        # ---------------------------------------------------------------------------
+        QUALIFYING=""
+        while IFS= read -r f; do
+          [[ -z "${f}" ]] && continue
+          # Top-level keys: unindented `service:` and `permissions:` anywhere in file.
+          if grep -qE '^service:[[:space:]]*' "${f}" 2>/dev/null \
+             && grep -qE '^permissions:[[:space:]]*' "${f}" 2>/dev/null; then
+            QUALIFYING="${f}"
+            break
+          fi
+        done < <(find . -type f -name 'permissions.yaml' \
+                   -not -path '*/vendor/*' \
+                   -not -path '*/node_modules/*' \
+                   -not -path '*/.git/*' 2>/dev/null)
+
+        if [[ -n "${QUALIFYING}" ]]; then
+          echo "Qualifying permission manifest found: ${QUALIFYING}"
+          emit has_manifest true
+          emit state compliant
+          {
+            echo "<!-- permission-manifest-nudge -->"
+            echo "### ✅ Manifesto de permissões encontrado"
+            echo
+            echo "Este repositório declara suas permissões em \`${QUALIFYING#./}\` — obrigado por adotar a **Inversão de Responsabilidade (RI)**! 🎉"
+            echo
+            echo "_Lembrete automático (não bloqueia o PR)._"
+          } > "${REPORT_PATH}"
+        else
+          echo "No qualifying permissions.yaml manifest found — will nudge."
+          emit has_manifest false
+          emit state nudge
+          {
+            echo "<!-- permission-manifest-nudge -->"
+            echo "### 🔐 Que tal adotar a Inversão de Responsabilidade (RI)?"
+            echo
+            echo "Este repositório ainda **não possui** um manifesto de permissões (\`permissions.yaml\`)."
+            echo
+            echo "Com a **Inversão de Responsabilidade** do Access-Manager, cada plugin/serviço passa a"
+            echo "**declarar as próprias permissões** em um manifesto versionado, em vez de depender de"
+            echo "configuração manual no Access-Manager. Isso deixa as permissões explícitas, revisáveis"
+            echo "no PR e reproduzíveis por ambiente."
+            echo
+            echo "**Como adotar:**"
+            echo
+            echo "- 📖 Guia: [Declaração de Permissões (RI) — v1.0](${GUIDE_URL})"
+            echo "- 🛠️ Skill do Ring: \`ring:declaring-plugin-permissions\`"
+            echo "- ✅ Depois de criar o \`permissions.yaml\`, valide localmente com \`make validate-permissions\`."
+            echo
+            echo "> ℹ️ Isto é **apenas um lembrete** — **não bloqueia** o merge deste PR. Sinta-se à vontade"
+            echo "> para adotar quando fizer sentido para o time."
+          } > "${REPORT_PATH}"
+        fi
+
+        emit report_path "${REPORT_PATH}"
+        cat "${REPORT_PATH}" >> "${GITHUB_STEP_SUMMARY}"
+        exit 0
+
+    - name: Post / update sticky PR comment
+      # Only touches the PR when there is something to say and we are on a PR event.
+      # github-script is wrapped so an API hiccup logs and returns — never fails.
+      if: ${{ always() && inputs.comment-on-pr == 'true' && github.event_name == 'pull_request' }}
+      uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+      env:
+        REPORT_PATH: ${{ steps.check.outputs.report_path }}
+        STATE: ${{ steps.check.outputs.state }}
+      with:
+        github-token: ${{ inputs.github-token }}
+        script: |
+          try {
+            const fs = require('fs');
+            const marker = '<!-- permission-manifest-nudge -->';
+            const state = process.env.STATE || 'skip';
+            const reportPath = process.env.REPORT_PATH;
+
+            const { owner, repo } = context.repo;
+            const issue_number = context.payload.pull_request?.number;
+            if (!issue_number) {
+              core.info('Not a pull_request event; skipping comment.');
+              return;
+            }
+
+            // Find any prior nudge comment by its stable marker.
+            const { data: comments } = await github.rest.issues.listComments({
+              owner, repo, issue_number, per_page: 100,
+            });
+            const existing = comments.find(c => c.body && c.body.includes(marker));
+
+            // Out of scope: never create a comment. If a stale nudge exists from a
+            // prior run (e.g. lib-auth was removed), leave it — we do not delete.
+            if (state === 'skip') {
+              core.info('Out of scope; no comment posted.');
+              return;
+            }
+
+            const body = (reportPath && fs.existsSync(reportPath))
+              ? fs.readFileSync(reportPath, 'utf8')
+              : null;
+            if (!body) {
+              core.info(`No report body at ${reportPath}; skipping comment.`);
+              return;
+            }
+
+            // Compliant: update an existing nudge to the positive state, but do NOT
+            // create a brand-new comment (avoid noise on already-compliant repos).
+            if (state === 'compliant') {
+              if (existing) {
+                await github.rest.issues.updateComment({ owner, repo, comment_id: existing.id, body });
+                core.info(`Updated nudge comment #${existing.id} to compliant state.`);
+              } else {
+                core.info('Compliant and no prior nudge comment; nothing to do.');
+              }
+              return;
+            }
+
+            // Nudge: create or update the single sticky comment.
+            if (existing) {
+              await github.rest.issues.updateComment({ owner, repo, comment_id: existing.id, body });
+              core.info(`Updated sticky nudge comment #${existing.id}.`);
+            } else {
+              await github.rest.issues.createComment({ owner, repo, issue_number, body });
+              core.info('Created sticky nudge comment.');
+            }
+          } catch (err) {
+            // Non-blocking by contract: log and swallow so this can never fail a PR.
+            core.warning(`permission-manifest-nudge comment step failed (non-blocking): ${err.message}`);
+          }
