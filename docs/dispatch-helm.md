@@ -33,7 +33,7 @@ It also classifies the release: when the tag being dispatched was cut from a mai
 
 | Secret | Description | Required |
 |---|---|---|
-| `helm_repo_token` | Token with `repo` scope on the Helm repository | yes |
+| `helm_repo_token` | Token scoped to the Helm repository with `Actions: read and write`. That is the only permission the dispatch needs — a classic token with full `repo` scope also works but grants far more than required. | yes |
 
 ## Payload
 

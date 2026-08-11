@@ -117,19 +117,24 @@ jobs:
     name: Update Chart
     runs-on: ${{ vars.GENERAL_RUNNERS || inputs.runner_type }}
     steps:
-      - name: Validate base_branch
+      - name: Validate branch inputs
         env:
           BASE_BRANCH: ${{ inputs.base_branch }}
+          LEGACY_SOURCE: ${{ inputs.legacy_branch_source }}
         run: |
-          case "${BASE_BRANCH}" in
-            main|develop|master|staging)
-              echo "✅ base_branch '${BASE_BRANCH}' is allowed"
-              ;;
-            *)
-              echo "::error::Invalid base_branch '${BASE_BRANCH}'. Allowed: main, develop, master, staging"
-              exit 1
-              ;;
-          esac
+          for pair in "base_branch:${BASE_BRANCH}" "legacy_branch_source:${LEGACY_SOURCE}"; do
+            name="${pair%%:*}"
+            value="${pair#*:}"
+            case "${value}" in
+              main|develop|master|staging)
+                echo "✅ ${name} '${value}' is allowed"
+                ;;
+              *)
+                echo "::error::Invalid ${name} '${value}'. Allowed: main, develop, master, staging"
+                exit 1
+                ;;
+            esac
+          done
 
       - name: Generate GitHub App Token
         id: app-token
@@ -250,9 +255,15 @@ jobs:
             echo "Resolved base branch: ${base} (legacy=${legacy}, chart_tag=${tag:-none}, update_readme=${readme})"
           }
 
-          # Read a top-level scalar from a Chart.yaml reachable in git (avoids yq before setup)
+          # Read a top-level scalar from a Chart.yaml reachable in git (avoids yq before setup).
+          # A missing ref or path must yield an empty value, not abort the step: git show
+          # exits 128 and pipefail would propagate it through the assignment. sed quits on
+          # the first match instead of piping into head, which also removes a SIGPIPE path.
           chart_field() {
-            git show "$1" 2>/dev/null | sed -nE "s/^$2:[[:space:]]*\"?([^\"[:space:]]+)\"?.*/\1/p" | head -1
+            local content
+            content=$(git show "$1" 2>/dev/null) || return 0
+            printf '%s\n' "${content}" \
+              | sed -nE "/^$2:/{s/^$2:[[:space:]]*\"?([^\"[:space:]]+)\"?.*/\1/p;q;}"
           }
 
           version_line_of() {

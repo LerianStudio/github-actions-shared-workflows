@@ -99,7 +99,7 @@ on:
         default: 'blacksmith-4vcpu-ubuntu-2404'
     secrets:
       helm_repo_token:
-        description: 'GitHub token with access to Helm repository (needs repo scope)'
+        description: 'Token scoped to the Helm repository with Actions: read and write permission (enough to trigger workflow_dispatch). A classic token with repo scope also works but is broader than needed.'
         required: true
 
 jobs:
@@ -351,21 +351,35 @@ jobs:
 
       # ----------------- Dispatch -----------------
       - name: Dispatch to Helm repository
+        env:
+          CHART: ${{ inputs.chart }}
+          HAS_NEW_ENV_VARS: ${{ steps.process.outputs.has_new_env_vars }}
+          SOURCE_REPO: ${{ github.repository }}
+          SOURCE_SHA: ${{ github.sha }}
+          SOURCE_REF: ${{ github.ref_name }}
+          SOURCE_ACTOR: ${{ github.actor }}
+          SOURCE_BRANCH: ${{ steps.source.outputs.source_branch }}
+          IS_LEGACY_PATCH: ${{ steps.source.outputs.is_legacy_patch }}
+          VERSION_LINE: ${{ steps.source.outputs.version_line }}
+          HELM_REPOSITORY: ${{ inputs.helm_repository }}
+          WORKFLOW_FILE: ${{ inputs.workflow_file }}
+          TARGET_REF: ${{ inputs.target_ref }}
+          HELM_REPO_TOKEN: ${{ secrets.helm_repo_token }}
         run: |
           COMPONENTS=$(cat /tmp/components_payload.json)
 
           # Build the full payload
           PAYLOAD=$(jq -n \
-            --arg chart "${{ inputs.chart }}" \
+            --arg chart "${CHART}" \
             --argjson components "$COMPONENTS" \
-            --arg has_new_env_vars "${{ steps.process.outputs.has_new_env_vars }}" \
-            --arg source_repo "${{ github.repository }}" \
-            --arg source_sha "${{ github.sha }}" \
-            --arg source_ref "${{ github.ref_name }}" \
-            --arg source_actor "${{ github.actor }}" \
-            --arg source_branch "${{ steps.source.outputs.source_branch }}" \
-            --arg is_legacy_patch "${{ steps.source.outputs.is_legacy_patch }}" \
-            --arg version_line "${{ steps.source.outputs.version_line }}" \
+            --arg has_new_env_vars "${HAS_NEW_ENV_VARS}" \
+            --arg source_repo "${SOURCE_REPO}" \
+            --arg source_sha "${SOURCE_SHA}" \
+            --arg source_ref "${SOURCE_REF}" \
+            --arg source_actor "${SOURCE_ACTOR}" \
+            --arg source_branch "${SOURCE_BRANCH}" \
+            --arg is_legacy_patch "${IS_LEGACY_PATCH}" \
+            --arg version_line "${VERSION_LINE}" \
             '{
               chart: $chart,
               components: $components,
@@ -386,11 +400,16 @@ jobs:
           PAYLOAD_STRING=$(echo "$PAYLOAD" | jq -c .)
 
           # Send workflow_dispatch (allows targeting specific branch)
+          REQUEST_BODY=$(jq -n \
+            --arg ref "${TARGET_REF}" \
+            --arg payload "${PAYLOAD_STRING}" \
+            '{ref: $ref, inputs: {payload: $payload}}')
+
           HTTP_RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
-            -H "Authorization: token ${{ secrets.helm_repo_token }}" \
+            -H "Authorization: token ${HELM_REPO_TOKEN}" \
             -H "Accept: application/vnd.github.v3+json" \
-            "https://api.github.com/repos/${{ inputs.helm_repository }}/actions/workflows/${{ inputs.workflow_file }}/dispatches" \
-            -d "{\"ref\":\"${{ inputs.target_ref }}\",\"inputs\":{\"payload\":$(echo "$PAYLOAD_STRING" | jq -R .)}}")
+            "https://api.github.com/repos/${HELM_REPOSITORY}/actions/workflows/${WORKFLOW_FILE}/dispatches" \
+            -d "${REQUEST_BODY}")
 
           HTTP_BODY=$(echo "$HTTP_RESPONSE" | sed '$d')
           HTTP_CODE=$(echo "$HTTP_RESPONSE" | tail -n1)
