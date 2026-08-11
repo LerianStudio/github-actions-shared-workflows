@@ -157,7 +157,7 @@ runs:
             echo
             echo "- 📖 Guia: [Declaração de Permissões (RI) — v1.0](${GUIDE_URL})"
             echo "- 🛠️ Skill do Ring: \`ring:declaring-plugin-permissions\`"
-            echo "- ✅ Depois de criar o \`permissions.yaml\`, valide localmente com \`make validate-permissions\`."
+            echo "- ✅ Depois de criar o \`permissions.yaml\`, rode \`make validate-permissions\` localmente."
             echo
             echo "> ℹ️ Isto é **apenas um lembrete** — **não bloqueia** o merge deste PR. Sinta-se à vontade"
             echo "> para adotar quando fizer sentido para o time."
