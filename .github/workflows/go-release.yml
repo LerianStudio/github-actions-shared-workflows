@@ -127,6 +127,10 @@ on:
         description: 'Helm chart name to update (required when enable_helm_dispatch is true)'
         type: string
         default: ''
+      helm_repository:
+        description: 'Helm repository to dispatch to (org/repo format)'
+        type: string
+        default: 'LerianStudio/helm'
       helm_detect_env_changes:
         description: 'Detect new environment variables for Helm during dispatch'
         type: boolean
@@ -464,6 +468,7 @@ jobs:
       enable_cosign_sign: ${{ inputs.enable_cosign_sign }}
       enable_helm_dispatch: ${{ inputs.enable_helm_dispatch }}
       helm_chart: ${{ inputs.helm_chart }}
+      helm_repository: ${{ inputs.helm_repository }}
       helm_detect_env_changes: ${{ inputs.helm_detect_env_changes }}
       helm_values_key_mappings: ${{ inputs.helm_values_key_mappings }}
       helm_legacy_patch_detection: ${{ inputs.helm_legacy_patch_detection }}
@@ -676,6 +681,7 @@ jobs:
       docker_build_args: ${{ matrix.group.docker_build_args }}
       enable_helm_dispatch: ${{ matrix.group.enable_helm_dispatch || false }}
       helm_chart: ${{ matrix.group.helm_chart }}
+      helm_repository: ${{ matrix.group.helm_repository || inputs.helm_repository }}
       helm_detect_env_changes: ${{ matrix.group.helm_detect_env_changes || true }}
       helm_values_key_mappings: ${{ matrix.group.helm_values_key_mappings }}
       helm_legacy_patch_detection: ${{ toJSON(matrix.group.helm_legacy_patch_detection) == 'null' && inputs.helm_legacy_patch_detection || toJSON(matrix.group.helm_legacy_patch_detection) == 'true' }}
