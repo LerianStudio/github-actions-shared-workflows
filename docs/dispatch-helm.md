@@ -67,6 +67,21 @@ The workflow runs on a tag push, so `github.ref` is the tag and the originating 
 
 When nothing matches, `is_legacy_patch` is `false` and the payload is functionally identical to the pre-feature one.
 
+### Opting out
+
+Detection is on by default at every layer, because the alternative — a maintenance release rewriting the mainline chart — is the bug this exists to prevent. Each orchestrator that reaches this workflow exposes the same pair of inputs, so a caller opts out at whichever layer it already talks to:
+
+| Caller uses | Inputs |
+|---|---|
+| `go-release.yml` | `helm_legacy_patch_detection`, `helm_legacy_branch_patterns` |
+| `build.yml` | `helm_legacy_patch_detection`, `helm_legacy_branch_patterns` |
+| `js-release.yml` → `typescript-build.yml` | `helm_legacy_patch_detection`, `helm_legacy_branch_patterns` |
+| `dispatch-helm.yml` directly | `legacy_patch_detection`, `legacy_branch_patterns` |
+
+In `go-release.yml`, an `extra_builds` group may override both per group. An explicit value on the group — `true` or `false` — wins over the top-level input; omitting the key inherits it.
+
+The chart repository has an independent switch: `legacy_patch_enabled` on [helm-update-chart](helm-update-chart.md) makes it ignore the flag and send every payload to `base_branch`.
+
 ## Usage
 
 Recommended — path mapping:
