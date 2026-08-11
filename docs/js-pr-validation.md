@@ -41,10 +41,10 @@ The `frontend-analysis`, `security` and `socket` pipelines each have a `*-gate` 
 | `audit_level` | npm audit severity level (`low`, `moderate`, `high`, `critical`) | string | `high` |
 | `coverage_threshold` | Minimum coverage percentage (0-100) | number | `80` |
 | `fail_on_coverage_threshold` | Fail when coverage is below threshold | boolean | `false` |
-| `filter_paths` | JSON array of paths to monitor for changes (e.g. `["ui"]`), passed through to `frontend-pr-analysis.yml` only | string | `''` |
-| `shared_paths` | Newline-separated path patterns that trigger analysis for ALL components in `filter_paths`, passed through to `frontend-pr-analysis.yml` only | string | `''` |
-| `path_level` | Directory depth level to extract app name, passed through to `frontend-pr-analysis.yml` only | number | `2` |
-| `normalize_to_filter` | Collapse every changed file under a `filter_paths` entry into that one app, passed through to `frontend-pr-analysis.yml` only | boolean | `true` |
+| `filter_paths` | JSON array of paths to monitor for changes (e.g. `["ui"]`), passed through to `frontend-pr-analysis.yml`. The security scan uses `security_filter_paths` instead | string | `''` |
+| `shared_paths` | Newline-separated path patterns that trigger analysis for ALL components in `filter_paths`, passed through to `frontend-pr-analysis.yml`. The security scan uses `security_shared_paths` instead | string | `''` |
+| `path_level` | Directory depth level to extract app name; passed through to **both** `frontend-pr-analysis.yml` and `pr-security-scan.yml` | number | `2` |
+| `normalize_to_filter` | Collapse every changed file under a `filter_paths` entry into that one app; passed through to **both** `frontend-pr-analysis.yml` and `pr-security-scan.yml` | boolean | `true` |
 | `app_name_prefix` | Prefix used to namespace coverage/build artifacts | string | `''` |
 | `enable_lint` | Enable ESLint | boolean | `true` |
 | `enable_typecheck` | Enable TypeScript type checking | boolean | `true` |
@@ -78,6 +78,9 @@ The `frontend-analysis`, `security` and `socket` pipelines each have a `*-gate` 
 | `prerelease_block_branches` | Target branches where pre-release versions are hard failures (comma-separated) | string | `release-candidate,main` |
 | `enable_docker_scan` | Build and scan a Docker image with Trivy; set `false` for repos without a Dockerfile (CLIs, libraries) | boolean | `true` |
 | `dockerfile_path` | Explicit path to a single Dockerfile to build and scan (e.g. `Dockerfile`) | string | `''` |
+| `security_filter_paths` | Newline-separated component path prefixes for a path-scoped security scan (e.g. `components/ui`). Separate from `filter_paths` because the two callees use different formats. Empty = single-app root scan | string | `''` |
+| `security_shared_paths` | Newline-separated path patterns that trigger the security scan for ALL components in `security_filter_paths` | string | `''` |
+| `build_context_from_working_dir` | Build each component image with its own `working_dir` as the Docker build context instead of the repository root. Required for monorepos whose components are independent packages | boolean | `false` |
 | `enable_codeql` | Enable CodeQL static analysis | boolean | `false` |
 | `codeql_languages` | CodeQL languages (comma-separated, e.g. `javascript-typescript`) | string | `''` |
 | `ignore_file` | Path to Trivy ignore file (e.g. `.trivyignore.yaml`) | string | `''` |
@@ -100,7 +103,7 @@ The `frontend-analysis`, `security` and `socket` pipelines each have a `*-gate` 
 | `socket_api_fail_on_actions` | Actions that block the PR — **introduced findings only**. Empty blocks nothing | string | `''` |
 | `socket_comment_when` | `findings` posts the comment only when there is something to act on; `always` posts every run | string | `findings` |
 
-> **Monorepo note:** `filter_paths`/`shared_paths`/`path_level`/`normalize_to_filter` scope the `frontend-analysis` job only. They are not passed to the `security` job because `frontend-pr-analysis.yml` and `pr-security-scan.yml` use different formats for that input (JSON array vs. newline-separated). For a path-scoped security scan too, call `pr-security-scan.yml` directly.
+> **Monorepo note:** `filter_paths` scopes the `frontend-analysis` job; `security_filter_paths` scopes the `security` job. They are separate inputs because the two callees expect different formats — `frontend-pr-analysis.yml` takes a JSON array, `pr-security-scan.yml` takes a newline-separated list. `path_level` and `normalize_to_filter` are shared by both. Set `build_context_from_working_dir: true` when each component Dockerfile expects its own directory as build context.
 
 The Breaking Change Guard has no dedicated input, enable flag or target-branch filter. This umbrella inherits the guard automatically from `pr-validation.yml`, as part of the metadata pipeline.
 
