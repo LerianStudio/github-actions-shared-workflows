@@ -39,8 +39,11 @@ on:
           multi-component repository that also calls js-pr-validation.yml, so exactly one umbrella owns PR
           metadata — otherwise the title is validated twice, the labeler runs twice and two sticky summary
           comments are posted. WARNING: this skips the Breaking Change Guard too. One umbrella in the repository
-          must keep run_metadata true; setting it false everywhere disables the guard. When false, this
-          workflow's breaking-change outputs are not produced.
+          must keep run_metadata true; setting it false everywhere disables the guard. The breaking-change
+          outputs of THIS workflow are still produced when false, but the metadata job supplies no values, so
+          they collapse to their fail-closed fallbacks: has_breaking_changes=false,
+          breaking_change_approved=false, breaking_change_result=failure. A caller that gates on
+          breaking_change_result must read it from the umbrella that still owns metadata.
         type: boolean
         default: true
       run_go_analysis:
