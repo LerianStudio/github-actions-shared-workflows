@@ -29,6 +29,10 @@ inputs:
     description: Post / update the sticky PR comment. When false, the check still runs but stays silent.
     required: false
     default: "true"
+  dry-run:
+    description: Preview mode. When true, the check still runs but performs NO GitHub API calls / PR side effects (no comment) — it only logs what it would post.
+    required: false
+    default: "false"
 
 outputs:
   applicable:
@@ -81,10 +85,12 @@ runs:
         fi
 
         # Match `github.com/LerianStudio/lib-auth` or `.../lib-auth/vN`, as a whole
-        # module token (space/tab after it), excluding `// indirect` lines so only a
+        # module token (space/tab after it), in BOTH go.mod forms: the block form
+        # (indented `\tgithub.com/... vX`) and the single-line form
+        # (`require github.com/... vX`). Then exclude `// indirect` lines so only a
         # DIRECT dependency counts. The `[[:space:]]` after the optional /vN prevents
         # matching a longer name like `lib-auth-something`.
-        if grep -E '^[[:space:]]*github\.com/LerianStudio/lib-auth(/v[0-9]+)?[[:space:]]' "${GO_MOD_PATH}" \
+        if grep -E '^[[:space:]]*(require[[:space:]]+)?github\.com/LerianStudio/lib-auth(/v[0-9]+)?[[:space:]]' "${GO_MOD_PATH}" \
              | grep -qv '// indirect'; then
           echo "Scope gate: direct github.com/LerianStudio/lib-auth dependency found — repo is in scope."
         else
@@ -170,6 +176,7 @@ runs:
       env:
         REPORT_PATH: ${{ steps.check.outputs.report_path }}
         STATE: ${{ steps.check.outputs.state }}
+        DRY_RUN: ${{ inputs.dry-run }}
       with:
         github-token: ${{ inputs.github-token }}
         script: |
@@ -178,6 +185,7 @@ runs:
             const marker = '<!-- permission-manifest-nudge -->';
             const state = process.env.STATE || 'skip';
             const reportPath = process.env.REPORT_PATH;
+            const dryRun = (process.env.DRY_RUN || 'false') === 'true';
 
             const { owner, repo } = context.repo;
             const issue_number = context.payload.pull_request?.number;
@@ -185,12 +193,6 @@ runs:
               core.info('Not a pull_request event; skipping comment.');
               return;
             }
-
-            // Find any prior nudge comment by its stable marker.
-            const { data: comments } = await github.rest.issues.listComments({
-              owner, repo, issue_number, per_page: 100,
-            });
-            const existing = comments.find(c => c.body && c.body.includes(marker));
 
             // Out of scope: never create a comment. If a stale nudge exists from a
             // prior run (e.g. lib-auth was removed), leave it — we do not delete.
@@ -206,6 +208,22 @@ runs:
               core.info(`No report body at ${reportPath}; skipping comment.`);
               return;
             }
+
+            // Dry-run: preview only — NO GitHub API calls, no PR side effects.
+            // Resolved above from local files, so we log what we would post and stop
+            // before any read/write against the API.
+            if (dryRun) {
+              core.info(`[dry-run] permission-manifest-nudge would post/update (state=${state}):\n${body}`);
+              return;
+            }
+
+            // Find any prior nudge comment by its stable marker. Paginate: a single
+            // listComments page tops out at 100, so a marker beyond page 1 would be
+            // missed and we would create a duplicate sticky comment.
+            const comments = await github.paginate(github.rest.issues.listComments, {
+              owner, repo, issue_number, per_page: 100,
+            });
+            const existing = comments.find(c => c.body && c.body.includes(marker));
 
             // Compliant: update an existing nudge to the positive state, but do NOT
             // create a brand-new comment (avoid noise on already-compliant repos).

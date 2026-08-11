@@ -23,6 +23,7 @@ The action:
 | `go-mod-path`   | Path to `go.mod` (relative to repo root). Used only for the lib-auth scope gate.             | No       | `go.mod`                                                                       |
 | `guide-url`     | Link to the RI adoption guide surfaced in the nudge comment.                                 | No       | `https://alfarrabio.lerian.net/reports/brecci/declaracao-de-permissoes-v1-0`  |
 | `comment-on-pr` | Post / update the sticky PR comment. When `false`, the check still runs but stays silent.    | No       | `true`                                                                         |
+| `dry-run`       | Preview mode. When `true`, the check runs but makes NO GitHub API calls / PR side effects (logs what it would post). | No       | `false`                                                                       |
 
 ## Outputs
 

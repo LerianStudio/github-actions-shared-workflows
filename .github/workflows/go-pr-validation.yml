@@ -448,3 +448,5 @@ jobs:
           # when provided (parity with the coverage/lib-version commenters).
           github-token: ${{ secrets.MANAGE_TOKEN || github.token }}
           go-mod-path: ${{ inputs.lib_version_go_mod_path }}
+          # Preview mode: no comment / no PR side effects when the umbrella runs dry.
+          dry-run: ${{ inputs.dry_run }}
