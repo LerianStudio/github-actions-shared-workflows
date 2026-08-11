@@ -32,6 +32,7 @@ The `go-analysis`, `security` and `lib-version` pipelines each have a `*-gate` a
 | `security_scan_runner_type` | Optional runner override for the security_scan jobs only | string | `''` |
 | `pr_checks_summary_runner_type` | Optional runner override for the PR Checks Summary job only | string | `''` |
 | `dry_run` | Preview metadata validations without posting comments/labels | boolean | `false` |
+| `run_metadata` | Run the PR metadata pipeline (title, scopes, labeler, size, breaking-change guard). Set `false` in a multi-component repository that also calls `js-pr-validation.yml`, so exactly one umbrella owns PR metadata | boolean | `true` |
 | `run_go_analysis` | Run the Go analysis pipeline | boolean | `true` |
 | `run_security` | Run the security scan pipeline | boolean | `true` |
 | `run_lib_version_check` | Run the Lerian library version check | boolean | `true` |
@@ -76,7 +77,11 @@ The `go-analysis`, `security` and `lib-version` pipelines each have a `*-gate` a
 | `trivy_skip_dirs` | Comma-separated directories to skip in every Trivy filesystem scan (appended to the built-in skip list). Useful for excluding sub-modules from the root scan (e.g. `"tools/mock-sta-server"`). | string | `''` |
 | `shared_paths` | Path patterns that trigger analysis/security for all components | string | `''` |
 
-The Breaking Change Guard has no input, enable flag, target-branch filter, or opt-out. This umbrella inherits the guard automatically from `pr-validation.yml`.
+The Breaking Change Guard has no dedicated input, enable flag or target-branch filter. This umbrella inherits the guard automatically from `pr-validation.yml`, as part of the metadata pipeline.
+
+> **`run_metadata: false` skips the guard along with the rest of the metadata pipeline.** That input exists so a multi-component repository can run metadata exactly once across several umbrellas — it is not an opt-out from the guard. In such a repository, one umbrella must keep `run_metadata: true`, and that is the one enforcing the guard. Setting it to `false` on every umbrella disables the guard for the repository.
+>
+> When `run_metadata` is `false`, this workflow's `has_breaking_changes`, `breaking_change_approved` and `breaking_change_result` outputs are still produced, but with no metadata job to supply values they collapse to their fail-closed fallbacks — `false`, `false` and `failure`. Read them from the umbrella that still owns metadata.
 
 ## Outputs
 
@@ -96,7 +101,7 @@ When a PR contains a breaking change, its description must contain this exact, c
 Breaking change acknowledged: I understand that this PR intentionally introduces a breaking change and requires the next release to be a major version.
 ```
 
-The guard is mandatory for every PR target branch. PRs without the required acknowledgement fail in the existing `Blocking Checks` job, including drafts. `dry_run: true` reports detection and approval without enforcing the guard.
+The guard is mandatory for every PR target branch whenever the metadata pipeline runs (see `run_metadata`). PRs without the required acknowledgement fail in the existing `Blocking Checks` job, including drafts. `dry_run: true` reports detection and approval without enforcing the guard.
 
 Caller triggers must include the five activity types in the usage example. `edited` is mandatory so removing or adding the acknowledgement reruns validation. `ready_for_review` is retained for complete validation transitions even though the guard enforces drafts.
 

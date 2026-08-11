@@ -8,7 +8,7 @@
 Umbrella reusable workflow for JavaScript/TypeScript repositories. A caller references this single workflow and it orchestrates everything a JS/TS PR needs:
 
 1. **PR metadata** — title, source branch, size, labels (delegates to `pr-validation.yml`).
-2. **Breaking Change Guard** — mandatory detection and enforcement inherited from `pr-validation.yml` for every PR target branch.
+2. **Breaking Change Guard** — mandatory detection and enforcement inherited from `pr-validation.yml` for every PR target branch, whenever the metadata pipeline runs (see `run_metadata`).
 3. **Change gate** — detects whether the PR touches anything beyond docs/meta (`src/config/non-doc-changes`); documentation-only PRs skip the heavy pipelines.
 4. **Frontend analysis** — lint, typecheck, npm audit, tests, coverage and build (delegates to `frontend-pr-analysis.yml`), opt-in via `run_frontend_analysis`.
 5. **Security scan** — Trivy, CodeQL, prerelease checks (delegates to `pr-security-scan.yml`), opt-in via `run_security`.
@@ -22,6 +22,7 @@ The `frontend-analysis`, `security` and `socket` pipelines each have a `*-gate` 
 |-------|-------------|------|---------|
 | `runner_type` | GitHub runner type | string | `blacksmith-4vcpu-ubuntu-2404` |
 | `dry_run` | Preview metadata validations without posting comments/labels | boolean | `false` |
+| `run_metadata` | Run the PR metadata pipeline (title, scopes, labeler, size, breaking-change guard). Set `false` in a multi-component repository that also calls `go-pr-validation.yml`, so exactly one umbrella owns PR metadata | boolean | `true` |
 | `run_frontend_analysis` | Run the frontend analysis pipeline | boolean | `true` |
 | `run_security` | Run the security scan pipeline | boolean | `true` |
 | `run_socket` | Run the Socket supply-chain pipeline | boolean | `true` |
@@ -101,7 +102,11 @@ The `frontend-analysis`, `security` and `socket` pipelines each have a `*-gate` 
 
 > **Monorepo note:** `filter_paths`/`shared_paths`/`path_level`/`normalize_to_filter` scope the `frontend-analysis` job only. They are not passed to the `security` job because `frontend-pr-analysis.yml` and `pr-security-scan.yml` use different formats for that input (JSON array vs. newline-separated). For a path-scoped security scan too, call `pr-security-scan.yml` directly.
 
-The Breaking Change Guard has no input, enable flag, target-branch filter, or opt-out. This umbrella inherits the guard automatically from `pr-validation.yml`.
+The Breaking Change Guard has no dedicated input, enable flag or target-branch filter. This umbrella inherits the guard automatically from `pr-validation.yml`, as part of the metadata pipeline.
+
+> **`run_metadata: false` skips the guard along with the rest of the metadata pipeline.** That input exists so a multi-component repository can run metadata exactly once across several umbrellas — it is not an opt-out from the guard. In such a repository, one umbrella must keep `run_metadata: true`, and that is the one enforcing the guard. Setting it to `false` on every umbrella disables the guard for the repository.
+>
+> When `run_metadata` is `false`, this workflow's `has_breaking_changes`, `breaking_change_approved` and `breaking_change_result` outputs are still produced, but with no metadata job to supply values they collapse to their fail-closed fallbacks — `false`, `false` and `failure`. Read them from the umbrella that still owns metadata.
 
 ## Outputs
 
