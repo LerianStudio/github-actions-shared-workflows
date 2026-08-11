@@ -42,8 +42,8 @@ The `frontend-analysis`, `security` and `socket` pipelines each have a `*-gate` 
 | `fail_on_coverage_threshold` | Fail when coverage is below threshold | boolean | `false` |
 | `filter_paths` | JSON array of paths to monitor for changes (e.g. `["ui"]`), passed through to `frontend-pr-analysis.yml`. The security scan uses `security_filter_paths` instead | string | `''` |
 | `shared_paths` | Newline-separated path patterns that trigger analysis for ALL components in `filter_paths`, passed through to `frontend-pr-analysis.yml`. The security scan uses `security_shared_paths` instead | string | `''` |
-| `path_level` | Directory depth level to extract app name, passed through to `frontend-pr-analysis.yml` only | number | `2` |
-| `normalize_to_filter` | Collapse every changed file under a `filter_paths` entry into that one app, passed through to `frontend-pr-analysis.yml` only | boolean | `true` |
+| `path_level` | Directory depth level to extract app name; passed through to **both** `frontend-pr-analysis.yml` and `pr-security-scan.yml` | number | `2` |
+| `normalize_to_filter` | Collapse every changed file under a `filter_paths` entry into that one app; passed through to **both** `frontend-pr-analysis.yml` and `pr-security-scan.yml` | boolean | `true` |
 | `app_name_prefix` | Prefix used to namespace coverage/build artifacts | string | `''` |
 | `enable_lint` | Enable ESLint | boolean | `true` |
 | `enable_typecheck` | Enable TypeScript type checking | boolean | `true` |

@@ -136,11 +136,15 @@ on:
         required: false
         default: ''
       path_level:
-        description: 'Directory depth level to extract app name, passed through to frontend-pr-analysis.yml.'
+        description: >-
+          Directory depth level to extract app name. Passed through to BOTH frontend-pr-analysis.yml and
+          pr-security-scan.yml, which use it identically.
         type: number
         default: 2
       normalize_to_filter:
-        description: 'Collapse every changed file under a filter_paths entry into that one app, passed through to frontend-pr-analysis.yml. Default true — see that workflow for why.'
+        description: >-
+          Collapse every changed file under a filter_paths entry into that one app. Passed through to BOTH
+          frontend-pr-analysis.yml and pr-security-scan.yml. Default true — see frontend-pr-analysis.yml for why.
         type: boolean
         default: true
       app_name_prefix:
