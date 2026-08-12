@@ -5,7 +5,9 @@
   </tr>
 </table>
 
-Generates `CHANGELOG.md` files using GPT (via OpenRouter) and pushes a signed commit directly to the default branch. Backmerges into `develop` automatically; falls back to a PR only when a conflict prevents the direct push. Supports both single-app and monorepo layouts. Skips prerelease tags when `stable-releases-only` is enabled.
+Generates `CHANGELOG.md` files using GPT (via OpenRouter), pushes a signed commit directly to the release line's branch and writes the same notes onto the GitHub release. Backmerges into `develop` automatically; falls back to a PR only when a conflict prevents the direct push. Supports both single-app and monorepo layouts. Skips prerelease tags when `stable-releases-only` is enabled.
+
+A tag is eligible when its commit lives on the default branch **or** on a maintenance line (`maintenance/*`, `release/*`) — patch releases cut from an older minor never reach the default branch, and gating on the default branch alone published them with empty release notes. When the run is triggered by a branch rather than a tag, the tag is looked up with `git tag --merged HEAD`, so a maintenance line never picks up the newest tag of a higher line.
 
 Bot commits (any login ending in `[bot]` plus the entries in `bot-ignore-list`) and `[skip ci]` commits (semantic-release version bumps, changelog backmerges, etc.) are filtered out before the GPT prompt is built, ensuring the changelog only reflects meaningful human-authored changes.
 
