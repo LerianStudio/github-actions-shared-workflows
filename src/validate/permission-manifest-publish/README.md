@@ -94,6 +94,15 @@ jobs:
 
 Most callers get this for free through the [`go-release`](../../../docs/go-release-workflow.md) umbrella (`run_manifest_publish`, default `true`), which handles the checkout, tag→folder derivation and role-assume for you.
 
+### Third-party actions
+
+The composite itself uses none — it is pure Bash + the AWS CLI. The two external actions above belong to the **caller** and are pinned by full commit SHA:
+
+| Action | Why |
+|--------|-----|
+| `actions/checkout` | Checks the repository out so the `permissions.yaml` manifest is present in the workspace for detection and upload. |
+| `aws-actions/configure-aws-credentials` | Obtains short-lived OIDC credentials for the `aws s3 cp` upload, assuming the bucket-scoped `AWS_INIT_DATA_ROLE_ARN` role — no long-lived keys. Skipped on a dry-run (no AWS call) and when the role secret is unset. |
+
 ## Implementation notes
 
 - Pure Bash + the AWS CLI (pre-installed on the runners). No extra runtime required.

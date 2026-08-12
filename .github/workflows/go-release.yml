@@ -635,6 +635,13 @@ jobs:
     permissions:
       id-token: write
       contents: read
+    env:
+      # Secrets can't be referenced directly in a step `if:`, so surface the
+      # role's presence as a job-level env boolean. run_manifest_publish defaults
+      # to true, so a repo that never mapped AWS_INIT_DATA_ROLE_ARN must SKIP the
+      # real upload (not attempt an unauthenticated one) — a dry-run still runs
+      # since the composite previews without any AWS call.
+      HAS_INIT_DATA_ROLE: ${{ secrets.AWS_INIT_DATA_ROLE_ARN != '' }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
@@ -658,15 +665,19 @@ jobs:
           echo "folder=${FOLDER}" >> "$GITHUB_OUTPUT"
           [[ -n "$FOLDER" ]] && echo "📁 Environment: ${FOLDER}" || echo "::warning::Tag '${TAG}' matched no environment — manifest publish skipped."
 
+      # Skip on a dry-run (the composite previews with no AWS call) and when the
+      # role secret is absent (nothing to assume — the publish step is skipped too).
       - name: Configure AWS credentials
-        if: steps.env.outputs.folder != ''
+        if: steps.env.outputs.folder != '' && env.HAS_INIT_DATA_ROLE == 'true' && inputs.dry_run != true
         uses: aws-actions/configure-aws-credentials@e7f100cf4c008499ea8adda475de1042d6975c7b # v6.2.0
         with:
           role-to-assume: ${{ secrets.AWS_INIT_DATA_ROLE_ARN }}
           aws-region: us-east-2
 
+      # Publish when there are real creds, or preview when dry-running; otherwise
+      # (no role secret and not a dry-run) skip rather than fail a credential-less upload.
       - name: Publish permission manifest to the RI catalog
-        if: steps.env.outputs.folder != ''
+        if: steps.env.outputs.folder != '' && (env.HAS_INIT_DATA_ROLE == 'true' || inputs.dry_run == true)
         uses: LerianStudio/github-actions-shared-workflows/src/validate/permission-manifest-publish@v1
         with:
           environment: ${{ steps.env.outputs.folder }}
