@@ -107,7 +107,7 @@ apps:
     # Benedita-exclusive
     - rosiehr                     # internal HR app (benedita only); values at cross/
     - go-boilerplate-ddd          # Go service boilerplate (reference/template)
-    - go-boilerplate-ddd-fullstack # Go API + React UI boilerplate (reference/template); values at dev-st
+    - go-boilerplate-ddd-fullstack  # Go API + React UI boilerplate (reference/template); values at dev-st
     - billing-api                 # Lago-backed billing gateway (benedita only); values at dev-st/stg-st. The Lago install it fronts lives at cross/, the gateway itself does not
 
     # Provisioned by Severino (app-provisioning automation)
