@@ -69,7 +69,7 @@ When nothing matches, `is_legacy_patch` is `false` and the payload is functional
 
 ### Opting out
 
-Detection is on by default at every layer, because the alternative — a maintenance release rewriting the mainline chart — is the bug this exists to prevent. Each orchestrator that reaches this workflow exposes the same pair of inputs, so a caller opts out at whichever layer it already talks to:
+Detection is on by default at every layer, because the alternative — a maintenance release rewriting the mainline chart — is the bug this exists to prevent. Each orchestrator that reaches this workflow exposes equivalent detection settings, but the input names are layer-specific. Use the names listed for your entry point:
 
 | Caller uses | Inputs |
 |---|---|
