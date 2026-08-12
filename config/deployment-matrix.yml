@@ -109,9 +109,6 @@ apps:
     - go-boilerplate-ddd          # Go service boilerplate (reference/template)
     - billing-api                 # Lago-backed billing gateway (benedita only); values at dev-st/stg-st. The Lago install it fronts lives at cross/, the gateway itself does not
 
-    # Provisioned by Severino (app-provisioning automation)
-    - bruno-test
-
 clusters:
   anacleto:
     # Anacleto hosts two parallel test types (chaos, fuzzing), each with two
@@ -135,9 +132,6 @@ clusters:
       - br-sisbajud
       - lender
       - ungoliant-controller
-
-      # Provisioned by Severino (app-provisioning automation)
-      - bruno-test
 
   benedita:
     # Benedita hosts two parallel variants per environment as sibling namespaces:
@@ -200,6 +194,3 @@ clusters:
       - severino-bot
       - streaming-hub
       - billing-api
-
-      # Provisioned by Severino (app-provisioning automation)
-      - bruno-test
