@@ -73,7 +73,7 @@ runs:
         fi
 
     # ----------------- Stability Gate -----------------
-    - name: Check if tag is stable release on main
+    - name: Check if tag is a stable release on a supported release line
       id: check-tag
       shell: bash
       env:
@@ -87,7 +87,9 @@ runs:
           echo "📌 Triggered by branch/workflow_run, finding latest stable tags..."
           git fetch --tags --force
 
-          LATEST_TAGS=$(git tag --sort=-creatordate | head -20 || true)
+          # --merged HEAD keeps the search on the release line that triggered the run: a
+          # maintenance branch must not pick up the newest tag of another (higher) line.
+          LATEST_TAGS=$(git tag --merged HEAD --sort=-creatordate | head -20 || true)
           echo "📌 Recent tags: $LATEST_TAGS"
 
           TAG_NAME=""
@@ -118,13 +120,31 @@ runs:
         DEFAULT_BRANCH=$(gh repo view --json defaultBranchRef -q '.defaultBranchRef.name')
         echo "📌 Default branch: $DEFAULT_BRANCH"
 
+        # A tag is releasable when its commit lives on the default branch OR on a maintenance
+        # line (maintenance/*, release/*). Patch releases cut from an older minor never reach
+        # the default branch, and gating on it alone published them with empty release notes.
+        RELEASE_LINE=""
         if git merge-base --is-ancestor "$TAG_COMMIT" "origin/$DEFAULT_BRANCH" 2>/dev/null; then
-          echo "✅ Tag commit is on $DEFAULT_BRANCH branch"
+          RELEASE_LINE="$DEFAULT_BRANCH"
         else
-          echo "❌ Tag commit is NOT on $DEFAULT_BRANCH branch - skipping changelog"
+          while IFS= read -r remote_branch; do
+            [ -z "$remote_branch" ] && continue
+            if git merge-base --is-ancestor "$TAG_COMMIT" "$remote_branch" 2>/dev/null; then
+              RELEASE_LINE="${remote_branch#origin/}"
+              break
+            fi
+          done < <(git branch --remotes --list 'origin/maintenance/*' 'origin/release/*' --format='%(refname:short)')
+        fi
+
+        if [ -z "$RELEASE_LINE" ]; then
+          echo "❌ Tag commit is on neither $DEFAULT_BRANCH nor a maintenance line (maintenance/*, release/*) - skipping changelog"
           echo "is_stable=false" >> "$GITHUB_OUTPUT"
           exit 0
         fi
+        echo "✅ Tag commit is on release line: $RELEASE_LINE"
+        # Later steps need the line, not just the verdict: a tag-triggered maintenance run
+        # would otherwise commit the CHANGELOG to the default branch.
+        echo "release_line=$RELEASE_LINE" >> "$GITHUB_OUTPUT"
 
         if [[ "$TAG_NAME" =~ -(beta|rc|alpha|dev|snapshot) ]]; then
           echo "is_stable=false" >> "$GITHUB_OUTPUT"
@@ -134,7 +154,7 @@ runs:
           fi
         else
           echo "is_stable=true" >> "$GITHUB_OUTPUT"
-          echo "✅ Stable release tag on $DEFAULT_BRANCH: $TAG_NAME"
+          echo "✅ Stable release tag on $RELEASE_LINE: $TAG_NAME"
         fi
 
     - name: Set changelog matrix
@@ -148,7 +168,7 @@ runs:
         if [ "$STABLE_RELEASES_ONLY" == "true" ] && [ "$IS_STABLE" != "true" ]; then
           echo "matrix=[]" >> "$GITHUB_OUTPUT"
           echo "has_changes=false" >> "$GITHUB_OUTPUT"
-          echo "🛑 Skipping: prerelease tag with stable-releases-only=true"
+          echo "🛑 Skipping: no stable release tag for this ref with stable-releases-only=true (see the stability gate above for the reason)"
           exit 0
         fi
 
@@ -172,7 +192,9 @@ runs:
             APP_NAME=$(basename "$path")
             # shellcheck disable=SC2001,SC2016
             APP_NAME_ESCAPED=$(echo "$APP_NAME" | sed 's/[.[\*^$()+?{}|\\]/\\&/g')
-            LATEST_TAG=$(git tag --sort=-creatordate | grep "^${APP_NAME_ESCAPED}-v" | grep -v -e "-beta" -e "-rc" -e "-alpha" -e "-dev" -e "-snapshot" | head -1 || true)
+            # --merged HEAD: same release-line scoping as the stability gate, so a
+            # maintenance run cannot select a mainline tag of a higher line.
+            LATEST_TAG=$(git tag --merged HEAD --sort=-creatordate | grep "^${APP_NAME_ESCAPED}-v" | grep -v -e "-beta" -e "-rc" -e "-alpha" -e "-dev" -e "-snapshot" | head -1 || true)
 
             if [ -n "$LATEST_TAG" ]; then
               echo "📦 Found stable tag for $APP_NAME: $LATEST_TAG"
@@ -243,7 +265,10 @@ runs:
             TAG_GREP_PATTERN="^v"
           fi
 
-          LAST_TAG=$(git tag --sort=-version:refname | grep "$TAG_GREP_PATTERN" | grep -v -e "-beta" -e "-rc" -e "-alpha" -e "-dev" -e "-snapshot" | head -1 || true)
+          # --merged HEAD scopes both ends of the range to the release line being built.
+          # Unscoped, a maintenance run resolves the highest stable tag repo-wide (e.g.
+          # v1.11.0 while releasing v1.10.5) and would then overwrite THAT release's notes.
+          LAST_TAG=$(git tag --merged HEAD --sort=-version:refname | grep "$TAG_GREP_PATTERN" | grep -v -e "-beta" -e "-rc" -e "-alpha" -e "-dev" -e "-snapshot" | head -1 || true)
 
           if [ -z "$LAST_TAG" ]; then
             echo "⚠️ No stable tag found for $APP_NAME - skipping"
@@ -257,7 +282,7 @@ runs:
             continue
           fi
 
-          PREV_TAG=$(git tag --sort=-version:refname | grep "$TAG_GREP_PATTERN" | grep -v -e "-beta" -e "-rc" -e "-alpha" -e "-dev" -e "-snapshot" | sed -n '2p')
+          PREV_TAG=$(git tag --merged HEAD --sort=-version:refname | grep "$TAG_GREP_PATTERN" | grep -v -e "-beta" -e "-rc" -e "-alpha" -e "-dev" -e "-snapshot" | sed -n '2p')
 
           if [ -n "$PREV_TAG" ]; then
             SINCE="$PREV_TAG"
@@ -491,17 +516,24 @@ runs:
         echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
     # ----------------- Commit & Push -----------------
-    - name: Commit changelog to default branch
+    - name: Commit changelog to the release line
       if: steps.generate.outputs.apps_updated != ''
       shell: bash
       env:
         GH_TOKEN: ${{ inputs.github-token }}
         APPS_UPDATED: ${{ steps.generate.outputs.apps_updated }}
+        RELEASE_LINE: ${{ steps.check-tag.outputs.release_line }}
       run: |
         # shellcheck disable=SC2193
         if [[ "$GITHUB_REF" == refs/tags/* ]]; then
-          BASE_BRANCH=$(gh repo view --json defaultBranchRef -q '.defaultBranchRef.name')
-          echo "📌 Triggered by tag, pushing to default branch: $BASE_BRANCH"
+          # The stability gate resolved which line the tag belongs to. Honour it: a
+          # maintenance tag's CHANGELOG belongs on its own line, not on the default branch.
+          if [ -n "$RELEASE_LINE" ]; then
+            BASE_BRANCH="$RELEASE_LINE"
+          else
+            BASE_BRANCH=$(gh repo view --json defaultBranchRef -q '.defaultBranchRef.name')
+          fi
+          echo "📌 Triggered by tag, pushing to release line: $BASE_BRANCH"
         else
           BASE_BRANCH="$GITHUB_REF_NAME"
           echo "📌 Pushing CHANGELOGs directly to: $BASE_BRANCH"

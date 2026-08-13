@@ -28,7 +28,7 @@ A third layout needs `release_single_app: true`: **one semantic-release tag for 
 | `runner_type` | GitHub runner type | string | `blacksmith-4vcpu-ubuntu-2404` |
 | `build_runner_type` | Optional runner override for the Build jobs only (forwarded to build.yml; prepare/notify stay on `runner_type`); empty falls back to `vars.GENERAL_RUNNERS`, then `runner_type` | string | `''` |
 | `release_runner_type` | Optional runner override for the Release (publish) jobs only (forwarded to release.yml as `publish_runner_type`); empty falls back to `vars.GENERAL_RUNNERS`, then `runner_type` | string | `''` |
-| `dry_run` | Reserved (downstream workflows have no dry-run mode yet) | boolean | `false` |
+| `dry_run` | Preview mode for **permission-manifest publishing only** — forwarded to `permission-manifest-publish`, which logs the target key + `aws s3 cp` command without calling AWS. The other release jobs (release/build/gitops) have no full-workflow preview yet. | boolean | `false` |
 | `ignore_globs` | Space-separated globs treated as docs/meta for the branch-push gate | string | `*.md docs/* .github/* LICENSE* .gitignore` |
 | `semantic_version` | semantic-release version | string | `23.0.8` |
 | `enable_changelog` | Generate CHANGELOG.md via GPT after a successful release | boolean | `false` |
@@ -80,6 +80,7 @@ A third layout needs `release_single_app: true`: **one semantic-release tag for 
 | `kustomize_version` | Version of kustomize CLI to install (used only when `gitops_layout=kustomize`) | string | `v5.4.3` |
 | `argocd_app_name_template` | Template for the ArgoCD application name. Placeholders `{server}`, `{app}`, `{env}`. For kustomize layouts without env split use e.g. `{server}-{app}` | string | `{server}-{app}-{env}` |
 | `s3_uploads` | JSON array of S3 upload entries run after build on tag push (see [S3 migrations upload](#s3-migrations-upload)) | string | `''` |
+| `run_manifest_publish` | Publish this service's own `permissions.yaml` to the shared Access-Manager RI catalog in S3 on tag push (see [Permission manifest publish](#permission-manifest-publish-ri)) | boolean | `true` |
 | `enable_apidog_e2e` | Run the ApiDog E2E test job on tag push after a successful gitops-update | boolean | `false` |
 | `apidog_runner_type` | Runner for the ApiDog E2E test job (needs reach to the deployed environment) | string | `eveo-lxc-runners` |
 | `apidog_auto_detect_environment` | Auto-detect the ApiDog environment from the tag (beta → dev, rc → stg); when `false`, uses `APIDOG_ENVIRONMENT_ID` | boolean | `true` |
@@ -106,6 +107,7 @@ A third layout needs `release_single_app: true`: **one semantic-release tag for 
 | `SLACK_WEBHOOK_URL` | Slack webhook for pipeline notifications | No |
 | `HELM_REPO_TOKEN` | Token for dispatching Helm chart updates (when enabled in build) | No |
 | `AWS_MIGRATIONS_ROLE_ARN` | IAM role ARN assumed by the S3 upload job (required when `s3_uploads` is set) | No |
+| `AWS_INIT_DATA_ROLE_ARN` | IAM role ARN (scoped to the `lerian-casdoor-init-data` bucket) assumed by the permission-manifest publish job (used when `run_manifest_publish` is enabled and the repo is in scope) | No |
 | `APIDOG_TEST_SCENARIO_ID` | ApiDog test scenario ID (required when `enable_apidog_e2e`) | No |
 | `APIDOG_ACCESS_TOKEN` | ApiDog access token (required when `enable_apidog_e2e`) | No |
 | `APIDOG_DEV_ENVIRONMENT_ID` | ApiDog dev environment ID (used for beta tags in auto-detect mode) | No |
@@ -174,6 +176,22 @@ with:
       { "s3_bucket": "lerian-casdoor-init-data", "file_pattern": "init/casdoor/*.json", "aws_role_arn": "${{ secrets.AWS_INIT_DATA_ROLE_ARN }}" }
     ]
 ```
+## Permission manifest publish (RI)
+
+`run_manifest_publish` (default `true`) is the **upstream half** of the Access-Manager **Inversão de Responsabilidade (RI)**: on a **tag push**, each in-scope Go service publishes its **own** `permissions.yaml` to the shared RI catalog in S3, so the tenant-manager can materialize per-tenant permissions by reading it. It uses the [permission-manifest-publish](../src/validate/permission-manifest-publish/README.md) composite and pairs with the [permission-manifest-nudge](../src/validate/permission-manifest-nudge/README.md) PR reminder (same detection, so the two agree on what a manifest is).
+
+The `permission_manifest_publish` job is **`continue-on-error`** — a publish hiccup never blocks the release — and **auto-detects** the manifest, no-opping when the repo is out of scope (`go.mod` has no direct `github.com/LerianStudio/lib-auth` dependency) or has no qualifying `permissions.yaml` (a file with top-level `service:` and `permissions:` keys). Unlike `s3_upload` it reads repo files, so it does **not** gate on the image build.
+
+The catalog is **per-service and env-scoped**: each service writes exactly one object, keyed by its manifest's `service:` value, to
+
+```
+s3://lerian-casdoor-init-data/{environment}/permissions/{service}.yaml
+```
+
+The `{environment}` folder is derived from the tag suffix exactly like the S3 upload job (`-beta` → `development`, `-rc` → `staging`, `vX.Y.Z` → `production`). There is **no aggregation** on write — the tenant-manager aggregates at read time by listing the `{environment}/permissions/` prefix, and each release overwrites only its own file.
+
+The job assumes the **`AWS_INIT_DATA_ROLE_ARN`** secret (scoped to the `lerian-casdoor-init-data` bucket — the same bucket the Casdoor `init_data.json` uses) via OIDC in region `us-east-2`; map it in the caller (`secrets: inherit` is sufficient). Set `run_manifest_publish: false` to opt out.
+
 ## ApiDog E2E tests
 
 Set `enable_apidog_e2e: true` to run [api-dog-e2e-tests](./api-dog-e2e-tests-workflow.md) on tag push after a successful `update_gitops`. The job is skipped on branch pushes and when the gitops update did not succeed.

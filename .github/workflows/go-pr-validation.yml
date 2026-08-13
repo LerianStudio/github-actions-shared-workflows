@@ -33,6 +33,19 @@ on:
         default: false
 
       # ----------------- Pipeline toggles -----------------
+      run_metadata:
+        description: >-
+          Run the PR metadata pipeline (title, scopes, labeler, size, breaking-change guard). Set to false in a
+          multi-component repository that also calls js-pr-validation.yml, so exactly one umbrella owns PR
+          metadata — otherwise the title is validated twice, the labeler runs twice and two sticky summary
+          comments are posted. WARNING: this skips the Breaking Change Guard too. One umbrella in the repository
+          must keep run_metadata true; setting it false everywhere disables the guard. The breaking-change
+          outputs of THIS workflow are still produced when false, but the metadata job supplies no values, so
+          they collapse to their fail-closed fallbacks: has_breaking_changes=false,
+          breaking_change_approved=false, breaking_change_result=failure. A caller that gates on
+          breaking_change_result must read it from the umbrella that still owns metadata.
+        type: boolean
+        default: true
       run_go_analysis:
         description: 'Run the Go analysis pipeline (lint, tests, coverage, build)'
         type: boolean
@@ -43,6 +56,10 @@ on:
         default: true
       run_lib_version_check:
         description: 'Run the Lerian library version check (fails when a direct Lerian lib is behind latest stable)'
+        type: boolean
+        default: true
+      run_manifest_nudge:
+        description: 'Run the NON-BLOCKING Access-Manager RI nudge: warns via a sticky PR comment when a lib-auth repo has no permissions.yaml manifest. Never fails or blocks the PR.'
         type: boolean
         default: true
 
@@ -204,6 +221,13 @@ on:
         description: 'Explicit path to a single Dockerfile to build and scan (e.g. components/ledger/Dockerfile). Lets monorepos without a root Dockerfile keep enable_docker_scan: true.'
         type: string
         default: ''
+      build_context_from_working_dir:
+        description: >-
+          Build each component image with its own working_dir as the Docker build context instead of the
+          repository root. Required for type1 monorepos whose components are independent modules: a component
+          Dockerfile starting with `COPY go.mod go.sum ./` cannot build from the repository root.
+        type: boolean
+        default: false
       enable_codeql:
         description: 'Enable CodeQL static analysis. Requires codeql_languages to be set.'
         type: boolean
@@ -264,6 +288,7 @@ jobs:
   # ----------------- PR Metadata Validation -----------------
   metadata:
     name: PR Metadata
+    if: inputs.run_metadata
     uses: ./.github/workflows/pr-validation.yml
     with:
       runner_type: ${{ inputs.runner_type }}
@@ -363,6 +388,7 @@ jobs:
       ignore_file: ${{ inputs.ignore_file }}
       enable_docker_scan: ${{ inputs.enable_docker_scan }}
       dockerfile_path: ${{ inputs.dockerfile_path }}
+      build_context_from_working_dir: ${{ inputs.build_context_from_working_dir }}
       enable_codeql: ${{ inputs.enable_codeql }}
       codeql_languages: ${{ inputs.codeql_languages }}
       filter_paths: ${{ inputs.filter_paths }}
@@ -410,3 +436,39 @@ jobs:
         with:
           result: ${{ needs.changes.result != 'success' && needs.changes.result || needs.lib-version.result }}
           label: Lib Version
+
+  # ----------------- Permission Manifest Nudge (RI) — NON-BLOCKING -----------------
+  # Part of the Access-Manager "Inversão de Responsabilidade" (RI) rollout. Reminds
+  # a lib-auth plugin/service to declare its permissions in a permissions.yaml
+  # manifest by posting a sticky, idempotent PR comment.
+  #
+  # This job is INTENTIONALLY non-blocking:
+  #   * `continue-on-error: true` — a failure here never fails the umbrella run.
+  #   * There is NO `*-gate` aggregator for it, so it is not a stable/required
+  #     status check. Do NOT add it to branch protection.
+  #   * The underlying composite is best-effort and always exits 0.
+  # It is a standalone job (no `needs`) so it never affects the required gates above.
+  permission-manifest-nudge:
+    name: Permission Manifest Nudge
+    if: inputs.run_manifest_nudge && github.event_name == 'pull_request'
+    continue-on-error: true
+    runs-on: ${{ inputs.gate_runner_type || vars.GENERAL_RUNNERS || inputs.runner_type }}
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+        with:
+          fetch-depth: 1
+
+      - name: Nudge when no permissions.yaml manifest exists
+        uses: LerianStudio/github-actions-shared-workflows/src/validate/permission-manifest-nudge@v1
+        with:
+          # Direct job of the umbrella (not a nested reusable), so github.token is
+          # scoped to the caller repo and can post the comment; MANAGE_TOKEN is used
+          # when provided (parity with the coverage/lib-version commenters).
+          github-token: ${{ secrets.MANAGE_TOKEN || github.token }}
+          go-mod-path: ${{ inputs.lib_version_go_mod_path }}
+          # Preview mode: no comment / no PR side effects when the umbrella runs dry.
+          dry-run: ${{ inputs.dry_run }}

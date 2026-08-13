@@ -29,6 +29,19 @@ on:
         default: false
 
       # ----------------- Pipeline toggles -----------------
+      run_metadata:
+        description: >-
+          Run the PR metadata pipeline (title, scopes, labeler, size, breaking-change guard). Set to false in a
+          multi-component repository that also calls go-pr-validation.yml, so exactly one umbrella owns PR
+          metadata — otherwise the title is validated twice, the labeler runs twice and two sticky summary
+          comments are posted. WARNING: this skips the Breaking Change Guard too. One umbrella in the repository
+          must keep run_metadata true; setting it false everywhere disables the guard. The breaking-change
+          outputs of THIS workflow are still produced when false, but the metadata job supplies no values, so
+          they collapse to their fail-closed fallbacks: has_breaking_changes=false,
+          breaking_change_approved=false, breaking_change_result=failure. A caller that gates on
+          breaking_change_result must read it from the umbrella that still owns metadata.
+        type: boolean
+        default: true
       run_frontend_analysis:
         description: 'Run the frontend analysis pipeline (lint, typecheck, npm audit, tests, coverage, build)'
         type: boolean
@@ -119,21 +132,32 @@ on:
         type: boolean
         default: false
       filter_paths:
-        description: 'JSON array of paths to monitor for changes (e.g., ["apps/web", "apps/console"]), passed through to frontend-pr-analysis.yml. If empty, treats repo as single-app and runs against root directory. Not passed to the security scan (pr-security-scan.yml uses a different, newline-separated format for its own filter_paths) — call it directly for path-scoped security scans.'
+        description: >-
+          JSON array of paths to monitor for changes (e.g., ["apps/web", "apps/console"]), passed through to
+          frontend-pr-analysis.yml. If empty, treats repo as single-app and runs against root directory.
+          The security scan takes its paths from security_filter_paths instead, because pr-security-scan.yml
+          expects a newline-separated list rather than a JSON array.
         type: string
         required: false
         default: ''
       shared_paths:
-        description: 'Newline-separated list of path patterns that, when matched by any changed file, trigger analysis for ALL components in filter_paths, passed through to frontend-pr-analysis.yml. Not passed to the security scan — call it directly with its own shared_paths for path-scoped security scans.'
+        description: >-
+          Newline-separated list of path patterns that, when matched by any changed file, trigger analysis for
+          ALL components in filter_paths, passed through to frontend-pr-analysis.yml. The security scan takes
+          its own list from security_shared_paths.
         type: string
         required: false
         default: ''
       path_level:
-        description: 'Directory depth level to extract app name, passed through to frontend-pr-analysis.yml.'
+        description: >-
+          Directory depth level to extract app name. Passed through to BOTH frontend-pr-analysis.yml and
+          pr-security-scan.yml, which use it identically.
         type: number
         default: 2
       normalize_to_filter:
-        description: 'Collapse every changed file under a filter_paths entry into that one app, passed through to frontend-pr-analysis.yml. Default true — see that workflow for why.'
+        description: >-
+          Collapse every changed file under a filter_paths entry into that one app. Passed through to BOTH
+          frontend-pr-analysis.yml and pr-security-scan.yml. Default true — see frontend-pr-analysis.yml for why.
         type: boolean
         default: true
       app_name_prefix:
@@ -270,6 +294,28 @@ on:
         description: 'Explicit path to a single Dockerfile to build and scan (e.g. Dockerfile). Leave empty to auto-discover.'
         type: string
         default: ''
+      security_filter_paths:
+        description: >-
+          Newline-separated component path prefixes for a path-scoped security scan (e.g. "components/ui").
+          Separate from filter_paths because pr-security-scan.yml expects newline-separated values while
+          frontend-pr-analysis.yml expects a JSON array. Empty = single-app root scan.
+        type: string
+        required: false
+        default: ''
+      security_shared_paths:
+        description: >-
+          Newline-separated path patterns that trigger the security scan for ALL components in
+          security_filter_paths (e.g. a shared contract directory). Empty = no shared triggers.
+        type: string
+        required: false
+        default: ''
+      build_context_from_working_dir:
+        description: >-
+          Build each component image with its own working_dir as the Docker build context instead of the
+          repository root. Required for monorepos whose components are independent packages: a component
+          Dockerfile starting with `COPY package.json pnpm-lock.yaml ./` cannot build from the repository root.
+        type: boolean
+        default: false
       enable_codeql:
         description: 'Enable CodeQL static analysis. Requires codeql_languages to be set.'
         type: boolean
@@ -400,6 +446,7 @@ jobs:
   # ----------------- PR Metadata Validation -----------------
   metadata:
     name: PR Metadata
+    if: inputs.run_metadata
     uses: ./.github/workflows/pr-validation.yml
     with:
       runner_type: ${{ inputs.runner_type }}
@@ -510,10 +557,15 @@ jobs:
       ignore_file: ${{ inputs.ignore_file }}
       enable_docker_scan: ${{ inputs.enable_docker_scan }}
       dockerfile_path: ${{ inputs.dockerfile_path }}
+      build_context_from_working_dir: ${{ inputs.build_context_from_working_dir }}
       enable_codeql: ${{ inputs.enable_codeql }}
       codeql_languages: ${{ inputs.codeql_languages }}
       prerelease_block_branches: ${{ inputs.prerelease_block_branches }}
       trivy_skip_dirs: ${{ inputs.trivy_skip_dirs }}
+      filter_paths: ${{ inputs.security_filter_paths }}
+      shared_paths: ${{ inputs.security_shared_paths }}
+      path_level: ${{ format('{0}', inputs.path_level) }}
+      normalize_to_filter: ${{ inputs.normalize_to_filter }}
     secrets: inherit
 
   security-gate:

@@ -127,6 +127,10 @@ on:
         description: 'Helm chart name to update (required when enable_helm_dispatch is true)'
         type: string
         default: ''
+      helm_repository:
+        description: 'Helm repository to dispatch to (org/repo format). The HELM_REPO_TOKEN secret must grant Actions: read and write on it. Applies to every build, including extra_builds groups — there is no per-group override, because a single token is forwarded to all of them.'
+        type: string
+        default: 'LerianStudio/helm'
       helm_detect_env_changes:
         description: 'Detect new environment variables for Helm during dispatch'
         type: boolean
@@ -135,6 +139,14 @@ on:
         description: 'JSON mapping of component names to values.yaml keys (e.g., {"my-app": "api"})'
         type: string
         default: ''
+      helm_legacy_patch_detection:
+        description: 'Flag releases cut from maintenance branches as legacy patches, so the Helm side updates the matching legacy chart line instead of the mainline chart. Set to false to keep the previous payload shape.'
+        type: boolean
+        default: true
+      helm_legacy_branch_patterns:
+        description: 'Glob patterns (newline or comma separated) of branches that hold maintenance/patch lines. Example: maintenance/*'
+        type: string
+        default: 'maintenance/*'
       extra_builds:
         description: 'JSON array of additional build groups, each forwarded to build.yml with its own config (filter_paths, path_level, normalize_to_filter, app_name_overrides, build_context_from_working_dir, helm_*, tag_prefix, enable_dockerhub, enable_ghcr, enable_gitops_artifacts, force_full_matrix). Runs alongside the primary build on tag push; groups with enable_gitops_artifacts enabled (the default) feed the single gitops-update. A group with tag_prefix set only builds when the triggering tag starts with that prefix (e.g. a component with its own independent semver and tag scheme); omit tag_prefix to build on every tag push, as before. enable_dockerhub/enable_ghcr default to the top-level inputs of the same name when omitted (explicit true/false on the group always wins, including false) — use to publish a group to only one registry regardless of the primary build''s registries. enable_gitops_artifacts defaults to true when omitted. force_full_matrix (default false) skips change detection for this group entirely and always builds/publishes it in lockstep with the release version — use when a downstream consumer (e.g. a Helm chart defaulting every subcomponent to one shared version tag) expects this component''s image to exist at every release, not only releases that touched its own filter_paths. Empty = one build only (default).'
         type: string
@@ -255,6 +267,12 @@ on:
         description: 'JSON array of S3 upload entries run after build on tag push, each forwarded to s3-upload.yml. Each object: {"s3_bucket": "...", "file_pattern": "...", "s3_prefix": "...", "strip_prefix": "...", "flatten": true|false} (only s3_bucket and file_pattern are required; flatten defaults to true). Empty = no upload (default).'
         type: string
         default: ''
+
+      # ----------------- Permission Manifest Publish (RI, permission-manifest-publish composite) -----------------
+      run_manifest_publish:
+        description: 'Publish this service''s own permissions.yaml manifest to the shared Access-Manager RI catalog in S3 on tag push (upstream half of the Inversão de Responsabilidade). Auto-detects the manifest and no-ops when out of scope (no direct lib-auth dep) or absent. The job is continue-on-error, so a hiccup never blocks the release. Requires the AWS_INIT_DATA_ROLE_ARN secret to be mapped by the caller.'
+        type: boolean
+        default: true
       # ----------------- API Dog E2E (api-dog-e2e-tests.yml) -----------------
       enable_apidog_e2e:
         description: 'Run the ApiDog E2E test job on tag push after a successful gitops-update'
@@ -342,6 +360,8 @@ on:
       HELM_REPO_TOKEN:
         required: false
       AWS_MIGRATIONS_ROLE_ARN:
+      AWS_INIT_DATA_ROLE_ARN:
+        required: false
       APIDOG_TEST_SCENARIO_ID:
         required: false
       APIDOG_ACCESS_TOKEN:
@@ -456,8 +476,11 @@ jobs:
       enable_cosign_sign: ${{ inputs.enable_cosign_sign }}
       enable_helm_dispatch: ${{ inputs.enable_helm_dispatch }}
       helm_chart: ${{ inputs.helm_chart }}
+      helm_repository: ${{ inputs.helm_repository }}
       helm_detect_env_changes: ${{ inputs.helm_detect_env_changes }}
       helm_values_key_mappings: ${{ inputs.helm_values_key_mappings }}
+      helm_legacy_patch_detection: ${{ inputs.helm_legacy_patch_detection }}
+      helm_legacy_branch_patterns: ${{ inputs.helm_legacy_branch_patterns }}
       shared_paths: ${{ inputs.shared_paths }}
       filter_paths: ${{ inputs.filter_paths }}
       force_full_matrix: ${{ inputs.force_full_matrix }}
@@ -608,6 +631,77 @@ jobs:
             fi
           done
 
+  # ----------------- Permission Manifest Publish (RI, tag push, opt-in) -----------------
+  # Upstream half of the Access-Manager "Inversão de Responsabilidade": on a tag push
+  # each in-scope Go service publishes its OWN permissions.yaml to the shared RI catalog
+  # in S3 (one object per service, keyed by the manifest's `service:` value). The
+  # tenant-manager aggregates at read time by listing the prefix — there is no merge here.
+  #
+  # Reads repo files (not build artifacts), so it does NOT gate on the image build like
+  # s3_upload does; it only mirrors s3_upload's tag-push guard and its tag -> FOLDER
+  # derivation, assuming the casdoor-init-data-scoped AWS_INIT_DATA_ROLE_ARN via OIDC.
+  # continue-on-error keeps a publish hiccup from ever blocking the release.
+  permission_manifest_publish:
+    name: Permission Manifest Publish
+    if: >-
+      !cancelled() && github.ref_type == 'tag' && inputs.run_manifest_publish
+    runs-on: ${{ inputs.runner_type }}
+    continue-on-error: true
+    permissions:
+      id-token: write
+      contents: read
+    env:
+      # Secrets can't be referenced directly in a step `if:`, so surface the
+      # role's presence as a job-level env boolean. run_manifest_publish defaults
+      # to true, so a repo that never mapped AWS_INIT_DATA_ROLE_ARN must SKIP the
+      # real upload (not attempt an unauthenticated one) — a dry-run still runs
+      # since the composite previews without any AWS call.
+      HAS_INIT_DATA_ROLE: ${{ secrets.AWS_INIT_DATA_ROLE_ARN != '' }}
+    steps:
+      # ----------------- Checkout & environment resolution -----------------
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+        with:
+          persist-credentials: false
+
+      - name: Determine environment folder from tag
+        id: env
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF#refs/tags/}"
+          if [[ "$TAG" == *-beta* ]]; then
+            FOLDER="development"
+          elif [[ "$TAG" == *-rc* ]]; then
+            FOLDER="staging"
+          elif [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            FOLDER="production"
+          else
+            FOLDER=""
+          fi
+          echo "folder=${FOLDER}" >> "$GITHUB_OUTPUT"
+          [[ -n "$FOLDER" ]] && echo "📁 Environment: ${FOLDER}" || echo "::warning::Tag '${TAG}' matched no environment — manifest publish skipped."
+
+      # ----------------- AWS credentials (guarded) -----------------
+      # Skip on a dry-run (the composite previews with no AWS call) and when the
+      # role secret is absent (nothing to assume — the publish step is skipped too).
+      - name: Configure AWS credentials
+        if: steps.env.outputs.folder != '' && env.HAS_INIT_DATA_ROLE == 'true' && inputs.dry_run != true
+        uses: aws-actions/configure-aws-credentials@e7f100cf4c008499ea8adda475de1042d6975c7b # v6.2.0
+        with:
+          role-to-assume: ${{ secrets.AWS_INIT_DATA_ROLE_ARN }}
+          aws-region: us-east-2
+
+      # ----------------- Publish manifest to the RI catalog -----------------
+      # Publish when there are real creds, or preview when dry-running; otherwise
+      # (no role secret and not a dry-run) skip rather than fail a credential-less upload.
+      - name: Publish permission manifest to the RI catalog
+        if: steps.env.outputs.folder != '' && (env.HAS_INIT_DATA_ROLE == 'true' || inputs.dry_run == true)
+        uses: LerianStudio/github-actions-shared-workflows/src/validate/permission-manifest-publish@v1
+        with:
+          environment: ${{ steps.env.outputs.folder }}
+          github-token: ${{ github.token }}
+          dry-run: ${{ inputs.dry_run }}
+
   # ----------------- Extra Builds (tag push, opt-in) -----------------
   extra_build:
     needs: [release]
@@ -666,8 +760,11 @@ jobs:
       docker_build_args: ${{ matrix.group.docker_build_args }}
       enable_helm_dispatch: ${{ matrix.group.enable_helm_dispatch || false }}
       helm_chart: ${{ matrix.group.helm_chart }}
-      helm_detect_env_changes: ${{ matrix.group.helm_detect_env_changes || true }}
+      helm_repository: ${{ inputs.helm_repository }}
+      helm_detect_env_changes: ${{ toJSON(matrix.group.helm_detect_env_changes) == 'true' || (toJSON(matrix.group.helm_detect_env_changes) != 'false' && inputs.helm_detect_env_changes) }}
       helm_values_key_mappings: ${{ matrix.group.helm_values_key_mappings }}
+      helm_legacy_patch_detection: ${{ toJSON(matrix.group.helm_legacy_patch_detection) == 'true' || (toJSON(matrix.group.helm_legacy_patch_detection) != 'false' && inputs.helm_legacy_patch_detection) }}
+      helm_legacy_branch_patterns: ${{ matrix.group.helm_legacy_branch_patterns || inputs.helm_legacy_branch_patterns }}
     secrets: inherit
 
   # ----------------- GitOps Update (tag push) -----------------
