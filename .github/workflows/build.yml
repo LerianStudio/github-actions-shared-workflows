@@ -133,6 +133,14 @@ on:
         description: 'JSON mapping of component names to values.yaml keys. If not mapped, uses component name as fallback. Example: {"my-app": "api", "my-app-worker": "worker"}'
         type: string
         default: ''
+      helm_legacy_patch_detection:
+        description: 'Flag releases cut from maintenance branches as legacy patches, so the Helm side updates the matching legacy chart line instead of the mainline chart'
+        type: boolean
+        default: true
+      helm_legacy_branch_patterns:
+        description: 'Glob patterns (newline or comma separated) of branches that hold maintenance/patch lines. Example: maintenance/*'
+        type: string
+        default: 'maintenance/*'
       # Path normalization
       normalize_to_filter:
         description: 'Normalize changed paths to their filter path (e.g., components/app/cmd -> components/app). Recommended for monorepos to avoid duplicate builds.'
@@ -700,6 +708,8 @@ jobs:
       env_file: ${{ inputs.helm_env_file }}
       detect_env_changes: ${{ inputs.helm_detect_env_changes }}
       values_key_mappings: ${{ inputs.helm_values_key_mappings }}
+      legacy_patch_detection: ${{ inputs.helm_legacy_patch_detection }}
+      legacy_branch_patterns: ${{ inputs.helm_legacy_branch_patterns }}
       runner_type: ${{ inputs.runner_type }}
     secrets:
       helm_repo_token: ${{ secrets.HELM_REPO_TOKEN }}
