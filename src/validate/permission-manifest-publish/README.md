@@ -21,14 +21,14 @@ The action:
 > **Multiple identities, one object each.** A repo that hosts several app identities (like midaz) publishes one S3 object per `service:`.
 >
 > **Placement caveat.** Detection matches the **basename** `permissions.yaml` exactly, so each service's manifest must currently live in its **own directory** (e.g. `components/onboarding/permissions.yaml`, `components/transaction/permissions.yaml`). You **cannot** put `midaz.yaml` + `routing.yaml` side by side in one folder. Supporting multiple `service:` documents in a single multi-document YAML file is a possible **future** enhancement and is **not** implemented today.
-
+>
 > **Best-effort by contract.** Every path exits 0; an upload hiccup logs `::warning` (not a failure). AWS credentials are assumed by the **caller** job (mirroring the `go-release` `s3_upload` job) before this composite runs. Pair it with `continue-on-error: true` on the calling job so a publish hiccup can never gate a release.
 
 ## S3 key layout
 
 Per-service, env-scoped — **one object per `service:` value**, and a repo publishes **N** of them (one per qualifying manifest):
 
-```
+```text
 s3://{s3-bucket}/{environment}/{s3-prefix}/{service}.yaml
 # single-identity repo:
 #   s3://lerian-casdoor-init-data/development/permissions/br-sisbajud.yaml

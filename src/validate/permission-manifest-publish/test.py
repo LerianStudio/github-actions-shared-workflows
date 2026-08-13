@@ -136,6 +136,13 @@ def run_publish(files, env_overrides=None, fake_aws=None):
 
         output_path = workspace / "github-output"
         output_path.write_text("", encoding="utf-8")
+        # Provision GITHUB_ENV / GITHUB_STEP_SUMMARY too: if a future edit to the
+        # action appends to either, an unset var would be an ambiguous redirect and
+        # fail the assertions for the wrong reason. Point both at workspace files.
+        env_path = workspace / "github-env"
+        env_path.write_text("", encoding="utf-8")
+        summary_path = workspace / "github-step-summary"
+        summary_path.write_text("", encoding="utf-8")
 
         path_value = os.environ.get("PATH", "/usr/bin:/bin")
         if fake_aws is not None:
@@ -148,6 +155,8 @@ def run_publish(files, env_overrides=None, fake_aws=None):
             "PATH": path_value,
             "HOME": str(workspace),
             "GITHUB_OUTPUT": str(output_path),
+            "GITHUB_ENV": str(env_path),
+            "GITHUB_STEP_SUMMARY": str(summary_path),
             "GO_MOD_PATH": "go.mod",
             "S3_BUCKET": "lerian-casdoor-init-data",
             "S3_PREFIX": "permissions",
@@ -179,34 +188,38 @@ class PublishEveryManifest(unittest.TestCase):
         )
 
     # (a) Two manifests in different dirs -> two publishes, correct per-service keys.
+    #     Path order (components/a, components/z) is deliberately the REVERSE of
+    #     service-name order (zeta, alpha) so the assertions pin the sort key to the
+    #     manifest PATH, not the service name.
     def test_two_manifests_publish_both(self):
         result, out = run_publish(
             {
                 "go.mod": GO_MOD_IN_SCOPE,
-                "components/onboarding/permissions.yaml": manifest("midaz"),
-                "components/transaction/permissions.yaml": manifest("routing"),
+                "components/a/permissions.yaml": manifest("zeta"),
+                "components/z/permissions.yaml": manifest("alpha"),
             }
         )
         self.assertExitZero(result)
         self.assertEqual(out.get("state"), "dryrun")
         self.assertEqual(out.get("published_count"), "2")
-        self.assertEqual(out.get("services"), "midaz,routing")
+        # Ordered by PATH (components/a before components/z), NOT by service name.
+        self.assertEqual(out.get("services"), "zeta,alpha")
         self.assertEqual(
             out.get("s3_keys"),
-            "development/permissions/midaz.yaml,development/permissions/routing.yaml",
+            "development/permissions/zeta.yaml,development/permissions/alpha.yaml",
         )
-        # Backward-compat scalars reflect the FIRST (sorted) publish.
-        self.assertEqual(out.get("service"), "midaz")
-        self.assertEqual(out.get("s3_key"), "development/permissions/midaz.yaml")
+        # Backward-compat scalars reflect the FIRST (path-sorted) publish.
+        self.assertEqual(out.get("service"), "zeta")
+        self.assertEqual(out.get("s3_key"), "development/permissions/zeta.yaml")
         # Two distinct dry-run targets logged.
         self.assertIn(
-            "would publish components/onboarding/permissions.yaml -> "
-            "s3://lerian-casdoor-init-data/development/permissions/midaz.yaml",
+            "would publish components/a/permissions.yaml -> "
+            "s3://lerian-casdoor-init-data/development/permissions/zeta.yaml",
             result.stdout,
         )
         self.assertIn(
-            "would publish components/transaction/permissions.yaml -> "
-            "s3://lerian-casdoor-init-data/development/permissions/routing.yaml",
+            "would publish components/z/permissions.yaml -> "
+            "s3://lerian-casdoor-init-data/development/permissions/alpha.yaml",
             result.stdout,
         )
 
@@ -224,6 +237,9 @@ class PublishEveryManifest(unittest.TestCase):
         self.assertEqual(out.get("published_count"), "1")
         self.assertEqual(out.get("services"), "midaz")
         self.assertEqual(out.get("state"), "dryrun")
+        # Compat scalars must point at the ACCEPTED manifest, not the skipped dup.
+        self.assertEqual(out.get("service"), "midaz")
+        self.assertEqual(out.get("s3_key"), "development/permissions/midaz.yaml")
         # Collision is visible in the log as a warning naming the service.
         self.assertIn("::warning", result.stdout)
         self.assertIn("Duplicate service 'midaz'", result.stdout)
