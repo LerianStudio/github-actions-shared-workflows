@@ -643,6 +643,7 @@ jobs:
       # since the composite previews without any AWS call.
       HAS_INIT_DATA_ROLE: ${{ secrets.AWS_INIT_DATA_ROLE_ARN != '' }}
     steps:
+      # ----------------- Checkout & environment resolution -----------------
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
         with:
@@ -665,6 +666,7 @@ jobs:
           echo "folder=${FOLDER}" >> "$GITHUB_OUTPUT"
           [[ -n "$FOLDER" ]] && echo "📁 Environment: ${FOLDER}" || echo "::warning::Tag '${TAG}' matched no environment — manifest publish skipped."
 
+      # ----------------- AWS credentials (guarded) -----------------
       # Skip on a dry-run (the composite previews with no AWS call) and when the
       # role secret is absent (nothing to assume — the publish step is skipped too).
       - name: Configure AWS credentials
@@ -674,6 +676,7 @@ jobs:
           role-to-assume: ${{ secrets.AWS_INIT_DATA_ROLE_ARN }}
           aws-region: us-east-2
 
+      # ----------------- Publish manifest to the RI catalog -----------------
       # Publish when there are real creds, or preview when dry-running; otherwise
       # (no role secret and not a dry-run) skip rather than fail a credential-less upload.
       - name: Publish permission manifest to the RI catalog
