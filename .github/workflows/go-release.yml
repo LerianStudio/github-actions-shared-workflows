@@ -682,7 +682,7 @@ jobs:
       enable_helm_dispatch: ${{ matrix.group.enable_helm_dispatch || false }}
       helm_chart: ${{ matrix.group.helm_chart }}
       helm_repository: ${{ inputs.helm_repository }}
-      helm_detect_env_changes: ${{ matrix.group.helm_detect_env_changes || true }}
+      helm_detect_env_changes: ${{ toJSON(matrix.group.helm_detect_env_changes) == 'true' || (toJSON(matrix.group.helm_detect_env_changes) != 'false' && inputs.helm_detect_env_changes) }}
       helm_values_key_mappings: ${{ matrix.group.helm_values_key_mappings }}
       helm_legacy_patch_detection: ${{ toJSON(matrix.group.helm_legacy_patch_detection) == 'true' || (toJSON(matrix.group.helm_legacy_patch_detection) != 'false' && inputs.helm_legacy_patch_detection) }}
       helm_legacy_branch_patterns: ${{ matrix.group.helm_legacy_branch_patterns || inputs.helm_legacy_branch_patterns }}
