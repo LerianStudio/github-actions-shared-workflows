@@ -13,7 +13,7 @@ name: "Dispatch to Helm Repository"
 #       }
 #   ...
 #   dispatch-helm:
-#     uses: LerianStudio/github-actions-shared-workflows/.github/workflows/dispatch-helm.yml@main
+#     uses: LerianStudio/github-actions-shared-workflows/.github/workflows/dispatch-helm.yml@v1.54.0
 #     with:
 #       helm_repository: org/helm-repo
 #       chart: my-app
@@ -26,7 +26,7 @@ name: "Dispatch to Helm Repository"
 #
 # Usage (advanced - with full components_json):
 #   dispatch-helm:
-#     uses: LerianStudio/github-actions-shared-workflows/.github/workflows/dispatch-helm.yml@main
+#     uses: LerianStudio/github-actions-shared-workflows/.github/workflows/dispatch-helm.yml@v1.54.0
 #     with:
 #       helm_repository: org/helm-repo
 #       chart: my-app
@@ -85,13 +85,21 @@ on:
         description: 'JSON mapping of component names to values.yaml keys. If not mapped, uses component name as fallback.'
         type: string
         default: ''
+      legacy_patch_detection:
+        description: 'Detect releases cut from maintenance branches and flag them in the payload as legacy patches, so the Helm side routes them to the matching legacy chart line instead of the mainline chart.'
+        type: boolean
+        default: true
+      legacy_branch_patterns:
+        description: 'Glob patterns (newline or comma separated) of branches that hold maintenance/patch lines.'
+        type: string
+        default: 'maintenance/*'
       runner_type:
         description: 'GitHub runner type to use'
         type: string
         default: 'blacksmith-4vcpu-ubuntu-2404'
     secrets:
       helm_repo_token:
-        description: 'GitHub token with access to Helm repository (needs repo scope)'
+        description: 'Token scoped to the Helm repository with Actions: read and write permission (enough to trigger workflow_dispatch). A classic token with repo scope also works but is broader than needed.'
         required: true
 
 jobs:
@@ -99,11 +107,70 @@ jobs:
     name: Prepare and Dispatch
     runs-on: ${{ vars.GENERAL_RUNNERS || inputs.runner_type }}
     steps:
+      # ----------------- Source Detection -----------------
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
         with:
           fetch-depth: 0
 
+      - name: Detect source branch
+        id: source
+        env:
+          DETECT: ${{ inputs.legacy_patch_detection }}
+          PATTERNS: ${{ inputs.legacy_branch_patterns }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+
+          RAW_VERSION="${VERSION#v}"
+          VERSION_LINE=$(printf '%s' "$RAW_VERSION" | sed -nE 's/^([0-9]+\.[0-9]+)\..*/\1/p')
+
+          SOURCE_BRANCH=""
+          IS_LEGACY="false"
+
+          if [ "$DETECT" != "true" ]; then
+            echo "Legacy patch detection disabled"
+          elif [ -z "$VERSION_LINE" ]; then
+            echo "::warning::Could not derive an X.Y version line from '${VERSION}' — skipping legacy patch detection"
+          else
+            CONTAINING=$(git for-each-ref --contains HEAD --format='%(refname:strip=3)' refs/remotes/origin/ 2>/dev/null || true)
+            echo "Branches containing HEAD:"
+            printf '%s\n' "$CONTAINING" | sed 's/^/  /'
+
+            PATTERN_LIST=$(printf '%s' "$PATTERNS" | tr ',' '\n')
+
+            while IFS= read -r branch; do
+              [ -z "$branch" ] && continue
+              [ "$branch" = "HEAD" ] && continue
+              while IFS= read -r pattern; do
+                pattern=$(printf '%s' "$pattern" | tr -d '[:space:]')
+                [ -z "$pattern" ] && continue
+                # shellcheck disable=SC2254 # pattern is intentionally a glob
+                case "$branch" in
+                  $pattern)
+                    if [ -z "$SOURCE_BRANCH" ]; then
+                      SOURCE_BRANCH="$branch"
+                      IS_LEGACY="true"
+                    else
+                      echo "::warning::Multiple maintenance branches contain this release — using '${SOURCE_BRANCH}', ignoring '${branch}'"
+                    fi
+                    ;;
+                esac
+              done <<< "$PATTERN_LIST"
+            done <<< "$CONTAINING"
+          fi
+
+          if [ "$IS_LEGACY" = "true" ]; then
+            echo "::notice::Legacy patch detected — source branch '${SOURCE_BRANCH}', version line ${VERSION_LINE}"
+          fi
+
+          {
+            echo "source_branch=${SOURCE_BRANCH}"
+            echo "is_legacy_patch=${IS_LEGACY}"
+            echo "version_line=${VERSION_LINE}"
+          } >> "$GITHUB_OUTPUT"
+
+      # ----------------- Payload Preparation -----------------
       - name: Process all components
         id: process
         run: |
@@ -282,19 +349,37 @@ jobs:
           # Save to file to avoid escaping issues
           echo "$PROCESSED_COMPONENTS" > /tmp/components_payload.json
 
+      # ----------------- Dispatch -----------------
       - name: Dispatch to Helm repository
+        env:
+          CHART: ${{ inputs.chart }}
+          HAS_NEW_ENV_VARS: ${{ steps.process.outputs.has_new_env_vars }}
+          SOURCE_REPO: ${{ github.repository }}
+          SOURCE_SHA: ${{ github.sha }}
+          SOURCE_REF: ${{ github.ref_name }}
+          SOURCE_ACTOR: ${{ github.actor }}
+          SOURCE_BRANCH: ${{ steps.source.outputs.source_branch }}
+          IS_LEGACY_PATCH: ${{ steps.source.outputs.is_legacy_patch }}
+          VERSION_LINE: ${{ steps.source.outputs.version_line }}
+          HELM_REPOSITORY: ${{ inputs.helm_repository }}
+          WORKFLOW_FILE: ${{ inputs.workflow_file }}
+          TARGET_REF: ${{ inputs.target_ref }}
+          HELM_REPO_TOKEN: ${{ secrets.helm_repo_token }}
         run: |
           COMPONENTS=$(cat /tmp/components_payload.json)
 
           # Build the full payload
           PAYLOAD=$(jq -n \
-            --arg chart "${{ inputs.chart }}" \
+            --arg chart "${CHART}" \
             --argjson components "$COMPONENTS" \
-            --arg has_new_env_vars "${{ steps.process.outputs.has_new_env_vars }}" \
-            --arg source_repo "${{ github.repository }}" \
-            --arg source_sha "${{ github.sha }}" \
-            --arg source_ref "${{ github.ref_name }}" \
-            --arg source_actor "${{ github.actor }}" \
+            --arg has_new_env_vars "${HAS_NEW_ENV_VARS}" \
+            --arg source_repo "${SOURCE_REPO}" \
+            --arg source_sha "${SOURCE_SHA}" \
+            --arg source_ref "${SOURCE_REF}" \
+            --arg source_actor "${SOURCE_ACTOR}" \
+            --arg source_branch "${SOURCE_BRANCH}" \
+            --arg is_legacy_patch "${IS_LEGACY_PATCH}" \
+            --arg version_line "${VERSION_LINE}" \
             '{
               chart: $chart,
               components: $components,
@@ -302,7 +387,10 @@ jobs:
               source_repo: $source_repo,
               source_sha: $source_sha,
               source_ref: $source_ref,
-              source_actor: $source_actor
+              source_actor: $source_actor,
+              source_branch: $source_branch,
+              is_legacy_patch: ($is_legacy_patch == "true"),
+              version_line: $version_line
             }')
 
           echo "Dispatching payload:"
@@ -312,11 +400,16 @@ jobs:
           PAYLOAD_STRING=$(echo "$PAYLOAD" | jq -c .)
 
           # Send workflow_dispatch (allows targeting specific branch)
+          REQUEST_BODY=$(jq -n \
+            --arg ref "${TARGET_REF}" \
+            --arg payload "${PAYLOAD_STRING}" \
+            '{ref: $ref, inputs: {payload: $payload}}')
+
           HTTP_RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
-            -H "Authorization: token ${{ secrets.helm_repo_token }}" \
+            -H "Authorization: token ${HELM_REPO_TOKEN}" \
             -H "Accept: application/vnd.github.v3+json" \
-            "https://api.github.com/repos/${{ inputs.helm_repository }}/actions/workflows/${{ inputs.workflow_file }}/dispatches" \
-            -d "{\"ref\":\"${{ inputs.target_ref }}\",\"inputs\":{\"payload\":$(echo "$PAYLOAD_STRING" | jq -R .)}}")
+            "https://api.github.com/repos/${HELM_REPOSITORY}/actions/workflows/${WORKFLOW_FILE}/dispatches" \
+            -d "${REQUEST_BODY}")
 
           HTTP_BODY=$(echo "$HTTP_RESPONSE" | sed '$d')
           HTTP_CODE=$(echo "$HTTP_RESPONSE" | tail -n1)
@@ -335,6 +428,9 @@ jobs:
         env:
           HELM_REPOSITORY: ${{ inputs.helm_repository }}
           CHART: ${{ inputs.chart }}
+          SOURCE_BRANCH: ${{ steps.source.outputs.source_branch }}
+          IS_LEGACY: ${{ steps.source.outputs.is_legacy_patch }}
+          VERSION_LINE: ${{ steps.source.outputs.version_line }}
         run: |
           COMPONENTS=$(cat /tmp/components_payload.json)
 
@@ -343,6 +439,11 @@ jobs:
             echo ""
             echo "**Repository:** \`${HELM_REPOSITORY}\`"
             echo "**Chart:** \`${CHART}\`"
+
+            if [ "${IS_LEGACY}" = "true" ]; then
+              echo "**Legacy patch:** yes — line \`${VERSION_LINE}.x\` from \`${SOURCE_BRANCH}\`"
+            fi
+
             echo ""
             echo "**Components:**"
             echo ""

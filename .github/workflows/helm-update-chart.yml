@@ -8,7 +8,7 @@ name: "Update Helm Chart"
 # Usage:
 #   jobs:
 #     update:
-#       uses: LerianStudio/github-actions-shared-workflows/.github/workflows/helm-update-chart.yml@main
+#       uses: LerianStudio/github-actions-shared-workflows/.github/workflows/helm-update-chart.yml@v1.54.0
 #       with:
 #         payload: ${{ inputs.payload }}
 #         base_branch: develop
@@ -22,7 +22,7 @@ on:
         type: string
         required: true
       base_branch:
-        description: 'Target branch for the PR. Allowed: main, develop, master, staging (default: main)'
+        description: 'Target branch for the PR. Allowed: main, develop, master, staging (default: main). Legacy patches are routed to a derived chart line branch instead — see legacy_patch_enabled.'
         type: string
         default: 'main'
       scripts_path:
@@ -37,6 +37,22 @@ on:
         description: 'Whether to update README matrix (default: true)'
         type: boolean
         default: true
+      legacy_patch_enabled:
+        description: 'Honor is_legacy_patch in the payload and route the update to the matching legacy chart line branch instead of base_branch'
+        type: boolean
+        default: true
+      legacy_branch_prefix:
+        description: 'Branch prefix for legacy chart line patches (e.g. hotfix produces hotfix/<chart>-5.7.x)'
+        type: string
+        default: 'hotfix'
+      legacy_branch_source:
+        description: 'Branch a legacy chart line branch is created from when it does not exist yet'
+        type: string
+        default: 'main'
+      legacy_update_readme:
+        description: 'Update the README compatibility matrix on legacy patches. Off by default because the root README tracks the mainline.'
+        type: boolean
+        default: false
       runner_type:
         description: 'GitHub runner type to use'
         type: string
@@ -101,19 +117,24 @@ jobs:
     name: Update Chart
     runs-on: ${{ vars.GENERAL_RUNNERS || inputs.runner_type }}
     steps:
-      - name: Validate base_branch
+      - name: Validate branch inputs
         env:
           BASE_BRANCH: ${{ inputs.base_branch }}
+          LEGACY_SOURCE: ${{ inputs.legacy_branch_source }}
         run: |
-          case "${BASE_BRANCH}" in
-            main|develop|master|staging)
-              echo "✅ base_branch '${BASE_BRANCH}' is allowed"
-              ;;
-            *)
-              echo "::error::Invalid base_branch '${BASE_BRANCH}'. Allowed: main, develop, master, staging"
-              exit 1
-              ;;
-          esac
+          for pair in "base_branch:${BASE_BRANCH}" "legacy_branch_source:${LEGACY_SOURCE}"; do
+            name="${pair%%:*}"
+            value="${pair#*:}"
+            case "${value}" in
+              main|develop|master|staging)
+                echo "✅ ${name} '${value}' is allowed"
+                ;;
+              *)
+                echo "::error::Invalid ${name} '${value}'. Allowed: main, develop, master, staging"
+                exit 1
+                ;;
+            esac
+          done
 
       - name: Generate GitHub App Token
         id: app-token
@@ -148,6 +169,9 @@ jobs:
           SOURCE_REPO=$(jq -r '.source_repo // "unknown"' /tmp/payload.json)
           SOURCE_ACTOR=$(jq -r '.source_actor // "unknown"' /tmp/payload.json)
           SOURCE_SHA=$(jq -r '.source_sha // "unknown"' /tmp/payload.json)
+          SOURCE_BRANCH=$(jq -r '.source_branch // ""' /tmp/payload.json)
+          IS_LEGACY_PATCH=$(jq -r '.is_legacy_patch // false' /tmp/payload.json)
+          VERSION_LINE=$(jq -r '.version_line // ""' /tmp/payload.json)
 
           # Generate branch name
           TIMESTAMP=$(date +%Y%m%d%H%M%S)
@@ -160,6 +184,9 @@ jobs:
             echo "source_repo=${SOURCE_REPO}"
             echo "source_actor=${SOURCE_ACTOR}"
             echo "source_sha=${SOURCE_SHA}"
+            echo "source_branch=${SOURCE_BRANCH}"
+            echo "is_legacy_patch=${IS_LEGACY_PATCH}"
+            echo "version_line=${VERSION_LINE}"
             echo "branch_name=${BRANCH_NAME}"
           } >> "$GITHUB_OUTPUT"
 
@@ -171,13 +198,6 @@ jobs:
         with:
           token: ${{ steps.app-token.outputs.token }}
           fetch-depth: 0
-
-      - name: Switch to base branch
-        env:
-          BASE_BRANCH: ${{ inputs.base_branch }}
-        run: |
-          git fetch --no-tags origin "${BASE_BRANCH}"
-          git checkout -B "${BASE_BRANCH}" "origin/${BASE_BRANCH}"
 
       - name: Import GPG key
         if: ${{ inputs.gpg_sign_commits }}
@@ -200,6 +220,141 @@ jobs:
           git config user.name "${GIT_USER_NAME}"
           git config user.email "${GIT_USER_EMAIL}"
 
+      # ----------------- Base Branch Resolution -----------------
+      - name: Resolve target base branch
+        id: base
+        env:
+          LEGACY_ENABLED: ${{ inputs.legacy_patch_enabled }}
+          LEGACY_PREFIX: ${{ inputs.legacy_branch_prefix }}
+          LEGACY_SOURCE: ${{ inputs.legacy_branch_source }}
+          LEGACY_UPDATE_README: ${{ inputs.legacy_update_readme }}
+          UPDATE_README: ${{ inputs.update_readme }}
+          BASE_BRANCH: ${{ inputs.base_branch }}
+          CHARTS_PATH: ${{ inputs.charts_path }}
+          CHART: ${{ steps.payload.outputs.chart }}
+          IS_LEGACY_PATCH: ${{ steps.payload.outputs.is_legacy_patch }}
+          VERSION_LINE: ${{ steps.payload.outputs.version_line }}
+          SOURCE_BRANCH: ${{ steps.payload.outputs.source_branch }}
+        run: |
+          set -euo pipefail
+
+          finish() {
+            local base="$1" legacy="$2" tag="${3:-}"
+            local readme="false"
+            if [ "${UPDATE_README}" = "true" ]; then
+              if [ "${legacy}" != "true" ] || [ "${LEGACY_UPDATE_README}" = "true" ]; then
+                readme="true"
+              fi
+            fi
+            {
+              echo "resolved_base=${base}"
+              echo "is_legacy=${legacy}"
+              echo "chart_tag=${tag}"
+              echo "update_readme=${readme}"
+            } >> "$GITHUB_OUTPUT"
+            echo "Resolved base branch: ${base} (legacy=${legacy}, chart_tag=${tag:-none}, update_readme=${readme})"
+          }
+
+          # Read a top-level scalar from a Chart.yaml reachable in git (avoids yq before setup).
+          # A missing ref or path must yield an empty value, not abort the step: git show
+          # exits 128 and pipefail would propagate it through the assignment. sed quits on
+          # the first match instead of piping into head, which also removes a SIGPIPE path.
+          chart_field() {
+            local content
+            content=$(git show "$1" 2>/dev/null) || return 0
+            printf '%s\n' "${content}" \
+              | sed -nE "/^$2:/{s/^$2:[[:space:]]*\"?([^\"[:space:]]+)\"?.*/\1/p;q;}"
+          }
+
+          version_line_of() {
+            printf '%s' "$1" | sed -nE 's/^([0-9]+\.[0-9]+)\..*/\1/p'
+          }
+
+          if [ "${LEGACY_ENABLED}" != "true" ] || [ "${IS_LEGACY_PATCH}" != "true" ]; then
+            finish "${BASE_BRANCH}" "false"
+            exit 0
+          fi
+
+          if ! printf '%s' "${VERSION_LINE}" | grep -qE '^[0-9]+\.[0-9]+$'; then
+            echo "::error::Payload is flagged as a legacy patch but version_line='${VERSION_LINE}' is not an X.Y line"
+            exit 1
+          fi
+
+          echo "Legacy patch from '${SOURCE_BRANCH}' — resolving the chart line for app line ${VERSION_LINE}.x"
+
+          # Find the highest stable chart tag whose appVersion belongs to the app version line
+          CHART_TAG=""
+          CHART_VERSION=""
+          while IFS= read -r tag; do
+            [ -z "${tag}" ] && continue
+            APP_VERSION=$(chart_field "${tag}:${CHARTS_PATH}/${CHART}/Chart.yaml" appVersion)
+            [ -z "${APP_VERSION}" ] && continue
+            case "${APP_VERSION}" in
+              "${VERSION_LINE}."*) ;;
+              *) continue ;;
+            esac
+            CANDIDATE="${tag#"${CHART}-v"}"
+            if [ -z "${CHART_VERSION}" ] || \
+               [ "$(printf '%s\n%s\n' "${CHART_VERSION}" "${CANDIDATE}" | sort -V | tail -1)" = "${CANDIDATE}" ]; then
+              CHART_VERSION="${CANDIDATE}"
+              CHART_TAG="${tag}"
+            fi
+          done < <(git tag --list "${CHART}-v*" | grep -E "^${CHART}-v[0-9]+\.[0-9]+\.[0-9]+$" || true)
+
+          if [ -z "${CHART_TAG}" ]; then
+            echo "::error::No stable '${CHART}' chart tag has an appVersion in the ${VERSION_LINE} line. Refusing to apply a legacy patch to the mainline chart."
+            exit 1
+          fi
+
+          CHART_LINE=$(version_line_of "${CHART_VERSION}")
+          echo "Resolved chart line ${CHART_LINE}.x from tag ${CHART_TAG} (appVersion line ${VERSION_LINE})"
+
+          git fetch --no-tags origin "${BASE_BRANCH}" "${LEGACY_SOURCE}"
+
+          MAINLINE_VERSION=$(chart_field "origin/${BASE_BRANCH}:${CHARTS_PATH}/${CHART}/Chart.yaml" version)
+          MAINLINE_LINE=$(version_line_of "${MAINLINE_VERSION}")
+
+          if [ -n "${MAINLINE_LINE}" ] && [ "${CHART_LINE}" = "${MAINLINE_LINE}" ]; then
+            echo "::warning::Resolved chart line ${CHART_LINE}.x is the mainline chart line on '${BASE_BRANCH}' — treating this as a regular update"
+            finish "${BASE_BRANCH}" "false"
+            exit 0
+          fi
+
+          LEGACY_BRANCH="${LEGACY_PREFIX}/${CHART}-${CHART_LINE}.x"
+
+          if ! printf '%s' "${LEGACY_BRANCH}" | grep -qE '^[a-z0-9][a-z0-9._-]*/[a-z0-9][a-z0-9._-]*-[0-9]+\.[0-9]+\.x$'; then
+            echo "::error::Derived legacy branch '${LEGACY_BRANCH}' does not match the expected pattern <prefix>/<chart>-<major>.<minor>.x"
+            exit 1
+          fi
+
+          if git ls-remote --exit-code --heads origin "${LEGACY_BRANCH}" >/dev/null 2>&1; then
+            echo "::notice::Reusing existing legacy branch ${LEGACY_BRANCH}"
+            finish "${LEGACY_BRANCH}" "true" "${CHART_TAG}"
+            exit 0
+          fi
+
+          echo "::notice::Creating ${LEGACY_BRANCH} from origin/${LEGACY_SOURCE} with ${CHARTS_PATH}/${CHART} restored from ${CHART_TAG}"
+          git checkout -B "${LEGACY_BRANCH}" "origin/${LEGACY_SOURCE}"
+          rm -rf "${CHARTS_PATH:?}/${CHART:?}"
+          git checkout "${CHART_TAG}" -- "${CHARTS_PATH}/${CHART}"
+          git add -A "${CHARTS_PATH}/${CHART}"
+
+          if git diff --staged --quiet; then
+            echo "Chart tree on ${LEGACY_SOURCE} already matches ${CHART_TAG}"
+          else
+            git commit -m "chore(${CHART}): seed ${CHART_LINE}.x maintenance line from ${CHART_TAG}"
+          fi
+
+          git push -u origin "${LEGACY_BRANCH}"
+          finish "${LEGACY_BRANCH}" "true" "${CHART_TAG}"
+
+      - name: Switch to base branch
+        env:
+          BASE_BRANCH: ${{ steps.base.outputs.resolved_base }}
+        run: |
+          git fetch --no-tags origin "${BASE_BRANCH}"
+          git checkout -B "${BASE_BRANCH}" "origin/${BASE_BRANCH}"
+
       - name: Create feature branch
         env:
           BRANCH_NAME: ${{ steps.payload.outputs.branch_name }}
@@ -207,14 +362,14 @@ jobs:
           git checkout -b "${BRANCH_NAME}"
 
       - name: Setup Go
-        if: ${{ inputs.update_readme }}
+        if: steps.base.outputs.update_readme == 'true'
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v6
         with:
           go-version: '1.21'
           cache-dependency-path: ${{ inputs.scripts_path }}/go.mod
 
       - name: Build scripts
-        if: ${{ inputs.update_readme }}
+        if: steps.base.outputs.update_readme == 'true'
         env:
           SCRIPTS_PATH: ${{ inputs.scripts_path }}
         run: |
@@ -387,7 +542,7 @@ jobs:
           echo "updated_components=${UPDATED_COMPONENTS}" >> "$GITHUB_OUTPUT"
 
       - name: Update README matrix
-        if: ${{ inputs.update_readme }}
+        if: steps.base.outputs.update_readme == 'true'
         env:
           CHART: ${{ steps.payload.outputs.chart }}
           CHARTS_PATH: ${{ inputs.charts_path }}
@@ -418,6 +573,7 @@ jobs:
           CHART: ${{ steps.payload.outputs.chart }}
           UPDATED_COMPONENTS: ${{ steps.process.outputs.updated_components }}
           HAS_NEW_ENV_VARS: ${{ steps.payload.outputs.has_new_env_vars }}
+          IS_LEGACY: ${{ steps.base.outputs.is_legacy }}
         run: |
 
           git add -A
@@ -434,7 +590,9 @@ jobs:
           # Determine commit message based on env_vars
           # feat: when new environment variables are added (requires attention)
           # fix: when it's just a version bump (routine update)
-          if [ "${HAS_NEW_ENV_VARS}" = "true" ]; then
+          # A legacy patch is always fix: a minor bump would fall outside the
+          # maintenance range of the chart line branch and break its release.
+          if [ "${HAS_NEW_ENV_VARS}" = "true" ] && [ "${IS_LEGACY}" != "true" ]; then
             COMMIT_MSG="feat(${CHART}): update ${UPDATED_COMPONENTS} - new env vars"
           else
             COMMIT_MSG="fix(${CHART}): update ${UPDATED_COMPONENTS}"
@@ -451,10 +609,14 @@ jobs:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           CHART: ${{ steps.payload.outputs.chart }}
           BRANCH_NAME: ${{ steps.payload.outputs.branch_name }}
-          BASE_BRANCH: ${{ inputs.base_branch }}
+          BASE_BRANCH: ${{ steps.base.outputs.resolved_base }}
           HAS_NEW_ENV_VARS: ${{ steps.payload.outputs.has_new_env_vars }}
           UPDATED_COMPONENTS: ${{ steps.process.outputs.updated_components }}
           SOURCE_REF: ${{ steps.payload.outputs.source_ref }}
+          SOURCE_BRANCH: ${{ steps.payload.outputs.source_branch }}
+          VERSION_LINE: ${{ steps.payload.outputs.version_line }}
+          IS_LEGACY: ${{ steps.base.outputs.is_legacy }}
+          CHART_TAG: ${{ steps.base.outputs.chart_tag }}
         run: |
 
           # Push the branch
@@ -465,11 +627,21 @@ jobs:
 
           # Determine PR title prefix
           if [ "${HAS_NEW_ENV_VARS}" = "true" ]; then
-            PR_TITLE="feat(${CHART}): update ${UPDATED_COMPONENTS}"
             ATTENTION_NOTE="> ⚠️ **Attention:** This PR includes new environment variables that may require configuration."
           else
-            PR_TITLE="fix(${CHART}): update ${UPDATED_COMPONENTS}"
             ATTENTION_NOTE=""
+          fi
+
+          if [ "${HAS_NEW_ENV_VARS}" = "true" ] && [ "${IS_LEGACY}" != "true" ]; then
+            PR_TITLE="feat(${CHART}): update ${UPDATED_COMPONENTS}"
+          else
+            PR_TITLE="fix(${CHART}): update ${UPDATED_COMPONENTS}"
+          fi
+
+          LEGACY_NOTE=""
+          if [ "${IS_LEGACY}" = "true" ]; then
+            PR_TITLE="fix(${CHART}): update ${UPDATED_COMPONENTS} [legacy ${VERSION_LINE}.x]"
+            LEGACY_NOTE="> 🧬 **Legacy patch** — released from \`${SOURCE_BRANCH}\` for the \`${VERSION_LINE}.x\` app line. Base branch \`${BASE_BRANCH}\` carries the chart line seeded from \`${CHART_TAG}\`. Do **not** merge this into the mainline chart."
           fi
 
           # Build components table
@@ -485,6 +657,10 @@ jobs:
             echo ""
             echo "Automated update of Helm chart components."
             echo ""
+            if [ -n "${LEGACY_NOTE}" ]; then
+              echo "${LEGACY_NOTE}"
+              echo ""
+            fi
             if [ -n "${ATTENTION_NOTE}" ]; then
               echo "${ATTENTION_NOTE}"
               echo ""
@@ -545,10 +721,13 @@ jobs:
 
       - name: Summary
         env:
-          BASE_BRANCH: ${{ inputs.base_branch }}
+          BASE_BRANCH: ${{ steps.base.outputs.resolved_base }}
           CHART: ${{ steps.payload.outputs.chart }}
           BRANCH_NAME: ${{ steps.payload.outputs.branch_name }}
           HAS_CHANGES: ${{ steps.commit.outputs.has_changes }}
+          IS_LEGACY: ${{ steps.base.outputs.is_legacy }}
+          CHART_TAG: ${{ steps.base.outputs.chart_tag }}
+          VERSION_LINE: ${{ steps.payload.outputs.version_line }}
         run: |
           COMPONENTS=$(cat /tmp/components.json)
 
@@ -558,6 +737,11 @@ jobs:
             echo "**Chart:** \`${CHART}\`"
             echo "**Branch:** \`${BRANCH_NAME}\`"
             echo "**Base:** \`${BASE_BRANCH}\`"
+
+            if [ "${IS_LEGACY}" = "true" ]; then
+              echo "**Legacy patch:** app line \`${VERSION_LINE}.x\`, chart line seeded from \`${CHART_TAG}\`"
+            fi
+
             echo ""
 
             if [ "${HAS_CHANGES}" = "true" ]; then
@@ -587,11 +771,13 @@ jobs:
           PR_URL: ${{ steps.push-pr.outputs.pr_url }}
           WORKFLOW_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           WORKFLOW_NUM: ${{ github.run_number }}
-          BASE_BRANCH: ${{ inputs.base_branch }}
+          BASE_BRANCH: ${{ steps.base.outputs.resolved_base }}
           MENTION_GROUP: ${{ inputs.slack_mention_group || secrets.SLACK_GROUP_DEVOPS_SRE }}
           SLACK_CHANNEL: ${{ inputs.slack_channel || secrets.SLACK_CHANNEL_DEVOPS }}
           SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN_HELM }}
           BOT_MENTION: ${{ inputs.slack_bot_mention || secrets.SLACK_BOT_SEVERINO }}
+          IS_LEGACY: ${{ steps.base.outputs.is_legacy }}
+          VERSION_LINE: ${{ steps.payload.outputs.version_line }}
         run: |
           COMPONENTS=$(cat /tmp/components.json)
 
@@ -603,6 +789,12 @@ jobs:
             TYPE_EMOJI=":sparkles:"
           else
             TYPE_EMOJI=":rocket:"
+          fi
+
+          if [ "${IS_LEGACY}" = "true" ]; then
+            HEADER_TEXT="${TYPE_EMOJI} Helm Chart Update — legacy ${VERSION_LINE}.x"
+          else
+            HEADER_TEXT="${TYPE_EMOJI} Helm Chart Update"
           fi
 
           # Build metadata
@@ -626,7 +818,7 @@ jobs:
           # Build complete payload using jq
           SLACK_PAYLOAD=$(jq -n \
             --arg channel "${SLACK_CHANNEL}" \
-            --arg header "${TYPE_EMOJI} Helm Chart Update" \
+            --arg header "${HEADER_TEXT}" \
             --arg chart "${CHART}" \
             --arg version "${APP_VERSION}" \
             --arg repo "${SOURCE_REPO}" \
