@@ -1,5 +1,30 @@
 # Github-actions-shared-workflows Changelog
 
+## [1.55.0](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.55.0)
+
+Features:
+- Publish `permissions.yaml` to the RI S3 catalog on release. (@qnen)
+- Allow a path-scoped security scan without bypassing the umbrella in JavaScript PR validation. (@bedatty)
+- Let one umbrella own PR metadata in a multi-component repository. (@bedatty)
+- Forward `build_context_from_working_dir` to the security scan in Go PR validation. (@bedatty)
+- Provide a non-blocking nudge when a repository lacks a `permissions.yaml` in Go PR validation. (@qnen)
+
+Fixes:
+- Route maintenance-branch releases to legacy chart lines in Helm. (@bedatty)
+- Address CodeRabbit review feedback on permission manifest publishing. (@qnen)
+- Reword PT "valide" to satisfy the typos gate in permission manifest nudge. (@qnen)
+- Register `go-boilerplate-ddd-fullstack` for Benedita in GitOps. (@bedatty)
+
+Improvements:
+- Align README with `cred-skip` claim and add titled step-group comments in permission manifest publishing documentation. (@qnen)
+- Correct the description of `run_metadata` and its effect on breaking change outputs in PR validation documentation. (@bedatty)
+- State that `run_metadata` also skips the breaking change guard in PR validation documentation. (@bedatty)
+- Mark `path_level` and `normalize_to_filter` as shared by both callees in JavaScript PR validation documentation. (@bedatty)
+
+[Compare changes](https://github.com/LerianStudio/github-actions-shared-workflows/compare/v1.54.0...v1.55.0)
+
+---
+
 ## [1.54.0](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.54.0)
 
 Features:
