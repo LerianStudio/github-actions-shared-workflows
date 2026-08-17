@@ -3,10 +3,14 @@ description: |
   Publishes a Go plugin/service's OWN permission manifest (`permissions.yaml`) to the
   shared Access-Manager "Inversão de Responsabilidade" (RI) catalog in S3, ON RELEASE.
 
-  This is the UPSTREAM half of the RI: each service publishes exactly ONE object,
+  This is the UPSTREAM half of the RI: each service identity publishes ONE object,
   `s3://{bucket}/{environment}/{prefix}/{service}.yaml`, keyed by the `service:` value in
-  its manifest. There is NO aggregation — the tenant-manager aggregates at read time by
-  listing the prefix. One service overwrites only its own file.
+  its manifest. A repo publishes EVERY qualifying `permissions.yaml` — a monorepo that
+  hosts several identities (e.g. midaz -> midaz/routing/plugin-fees/tracer; br-sfn, br-pix
+  similar) yields one object per `service:`. There is NO aggregation on write — the
+  tenant-manager aggregates at read time by listing the prefix; each service overwrites
+  only its own file. Two manifests with the SAME `service:` are a collision: the duplicate
+  is skipped with a loud `::warning` (best-effort — never fails the release).
 
   Scope gate (identical to `permission-manifest-nudge`): only acts when the repo has a
   DIRECT dependency on `github.com/LerianStudio/lib-auth` in go.mod AND ships a qualifying
@@ -37,7 +41,7 @@ inputs:
   aws-region:
     description: AWS region for the aws s3 cp call.
     required: false
-    default: "us-east-2"
+    default: "sa-east-1"
   environment:
     description: Resolved environment folder (development|staging|production), derived by the caller from the tag suffix.
     required: true
@@ -48,14 +52,23 @@ inputs:
 
 outputs:
   state:
-    description: "One of: skip (out of scope / no manifest / no environment), published (uploaded), dryrun (previewed)."
+    description: "One of: skip (out of scope / no manifest / no environment / nothing landed), published (>=1 uploaded), dryrun (>=1 previewed)."
     value: ${{ steps.publish.outputs.state }}
   service:
-    description: "The service name extracted from the manifest — the S3 object basename."
+    description: "Backward-compat: the FIRST published service name — the S3 object basename. Empty when skipped. See `services` for the full set."
     value: ${{ steps.publish.outputs.service }}
   s3_key:
-    description: "The full S3 object key it published (or would publish), e.g. development/permissions/br-sisbajud.yaml."
+    description: "Backward-compat: the FIRST published S3 object key, e.g. development/permissions/midaz.yaml. Empty when skipped. See `s3_keys` for the full set."
     value: ${{ steps.publish.outputs.s3_key }}
+  services:
+    description: "Comma-separated list of every service published (or previewed), e.g. `midaz,routing,plugin-fees,tracer`. Empty when skipped."
+    value: ${{ steps.publish.outputs.services }}
+  s3_keys:
+    description: "Comma-separated list of every S3 object key published (or previewed), e.g. `development/permissions/midaz.yaml,development/permissions/routing.yaml`. Empty when skipped."
+    value: ${{ steps.publish.outputs.s3_keys }}
+  published_count:
+    description: "How many manifests were published (or, on dry-run, previewed). 0 when skipped."
+    value: ${{ steps.publish.outputs.published_count }}
 
 runs:
   using: composite
@@ -82,6 +95,9 @@ runs:
         # blank on an early exit.
         emit service ""
         emit s3_key ""
+        emit services ""
+        emit s3_keys ""
+        emit published_count "0"
 
         # ---------------------------------------------------------------------------
         # 1. SCOPE GATE — identical to permission-manifest-nudge so the nudge and the
@@ -109,47 +125,40 @@ runs:
 
         # ---------------------------------------------------------------------------
         # 2. MANIFEST PRESENCE — identical detection to the nudge: glob every
-        #    permissions.yaml (excluding vendor / node_modules / .git) and keep only a
-        #    file with top-level `service:` AND `permissions:` keys.
+        #    permissions.yaml (excluding vendor / node_modules / .git) and COLLECT
+        #    every file with top-level `service:` AND `permissions:` keys. A monorepo
+        #    that hosts several app identities (e.g. midaz -> midaz/routing/plugin-fees/
+        #    tracer; br-sfn, br-pix similar) ships one qualifying manifest per identity,
+        #    and each is published on its own (section 4). Results are `sort`ed so the
+        #    first-published (the backward-compat scalar outputs) is deterministic.
+        #    NOTE: the qualifying grep below is copied VERBATIM from
+        #    permission-manifest-nudge — keep the two in agreement.
         # ---------------------------------------------------------------------------
-        QUALIFYING=""
+        QUALIFYING_MANIFESTS=()
         while IFS= read -r f; do
           [[ -z "${f}" ]] && continue
           if grep -qE '^service:[[:space:]]*' "${f}" 2>/dev/null \
              && grep -qE '^permissions:[[:space:]]*' "${f}" 2>/dev/null; then
-            QUALIFYING="${f}"
-            break
+            QUALIFYING_MANIFESTS+=("${f}")
           fi
         done < <(find . -type f -name 'permissions.yaml' \
                    -not -path '*/vendor/*' \
                    -not -path '*/node_modules/*' \
-                   -not -path '*/.git/*' 2>/dev/null)
+                   -not -path '*/.git/*' 2>/dev/null | sort)
 
-        if [[ -z "${QUALIFYING}" ]]; then
+        if [[ ${#QUALIFYING_MANIFESTS[@]} -eq 0 ]]; then
           echo "::notice title=Permission manifest publish::No qualifying permissions.yaml manifest found — nothing to publish, skipping."
           emit state skip
           exit 0
         fi
-        echo "Qualifying permission manifest found: ${QUALIFYING}"
+        echo "Qualifying permission manifest(s) found: ${#QUALIFYING_MANIFESTS[@]}"
+        printf '  - %s\n' "${QUALIFYING_MANIFESTS[@]#./}"
 
         # ---------------------------------------------------------------------------
-        # 3. SERVICE NAME — the `service:` value is the S3 object basename. Take the
-        #    first top-level `service:` line, strip the key, surrounding quotes, an
-        #    inline `# comment`, and whitespace.
-        # ---------------------------------------------------------------------------
-        SERVICE="$(grep -m1 -E '^service:[[:space:]]*' "${QUALIFYING}" \
-          | sed -E 's/^service:[[:space:]]*//; s/[[:space:]]*#.*$//; s/^["'"'"']//; s/["'"'"']$//; s/[[:space:]]+$//')"
-        if [[ -z "${SERVICE}" ]]; then
-          echo "::warning title=Permission manifest publish::Manifest '${QUALIFYING}' has an empty service: value — skipping."
-          emit state skip
-          exit 0
-        fi
-        emit service "${SERVICE}"
-
-        # ---------------------------------------------------------------------------
-        # 4. ENVIRONMENT — the caller resolves it from the tag suffix (beta ->
+        # 3. ENVIRONMENT — the caller resolves it from the tag suffix (beta ->
         #    development, rc -> staging, release -> production). An empty value means
-        #    the tag matched no environment: skip rather than write to the bucket root.
+        #    the tag matched no environment: skip the WHOLE action rather than write to
+        #    the bucket root. This short-circuits before any publish.
         # ---------------------------------------------------------------------------
         if [[ -z "${ENVIRONMENT}" ]]; then
           echo "::warning title=Permission manifest publish::No environment resolved (tag matched none) — skipping."
@@ -157,29 +166,106 @@ runs:
           exit 0
         fi
 
-        S3_KEY="${ENVIRONMENT}/${S3_PREFIX}/${SERVICE}.yaml"
-        S3_URI="s3://${S3_BUCKET}/${S3_KEY}"
-        emit s3_key "${S3_KEY}"
+        # ---------------------------------------------------------------------------
+        # 4. PUBLISH EVERY MANIFEST — one S3 object per `service:` value, each
+        #    overwriting only its own file. For each manifest: extract its OWN
+        #    `service:` value, guard an empty value, guard against two manifests that
+        #    declare the SAME service (a real collision — they would clobber each other
+        #    under one S3 key), then upload. Dry-run logs the target + command and calls
+        #    no AWS. A real upload failure logs ::warning (best-effort) and never fails
+        #    the release. `service`/`s3_key` keep their scalar first-published meaning
+        #    for backward compatibility; `services`/`s3_keys`/`published_count` describe
+        #    the full set (see section 5).
+        # ---------------------------------------------------------------------------
+        SEEN_LIST=""              # newline-delimited services already published this run
+        SERVICES_CSV=""           # comma-joined published service names
+        S3_KEYS_CSV=""            # comma-joined published S3 keys
+        PUBLISHED_COUNT=0
+        FIRST_SERVICE=""
+        FIRST_S3_KEY=""
+
+        # Membership test without bash-4 associative arrays (runners + local shells vary).
+        is_seen() {
+          case $'\n'"${SEEN_LIST}"$'\n' in
+            *$'\n'"$1"$'\n'*) return 0 ;;
+            *) return 1 ;;
+          esac
+        }
+
+        for MANIFEST in "${QUALIFYING_MANIFESTS[@]}"; do
+          # 4a. SERVICE NAME — the `service:` value is the S3 object basename. Take the
+          #     first top-level `service:` line, strip the key, surrounding quotes, an
+          #     inline `# comment`, and whitespace (extraction unchanged from before).
+          SERVICE="$(grep -m1 -E '^service:[[:space:]]*' "${MANIFEST}" \
+            | sed -E 's/^service:[[:space:]]*//; s/[[:space:]]*#.*$//; s/^["'"'"']//; s/["'"'"']$//; s/[[:space:]]+$//')"
+
+          if [[ -z "${SERVICE}" ]]; then
+            echo "::warning title=Permission manifest publish::Manifest '${MANIFEST#./}' has an empty service: value — skipping this manifest."
+            continue
+          fi
+
+          # 4b. ANTI-CLOBBER — two manifests with the same `service:` value resolve to
+          #     the SAME S3 key and would overwrite each other. That is a real repo
+          #     error; make it LOUD (::warning) and skip the duplicate rather than
+          #     silently pick one. Best-effort contract: warn + skip, never fail the
+          #     release. The first manifest for a given service still publishes.
+          if is_seen "${SERVICE}"; then
+            echo "::warning title=Permission manifest publish::Duplicate service '${SERVICE}' declared by '${MANIFEST#./}' — already published this run; skipping the duplicate to avoid clobbering ${ENVIRONMENT}/${S3_PREFIX}/${SERVICE}.yaml. Give each service a unique service: value."
+            continue
+          fi
+          SEEN_LIST="${SEEN_LIST}"$'\n'"${SERVICE}"
+
+          S3_KEY="${ENVIRONMENT}/${S3_PREFIX}/${SERVICE}.yaml"
+          S3_URI="s3://${S3_BUCKET}/${S3_KEY}"
+
+          # 4c. PUBLISH — dry-run previews; real upload is best-effort. On a real upload
+          #     failure, warn and move on (this manifest is NOT counted as published).
+          if [[ "${DRY_RUN}" == "true" ]]; then
+            echo "::notice title=Permission manifest publish::[dry-run] would publish ${MANIFEST#./} -> ${S3_URI}"
+            echo "  [dry-run] aws s3 cp ${MANIFEST} ${S3_URI} --content-type application/yaml --region ${AWS_REGION}"
+          elif aws s3 cp "${MANIFEST}" "${S3_URI}" \
+               --content-type application/yaml \
+               --region "${AWS_REGION}"; then
+            echo "::notice title=Permission manifest publish::Published ${SERVICE} manifest to ${S3_KEY} (bucket ${S3_BUCKET})."
+          else
+            echo "::warning title=Permission manifest publish::aws s3 cp to ${S3_URI} failed (non-blocking) — the release is unaffected."
+            continue
+          fi
+
+          # Record the publish (previewed or real) for the outputs.
+          PUBLISHED_COUNT=$((PUBLISHED_COUNT + 1))
+          if [[ -z "${FIRST_SERVICE}" ]]; then
+            FIRST_SERVICE="${SERVICE}"
+            FIRST_S3_KEY="${S3_KEY}"
+          fi
+          if [[ -z "${SERVICES_CSV}" ]]; then SERVICES_CSV="${SERVICE}"; else SERVICES_CSV="${SERVICES_CSV},${SERVICE}"; fi
+          if [[ -z "${S3_KEYS_CSV}" ]]; then S3_KEYS_CSV="${S3_KEY}"; else S3_KEYS_CSV="${S3_KEYS_CSV},${S3_KEY}"; fi
+        done
 
         # ---------------------------------------------------------------------------
-        # 5. PUBLISH — one object per service, overwriting only its own file. Dry-run
-        #    logs the exact target + command and stops before any AWS call. A real
-        #    upload failure logs ::warning (best-effort) and still exits 0.
+        # 5. OUTPUTS + STATE — scalar `service`/`s3_key` stay backward-compatible (the
+        #    FIRST published); `services`/`s3_keys` list every publish (comma-separated)
+        #    and `published_count` is how many objects landed (or were previewed).
+        #    state=published when >=1 real upload, dryrun when >=1 preview, else skip
+        #    (every qualifying manifest was empty-service, a duplicate, or failed).
         # ---------------------------------------------------------------------------
-        if [[ "${DRY_RUN}" == "true" ]]; then
-          echo "::notice title=Permission manifest publish::[dry-run] would publish ${QUALIFYING#./} -> ${S3_URI}"
-          echo "  [dry-run] aws s3 cp ${QUALIFYING} ${S3_URI} --content-type application/yaml --region ${AWS_REGION}"
-          emit state dryrun
+        emit service "${FIRST_SERVICE}"
+        emit s3_key "${FIRST_S3_KEY}"
+        emit services "${SERVICES_CSV}"
+        emit s3_keys "${S3_KEYS_CSV}"
+        emit published_count "${PUBLISHED_COUNT}"
+
+        if [[ "${PUBLISHED_COUNT}" -eq 0 ]]; then
+          echo "::notice title=Permission manifest publish::No manifest published (all qualifying manifests were empty-service, duplicate, or failed to upload) — skipping."
+          emit state skip
           exit 0
         fi
 
-        if aws s3 cp "${QUALIFYING}" "${S3_URI}" \
-             --content-type application/yaml \
-             --region "${AWS_REGION}"; then
-          echo "::notice title=Permission manifest publish::Published ${SERVICE} manifest to ${S3_KEY} (bucket ${S3_BUCKET})."
-          emit state published
+        if [[ "${DRY_RUN}" == "true" ]]; then
+          echo "::notice title=Permission manifest publish::[dry-run] previewed ${PUBLISHED_COUNT} manifest(s): ${S3_KEYS_CSV}"
+          emit state dryrun
         else
-          echo "::warning title=Permission manifest publish::aws s3 cp to ${S3_URI} failed (non-blocking) — the release is unaffected."
-          emit state skip
+          echo "::notice title=Permission manifest publish::Published ${PUBLISHED_COUNT} manifest(s): ${S3_KEYS_CSV} (bucket ${S3_BUCKET})."
+          emit state published
         fi
         exit 0
