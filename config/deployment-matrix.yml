@@ -110,6 +110,9 @@ apps:
     - go-boilerplate-ddd-fullstack  # Go API + React UI boilerplate (reference/template); values at dev-st
     - billing-api                 # Lago-backed billing gateway (benedita only); values at dev-st/stg-st. The Lago install it fronts lives at cross/, the gateway itself does not
 
+    # Provisioned by Severino (app-provisioning automation)
+    - bedatty-app-4
+
 clusters:
   anacleto:
     # Anacleto hosts two parallel test types (chaos, fuzzing), each with two
@@ -133,6 +136,9 @@ clusters:
       - br-sisbajud
       - lender
       - ungoliant-controller
+
+      # Provisioned by Severino (app-provisioning automation)
+      - bedatty-app-4
 
   benedita:
     # Benedita hosts two parallel variants per environment as sibling namespaces:
@@ -196,3 +202,6 @@ clusters:
       - severino-bot
       - streaming-hub
       - billing-api
+
+      # Provisioned by Severino (app-provisioning automation)
+      - bedatty-app-4
