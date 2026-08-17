@@ -1,5 +1,22 @@
 # Github-actions-shared-workflows Changelog
 
+## [1.56.0](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.56.0)
+
+Features:
+- Released `v1.56.0` as a stable version for the RI multi-manifest publisher and moved the floating `v1`. (@qnen)
+- Enabled publishing of every service manifest, not just the first one. (@qnen)
+
+Fixes:
+- Set the default region to `sa-east-1` for the RI catalog bucket in the permission manifest publish workflow. (@qnen)
+- Addressed review comments on the multi-manifest publish functionality. (@qnen)
+
+Improvements:
+- Added tests to cover the default `sa-east-1` region and region passthrough for the permission manifest publish workflow. (@qnen)
+
+[Compare changes](https://github.com/LerianStudio/github-actions-shared-workflows/compare/v1.55.0...v1.56.0)
+
+---
+
 ## [1.55.0](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.55.0)
 
 Features:
