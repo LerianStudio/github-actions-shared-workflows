@@ -41,7 +41,7 @@ inputs:
   aws-region:
     description: AWS region for the aws s3 cp call.
     required: false
-    default: "us-east-2"
+    default: "sa-east-1"
   environment:
     description: Resolved environment folder (development|staging|production), derived by the caller from the tag suffix.
     required: true
