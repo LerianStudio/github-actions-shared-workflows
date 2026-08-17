@@ -689,7 +689,7 @@ jobs:
         uses: aws-actions/configure-aws-credentials@e7f100cf4c008499ea8adda475de1042d6975c7b # v6.2.0
         with:
           role-to-assume: ${{ secrets.AWS_INIT_DATA_ROLE_ARN }}
-          aws-region: us-east-2
+          aws-region: sa-east-1
 
       # ----------------- Publish manifest to the RI catalog -----------------
       # Publish when there are real creds, or preview when dry-running; otherwise

@@ -49,7 +49,7 @@ s3://{s3-bucket}/{environment}/{s3-prefix}/{service}.yaml
 | `go-mod-path`  | Path to `go.mod` (relative to repo root). Used only for the lib-auth scope gate.               | No       | `go.mod`                     |
 | `s3-bucket`    | Target S3 bucket (without the `s3://` prefix). Same bucket as the Casdoor `init_data`.          | No       | `lerian-casdoor-init-data`   |
 | `s3-prefix`    | Prefix inside the environment folder — the key is `{environment}/{s3-prefix}/{service}.yaml`.   | No       | `permissions`                |
-| `aws-region`   | AWS region for the `aws s3 cp` call.                                                             | No       | `us-east-2`                  |
+| `aws-region`   | AWS region for the `aws s3 cp` call.                                                             | No       | `sa-east-1`                  |
 | `github-token` | Optional. Reserved for future summary/annotation use; no PR side effects.                       | No       | `""`                         |
 | `dry-run`      | Preview mode. When `true`, logs the exact target key and `aws s3 cp` command WITHOUT calling AWS. | No       | `false`                      |
 
@@ -103,7 +103,7 @@ jobs:
       - uses: aws-actions/configure-aws-credentials@e7f100cf4c008499ea8adda475de1042d6975c7b # v6.2.0
         with:
           role-to-assume: ${{ secrets.AWS_INIT_DATA_ROLE_ARN }}
-          aws-region: us-east-2
+          aws-region: sa-east-1
 
       - uses: LerianStudio/github-actions-shared-workflows/src/validate/permission-manifest-publish@v1
         with:

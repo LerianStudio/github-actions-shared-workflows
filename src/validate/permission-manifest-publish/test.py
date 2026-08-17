@@ -12,6 +12,7 @@ exercise the real success / failure branches.
 """
 
 import os
+import re
 import stat
 import subprocess
 import tempfile
@@ -333,6 +334,37 @@ class PublishEveryManifest(unittest.TestCase):
         self.assertEqual(out.get("state"), "skip")
         self.assertEqual(out.get("published_count"), "0")
         self.assertIn("::warning", result.stdout)
+
+
+class RegionConfiguration(unittest.TestCase):
+    """The RI catalog bucket lives in sa-east-1, so the publisher must target
+    that region. test.py runs the extracted bash body directly and injects
+    AWS_REGION itself, bypassing the Actions input-defaulting layer — so the
+    metadata default is asserted against action.yml text (guarding a silent
+    revert), while the caller-override passthrough is exercised end-to-end
+    through the dry-run command.
+    """
+
+    def test_action_default_region_is_sa_east_1(self):
+        # The `aws-region` input default is what every caller that omits the
+        # input inherits; it MUST be the bucket's real region (sa-east-1).
+        m = re.search(r'aws-region:.*?default:\s*"([^"]+)"', ACTION, re.DOTALL)
+        self.assertIsNotNone(m, "aws-region input default not found in action.yml")
+        self.assertEqual(m.group(1), "sa-east-1")
+
+    def test_explicit_region_override_passes_through(self):
+        # A caller-supplied region must reach the `aws s3 cp` command verbatim,
+        # never silently replaced by the default.
+        result, out = run_publish(
+            {
+                "go.mod": GO_MOD_IN_SCOPE,
+                "permissions.yaml": manifest("br-sisbajud"),
+            },
+            env_overrides={"AWS_REGION": "eu-west-1"},
+        )
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(out.get("state"), "dryrun")
+        self.assertIn("--region eu-west-1", result.stdout)
 
 
 if __name__ == "__main__":
