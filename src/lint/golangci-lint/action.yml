@@ -79,6 +79,7 @@ runs:
     # so a fork PR's job can't read a persisted credential off disk.
     - name: Configure GOPRIVATE and .netrc for private modules
       if: github.event.pull_request.head.repo.fork == false
+      id: configure-netrc
       shell: bash
       env:
         MANAGE_TOKEN: ${{ inputs.manage-token }}
@@ -88,14 +89,16 @@ runs:
         if [ -n "$MANAGE_TOKEN" ]; then
           # Never clobber a caller-owned ~/.netrc: back it up if one already
           # exists so the cleanup step can restore it instead of deleting it.
-          if [ -f ~/.netrc ]; then
-            cp ~/.netrc "$RUNNER_TEMP/golangci-lint-netrc.bak"
-            echo "GOLANGCI_NETRC_BACKUP=$RUNNER_TEMP/golangci-lint-netrc.bak" >> "$GITHUB_ENV"
+          # Step outputs (not GITHUB_ENV) so this stays scoped to this one
+          # invocation and can't leak into a second call in the same job.
+          if [ -f "$HOME/.netrc" ]; then
+            cp -- "$HOME/.netrc" "$RUNNER_TEMP/golangci-lint-netrc.bak"
+            echo "netrc-backup=$RUNNER_TEMP/golangci-lint-netrc.bak" >> "$GITHUB_OUTPUT"
           else
-            echo "GOLANGCI_NETRC_CREATED=true" >> "$GITHUB_ENV"
+            echo "netrc-created=true" >> "$GITHUB_OUTPUT"
           fi
-          echo -e "machine github.com\nlogin oauth2\npassword ${MANAGE_TOKEN}" > ~/.netrc
-          chmod 600 ~/.netrc
+          echo -e "machine github.com\nlogin oauth2\npassword ${MANAGE_TOKEN}" > "$HOME/.netrc"
+          chmod 600 "$HOME/.netrc"
         fi
 
     - name: Download Go modules
@@ -152,9 +155,12 @@ runs:
     - name: Restore or remove netrc credential
       if: always()
       shell: bash
+      env:
+        NETRC_BACKUP: ${{ steps.configure-netrc.outputs.netrc-backup }}
+        NETRC_CREATED: ${{ steps.configure-netrc.outputs.netrc-created }}
       run: |
-        if [ -n "${GOLANGCI_NETRC_BACKUP:-}" ]; then
-          mv -f "$GOLANGCI_NETRC_BACKUP" ~/.netrc
-        elif [ "${GOLANGCI_NETRC_CREATED:-false}" = "true" ]; then
-          rm -f ~/.netrc
+        if [ -n "$NETRC_BACKUP" ]; then
+          mv -f -- "$NETRC_BACKUP" "$HOME/.netrc"
+        elif [ "$NETRC_CREATED" = "true" ]; then
+          rm -f -- "$HOME/.netrc"
         fi
