@@ -9,6 +9,8 @@ Reusable workflow that posts/updates the sticky coverage comment on a pull reque
 
 This workflow never checks out the PR's code — it only downloads the `coverage-report-*` artifacts the analysis run already produced, so a fork PR's untrusted code never runs with a write-scoped token.
 
+Before writing the comment, it checks whether `source_run_id` is still the latest analysis run for that PR and skips (no-op) if a newer one already exists — a caller's `workflow_run` events aren't guaranteed to arrive in order, so a delayed, stale run could otherwise overwrite a fresher comment.
+
 ## Wiring it up
 
 Callers wire this to a `workflow_run` trigger in **their own repository** (`workflow_run` is not a fork-restricted event, so its `GITHUB_TOKEN` is write-scoped):

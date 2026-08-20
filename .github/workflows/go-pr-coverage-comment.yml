@@ -66,6 +66,7 @@ jobs:
         id: post
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
+          SOURCE_RUN_ID: ${{ inputs.source_run_id }}
           PR_NUMBER: ${{ inputs.pr_number }}
           THRESHOLD: ${{ inputs.coverage_threshold }}
           DRY_RUN: ${{ inputs.dry_run }}
@@ -76,6 +77,7 @@ jobs:
             const path = require('path');
 
             const dryRun = process.env.DRY_RUN === 'true';
+            const sourceRunId = parseInt(process.env.SOURCE_RUN_ID, 10);
             const prNumber = parseInt(process.env.PR_NUMBER, 10);
             if (!Number.isInteger(prNumber) || prNumber <= 0) {
               core.setFailed(`Invalid pr_number input: ${JSON.stringify(process.env.PR_NUMBER)}`);
@@ -86,6 +88,35 @@ jobs:
 
             if (dryRun) {
               console.log(`::notice::dry_run — pr_number=${prNumber} threshold=${threshold}%`);
+            }
+
+            // Freshness guard: workflow_run delivery isn't strictly ordered
+            // (GitHub docs: "actual start time... can vary due to infrastructure
+            // factors"), and a caller's concurrency group only cancels a run
+            // that's still in flight when a newer one starts — it can't reject
+            // a late-delivered event for a run that finishes after everything
+            // else already settled. Skip if a newer PR Validation run for the
+            // same PR already exists, so a delayed stale run can't overwrite a
+            // fresher comment.
+            const { data: sourceRun } = await github.rest.actions.getWorkflowRun({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              run_id: sourceRunId,
+            });
+            const { data: { workflow_runs: candidateRuns } } = await github.rest.actions.listWorkflowRuns({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              workflow_id: sourceRun.workflow_id,
+              event: 'pull_request',
+              per_page: 20,
+            });
+            const latestForPr = candidateRuns
+              .filter(run => (run.pull_requests || []).some(pr => pr.number === prNumber))
+              .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))[0];
+            if (latestForPr && latestForPr.id !== sourceRunId) {
+              console.log(`::notice::Skipping — run ${sourceRunId} is stale; run ${latestForPr.id} is the latest PR Validation run for PR #${prNumber}`);
+              core.setOutput('has_comments', 'false');
+              return;
             }
 
             if (!fs.existsSync(baseDir)) {
