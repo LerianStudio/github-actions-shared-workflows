@@ -636,6 +636,10 @@ jobs:
             COVERAGE=$(go tool cover -func=coverage.txt | grep '^total:' | awk '{print $3}' | sed 's/%//')
             echo "coverage=$COVERAGE" >> "$GITHUB_OUTPUT"
             echo "Total coverage: $COVERAGE%"
+            # Persisted into the artifact (not just $GITHUB_OUTPUT) so the
+            # go-pr-coverage-comment.yml fallback can read it from a different
+            # workflow run, where step outputs of this run aren't reachable.
+            echo "$COVERAGE" > coverage-value.txt
 
             # Generate coverage by package table
             {
@@ -677,6 +681,7 @@ jobs:
             echo "coverage=0" >> "$GITHUB_OUTPUT"
             echo "No coverage file found"
             echo "No coverage data available" > coverage-report.md
+            echo "0" > coverage-value.txt
           fi
 
       - name: Generate HTML coverage report
@@ -694,15 +699,19 @@ jobs:
             ${{ matrix.app.working_dir }}/coverage.txt
             ${{ matrix.app.working_dir }}/coverage.html
             ${{ matrix.app.working_dir }}/coverage-report.md
+            ${{ matrix.app.working_dir }}/coverage-value.txt
           retention-days: 30
 
       - name: Post coverage comment
         if: github.event_name == 'pull_request'
         # PRs from forks don't get MANAGE_TOKEN (custom secrets aren't exposed to
         # pull_request runs triggered from forks) and fall back to github.token,
-        # which GitHub forces read-only for fork PRs — the comment call 403s.
-        # continue-on-error keeps that expected 403 from failing the Coverage job;
-        # the numbers are still visible in the job summary (see Coverage summary step).
+        # which GitHub forces read-only for fork PRs, so this call 403s. That's
+        # expected there — go-pr-coverage-comment.yml (invoked by the caller repo
+        # via a workflow_run stub, which does get a write-scoped token) is the
+        # real delivery path for fork PRs. continue-on-error just keeps the
+        # expected 403 from failing this job; same-repo PRs still get the comment
+        # immediately from this step.
         continue-on-error: true
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
