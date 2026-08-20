@@ -9,10 +9,12 @@ name: "Go PR Coverage Comment (fork fallback)"
 #
 # Callers wire this to a `workflow_run` trigger in their OWN repo (workflow_run
 # is not a fork-restricted event, so its GITHUB_TOKEN is write-scoped), passing
-# the analysis run's run_id and the PR number. This job never checks out the
-# PR's code — it only downloads the coverage-report-* artifacts the analysis
-# run already produced, so a fork PR's untrusted code never runs with a
-# write-scoped token.
+# the analysis run's run_id and its head commit SHA (not a PR number —
+# github.event.workflow_run.pull_requests is empty for fork-originated runs,
+# so the PR is resolved from the commit instead). This job never checks out
+# the PR's code — it only downloads the coverage-report-* artifacts the
+# analysis run already produced, so a fork PR's untrusted code never runs
+# with a write-scoped token.
 
 on:
   workflow_call:
@@ -21,8 +23,16 @@ on:
         description: 'run_id of the workflow run (the one that ran go-pr-analysis.yml) that produced the coverage-report-* artifacts'
         type: string
         required: true
-      pr_number:
-        description: 'Pull request number to comment on'
+      head_sha:
+        description: >-
+          Head commit SHA of the pull request to comment on (e.g.
+          github.event.workflow_run.head_sha). Used instead of a caller-supplied
+          PR number because github.event.workflow_run.pull_requests is
+          documented by GitHub to be empty when the run comes from a forked
+          repository — exactly the case this workflow exists for. The PR is
+          resolved server-side from the commit via the
+          "list pull requests associated with a commit" API, which works
+          for fork commits too.
         type: string
         required: true
       coverage_threshold:
@@ -67,7 +77,7 @@ jobs:
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
           SOURCE_RUN_ID: ${{ inputs.source_run_id }}
-          PR_NUMBER: ${{ inputs.pr_number }}
+          HEAD_SHA: ${{ inputs.head_sha }}
           THRESHOLD: ${{ inputs.coverage_threshold }}
           DRY_RUN: ${{ inputs.dry_run }}
         with:
@@ -78,13 +88,25 @@ jobs:
 
             const dryRun = process.env.DRY_RUN === 'true';
             const sourceRunId = parseInt(process.env.SOURCE_RUN_ID, 10);
-            const prNumber = parseInt(process.env.PR_NUMBER, 10);
-            if (!Number.isInteger(prNumber) || prNumber <= 0) {
-              core.setFailed(`Invalid pr_number input: ${JSON.stringify(process.env.PR_NUMBER)}`);
-              return;
-            }
+            const headSha = process.env.HEAD_SHA;
             const threshold = process.env.THRESHOLD;
             const baseDir = 'coverage-reports';
+
+            // pull_requests is empty on github.event.workflow_run for fork PRs
+            // (GitHub's documented behavior), so the PR is resolved from the
+            // head commit instead — this API works for fork commits too.
+            const { data: associatedPRs } = await github.rest.repos.listPullRequestsAssociatedWithCommit({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              commit_sha: headSha,
+            });
+            const targetPR = associatedPRs.find(pr => pr.state === 'open') || associatedPRs[0];
+            if (!targetPR) {
+              console.log(`No pull request associated with commit ${headSha}; nothing to comment.`);
+              core.setOutput('has_comments', 'false');
+              return;
+            }
+            const prNumber = targetPR.number;
 
             if (dryRun) {
               console.log(`::notice::dry_run — pr_number=${prNumber} threshold=${threshold}%`);
@@ -95,9 +117,11 @@ jobs:
             // factors"), and a caller's concurrency group only cancels a run
             // that's still in flight when a newer one starts — it can't reject
             // a late-delivered event for a run that finishes after everything
-            // else already settled. Skip if a newer PR Validation run for the
-            // same PR already exists, so a delayed stale run can't overwrite a
-            // fresher comment.
+            // else already settled. Skip if a newer PR Validation run on the
+            // same fork branch already exists, so a delayed stale run can't
+            // overwrite a fresher comment. Matched by head repo + head branch
+            // rather than PR number, since list-runs results carry the same
+            // empty pull_requests gap for fork-originated runs.
             const { data: sourceRun } = await github.rest.actions.getWorkflowRun({
               owner: context.repo.owner,
               repo: context.repo.repo,
@@ -110,11 +134,13 @@ jobs:
               event: 'pull_request',
               per_page: 20,
             });
-            const latestForPr = candidateRuns
-              .filter(run => (run.pull_requests || []).some(pr => pr.number === prNumber))
+            const latestForBranch = candidateRuns
+              .filter(run =>
+                run.head_repository?.full_name === sourceRun.head_repository?.full_name &&
+                run.head_branch === sourceRun.head_branch)
               .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))[0];
-            if (latestForPr && latestForPr.id !== sourceRunId) {
-              console.log(`::notice::Skipping — run ${sourceRunId} is stale; run ${latestForPr.id} is the latest PR Validation run for PR #${prNumber}`);
+            if (latestForBranch && latestForBranch.id !== sourceRunId) {
+              console.log(`::notice::Skipping — run ${sourceRunId} is stale; run ${latestForBranch.id} is the latest PR Validation run for this branch`);
               core.setOutput('has_comments', 'false');
               return;
             }

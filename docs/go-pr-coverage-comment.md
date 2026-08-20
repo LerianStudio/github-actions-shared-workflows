@@ -28,17 +28,19 @@ jobs:
     uses: LerianStudio/github-actions-shared-workflows/.github/workflows/go-pr-coverage-comment.yml@v1.0.0
     with:
       source_run_id: ${{ github.event.workflow_run.id }}
-      pr_number: ${{ github.event.workflow_run.pull_requests[0].number }}
+      head_sha: ${{ github.event.workflow_run.head_sha }}
       coverage_threshold: 80
     secrets: inherit
 ```
+
+`pr_number` is deliberately not an input here: `github.event.workflow_run.pull_requests` is documented by GitHub to be empty when the run comes from a forked repository — exactly the case this workflow exists for. `head_sha` is always populated, and the workflow resolves the PR from it server-side via the "list pull requests associated with a commit" API.
 
 ## Inputs
 
 | Input | Description | Required | Default |
 |-------|-------------|----------|---------|
 | `source_run_id` | `run_id` of the workflow run (the one that ran `go-pr-analysis.yml`) that produced the `coverage-report-*` artifacts | Yes | — |
-| `pr_number` | Pull request number to comment on | Yes | — |
+| `head_sha` | Head commit SHA of the pull request to comment on (e.g. `github.event.workflow_run.head_sha`) | Yes | — |
 | `coverage_threshold` | Minimum coverage percentage required (0-100). Used only for the PASS/BELOW THRESHOLD label — must match the value passed to `go-pr-analysis.yml` for the same run | No | `80` |
 | `dry_run` | Preview the resolved comment(s) without creating or updating anything | No | `false` |
 
