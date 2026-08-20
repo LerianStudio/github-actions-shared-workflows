@@ -46,7 +46,7 @@ jobs:
     runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
       - name: Run golangci-lint
-        uses: LerianStudio/github-actions-shared-workflows/src/lint/golangci-lint@develop
+        uses: LerianStudio/github-actions-shared-workflows/src/lint/golangci-lint@v1.x.x
         with:
           lerian-studio-push-bot-app-id: ${{ secrets.LERIAN_STUDIO_MIDAZ_PUSH_BOT_APP_ID }}
           lerian-studio-push-bot-private-key: ${{ secrets.LERIAN_STUDIO_MIDAZ_PUSH_BOT_PRIVATE_KEY }}
