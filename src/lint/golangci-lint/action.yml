@@ -89,8 +89,17 @@ runs:
         MANAGE_TOKEN: ${{ inputs.manage-token }}
         PRIVATE_MODULE_PATTERN: ${{ inputs.private-module-pattern }}
       run: |
-        echo "GOPRIVATE=${PRIVATE_MODULE_PATTERN}" >> "$GITHUB_ENV"
-        echo "GONOSUMDB=${PRIVATE_MODULE_PATTERN}" >> "$GITHUB_ENV"
+        # Multi-line-safe GITHUB_ENV write: PRIVATE_MODULE_PATTERN is caller-supplied
+        # and a naive `NAME=$value` line could inject extra env vars if it ever
+        # contained a newline.
+        delimiter="EOF_$(uuidgen)"
+        for name in GOPRIVATE GONOSUMDB; do
+          {
+            echo "${name}<<${delimiter}"
+            printf '%s\n' "$PRIVATE_MODULE_PATTERN"
+            echo "$delimiter"
+          } >> "$GITHUB_ENV"
+        done
         if [ -n "$MANAGE_TOKEN" ]; then
           # Never clobber a caller-owned ~/.netrc: back it up if one already
           # exists so the cleanup step can restore it instead of deleting it.
