@@ -1,0 +1,180 @@
+name: GolangCI-Lint
+description: Runs golangci-lint via reviewdog inline PR annotations on non-fork PRs, falling back to the plain golangci-lint-action on forks (which cannot receive a bot-authenticated reviewdog token).
+
+inputs:
+  lerian-studio-push-bot-app-id:
+    description: GitHub App ID used to authenticate reviewdog PR annotations on non-fork PRs. Only required when the triggering PR is not a fork
+    required: false
+    default: ''
+  lerian-studio-push-bot-private-key:
+    description: GitHub App private key paired with lerian-studio-push-bot-app-id. Only required when the triggering PR is not a fork
+    required: false
+    default: ''
+  lerian-ci-cd-user-gpg-key:
+    description: GPG private key for signing the reviewdog bot identity. Only required when the triggering PR is not a fork
+    required: false
+    default: ''
+  lerian-ci-cd-user-gpg-key-password:
+    description: Passphrase for lerian-ci-cd-user-gpg-key. Only required when the triggering PR is not a fork
+    required: false
+    default: ''
+  lerian-ci-cd-user-name:
+    description: Git author/committer name used for the reviewdog GPG identity. Only required when the triggering PR is not a fork
+    required: false
+    default: ''
+  lerian-ci-cd-user-email:
+    description: Git author/committer email used for the reviewdog GPG identity. Only required when the triggering PR is not a fork
+    required: false
+    default: ''
+  go-version:
+    description: Go version to set up before linting
+    required: false
+    default: '1.23'
+  golangci-lint-version:
+    description: golangci-lint version to run
+    required: false
+    default: 'v1.64.8'
+  reviewdog-level:
+    description: Minimum reviewdog annotation level (non-fork PRs only)
+    required: false
+    default: 'error'
+  fail-level:
+    description: Reviewdog level that fails the check (non-fork PRs only)
+    required: false
+    default: 'any'
+  reporter:
+    description: Reviewdog reporter type (non-fork PRs only)
+    required: false
+    default: 'github-pr-review'
+  filter-mode:
+    description: Reviewdog diff filter mode (non-fork PRs only)
+    required: false
+    default: 'diff_context'
+  cache:
+    description: Enable golangci-lint caching (non-fork PRs only)
+    required: false
+    default: 'false'
+  manage-token:
+    description: Token for `go mod download` access to private LerianStudio Go modules
+    required: false
+    default: ''
+  private-module-pattern:
+    description: GOPRIVATE/GONOSUMDB pattern for private Go modules
+    required: false
+    default: 'github.com/LerianStudio/*'
+
+runs:
+  using: composite
+  steps:
+    # ----------------- Setup -----------------
+    - name: Checkout repository
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        persist-credentials: false
+
+    - name: Setup Go
+      uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+      with:
+        go-version: ${{ inputs.go-version }}
+        cache: false
+
+    # ----------------- Non-Fork PRs (reviewdog annotations) -----------------
+    # manage-token / GOPRIVATE are only configured here — never on the fork path,
+    # so a fork PR's job can't read a persisted credential off disk.
+    - name: Configure GOPRIVATE and .netrc for private modules
+      if: github.event.pull_request.head.repo.fork == false
+      id: configure-netrc
+      shell: bash
+      env:
+        MANAGE_TOKEN: ${{ inputs.manage-token }}
+        PRIVATE_MODULE_PATTERN: ${{ inputs.private-module-pattern }}
+      run: |
+        # Multi-line-safe GITHUB_ENV write: PRIVATE_MODULE_PATTERN is caller-supplied
+        # and a naive `NAME=$value` line could inject extra env vars if it ever
+        # contained a newline.
+        delimiter="EOF_$(uuidgen)"
+        for name in GOPRIVATE GONOSUMDB; do
+          {
+            echo "${name}<<${delimiter}"
+            printf '%s\n' "$PRIVATE_MODULE_PATTERN"
+            echo "$delimiter"
+          } >> "$GITHUB_ENV"
+        done
+        if [ -n "$MANAGE_TOKEN" ]; then
+          # Never clobber a caller-owned ~/.netrc: back it up if one already
+          # exists so the cleanup step can restore it instead of deleting it.
+          # Step outputs (not GITHUB_ENV) so this stays scoped to this one
+          # invocation and can't leak into a second call in the same job.
+          if [ -f "$HOME/.netrc" ]; then
+            cp -- "$HOME/.netrc" "$RUNNER_TEMP/golangci-lint-netrc.bak"
+            echo "netrc-backup=$RUNNER_TEMP/golangci-lint-netrc.bak" >> "$GITHUB_OUTPUT"
+          else
+            echo "netrc-created=true" >> "$GITHUB_OUTPUT"
+          fi
+          echo -e "machine github.com\nlogin oauth2\npassword ${MANAGE_TOKEN}" > "$HOME/.netrc"
+          chmod 600 "$HOME/.netrc"
+        fi
+
+    - name: Download Go modules
+      if: github.event.pull_request.head.repo.fork == false
+      shell: bash
+      run: go mod download
+
+    - name: Create GitHub App token
+      if: github.event.pull_request.head.repo.fork == false
+      id: app-token
+      uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
+      with:
+        app-id: ${{ inputs.lerian-studio-push-bot-app-id }}
+        private-key: ${{ inputs.lerian-studio-push-bot-private-key }}
+
+    - name: Import GPG key
+      if: github.event.pull_request.head.repo.fork == false
+      uses: crazy-max/ghaction-import-gpg@2dc316deee8e90f13e1a351ab510b4d5bc0c82cd # v7
+      with:
+        gpg_private_key: ${{ inputs.lerian-ci-cd-user-gpg-key }}
+        passphrase: ${{ inputs.lerian-ci-cd-user-gpg-key-password }}
+        git_committer_name: ${{ inputs.lerian-ci-cd-user-name }}
+        git_committer_email: ${{ inputs.lerian-ci-cd-user-email }}
+        git_config_global: true
+        git_user_signingkey: true
+        git_commit_gpgsign: true
+
+    - name: Run golangci-lint via reviewdog
+      if: github.event.pull_request.head.repo.fork == false
+      uses: reviewdog/action-golangci-lint@c76cceaaab89abe74e649d2e34c6c9adc26662d2 # v2.10.0
+      with:
+        go_version: ${{ inputs.go-version }}
+        tool_name: golint
+        level: ${{ inputs.reviewdog-level }}
+        fail_level: ${{ inputs.fail-level }}
+        reporter: ${{ inputs.reporter }}
+        filter_mode: ${{ inputs.filter-mode }}
+        golangci_lint_version: ${{ inputs.golangci-lint-version }}
+        reviewdog_github_api_token: ${{ steps.app-token.outputs.token }}
+        git_author_name: ${{ inputs.lerian-ci-cd-user-name }}
+        git_author_email: ${{ inputs.lerian-ci-cd-user-email }}
+        git_committer_name: ${{ inputs.lerian-ci-cd-user-name }}
+        git_committer_email: ${{ inputs.lerian-ci-cd-user-email }}
+        cache: ${{ inputs.cache }}
+
+    # ----------------- Fork PRs (no bot token available) -----------------
+    - name: Run golangci-lint (fork)
+      if: github.event.pull_request.head.repo.fork == true
+      uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
+      with:
+        version: ${{ inputs.golangci-lint-version }}
+
+    # ----------------- Cleanup -----------------
+    - name: Restore or remove netrc credential
+      if: always()
+      shell: bash
+      env:
+        NETRC_BACKUP: ${{ steps.configure-netrc.outputs.netrc-backup }}
+        NETRC_CREATED: ${{ steps.configure-netrc.outputs.netrc-created }}
+      run: |
+        if [ -n "$NETRC_BACKUP" ]; then
+          mv -f -- "$NETRC_BACKUP" "$HOME/.netrc"
+        elif [ "$NETRC_CREATED" = "true" ]; then
+          rm -f -- "$HOME/.netrc"
+        fi
