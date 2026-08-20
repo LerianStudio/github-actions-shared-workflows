@@ -28,7 +28,7 @@ Charts that should never be registered (library charts, third-party dependency w
 ```yaml
 - name: Publish Release in Plugin Lifecycle Management
   if: github.ref == 'refs/heads/main'
-  uses: LerianStudio/github-actions-shared-workflows/src/deploy/lifecycle-management-publish@develop
+  uses: LerianStudio/github-actions-shared-workflows/src/deploy/lifecycle-management-publish@v1.x.x
   with:
     chart-name: ${{ matrix.chart.name }}
     application-ids: ${{ vars.APPLICATION_IDS }}

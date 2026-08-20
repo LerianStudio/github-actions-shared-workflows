@@ -3,23 +3,29 @@ description: Runs golangci-lint via reviewdog inline PR annotations on non-fork 
 
 inputs:
   lerian-studio-push-bot-app-id:
-    description: GitHub App ID used to authenticate reviewdog PR annotations on non-fork PRs
-    required: true
+    description: GitHub App ID used to authenticate reviewdog PR annotations on non-fork PRs. Only required when the triggering PR is not a fork
+    required: false
+    default: ''
   lerian-studio-push-bot-private-key:
-    description: GitHub App private key paired with lerian-studio-push-bot-app-id
-    required: true
+    description: GitHub App private key paired with lerian-studio-push-bot-app-id. Only required when the triggering PR is not a fork
+    required: false
+    default: ''
   lerian-ci-cd-user-gpg-key:
-    description: GPG private key for signing the reviewdog bot identity
-    required: true
+    description: GPG private key for signing the reviewdog bot identity. Only required when the triggering PR is not a fork
+    required: false
+    default: ''
   lerian-ci-cd-user-gpg-key-password:
-    description: Passphrase for lerian-ci-cd-user-gpg-key
-    required: true
+    description: Passphrase for lerian-ci-cd-user-gpg-key. Only required when the triggering PR is not a fork
+    required: false
+    default: ''
   lerian-ci-cd-user-name:
-    description: Git author/committer name used for the reviewdog GPG identity
-    required: true
+    description: Git author/committer name used for the reviewdog GPG identity. Only required when the triggering PR is not a fork
+    required: false
+    default: ''
   lerian-ci-cd-user-email:
-    description: Git author/committer email used for the reviewdog GPG identity
-    required: true
+    description: Git author/committer email used for the reviewdog GPG identity. Only required when the triggering PR is not a fork
+    required: false
+    default: ''
   go-version:
     description: Go version to set up before linting
     required: false
@@ -58,15 +64,19 @@ runs:
   steps:
     # ----------------- Setup -----------------
     - name: Checkout repository
-      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
     - name: Setup Go
-      uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v6
+      uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
       with:
         go-version: ${{ inputs.go-version }}
         cache: false
 
+    # ----------------- Non-Fork PRs (reviewdog annotations) -----------------
+    # manage-token / GOPRIVATE are only configured here — never on the fork path,
+    # so a fork PR's job can't read a persisted credential off disk.
     - name: Configure GOPRIVATE and .netrc for private modules
+      if: github.event.pull_request.head.repo.fork == false
       shell: bash
       env:
         MANAGE_TOKEN: ${{ inputs.manage-token }}
@@ -79,10 +89,10 @@ runs:
         fi
 
     - name: Download Go modules
+      if: github.event.pull_request.head.repo.fork == false
       shell: bash
       run: go mod download
 
-    # ----------------- Non-Fork PRs (reviewdog annotations) -----------------
     - name: Create GitHub App token
       if: github.event.pull_request.head.repo.fork == false
       id: app-token
@@ -126,4 +136,4 @@ runs:
       if: github.event.pull_request.head.repo.fork == true
       uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
       with:
-        version: latest
+        version: ${{ inputs.golangci-lint-version }}

@@ -16,12 +16,12 @@ Supports private `LerianStudio/*` Go modules via `GOPRIVATE`/`.netrc`, configure
 
 | Input | Description | Required | Default |
 |-------|-------------|----------|---------|
-| `lerian-studio-push-bot-app-id` | GitHub App ID used to authenticate reviewdog PR annotations on non-fork PRs | Yes | — |
-| `lerian-studio-push-bot-private-key` | GitHub App private key paired with `lerian-studio-push-bot-app-id` | Yes | — |
-| `lerian-ci-cd-user-gpg-key` | GPG private key for signing the reviewdog bot identity | Yes | — |
-| `lerian-ci-cd-user-gpg-key-password` | Passphrase for `lerian-ci-cd-user-gpg-key` | Yes | — |
-| `lerian-ci-cd-user-name` | Git author/committer name used for the reviewdog GPG identity | Yes | — |
-| `lerian-ci-cd-user-email` | Git author/committer email used for the reviewdog GPG identity | Yes | — |
+| `lerian-studio-push-bot-app-id` | GitHub App ID used to authenticate reviewdog PR annotations on non-fork PRs. Required only when the triggering PR is not a fork | No | `''` |
+| `lerian-studio-push-bot-private-key` | GitHub App private key paired with `lerian-studio-push-bot-app-id`. Required only when the triggering PR is not a fork | No | `''` |
+| `lerian-ci-cd-user-gpg-key` | GPG private key for signing the reviewdog bot identity. Required only when the triggering PR is not a fork | No | `''` |
+| `lerian-ci-cd-user-gpg-key-password` | Passphrase for `lerian-ci-cd-user-gpg-key`. Required only when the triggering PR is not a fork | No | `''` |
+| `lerian-ci-cd-user-name` | Git author/committer name used for the reviewdog GPG identity. Required only when the triggering PR is not a fork | No | `''` |
+| `lerian-ci-cd-user-email` | Git author/committer email used for the reviewdog GPG identity. Required only when the triggering PR is not a fork | No | `''` |
 | `go-version` | Go version to set up before linting | No | `1.23` |
 | `golangci-lint-version` | golangci-lint version to run | No | `v1.64.8` |
 | `reviewdog-level` | Minimum reviewdog annotation level (non-fork PRs only) | No | `error` |
@@ -29,7 +29,7 @@ Supports private `LerianStudio/*` Go modules via `GOPRIVATE`/`.netrc`, configure
 | `reporter` | Reviewdog reporter type (non-fork PRs only) | No | `github-pr-review` |
 | `filter-mode` | Reviewdog diff filter mode (non-fork PRs only) | No | `diff_context` |
 | `cache` | Enable golangci-lint caching (non-fork PRs only) | No | `false` |
-| `manage-token` | Token for `go mod download` access to private LerianStudio Go modules | No | — |
+| `manage-token` | Token for `go mod download` access to private LerianStudio Go modules | No | `''` |
 
 ## Usage as composite step
 

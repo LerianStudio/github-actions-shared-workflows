@@ -12,7 +12,7 @@ inputs:
     description: API token for the Plugin Lifecycle Management platform
     required: true
   working-directory:
-    description: Path to the chart directory (used to locate values-template.yaml and to derive the release tag)
+    description: Path to the chart directory (used to locate values-template.yaml)
     required: true
   api-base:
     description: Plugin Lifecycle Management API base URL
@@ -22,11 +22,13 @@ inputs:
 runs:
   using: composite
   steps:
+    # ----------------- Setup -----------------
     - name: Checkout repository
       uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
       with:
         fetch-depth: 0
 
+    # ----------------- Resolve metadata -----------------
     - name: Resolve application ID for chart
       id: map-app-id
       shell: bash
@@ -34,7 +36,9 @@ runs:
         APP_IDS: ${{ inputs.application-ids }}
         CHART_NAME: ${{ inputs.chart-name }}
       run: |
-        APP_ID=$(echo "$APP_IDS" | tr ',' '\n' | sed 's/^[[:space:]]*//' | grep "^${CHART_NAME}:" | cut -d':' -f2)
+        # awk (not grep) so a chart with no matching entry doesn't trip `pipefail`
+        # and abort the script before the empty-APP_ID check below runs.
+        APP_ID=$(printf '%s' "$APP_IDS" | tr ',' '\n' | sed 's/^[[:space:]]*//' | awk -F: -v chart="$CHART_NAME" '$1 == chart { print $2 }')
 
         if [ -z "$APP_ID" ]; then
           echo "::error::Application ID not found for chart: $CHART_NAME (check the application-ids mapping)"
@@ -66,12 +70,13 @@ runs:
       env:
         CHART_NAME: ${{ inputs.chart-name }}
       run: |
-        if [ "$CHART_NAME" = "plugin-access-manager" ]; then
+        if [ "$CHART_NAME" = "plugin-access-manager" ] || [ "$CHART_NAME" = "otel-collector-lerian" ]; then
           echo "chart_url=oci://registry-1.docker.io/lerianstudio/${CHART_NAME}" >> "$GITHUB_OUTPUT"
         else
           echo "chart_url=oci://registry-1.docker.io/lerianstudio/${CHART_NAME}-helm" >> "$GITHUB_OUTPUT"
         fi
 
+    # ----------------- Publish -----------------
     - name: Publish version to Plugin Lifecycle Management
       if: steps.release-version.outputs.version != ''
       uses: glasskube/distr-create-version-action@13a9244a46f3d9019f1e2a6c0063f88908fafff3 # v1.6.2
