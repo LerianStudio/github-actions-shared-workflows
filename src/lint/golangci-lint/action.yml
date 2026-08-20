@@ -58,6 +58,10 @@ inputs:
     description: Token for `go mod download` access to private LerianStudio Go modules
     required: false
     default: ''
+  private-module-pattern:
+    description: GOPRIVATE/GONOSUMDB pattern for private Go modules
+    required: false
+    default: 'github.com/LerianStudio/*'
 
 runs:
   using: composite
@@ -83,9 +87,10 @@ runs:
       shell: bash
       env:
         MANAGE_TOKEN: ${{ inputs.manage-token }}
+        PRIVATE_MODULE_PATTERN: ${{ inputs.private-module-pattern }}
       run: |
-        echo "GOPRIVATE=github.com/LerianStudio/*" >> "$GITHUB_ENV"
-        echo "GONOSUMDB=github.com/LerianStudio/*" >> "$GITHUB_ENV"
+        echo "GOPRIVATE=${PRIVATE_MODULE_PATTERN}" >> "$GITHUB_ENV"
+        echo "GONOSUMDB=${PRIVATE_MODULE_PATTERN}" >> "$GITHUB_ENV"
         if [ -n "$MANAGE_TOKEN" ]; then
           # Never clobber a caller-owned ~/.netrc: back it up if one already
           # exists so the cleanup step can restore it instead of deleting it.

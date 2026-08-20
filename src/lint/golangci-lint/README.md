@@ -10,7 +10,7 @@ Composite action that runs `golangci-lint` on a Go repository, branching on whet
 - **Non-fork PRs**: lints via [`reviewdog/action-golangci-lint`](https://github.com/reviewdog/action-golangci-lint), posting inline PR review annotations authenticated with a GitHub App token (a fork's `GITHUB_TOKEN` cannot mint this).
 - **Fork PRs**: falls back to the plain [`golangci/golangci-lint-action`](https://github.com/golangci/golangci-lint-action), which only needs the default `GITHUB_TOKEN` and prints findings to the job log instead of PR comments.
 
-Supports private `LerianStudio/*` Go modules via `GOPRIVATE`/`.netrc`, configured from `manage-token`.
+Supports private Go modules via `GOPRIVATE`/`.netrc`, configured from `manage-token` and `private-module-pattern` (defaults to `github.com/LerianStudio/*`).
 
 ## Inputs
 
@@ -30,6 +30,7 @@ Supports private `LerianStudio/*` Go modules via `GOPRIVATE`/`.netrc`, configure
 | `filter-mode` | Reviewdog diff filter mode (non-fork PRs only) | No | `diff_context` |
 | `cache` | Enable golangci-lint caching (non-fork PRs only) | No | `false` |
 | `manage-token` | Token for `go mod download` access to private LerianStudio Go modules | No | `''` |
+| `private-module-pattern` | GOPRIVATE/GONOSUMDB pattern for private Go modules | No | `github.com/LerianStudio/*` |
 
 ## Usage as composite step
 
