@@ -86,6 +86,14 @@ runs:
         echo "GOPRIVATE=github.com/LerianStudio/*" >> "$GITHUB_ENV"
         echo "GONOSUMDB=github.com/LerianStudio/*" >> "$GITHUB_ENV"
         if [ -n "$MANAGE_TOKEN" ]; then
+          # Never clobber a caller-owned ~/.netrc: back it up if one already
+          # exists so the cleanup step can restore it instead of deleting it.
+          if [ -f ~/.netrc ]; then
+            cp ~/.netrc "$RUNNER_TEMP/golangci-lint-netrc.bak"
+            echo "GOLANGCI_NETRC_BACKUP=$RUNNER_TEMP/golangci-lint-netrc.bak" >> "$GITHUB_ENV"
+          else
+            echo "GOLANGCI_NETRC_CREATED=true" >> "$GITHUB_ENV"
+          fi
           echo -e "machine github.com\nlogin oauth2\npassword ${MANAGE_TOKEN}" > ~/.netrc
           chmod 600 ~/.netrc
         fi
@@ -141,7 +149,12 @@ runs:
         version: ${{ inputs.golangci-lint-version }}
 
     # ----------------- Cleanup -----------------
-    - name: Remove persisted netrc credential
+    - name: Restore or remove netrc credential
       if: always()
       shell: bash
-      run: rm -f ~/.netrc
+      run: |
+        if [ -n "${GOLANGCI_NETRC_BACKUP:-}" ]; then
+          mv -f "$GOLANGCI_NETRC_BACKUP" ~/.netrc
+        elif [ "${GOLANGCI_NETRC_CREATED:-false}" = "true" ]; then
+          rm -f ~/.netrc
+        fi
