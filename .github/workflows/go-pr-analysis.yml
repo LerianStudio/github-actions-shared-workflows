@@ -698,6 +698,12 @@ jobs:
 
       - name: Post coverage comment
         if: github.event_name == 'pull_request'
+        # PRs from forks don't get MANAGE_TOKEN (custom secrets aren't exposed to
+        # pull_request runs triggered from forks) and fall back to github.token,
+        # which GitHub forces read-only for fork PRs — the comment call 403s.
+        # continue-on-error keeps that expected 403 from failing the Coverage job;
+        # the numbers are still visible in the job summary (see Coverage summary step).
+        continue-on-error: true
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
           COVERAGE: ${{ steps.coverage.outputs.coverage }}
