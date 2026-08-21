@@ -112,6 +112,7 @@ apps:
 
     # Provisioned by Severino (app-provisioning automation)
     - bedatty-app-boilerplates-2
+    - severino-teste-ferr3ira
 
 clusters:
   anacleto:
@@ -162,6 +163,9 @@ clusters:
       lerian-map: cross
       rosiehr: cross
       tenant-manager: cross
+
+      # Provisioned by Severino (app-provisioning automation)
+      severino-teste-ferr3ira: cross
     apps:
       - midaz
       - fetcher
@@ -202,3 +206,4 @@ clusters:
 
       # Provisioned by Severino (app-provisioning automation)
       - bedatty-app-boilerplates-2
+      - severino-teste-ferr3ira
