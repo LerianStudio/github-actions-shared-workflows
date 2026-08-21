@@ -1,0 +1,240 @@
+name: "Go PR Coverage Comment (fork fallback)"
+
+# Reusable workflow: posts/updates the sticky coverage comment on a PR when
+# go-pr-analysis.yml's own inline "Post coverage comment" step couldn't write
+# it because the PR came from a fork (pull_request runs from forks always get
+# a read-only GITHUB_TOKEN and no custom secrets, regardless of `permissions:`
+# anywhere in the call chain — GitHub gives no way to elevate that from inside
+# a pull_request-triggered workflow_call chain).
+#
+# Callers wire this to a `workflow_run` trigger in their OWN repo (workflow_run
+# is not a fork-restricted event, so its GITHUB_TOKEN is write-scoped), passing
+# the analysis run's run_id and its head commit SHA (not a PR number —
+# github.event.workflow_run.pull_requests is empty for fork-originated runs,
+# so the PR is resolved from the commit instead). This job never checks out
+# the PR's code — it only downloads the coverage-report-* artifacts the
+# analysis run already produced, so a fork PR's untrusted code never runs
+# with a write-scoped token.
+
+on:
+  workflow_call:
+    inputs:
+      source_run_id:
+        description: 'run_id of the workflow run (the one that ran go-pr-analysis.yml) that produced the coverage-report-* artifacts'
+        type: string
+        required: true
+      head_sha:
+        description: >-
+          Head commit SHA of the pull request to comment on (e.g.
+          github.event.workflow_run.head_sha). Used instead of a caller-supplied
+          PR number because github.event.workflow_run.pull_requests is
+          documented by GitHub to be empty when the run comes from a forked
+          repository — exactly the case this workflow exists for. The PR is
+          resolved server-side from the commit via the
+          "list pull requests associated with a commit" API, which works
+          for fork commits too.
+        type: string
+        required: true
+      coverage_threshold:
+        description: 'Minimum coverage percentage required (0-100). Used only for the PASS/BELOW THRESHOLD label — must match the value passed to go-pr-analysis.yml for the same run.'
+        type: number
+        default: 80
+      dry_run:
+        description: 'Preview the resolved comment(s) without creating or updating anything.'
+        type: boolean
+        default: false
+    outputs:
+      has_comments:
+        description: "'true' when at least one coverage comment was created or updated (always 'false' in dry_run)."
+        value: ${{ jobs.comment.outputs.has_comments }}
+    secrets:
+      token:
+        description: "Token used to download artifacts and post the comment. Defaults to the caller's github.token, which is write-scoped here because workflow_run is not a fork-restricted event."
+        required: false
+
+permissions:
+  actions: read
+  pull-requests: write
+
+jobs:
+  comment:
+    name: Coverage Comment (fallback)
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    outputs:
+      has_comments: ${{ steps.post.outputs.has_comments }}
+    steps:
+      - name: Download coverage-report artifacts from the source run
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          github-token: ${{ secrets.token || github.token }}
+          run-id: ${{ inputs.source_run_id }}
+          pattern: coverage-report-*
+          path: coverage-reports
+          if-no-files-found: warn
+
+      - name: Post or update coverage comments
+        id: post
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+          HEAD_SHA: ${{ inputs.head_sha }}
+          THRESHOLD: ${{ inputs.coverage_threshold }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        with:
+          github-token: ${{ secrets.token || github.token }}
+          script: |
+            const fs = require('fs');
+            const path = require('path');
+
+            const dryRun = process.env.DRY_RUN === 'true';
+            const sourceRunId = parseInt(process.env.SOURCE_RUN_ID, 10);
+            const headSha = process.env.HEAD_SHA;
+            const threshold = process.env.THRESHOLD;
+            const baseDir = 'coverage-reports';
+
+            const { data: sourceRun } = await github.rest.actions.getWorkflowRun({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              run_id: sourceRunId,
+            });
+
+            // pull_requests is empty on github.event.workflow_run for fork PRs
+            // (GitHub's documented behavior), so the PR is resolved from the
+            // head commit instead — this API works for fork commits too.
+            // listPullRequestsAssociatedWithCommit doesn't guarantee ordering
+            // and the same commit SHA can be associated with more than one PR
+            // (e.g. a mirror/testing PR), so match on sourceRun's own head
+            // repo + branch and only proceed on an unambiguous single match —
+            // never guess with an .find(open) || [0] fallback.
+            const associatedPRs = await github.paginate(github.rest.repos.listPullRequestsAssociatedWithCommit, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              commit_sha: headSha,
+              per_page: 100,
+            });
+            const matchingPRs = associatedPRs.filter(pr =>
+              pr.head?.repo?.full_name === sourceRun.head_repository?.full_name &&
+              pr.head?.ref === sourceRun.head_branch);
+            if (matchingPRs.length !== 1) {
+              console.log(`::notice::Found ${matchingPRs.length} PR(s) matching commit ${headSha} on ${sourceRun.head_repository?.full_name}:${sourceRun.head_branch} (need exactly 1); nothing to comment.`);
+              core.setOutput('has_comments', 'false');
+              return;
+            }
+            const prNumber = matchingPRs[0].number;
+
+            if (dryRun) {
+              console.log(`::notice::dry_run — pr_number=${prNumber} threshold=${threshold}%`);
+            }
+
+            // Freshness guard: workflow_run delivery isn't strictly ordered
+            // (GitHub docs: "actual start time... can vary due to infrastructure
+            // factors"), and a caller's concurrency group only cancels a run
+            // that's still in flight when a newer one starts — it can't reject
+            // a late-delivered event for a run that finishes after everything
+            // else already settled. Skip if a newer PR Validation run on the
+            // same fork branch already exists, so a delayed stale run can't
+            // overwrite a fresher comment. Matched by head repo + head branch
+            // rather than PR number, since list-runs results carry the same
+            // empty pull_requests gap for fork-originated runs. Runs come back
+            // newest-first, so the first match found while paginating IS the
+            // latest for this branch. sourceRun itself is a run of this exact
+            // workflow_id + event, so it's guaranteed to appear somewhere in
+            // this listing — the loop is bounded by its position, not by an
+            // arbitrary page cap (a fixed cap could stop before reaching a
+            // busy repo's genuinely-latest run for this branch).
+            let latestForBranch = null;
+            for (let page = 1; !latestForBranch; page++) {
+              const { data: { workflow_runs: candidateRuns } } = await github.rest.actions.listWorkflowRuns({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                workflow_id: sourceRun.workflow_id,
+                event: 'pull_request',
+                per_page: 100,
+                page,
+              });
+              if (candidateRuns.length === 0) break;
+              latestForBranch = candidateRuns.find(run =>
+                run.head_repository?.full_name === sourceRun.head_repository?.full_name &&
+                run.head_branch === sourceRun.head_branch);
+            }
+            if (latestForBranch && latestForBranch.id !== sourceRunId) {
+              console.log(`::notice::Skipping — run ${sourceRunId} is stale; run ${latestForBranch.id} is the latest PR Validation run for this branch`);
+              core.setOutput('has_comments', 'false');
+              return;
+            }
+
+            if (!fs.existsSync(baseDir)) {
+              console.log('No coverage-report-* artifacts found on the source run, nothing to comment.');
+              core.setOutput('has_comments', 'false');
+              return;
+            }
+
+            // Paginated: a PR with more than 30 comments (the default page size)
+            // would otherwise hide the existing coverage comment on a later page,
+            // making every run create a new duplicate instead of updating it.
+            const comments = await github.paginate(github.rest.issues.listComments, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: prNumber,
+              per_page: 100,
+            });
+
+            let posted = false;
+
+            for (const entry of fs.readdirSync(baseDir, { withFileTypes: true })) {
+              if (!entry.isDirectory() || !entry.name.startsWith('coverage-report-')) continue;
+
+              const appName = entry.name.replace(/^coverage-report-/, '');
+              const dir = path.join(baseDir, entry.name);
+              const marker = `<!-- coverage-report:${appName} -->`;
+
+              const coverage = fs.existsSync(path.join(dir, 'coverage-value.txt'))
+                ? fs.readFileSync(path.join(dir, 'coverage-value.txt'), 'utf8').trim()
+                : '0';
+              const coverageReport = fs.existsSync(path.join(dir, 'coverage-report.md'))
+                ? fs.readFileSync(path.join(dir, 'coverage-report.md'), 'utf8')
+                : 'Coverage report not available';
+
+              const passFail = parseFloat(coverage) >= parseFloat(threshold) ? '✅ PASS' : '⚠️ BELOW THRESHOLD';
+              const body = `${marker}
+              ## 📊 Unit Test Coverage Report: \`${appName}\`
+
+              | Metric | Value |
+              |--------|-------|
+              | **Overall Coverage** | \`${coverage}%\` ${passFail} |
+              | **Threshold** | \`${threshold}%\` |
+
+              ${coverageReport}
+
+              ---
+              *Generated by Go PR Analysis workflow*`;
+
+              const botComment = comments.find(comment => (comment.body || '').includes(marker));
+
+              if (dryRun) {
+                console.log(`::notice::dry_run — would ${botComment ? 'update' : 'create'} comment for ${appName}`);
+                continue;
+              }
+
+              posted = true;
+
+              if (botComment) {
+                console.log(`Updating existing comment for ${appName}:`, botComment.id);
+                await github.rest.issues.updateComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  comment_id: botComment.id,
+                  body,
+                });
+              } else {
+                console.log(`Creating new comment for ${appName}`);
+                await github.rest.issues.createComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: prNumber,
+                  body,
+                });
+              }
+            }
+
+            core.setOutput('has_comments', posted ? 'true' : 'false');
