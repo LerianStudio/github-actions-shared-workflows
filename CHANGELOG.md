@@ -1,5 +1,19 @@
 # Github-actions-shared-workflows Changelog
 
+## [1.57.0](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.57.0)
+
+Features:
+- Add `golangci-lint` and `lifecycle-management-publish` composites to the workflows. (@bedatty)
+
+Fixes:
+- Update the release process to correctly merge `develop` into `main`. (@bedatty)
+- Improve the `go-pr-coverage-comment` workflow by rejecting stale runs before writing a comment. (@bedatty)
+- Prevent the `Coverage` job from failing on fork PR comments due to a 403 error in the `go-pr-analysis` workflow. (@bedatty)
+
+[Compare changes](https://github.com/LerianStudio/github-actions-shared-workflows/compare/v1.56.0...v1.57.0)
+
+---
+
 ## [1.56.0](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.56.0)
 
 Features:
