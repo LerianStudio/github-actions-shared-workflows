@@ -111,7 +111,6 @@ apps:
     - billing-api                 # Lago-backed billing gateway (benedita only); values at dev-st/stg-st. The Lago install it fronts lives at cross/, the gateway itself does not
 
     # Provisioned by Severino (app-provisioning automation)
-    - bedatty-app-boilerplates-2
     - finance-hub
 
 clusters:
@@ -205,5 +204,4 @@ clusters:
       - billing-api
 
       # Provisioned by Severino (app-provisioning automation)
-      - bedatty-app-boilerplates-2
       - finance-hub
