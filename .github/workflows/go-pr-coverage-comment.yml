@@ -106,10 +106,11 @@ jobs:
             // (e.g. a mirror/testing PR), so match on sourceRun's own head
             // repo + branch and only proceed on an unambiguous single match —
             // never guess with an .find(open) || [0] fallback.
-            const { data: associatedPRs } = await github.rest.repos.listPullRequestsAssociatedWithCommit({
+            const associatedPRs = await github.paginate(github.rest.repos.listPullRequestsAssociatedWithCommit, {
               owner: context.repo.owner,
               repo: context.repo.repo,
               commit_sha: headSha,
+              per_page: 100,
             });
             const matchingPRs = associatedPRs.filter(pr =>
               pr.head?.repo?.full_name === sourceRun.head_repository?.full_name &&
@@ -136,10 +137,13 @@ jobs:
             // rather than PR number, since list-runs results carry the same
             // empty pull_requests gap for fork-originated runs. Runs come back
             // newest-first, so the first match found while paginating IS the
-            // latest for this branch — sourceRun itself guarantees a match
-            // exists, bounding the scan to a sane number of pages.
+            // latest for this branch. sourceRun itself is a run of this exact
+            // workflow_id + event, so it's guaranteed to appear somewhere in
+            // this listing — the loop is bounded by its position, not by an
+            // arbitrary page cap (a fixed cap could stop before reaching a
+            // busy repo's genuinely-latest run for this branch).
             let latestForBranch = null;
-            for (let page = 1; page <= 10 && !latestForBranch; page++) {
+            for (let page = 1; !latestForBranch; page++) {
               const { data: { workflow_runs: candidateRuns } } = await github.rest.actions.listWorkflowRuns({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
