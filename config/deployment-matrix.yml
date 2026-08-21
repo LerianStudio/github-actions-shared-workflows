@@ -113,7 +113,6 @@ apps:
     # Provisioned by Severino (app-provisioning automation)
     - bedatty-app-boilerplates-2
     - finance-hub
-    - severino-teste-ferr3ira
 
 clusters:
   anacleto:
@@ -167,7 +166,6 @@ clusters:
 
       # Provisioned by Severino (app-provisioning automation)
       finance-hub: cross
-      severino-teste-ferr3ira: cross
     apps:
       - midaz
       - fetcher
@@ -209,4 +207,3 @@ clusters:
       # Provisioned by Severino (app-provisioning automation)
       - bedatty-app-boilerplates-2
       - finance-hub
-      - severino-teste-ferr3ira
