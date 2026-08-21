@@ -92,21 +92,34 @@ jobs:
             const threshold = process.env.THRESHOLD;
             const baseDir = 'coverage-reports';
 
+            const { data: sourceRun } = await github.rest.actions.getWorkflowRun({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              run_id: sourceRunId,
+            });
+
             // pull_requests is empty on github.event.workflow_run for fork PRs
             // (GitHub's documented behavior), so the PR is resolved from the
             // head commit instead — this API works for fork commits too.
+            // listPullRequestsAssociatedWithCommit doesn't guarantee ordering
+            // and the same commit SHA can be associated with more than one PR
+            // (e.g. a mirror/testing PR), so match on sourceRun's own head
+            // repo + branch and only proceed on an unambiguous single match —
+            // never guess with an .find(open) || [0] fallback.
             const { data: associatedPRs } = await github.rest.repos.listPullRequestsAssociatedWithCommit({
               owner: context.repo.owner,
               repo: context.repo.repo,
               commit_sha: headSha,
             });
-            const targetPR = associatedPRs.find(pr => pr.state === 'open') || associatedPRs[0];
-            if (!targetPR) {
-              console.log(`No pull request associated with commit ${headSha}; nothing to comment.`);
+            const matchingPRs = associatedPRs.filter(pr =>
+              pr.head?.repo?.full_name === sourceRun.head_repository?.full_name &&
+              pr.head?.ref === sourceRun.head_branch);
+            if (matchingPRs.length !== 1) {
+              console.log(`::notice::Found ${matchingPRs.length} PR(s) matching commit ${headSha} on ${sourceRun.head_repository?.full_name}:${sourceRun.head_branch} (need exactly 1); nothing to comment.`);
               core.setOutput('has_comments', 'false');
               return;
             }
-            const prNumber = targetPR.number;
+            const prNumber = matchingPRs[0].number;
 
             if (dryRun) {
               console.log(`::notice::dry_run — pr_number=${prNumber} threshold=${threshold}%`);
@@ -121,24 +134,25 @@ jobs:
             // same fork branch already exists, so a delayed stale run can't
             // overwrite a fresher comment. Matched by head repo + head branch
             // rather than PR number, since list-runs results carry the same
-            // empty pull_requests gap for fork-originated runs.
-            const { data: sourceRun } = await github.rest.actions.getWorkflowRun({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              run_id: sourceRunId,
-            });
-            const { data: { workflow_runs: candidateRuns } } = await github.rest.actions.listWorkflowRuns({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              workflow_id: sourceRun.workflow_id,
-              event: 'pull_request',
-              per_page: 20,
-            });
-            const latestForBranch = candidateRuns
-              .filter(run =>
+            // empty pull_requests gap for fork-originated runs. Runs come back
+            // newest-first, so the first match found while paginating IS the
+            // latest for this branch — sourceRun itself guarantees a match
+            // exists, bounding the scan to a sane number of pages.
+            let latestForBranch = null;
+            for (let page = 1; page <= 10 && !latestForBranch; page++) {
+              const { data: { workflow_runs: candidateRuns } } = await github.rest.actions.listWorkflowRuns({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                workflow_id: sourceRun.workflow_id,
+                event: 'pull_request',
+                per_page: 100,
+                page,
+              });
+              if (candidateRuns.length === 0) break;
+              latestForBranch = candidateRuns.find(run =>
                 run.head_repository?.full_name === sourceRun.head_repository?.full_name &&
-                run.head_branch === sourceRun.head_branch)
-              .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))[0];
+                run.head_branch === sourceRun.head_branch);
+            }
             if (latestForBranch && latestForBranch.id !== sourceRunId) {
               console.log(`::notice::Skipping — run ${sourceRunId} is stale; run ${latestForBranch.id} is the latest PR Validation run for this branch`);
               core.setOutput('has_comments', 'false');
