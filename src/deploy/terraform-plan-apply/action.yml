@@ -1,0 +1,226 @@
+name: Terraform Plan/Apply
+description: Runs terraform fmt/init/validate, then plans (with a PR comment) or applies against a remote S3 backend.
+
+inputs:
+  working-directory:
+    description: Path to the Terraform module, relative to the repo root.
+    required: true
+  environment:
+    description: Environment name. Used to look up the default tfvars file.
+    required: true
+  terraform-version:
+    description: Terraform version to install.
+    required: true
+  mode:
+    description: 'Either "plan" or "apply".'
+    required: true
+  backend-bucket:
+    description: S3 bucket that stores the Terraform state.
+    required: true
+  backend-key:
+    description: Full state object key within the backend bucket.
+    required: true
+  backend-region:
+    description: AWS region of the state bucket and lock table.
+    required: false
+    default: "us-east-2"
+  backend-dynamodb-table:
+    description: DynamoDB table used for state locking.
+    required: false
+    default: "terraform-lock-state"
+  var-file:
+    description: Explicit path to a tfvars file. Defaults to "<working-directory>/tfvars/<environment>.tfvars" when that file exists.
+    required: false
+    default: ""
+  github-token:
+    description: Token used to comment the plan output on the pull request.
+    required: true
+  pr-number:
+    description: Pull request number to comment on. Skips the comment step when empty.
+    required: false
+    default: ""
+
+outputs:
+  has-plan:
+    description: "true when mode=plan (a Terraform plan was executed)."
+    value: ${{ steps.outputs.outputs.has-plan }}
+  has-apply:
+    description: "true when mode=apply (a Terraform apply was executed)."
+    value: ${{ steps.outputs.outputs.has-apply }}
+
+runs:
+  using: composite
+  steps:
+    # ----------------- Setup -----------------
+    - name: Validate mode
+      shell: bash
+      env:
+        MODE: ${{ inputs.mode }}
+      run: |
+        set -euo pipefail
+        case "${MODE}" in
+          plan|apply) ;;
+          *) echo "::error::mode must be 'plan' or 'apply' (got '${MODE}')"; exit 1 ;;
+        esac
+
+    - name: Setup Terraform
+      uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+      with:
+        terraform_version: ${{ inputs.terraform-version }}
+
+    - name: Terraform Format
+      id: fmt
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      run: terraform fmt -check
+
+    - name: Terraform Init
+      id: init
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        BACKEND_BUCKET: ${{ inputs.backend-bucket }}
+        BACKEND_KEY: ${{ inputs.backend-key }}
+        BACKEND_REGION: ${{ inputs.backend-region }}
+        BACKEND_DYNAMODB_TABLE: ${{ inputs.backend-dynamodb-table }}
+      run: |
+        set -euo pipefail
+        terraform init \
+          -backend-config="bucket=${BACKEND_BUCKET}" \
+          -backend-config="key=${BACKEND_KEY}" \
+          -backend-config="region=${BACKEND_REGION}" \
+          -backend-config="dynamodb_table=${BACKEND_DYNAMODB_TABLE}"
+
+    - name: Terraform Validate
+      id: validate
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      run: terraform validate -no-color
+
+    - name: Resolve tfvars file
+      id: varfile
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        VAR_FILE: ${{ inputs.var-file }}
+        ENVIRONMENT: ${{ inputs.environment }}
+      run: |
+        set -euo pipefail
+        if [[ -n "${VAR_FILE}" ]]; then
+          echo "path=${VAR_FILE}" >> "$GITHUB_OUTPUT"
+        elif [[ -f "tfvars/${ENVIRONMENT}.tfvars" ]]; then
+          echo "path=tfvars/${ENVIRONMENT}.tfvars" >> "$GITHUB_OUTPUT"
+        else
+          echo "path=" >> "$GITHUB_OUTPUT"
+        fi
+
+    # ----------------- Plan -----------------
+    - name: Terraform Plan
+      if: inputs.mode == 'plan'
+      id: plan
+      continue-on-error: true
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        VAR_FILE_PATH: ${{ steps.varfile.outputs.path }}
+      run: |
+        set -euo pipefail
+        PLAN_FILE="${RUNNER_TEMP}/terraform-plan-output.txt"
+        if [[ -n "${VAR_FILE_PATH}" ]]; then
+          terraform plan -no-color -var-file="${VAR_FILE_PATH}" 2>&1 | tee "${PLAN_FILE}"
+        else
+          terraform plan -no-color 2>&1 | tee "${PLAN_FILE}"
+        fi
+
+    - name: Comment Plan on PR
+      if: inputs.mode == 'plan' && inputs.pr-number != ''
+      uses: actions/github-script@d746ffe35508b1917358783b479e04febd2b8f71 # v9.0.0
+      env:
+        ENVIRONMENT: ${{ inputs.environment }}
+        FMT_OUTCOME: ${{ steps.fmt.outcome }}
+        INIT_OUTCOME: ${{ steps.init.outcome }}
+        VALIDATE_OUTCOME: ${{ steps.validate.outcome }}
+        PLAN_OUTCOME: ${{ steps.plan.outcome }}
+        ACTOR: ${{ github.actor }}
+        EVENT_NAME: ${{ github.event_name }}
+        PR_NUMBER: ${{ inputs.pr-number }}
+      with:
+        github-token: ${{ inputs.github-token }}
+        script: |
+          const fs = require('fs');
+          const path = require('path');
+
+          const prNumber = parseInt(process.env.PR_NUMBER, 10);
+          if (!Number.isInteger(prNumber) || prNumber <= 0) {
+            core.setFailed(`Invalid pr-number: "${process.env.PR_NUMBER}"`);
+            return;
+          }
+
+          const MAX_LEN = 60000;
+          const planFile = path.join(process.env.RUNNER_TEMP, 'terraform-plan-output.txt');
+          let plan = '(no plan output captured)';
+          if (fs.existsSync(planFile)) {
+            plan = fs.readFileSync(planFile, 'utf8');
+            if (plan.length > MAX_LEN) {
+              plan = plan.slice(0, MAX_LEN) + '\n... (truncated)';
+            }
+          }
+
+          const output = `#### Terraform Environment \`${process.env.ENVIRONMENT}\`
+          #### Terraform Format and Style 🖌 \`${process.env.FMT_OUTCOME}\`
+          #### Terraform Initialization ⚙️ \`${process.env.INIT_OUTCOME}\`
+          #### Terraform Validation 🤖 \`${process.env.VALIDATE_OUTCOME}\`
+          #### Terraform Plan 📖 \`${process.env.PLAN_OUTCOME}\`
+
+          <details><summary>Show Plan</summary>
+
+          \`\`\`
+          ${plan}
+          \`\`\`
+
+          </details>
+
+          *Pusher: @${process.env.ACTOR}, Action: \`${process.env.EVENT_NAME}\`*`;
+
+          github.rest.issues.createComment({
+            issue_number: prNumber,
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            body: output
+          })
+
+    - name: Fail if Plan Failed
+      if: inputs.mode == 'plan' && steps.plan.outcome == 'failure'
+      shell: bash
+      run: exit 1
+
+    # ----------------- Apply -----------------
+    - name: Terraform Apply
+      if: inputs.mode == 'apply'
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        VAR_FILE_PATH: ${{ steps.varfile.outputs.path }}
+      run: |
+        set -euo pipefail
+        if [[ -n "${VAR_FILE_PATH}" ]]; then
+          terraform apply -auto-approve -var-file="${VAR_FILE_PATH}"
+        else
+          terraform apply -auto-approve
+        fi
+
+    # ----------------- Outputs -----------------
+    - name: Set outputs
+      id: outputs
+      shell: bash
+      env:
+        MODE: ${{ inputs.mode }}
+      run: |
+        set -euo pipefail
+        if [[ "${MODE}" == "plan" ]]; then
+          echo "has-plan=true" >> "$GITHUB_OUTPUT"
+          echo "has-apply=false" >> "$GITHUB_OUTPUT"
+        else
+          echo "has-plan=false" >> "$GITHUB_OUTPUT"
+          echo "has-apply=true" >> "$GITHUB_OUTPUT"
+        fi
