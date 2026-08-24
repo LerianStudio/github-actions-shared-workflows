@@ -1,0 +1,148 @@
+name: Terraform Plan/Apply
+description: Runs terraform fmt/init/validate, then plans (with a PR comment) or applies against a remote S3 backend.
+
+inputs:
+  working-directory:
+    description: Path to the Terraform module, relative to the repo root.
+    required: true
+  environment:
+    description: Environment name. Used to look up the default tfvars file.
+    required: true
+  terraform-version:
+    description: Terraform version to install.
+    required: true
+  mode:
+    description: 'Either "plan" or "apply".'
+    required: true
+  backend-bucket:
+    description: S3 bucket that stores the Terraform state.
+    required: true
+  backend-key:
+    description: Full state object key within the backend bucket.
+    required: true
+  backend-region:
+    description: AWS region of the state bucket and lock table.
+    required: false
+    default: "us-east-2"
+  backend-dynamodb-table:
+    description: DynamoDB table used for state locking.
+    required: false
+    default: "terraform-lock-state"
+  var-file:
+    description: Explicit path to a tfvars file. Defaults to "<working-directory>/tfvars/<environment>.tfvars" when that file exists.
+    required: false
+    default: ""
+  github-token:
+    description: Token used to comment the plan output on the pull request.
+    required: true
+  pr-number:
+    description: Pull request number to comment on. Skips the comment step when empty.
+    required: false
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    # ----------------- Setup -----------------
+    - name: Setup Terraform
+      uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+      with:
+        terraform_version: ${{ inputs.terraform-version }}
+
+    - name: Terraform Format
+      id: fmt
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      run: terraform fmt -check
+
+    - name: Terraform Init
+      id: init
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        BACKEND_BUCKET: ${{ inputs.backend-bucket }}
+        BACKEND_KEY: ${{ inputs.backend-key }}
+        BACKEND_REGION: ${{ inputs.backend-region }}
+        BACKEND_DYNAMODB_TABLE: ${{ inputs.backend-dynamodb-table }}
+      run: |
+        set -euo pipefail
+        terraform init \
+          -backend-config="bucket=${BACKEND_BUCKET}" \
+          -backend-config="key=${BACKEND_KEY}" \
+          -backend-config="region=${BACKEND_REGION}" \
+          -backend-config="dynamodb_table=${BACKEND_DYNAMODB_TABLE}"
+
+    - name: Terraform Validate
+      id: validate
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      run: terraform validate -no-color
+
+    - name: Resolve tfvars file
+      id: varfile
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        VAR_FILE: ${{ inputs.var-file }}
+        ENVIRONMENT: ${{ inputs.environment }}
+      run: |
+        set -euo pipefail
+        if [[ -n "${VAR_FILE}" ]]; then
+          echo "args=-var-file=${VAR_FILE}" >> "$GITHUB_OUTPUT"
+        elif [[ -f "tfvars/${ENVIRONMENT}.tfvars" ]]; then
+          echo "args=-var-file=tfvars/${ENVIRONMENT}.tfvars" >> "$GITHUB_OUTPUT"
+        else
+          echo "args=" >> "$GITHUB_OUTPUT"
+        fi
+
+    # ----------------- Plan -----------------
+    - name: Terraform Plan
+      if: inputs.mode == 'plan'
+      id: plan
+      continue-on-error: true
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      run: terraform plan -no-color ${{ steps.varfile.outputs.args }}
+
+    - name: Comment Plan on PR
+      if: inputs.mode == 'plan' && inputs.pr-number != ''
+      uses: actions/github-script@d746ffe35508b1917358783b479e04febd2b8f71 # v9.0.0
+      env:
+        PLAN: ${{ steps.plan.outputs.stdout }}
+      with:
+        github-token: ${{ inputs.github-token }}
+        script: |
+          const output = `#### Terraform Environment \`${{ inputs.environment }}\`
+          #### Terraform Format and Style 🖌 \`${{ steps.fmt.outcome }}\`
+          #### Terraform Initialization ⚙️ \`${{ steps.init.outcome }}\`
+          #### Terraform Validation 🤖 \`${{ steps.validate.outcome }}\`
+          #### Terraform Plan 📖 \`${{ steps.plan.outcome }}\`
+
+          <details><summary>Show Plan</summary>
+
+          \`\`\`
+          ${process.env.PLAN}
+          \`\`\`
+
+          </details>
+
+          *Pusher: @${{ github.actor }}, Action: \`${{ github.event_name }}\`*`;
+
+          github.rest.issues.createComment({
+            issue_number: ${{ inputs.pr-number }},
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            body: output
+          })
+
+    - name: Fail if Plan Failed
+      if: inputs.mode == 'plan' && steps.plan.outcome == 'failure'
+      shell: bash
+      run: exit 1
+
+    # ----------------- Apply -----------------
+    - name: Terraform Apply
+      if: inputs.mode == 'apply'
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      run: terraform apply -auto-approve ${{ steps.varfile.outputs.args }}
