@@ -10,7 +10,8 @@ notifications. Replaces `LerianStudio/github-actions-terraform-pipeline-template
 
 - On `pull_request`: runs `fmt`/`init`/`validate`/`plan` and comments the plan
   output on the PR.
-- On `push` (or any event, if `dry_run: true`): runs `fmt`/`init`/`validate`/`apply`.
+- On `push` with `dry_run: false` (the default): runs `fmt`/`init`/`validate`/`apply`.
+- `dry_run: true` forces plan-only on any event — it never applies, even on `push`.
 
 ## Inputs
 
@@ -36,11 +37,18 @@ notifications. Replaces `LerianStudio/github-actions-terraform-pipeline-template
 | `AWS_ROLE_TO_ASSUME` | ARN of the IAM role to assume via OIDC | Yes |
 | `SLACK_WEBHOOK_URL` | Slack webhook for pipeline notifications | No |
 
+## Outputs
+
+| Output | Description |
+|--------|-------------|
+| `has_plan` | `true` when `mode=plan` (a Terraform plan was executed) |
+| `has_apply` | `true` when `mode=apply` (a Terraform apply was executed) |
+
 ## Backend state key
 
 The state object key is computed as:
 
-```
+```text
 <environment>/<repo-name>/<terraform_resource_name>/terraform-state
 ```
 

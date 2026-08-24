@@ -75,15 +75,27 @@ on:
       SLACK_WEBHOOK_URL:
         description: 'Slack webhook for pipeline notifications'
         required: false
+    outputs:
+      has_plan:
+        description: 'true when mode=plan (a Terraform plan was executed)'
+        value: ${{ jobs.terraform.outputs.has_plan }}
+      has_apply:
+        description: 'true when mode=apply (a Terraform apply was executed)'
+        value: ${{ jobs.terraform.outputs.has_apply }}
 
 permissions:
-  id-token: write
   contents: read
-  pull-requests: write
 
 jobs:
   terraform:
     runs-on: ${{ vars.GENERAL_RUNNERS || inputs.runner_type }}
+    permissions:
+      contents: read
+      id-token: write
+      pull-requests: write
+    outputs:
+      has_plan: ${{ steps.tf.outputs.has-plan }}
+      has_apply: ${{ steps.tf.outputs.has-apply }}
     steps:
       - name: Checkout (pull_request)
         if: github.event_name == 'pull_request'
@@ -111,6 +123,26 @@ jobs:
             echo "mode=apply" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Dry run summary
+        if: inputs.dry_run
+        env:
+          MODE: ${{ steps.mode.outputs.mode }}
+          ENVIRONMENT: ${{ inputs.environment }}
+          WORKING_DIRECTORY: ${{ inputs.working_directory }}
+          BACKEND_BUCKET: ${{ inputs.backend_bucket }}
+          TERRAFORM_RESOURCE_NAME: ${{ inputs.terraform_resource_name }}
+          VAR_FILE: ${{ inputs.var_file }}
+          REPO_NAME: ${{ github.event.repository.name }}
+        run: |
+          set -euo pipefail
+          echo "::notice::DRY RUN — Terraform will only plan, never apply"
+          echo "  mode               : ${MODE}"
+          echo "  environment        : ${ENVIRONMENT}"
+          echo "  working_directory  : ${WORKING_DIRECTORY}"
+          echo "  backend_bucket     : ${BACKEND_BUCKET}"
+          echo "  backend_key        : ${ENVIRONMENT}/${REPO_NAME}/${TERRAFORM_RESOURCE_NAME}/terraform-state"
+          echo "  var_file           : ${VAR_FILE:-<auto>}"
+
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c # v6.2.3
         with:
@@ -119,6 +151,7 @@ jobs:
           role-session-name: GITHUB-OIDC-TERRAFORM
 
       - name: Terraform Plan/Apply
+        id: tf
         uses: LerianStudio/github-actions-shared-workflows/src/deploy/terraform-plan-apply@v1
         with:
           working-directory: ${{ inputs.working_directory }}
@@ -138,6 +171,8 @@ jobs:
     needs: terraform
     if: always() && inputs.enable_slack_notify
     runs-on: ${{ vars.GENERAL_RUNNERS || inputs.runner_type }}
+    permissions:
+      contents: read
     steps:
       - name: Slack Notification
         uses: LerianStudio/github-actions-shared-workflows/src/notify/slack-notify@v1
