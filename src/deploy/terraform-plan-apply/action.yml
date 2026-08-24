@@ -125,17 +125,17 @@ runs:
         VAR_FILE_PATH: ${{ steps.varfile.outputs.path }}
       run: |
         set -euo pipefail
+        PLAN_FILE="${RUNNER_TEMP}/terraform-plan-output.txt"
         if [[ -n "${VAR_FILE_PATH}" ]]; then
-          terraform plan -no-color -var-file="${VAR_FILE_PATH}"
+          terraform plan -no-color -var-file="${VAR_FILE_PATH}" 2>&1 | tee "${PLAN_FILE}"
         else
-          terraform plan -no-color
+          terraform plan -no-color 2>&1 | tee "${PLAN_FILE}"
         fi
 
     - name: Comment Plan on PR
       if: inputs.mode == 'plan' && inputs.pr-number != ''
       uses: actions/github-script@d746ffe35508b1917358783b479e04febd2b8f71 # v9.0.0
       env:
-        PLAN: ${{ steps.plan.outputs.stdout }}
         ENVIRONMENT: ${{ inputs.environment }}
         FMT_OUTCOME: ${{ steps.fmt.outcome }}
         INIT_OUTCOME: ${{ steps.init.outcome }}
@@ -147,10 +147,23 @@ runs:
       with:
         github-token: ${{ inputs.github-token }}
         script: |
+          const fs = require('fs');
+          const path = require('path');
+
           const prNumber = parseInt(process.env.PR_NUMBER, 10);
           if (!Number.isInteger(prNumber) || prNumber <= 0) {
             core.setFailed(`Invalid pr-number: "${process.env.PR_NUMBER}"`);
             return;
+          }
+
+          const MAX_LEN = 60000;
+          const planFile = path.join(process.env.RUNNER_TEMP, 'terraform-plan-output.txt');
+          let plan = '(no plan output captured)';
+          if (fs.existsSync(planFile)) {
+            plan = fs.readFileSync(planFile, 'utf8');
+            if (plan.length > MAX_LEN) {
+              plan = plan.slice(0, MAX_LEN) + '\n... (truncated)';
+            }
           }
 
           const output = `#### Terraform Environment \`${process.env.ENVIRONMENT}\`
@@ -162,7 +175,7 @@ runs:
           <details><summary>Show Plan</summary>
 
           \`\`\`
-          ${process.env.PLAN}
+          ${plan}
           \`\`\`
 
           </details>
