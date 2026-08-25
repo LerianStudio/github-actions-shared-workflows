@@ -27,6 +27,7 @@ notifications. Replaces `LerianStudio/github-actions-terraform-pipeline-template
 | `backend_region` | AWS region of the state bucket and lock table | No | `us-east-2` |
 | `backend_dynamodb_table` | DynamoDB table used for state locking | No | `terraform-lock-state` |
 | `var_file` | Explicit tfvars path. Defaults to `<working_directory>/tfvars/<environment>.tfvars` when present | No | `''` |
+| `pre_terraform_command` | Shell command run in the repo root after checkout, before AWS auth and Terraform (e.g. building a Lambda deployment package the Terraform config references) | No | `''` |
 | `enable_slack_notify` | Send a Slack notification with the pipeline result | No | `true` |
 | `dry_run` | Force plan-only, even on a push event (never applies) | No | `false` |
 
@@ -90,10 +91,20 @@ jobs:
 
 The old composite also supported building a Lambda artifact first (`runtime:
 golang | python`, via `github-actions-go-lambda-module` /
-`github-actions-python-lambda-module`). That concern is out of scope for this
-workflow — if a caller needs it, build the Lambda artifact in a separate step
-(or job) before calling `terraform-plan-apply.yml`, or use `go-lambda-release.yml`
-for Go Lambdas.
+`github-actions-python-lambda-module`). Replicate that with `pre_terraform_command`
+— it runs in the same job, after checkout and before Terraform, so any file it
+produces (e.g. a `function.zip` a `data`/`filebase64sha256(...)` reads at plan
+time) is present when Terraform runs. It must run in the same job as Terraform
+— a separate job would checkout on a different runner and lose the build output.
+
+```yaml
+with:
+  pre_terraform_command: |
+    cd src/code
+    GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -tags lambda.norpc -o ../../build/bootstrap main.go
+    cd ../../build && zip function.zip bootstrap
+    mv function.zip ../src/terraform/infra
+```
 
 The old composite required a `service-github-token` input for the PR comment.
 This workflow uses the caller's ambient `GITHUB_TOKEN` instead (granted

@@ -60,6 +60,10 @@ on:
         description: 'Explicit path to a tfvars file. Defaults to <working_directory>/tfvars/<environment>.tfvars when present'
         type: string
         default: ''
+      pre_terraform_command:
+        description: 'Optional shell command run in the repo root after checkout, before AWS auth and Terraform (e.g. building a Lambda deployment package referenced by the Terraform config).'
+        type: string
+        default: ''
       enable_slack_notify:
         description: 'Send a Slack notification with the pipeline result'
         type: boolean
@@ -142,6 +146,11 @@ jobs:
           echo "  backend_bucket     : ${BACKEND_BUCKET}"
           echo "  backend_key        : ${ENVIRONMENT}/${REPO_NAME}/${TERRAFORM_RESOURCE_NAME}/terraform-state"
           echo "  var_file           : ${VAR_FILE:-<auto>}"
+
+      - name: Pre-terraform build
+        if: inputs.pre_terraform_command != ''
+        shell: bash
+        run: ${{ inputs.pre_terraform_command }}
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c # v6.2.3
