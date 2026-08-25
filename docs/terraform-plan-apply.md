@@ -89,22 +89,27 @@ jobs:
 
 ## Migrating from `github-actions-terraform-pipeline-template`
 
-The old composite also supported building a Lambda artifact first (`runtime:
-golang | python`, via `github-actions-go-lambda-module` /
-`github-actions-python-lambda-module`). Replicate that with `pre_terraform_command`
-— it runs in the same job, after checkout and before Terraform, so any file it
-produces (e.g. a `function.zip` a `data`/`filebase64sha256(...)` reads at plan
-time) is present when Terraform runs. It must run in the same job as Terraform
-— a separate job would checkout on a different runner and lose the build output.
+The old composite also supported building a Go Lambda artifact first
+(`runtime: golang`, via `github-actions-go-lambda-module`). Replicate that with
+`pre_terraform_command` — it runs in the same job, after checkout and before
+Terraform, so any file it produces (e.g. a `function.zip` a
+`data`/`filebase64sha256(...)` reads at plan time) is present when Terraform
+runs. It must run in the same job as Terraform — a separate job would checkout
+on a different runner and lose the build output.
 
 ```yaml
 with:
   pre_terraform_command: |
+    mkdir -p build src/terraform/infra
     cd src/code
     GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -tags lambda.norpc -o ../../build/bootstrap main.go
     cd ../../build && zip function.zip bootstrap
     mv function.zip ../src/terraform/infra
 ```
+
+(The old template also had a `runtime: python` option via
+`github-actions-python-lambda-module`, but that action no longer exists and
+its only caller has been retired — not covered here.)
 
 The old composite required a `service-github-token` input for the PR comment.
 This workflow uses the caller's ambient `GITHUB_TOKEN` instead (granted

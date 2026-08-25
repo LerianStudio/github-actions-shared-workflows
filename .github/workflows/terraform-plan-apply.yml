@@ -137,6 +137,7 @@ jobs:
           TERRAFORM_RESOURCE_NAME: ${{ inputs.terraform_resource_name }}
           VAR_FILE: ${{ inputs.var_file }}
           REPO_NAME: ${{ github.event.repository.name }}
+          PRE_TERRAFORM_COMMAND_SET: ${{ inputs.pre_terraform_command != '' }}
         run: |
           set -euo pipefail
           echo "::notice::DRY RUN — Terraform will only plan, never apply"
@@ -146,11 +147,20 @@ jobs:
           echo "  backend_bucket     : ${BACKEND_BUCKET}"
           echo "  backend_key        : ${ENVIRONMENT}/${REPO_NAME}/${TERRAFORM_RESOURCE_NAME}/terraform-state"
           echo "  var_file           : ${VAR_FILE:-<auto>}"
+          if [[ "${PRE_TERRAFORM_COMMAND_SET}" == "true" ]]; then
+            echo "  pre_terraform_command : set (not printed — may contain secrets)"
+          else
+            echo "  pre_terraform_command : unset"
+          fi
 
       - name: Pre-terraform build
         if: inputs.pre_terraform_command != ''
         shell: bash
-        run: ${{ inputs.pre_terraform_command }}
+        env:
+          PRE_TERRAFORM_COMMAND: ${{ inputs.pre_terraform_command }}
+        run: |
+          set -euo pipefail
+          bash -euo pipefail -c "$PRE_TERRAFORM_COMMAND"
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c # v6.2.3
