@@ -111,6 +111,7 @@ apps:
     - billing-api                 # Lago-backed billing gateway (benedita only); values at dev-st/stg-st. The Lago install it fronts lives at cross/, the gateway itself does not
 
     # Provisioned by Severino (app-provisioning automation)
+    - billing-worker
     - finance-hub
 
 clusters:
@@ -136,6 +137,9 @@ clusters:
       - br-sisbajud
       - lender
       - ungoliant-controller
+
+      # Provisioned by Severino (app-provisioning automation)
+      - billing-worker
 
   benedita:
     # Benedita hosts two parallel variants per environment as sibling namespaces:
@@ -204,4 +208,5 @@ clusters:
       - billing-api
 
       # Provisioned by Severino (app-provisioning automation)
+      - billing-worker
       - finance-hub
