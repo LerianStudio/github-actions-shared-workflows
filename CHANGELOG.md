@@ -1,5 +1,15 @@
 # Github-actions-shared-workflows Changelog
 
+## [1.58.1](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.58.1)
+
+Fixes:
+- Corrected the release process by merging changes from `develop` to `main`. (@guimoreirar)
+- Increased the curl `--max-time` from `90s` to `180s` in the helm upgrade documentation to prevent timeouts. (@guimoreirar)
+
+[Compare changes](https://github.com/LerianStudio/github-actions-shared-workflows/compare/v1.58.0...v1.58.1)
+
+---
+
 ## [1.58.0](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.58.0)
 
 Features:
