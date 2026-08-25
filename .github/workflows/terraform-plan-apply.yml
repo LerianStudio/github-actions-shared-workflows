@@ -1,0 +1,201 @@
+name: "Terraform Plan/Apply"
+
+# Reusable Terraform plan/apply pipeline with AWS OIDC auth and Slack
+# notifications. Plans (and comments on the PR) on pull_request, applies on
+# push — unless dry_run forces plan-only.
+#
+# Example:
+#   uses: LerianStudio/github-actions-shared-workflows/.github/workflows/terraform-plan-apply.yml@v1.58.0
+#   with:
+#     aws_region: us-east-2
+#     environment: audit
+#     terraform_version: "1.9.8"
+#     working_directory: src/terraform/boundary-policy
+#     terraform_resource_name: boundary-policy
+#     backend_bucket: terraform-security-foundation
+#   secrets:
+#     AWS_ROLE_TO_ASSUME: ${{ secrets.AWS_GH_OICD_TERRAFORM_ROLE }}
+#     SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+
+on:
+  workflow_call:
+    inputs:
+      runner_type:
+        description: 'Runner to use for the workflow'
+        type: string
+        default: 'blacksmith-4vcpu-ubuntu-2404'
+      aws_region:
+        description: 'AWS region to assume the OIDC role in'
+        type: string
+        required: true
+      environment:
+        description: 'Environment name (used in the backend state key and tfvars lookup)'
+        type: string
+        required: true
+      terraform_version:
+        description: 'Terraform version to install'
+        type: string
+        required: true
+      working_directory:
+        description: 'Path to the Terraform module, relative to the repo root'
+        type: string
+        required: true
+      terraform_resource_name:
+        description: 'Resource name segment used in the backend state key'
+        type: string
+        required: true
+      backend_bucket:
+        description: 'S3 bucket that stores the Terraform state'
+        type: string
+        required: true
+      backend_region:
+        description: 'AWS region of the state bucket and lock table'
+        type: string
+        default: 'us-east-2'
+      backend_dynamodb_table:
+        description: 'DynamoDB table used for state locking'
+        type: string
+        default: 'terraform-lock-state'
+      var_file:
+        description: 'Explicit path to a tfvars file. Defaults to <working_directory>/tfvars/<environment>.tfvars when present'
+        type: string
+        default: ''
+      pre_terraform_command:
+        description: 'Optional shell command run in the repo root after checkout, before AWS auth and Terraform (e.g. building a Lambda deployment package referenced by the Terraform config).'
+        type: string
+        default: ''
+      enable_slack_notify:
+        description: 'Send a Slack notification with the pipeline result'
+        type: boolean
+        default: true
+      dry_run:
+        description: 'Force plan-only, even on a push event (never applies)'
+        type: boolean
+        default: false
+    secrets:
+      AWS_ROLE_TO_ASSUME:
+        description: 'ARN of the IAM role to assume via OIDC'
+        required: true
+      SLACK_WEBHOOK_URL:
+        description: 'Slack webhook for pipeline notifications'
+        required: false
+    outputs:
+      has_plan:
+        description: 'true when mode=plan (a Terraform plan was executed)'
+        value: ${{ jobs.terraform.outputs.has_plan }}
+      has_apply:
+        description: 'true when mode=apply (a Terraform apply was executed)'
+        value: ${{ jobs.terraform.outputs.has_apply }}
+
+permissions:
+  contents: read
+
+jobs:
+  terraform:
+    runs-on: ${{ vars.GENERAL_RUNNERS || inputs.runner_type }}
+    permissions:
+      contents: read
+      id-token: write
+      pull-requests: write
+    outputs:
+      has_plan: ${{ steps.tf.outputs.has-plan }}
+      has_apply: ${{ steps.tf.outputs.has-apply }}
+    steps:
+      - name: Checkout (pull_request)
+        if: github.event_name == 'pull_request'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 0
+
+      - name: Checkout (push)
+        if: github.event_name != 'pull_request'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+        with:
+          fetch-depth: 0
+
+      - name: Determine mode
+        id: mode
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          set -euo pipefail
+          if [[ "${EVENT_NAME}" == "pull_request" || "${DRY_RUN}" == "true" ]]; then
+            echo "mode=plan" >> "$GITHUB_OUTPUT"
+          else
+            echo "mode=apply" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Dry run summary
+        if: inputs.dry_run
+        env:
+          MODE: ${{ steps.mode.outputs.mode }}
+          ENVIRONMENT: ${{ inputs.environment }}
+          WORKING_DIRECTORY: ${{ inputs.working_directory }}
+          BACKEND_BUCKET: ${{ inputs.backend_bucket }}
+          TERRAFORM_RESOURCE_NAME: ${{ inputs.terraform_resource_name }}
+          VAR_FILE: ${{ inputs.var_file }}
+          REPO_NAME: ${{ github.event.repository.name }}
+          PRE_TERRAFORM_COMMAND_SET: ${{ inputs.pre_terraform_command != '' }}
+        run: |
+          set -euo pipefail
+          echo "::notice::DRY RUN — Terraform will only plan, never apply"
+          echo "  mode               : ${MODE}"
+          echo "  environment        : ${ENVIRONMENT}"
+          echo "  working_directory  : ${WORKING_DIRECTORY}"
+          echo "  backend_bucket     : ${BACKEND_BUCKET}"
+          echo "  backend_key        : ${ENVIRONMENT}/${REPO_NAME}/${TERRAFORM_RESOURCE_NAME}/terraform-state"
+          echo "  var_file           : ${VAR_FILE:-<auto>}"
+          if [[ "${PRE_TERRAFORM_COMMAND_SET}" == "true" ]]; then
+            echo "  pre_terraform_command : set (not printed — may contain secrets)"
+          else
+            echo "  pre_terraform_command : unset"
+          fi
+
+      - name: Pre-terraform build
+        if: inputs.pre_terraform_command != ''
+        shell: bash
+        env:
+          PRE_TERRAFORM_COMMAND: ${{ inputs.pre_terraform_command }}
+        run: |
+          set -euo pipefail
+          bash -euo pipefail -c "$PRE_TERRAFORM_COMMAND"
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c # v6.2.3
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+          aws-region: ${{ inputs.aws_region }}
+          role-session-name: GITHUB-OIDC-TERRAFORM
+
+      - name: Terraform Plan/Apply
+        id: tf
+        uses: LerianStudio/github-actions-shared-workflows/src/deploy/terraform-plan-apply@v1
+        with:
+          working-directory: ${{ inputs.working_directory }}
+          environment: ${{ inputs.environment }}
+          terraform-version: ${{ inputs.terraform_version }}
+          mode: ${{ steps.mode.outputs.mode }}
+          backend-bucket: ${{ inputs.backend_bucket }}
+          backend-key: ${{ inputs.environment }}/${{ github.event.repository.name }}/${{ inputs.terraform_resource_name }}/terraform-state
+          backend-region: ${{ inputs.backend_region }}
+          backend-dynamodb-table: ${{ inputs.backend_dynamodb_table }}
+          var-file: ${{ inputs.var_file }}
+          github-token: ${{ github.token }}
+          pr-number: ${{ github.event.pull_request.number }}
+
+  notify:
+    name: Notify
+    needs: terraform
+    if: always() && inputs.enable_slack_notify
+    runs-on: ${{ vars.GENERAL_RUNNERS || inputs.runner_type }}
+    permissions:
+      contents: read
+    steps:
+      - name: Slack Notification
+        uses: LerianStudio/github-actions-shared-workflows/src/notify/slack-notify@v1
+        with:
+          webhook-url: ${{ secrets.SLACK_WEBHOOK_URL }}
+          status: ${{ needs.terraform.result }}
+          workflow-name: "Terraform Plan/Apply (${{ inputs.environment }})"
