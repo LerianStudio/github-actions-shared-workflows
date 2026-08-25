@@ -171,7 +171,7 @@ jobs:
 
       - name: Terraform Plan/Apply
         id: tf
-        uses: LerianStudio/github-actions-shared-workflows/src/deploy/terraform-plan-apply@v1
+        uses: LerianStudio/github-actions-shared-workflows/src/deploy/terraform-plan-apply@feat/terraform-pre-command
         with:
           working-directory: ${{ inputs.working_directory }}
           environment: ${{ inputs.environment }}
@@ -194,7 +194,7 @@ jobs:
       contents: read
     steps:
       - name: Slack Notification
-        uses: LerianStudio/github-actions-shared-workflows/src/notify/slack-notify@v1
+        uses: LerianStudio/github-actions-shared-workflows/src/notify/slack-notify@feat/terraform-pre-command
         with:
           webhook-url: ${{ secrets.SLACK_WEBHOOK_URL }}
           status: ${{ needs.terraform.result }}
