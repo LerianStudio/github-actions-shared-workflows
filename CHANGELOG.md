@@ -1,5 +1,18 @@
 # Github-actions-shared-workflows Changelog
 
+## [1.58.0](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.58.0)
+
+Features:
+- Add `terraform-plan-apply` workflow and composite. (@bedatty)
+- Introduce `pre_terraform_command` input to the `terraform-plan-apply` composite. (@bedatty)
+
+Fixes:
+- Update release process from `develop` to `main`. (@bedatty)
+
+[Compare changes](https://github.com/LerianStudio/github-actions-shared-workflows/compare/v1.57.0...v1.58.0)
+
+---
+
 ## [1.57.0](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.57.0)
 
 Features:
