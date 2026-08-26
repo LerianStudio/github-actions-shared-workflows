@@ -18,14 +18,18 @@ Scans every `.yml`/`.yaml` file in the repo for `uses: github/codeql-action/<act
 - any matching line is missing an exact `# vX.Y.Z` comment (a bare `# v4` is not enough to catch drift), or
 - more than one distinct version is found across all matches.
 
+## Inputs
+
+| Input | Description | Required | Default |
+|-------|-------------|----------|---------|
+| _(none)_ | This action takes no inputs — it always scans the whole checked-out repository. | — | — |
+
 ## Usage
 
 ```yaml
 - name: CodeQL Action Version Check
   uses: LerianStudio/github-actions-shared-workflows/src/lint/codeql-action-version-check@v1
 ```
-
-No inputs — it always scans the whole checked-out repository.
 
 ## Required permissions
 
