@@ -587,9 +587,11 @@ jobs:
           else
             echo "Tag ${TAG} not present in enabled registries — proceeding with build."
           fi
-          echo "should_build=$SHOULD_BUILD" >> "$GITHUB_OUTPUT"
-          echo "partial_existing=$PARTIAL_EXISTING" >> "$GITHUB_OUTPUT"
-          echo "push_images=$PUSH_IMAGES" >> "$GITHUB_OUTPUT"
+          {
+            echo "should_build=$SHOULD_BUILD"
+            echo "partial_existing=$PARTIAL_EXISTING"
+            echo "push_images=$PUSH_IMAGES"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Docker metadata
         if: steps.preflight.outputs.should_build != 'false'
