@@ -1,5 +1,19 @@
 # Github-actions-shared-workflows Changelog
 
+## [1.60.0](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.60.0)
+
+Features:
+- Add per-job runner overrides to JavaScript workflows. (@fredcamaral)
+
+Fixes:
+- Correct the release process from `develop` to `main`. (@bedatty)
+- Stop publishing floating major/minor image tags. (@bedatty, @fredcamaral)
+- Pin the Docker actions by commit SHA to ensure consistency. (@bedatty)
+
+[Compare changes](https://github.com/LerianStudio/github-actions-shared-workflows/compare/v1.59.0...v1.60.0)
+
+---
+
 ## [1.59.0](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.59.0)
 
 Features:
