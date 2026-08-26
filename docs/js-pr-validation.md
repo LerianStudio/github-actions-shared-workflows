@@ -21,6 +21,9 @@ The `frontend-analysis`, `security` and `socket` pipelines each have a `*-gate` 
 | Input | Description | Type | Default |
 |-------|-------------|------|---------|
 | `runner_type` | GitHub runner type | string | `blacksmith-4vcpu-ubuntu-2404` |
+| `build_runner_type` | Optional runner override for the frontend analysis Build jobs only; empty falls back to `vars.GENERAL_RUNNERS`, then `runner_type` | string | `''` |
+| `custom_checks_runner_type` | Optional runner override for the frontend analysis Custom Checks jobs only; empty falls back to `vars.GENERAL_RUNNERS`, then `runner_type` | string | `''` |
+| `security_scan_runner_type` | Optional runner override for the `security_scan` jobs only; empty falls back to `vars.GENERAL_RUNNERS`, then `runner_type` | string | `''` |
 | `dry_run` | Preview metadata validations without posting comments/labels | boolean | `false` |
 | `run_metadata` | Run the PR metadata pipeline (title, scopes, labeler, size, breaking-change guard). Set `false` in a multi-component repository that also calls `go-pr-validation.yml`, so exactly one umbrella owns PR metadata | boolean | `true` |
 | `run_frontend_analysis` | Run the frontend analysis pipeline | boolean | `true` |
