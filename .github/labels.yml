@@ -155,3 +155,7 @@
 - name: skip-coderabbit
   color: "5319e7"
   description: CodeRabbit skips auto-review on this PR
+
+- name: review-ready
+  color: "0e8a16"
+  description: Required checks passed — CodeRabbit is cleared to review

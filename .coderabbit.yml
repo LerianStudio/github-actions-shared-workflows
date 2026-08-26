@@ -72,17 +72,25 @@ reviews:
         Flag any usage example that references `@main` — examples must use `@develop` or `@feat/<branch>` for testing and `@vX.Y.Z` for production.
 
   auto_review:
-    enabled: true
+    # Reviews are gated on CI rather than firing when the PR opens: with
+    # `enabled: false` a positive label match is what triggers the review, so
+    # nothing is spent on a PR until it is green. `Self — PR Validation` applies
+    # `review-ready` once every required check has passed.
+    enabled: false
     drafts: false
     base_branches:
       - "develop"
-    # Negative match: review everything except PRs carrying this label.
-    # `base_branches` cannot express this on its own — the default branch (main)
-    # is always reviewed and `base_branches` only extends that set. The label is
-    # applied to every PR not targeting develop by
-    # `.github/workflows/self-coderabbit-guard.yml`. Remove it from a PR (and
-    # comment `@coderabbitai review`) to review that PR anyway.
+    # `review-ready` opts a PR in (added by CI); `!skip-coderabbit` keeps it out
+    # regardless. A PR is reviewed only when it has the first and not the second.
+    #
+    # The negative match is how base branches are excluded at all: CodeRabbit
+    # always reviews the default branch (main) and `base_branches` only extends
+    # that set, so `skip-coderabbit` is applied to every PR not targeting develop
+    # by `.github/workflows/self-coderabbit-guard.yml`.
+    #
+    # To review a PR anyway, drop the labels and comment `@coderabbitai review`.
     labels:
+      - "review-ready"
       - "!skip-coderabbit"
     ignore_title_keywords:
       - "WIP"
