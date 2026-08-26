@@ -1,0 +1,46 @@
+name: CodeQL Action Version Check
+description: Fail if github/codeql-action/* steps (init, autobuild, analyze) are pinned to different releases anywhere in the repo.
+
+runs:
+  using: composite
+  steps:
+    - name: Verify codeql-action pins are aligned
+      shell: bash
+      run: |
+        mapfile -t matches < <(grep -rnE 'uses:[[:space:]]*github/codeql-action/[a-z]+@' --include='*.yml' --include='*.yaml' .)
+
+        if [ "${#matches[@]}" -eq 0 ]; then
+          echo "No github/codeql-action references found — nothing to check."
+          exit 0
+        fi
+
+        declare -A files_by_version
+        status=0
+
+        for match in "${matches[@]}"; do
+          location=${match%%:uses:*}
+          content=${match#*uses:}
+          version=$(printf '%s\n' "$content" | grep -oE '#[[:space:]]*v[0-9]+\.[0-9]+\.[0-9]+' | tr -d ' #')
+
+          if [ -z "$version" ]; then
+            echo "::error file=${location%%:*},line=${location##*:}::github/codeql-action reference is missing an exact '# vX.Y.Z' version comment:$content"
+            status=1
+            continue
+          fi
+
+          files_by_version["$version"]+="${location} "
+        done
+
+        if [ "${#files_by_version[@]}" -gt 1 ]; then
+          echo "::error::github/codeql-action steps (init, autobuild, analyze) must all resolve to the exact same release — found ${#files_by_version[@]} different versions:"
+          for version in "${!files_by_version[@]}"; do
+            echo "  ${version}: ${files_by_version[$version]}"
+          done
+          status=1
+        fi
+
+        if [ "$status" -eq 0 ]; then
+          echo "All github/codeql-action references pinned to the same release: ${!files_by_version[*]}"
+        fi
+
+        exit "$status"
