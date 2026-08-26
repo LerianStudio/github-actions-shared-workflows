@@ -22,6 +22,18 @@ on:
         description: 'GitHub runner type to use'
         type: string
         default: 'blacksmith-4vcpu-ubuntu-2404'
+      build_runner_type:
+        description: 'Optional runner override for the Frontend analysis Build jobs only. Empty = vars.GENERAL_RUNNERS, then runner_type.'
+        type: string
+        default: ''
+      custom_checks_runner_type:
+        description: 'Optional runner override for the Frontend analysis Custom Checks jobs only. Empty = vars.GENERAL_RUNNERS, then runner_type.'
+        type: string
+        default: ''
+      security_scan_runner_type:
+        description: 'Optional runner override for the security_scan jobs only. Empty = vars.GENERAL_RUNNERS, then runner_type.'
+        type: string
+        default: ''
       dry_run:
         description: 'Preview metadata validations without posting comments or labels'
         required: false
@@ -492,6 +504,8 @@ jobs:
     uses: ./.github/workflows/frontend-pr-analysis.yml
     with:
       runner_type: ${{ inputs.runner_type }}
+      build_runner_type: ${{ inputs.build_runner_type }}
+      custom_checks_runner_type: ${{ inputs.custom_checks_runner_type }}
       node_version: ${{ inputs.node_version }}
       package_manager: ${{ inputs.package_manager }}
       eslint_args: ${{ inputs.eslint_args }}
@@ -559,6 +573,7 @@ jobs:
     uses: ./.github/workflows/pr-security-scan.yml
     with:
       runner_type: ${{ inputs.runner_type }}
+      security_scan_runner_type: ${{ inputs.security_scan_runner_type }}
       ignore_file: ${{ inputs.ignore_file }}
       enable_docker_scan: ${{ inputs.enable_docker_scan }}
       dockerfile_path: ${{ inputs.dockerfile_path }}
