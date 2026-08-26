@@ -76,6 +76,7 @@ apps:
     - plugin-access-manager-caradhras  # pre-promotion test instance of the plugin-access-manager auth-backend, running the caradhras image; pushed by LerianStudio/caradhras via gitops_app_name (its image is ghcr.io/lerianstudio/caradhras, so the repo name alone does not match this app dir)
     - plugin-fees
     - plugin-br-pix-indirect-btg
+    - plugin-br-pix-lerian        # new name of plugin-br-pix-switch; both entries coexist until the repo rename cutover completes
     - plugin-br-pix-switch
     - plugin-br-bank-transfer
     - plugin-br-payments
@@ -133,6 +134,7 @@ clusters:
       - plugin-access-manager
       - plugin-fees
       - plugin-br-pix-indirect-btg
+      - plugin-br-pix-lerian
       - plugin-br-pix-switch
       - br-sisbajud
       - lender
@@ -181,6 +183,7 @@ clusters:
       - plugin-access-manager-caradhras
       - plugin-fees
       - plugin-br-pix-indirect-btg
+      - plugin-br-pix-lerian
       - plugin-br-pix-switch
       - plugin-br-bank-transfer
       - plugin-br-payments
