@@ -24,6 +24,14 @@ Composite action that signs container images using [Sigstore cosign](https://git
 |---|---|
 | `signed-refs` | Newline-separated list of successfully signed image references |
 
+## Install resilience
+
+`max-attempts` / `initial-delay` / `max-delay` budget retries around `cosign sign`. They do **not** cover installing the binary, which happens first — so the install has its own retry.
+
+`sigstore/cosign-installer` pulls cosign from the GitHub release assets, which are intermittently unreachable from runner egress (`curl` exit 56, connection reset mid-transfer, often with the bootstrap download having succeeded seconds earlier). The first install attempt is therefore allowed to fail: a warning is emitted, the action waits 15s, and installs once more before the step turns fatal. A final check confirms `cosign` is actually on `PATH`, so signing never starts against a half-installed binary.
+
+This matters because of *when* the failure lands. By the time this action runs the caller has already pushed the image, and registry tags are immutable — an unsigned tag can only be fixed by cutting a new version. See [#669](https://github.com/LerianStudio/github-actions-shared-workflows/issues/669).
+
 ## Usage
 
 ### As a composite step (after Docker build and push)
