@@ -1,0 +1,136 @@
+name: Validate PR Commit Signatures
+description: "Fails when any commit in the pull request is unsigned or has an unverified signature, listing every offending commit."
+
+inputs:
+  github-token:
+    description: GitHub token with pull-requests read permission
+    required: true
+  dry-run:
+    description: "When true, report findings without failing the check"
+    required: false
+    default: "false"
+
+outputs:
+  total-commits:
+    description: Number of commits evaluated in the pull request
+    value: ${{ steps.verify.outputs.total-commits }}
+  unverified-count:
+    description: Number of commits that are unsigned or unverified
+    value: ${{ steps.verify.outputs.unverified-count }}
+
+runs:
+  using: composite
+  steps:
+    - name: Verify commit signatures
+      id: verify
+      uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+      env:
+        DRY_RUN: ${{ inputs.dry-run }}
+      with:
+        github-token: ${{ inputs.github-token }}
+        script: |
+          const dryRun = process.env.DRY_RUN === 'true';
+          const pr = context.payload.pull_request;
+
+          if (!pr) {
+            core.setFailed('Commit signature validation requires a pull_request event payload.');
+            return;
+          }
+
+          // github.paginate walks every page, so PRs with more than 100 commits are fully
+          // evaluated. The Pull Request Commits API itself caps at 250 commits; when the PR
+          // exceeds that, the check fails closed rather than reporting a partial verdict.
+          const commits = await github.paginate(github.rest.pulls.listCommits, {
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            pull_number: pr.number,
+            per_page: 100,
+          });
+
+          const declared = typeof pr.commits === 'number' ? pr.commits : commits.length;
+          const truncated = commits.length < declared;
+
+          const offenders = commits
+            .filter(c => c.commit?.verification?.verified !== true)
+            .map(c => ({
+              sha: c.sha,
+              short: c.sha.slice(0, 7),
+              url: c.html_url,
+              author: c.author?.login || c.commit?.author?.name || 'unknown',
+              reason: c.commit?.verification?.reason || 'unknown',
+            }));
+
+          core.setOutput('total-commits', String(commits.length));
+          core.setOutput('unverified-count', String(offenders.length));
+
+          const remediation = [
+            '### How to fix',
+            '',
+            'Configure commit signing, then re-sign the commits in this branch:',
+            '',
+            '```bash',
+            '# 1. Make sure signing is configured (SSH or GPG key registered on GitHub)',
+            'git config --local commit.gpgsign true',
+            '',
+            '# 2. Re-sign every commit of this branch on top of its base',
+            `git rebase --exec 'git commit --amend --no-edit -S' origin/${pr.base?.ref || 'main'}`,
+            '',
+            '# 3. Update the pull request',
+            'git push --force-with-lease',
+            '```',
+            '',
+            'Docs: https://docs.github.com/en/authentication/managing-commit-signature-verification',
+          ].join('\n');
+
+          const lines = [`## Commit Signature Validation`, ''];
+
+          if (dryRun) {
+            lines.push('> **DRY RUN** — findings are reported but the check does not fail', '');
+          }
+
+          lines.push(`Commits evaluated: **${commits.length}**`, '');
+
+          if (truncated) {
+            lines.push(
+              `> ⚠️ This pull request declares ${declared} commits but the GitHub API returned only ${commits.length}.`,
+              '> The Pull Request Commits API caps at 250 commits, so the signature verdict cannot cover every commit.',
+              '> Split this pull request into smaller ones so all commits can be validated.',
+              '',
+            );
+          }
+
+          if (offenders.length > 0) {
+            lines.push(
+              `Unsigned or unverified commits: **${offenders.length}**`,
+              '',
+              '| Commit | Author | Status | Reason |',
+              '|--------|--------|--------|--------|',
+              ...offenders.map(o => `| [\`${o.short}\`](${o.url}) | ${o.author} | ❌ unverified | \`${o.reason}\` |`),
+              '',
+              remediation,
+            );
+          } else if (!truncated) {
+            lines.push('✅ Every commit in this pull request carries a verified signature.');
+          }
+
+          await core.summary.addRaw(lines.join('\n')).write();
+
+          for (const o of offenders) {
+            core.error(`Commit ${o.short} by ${o.author} is not verified (reason: ${o.reason}) — ${o.url}`);
+          }
+
+          if (offenders.length === 0 && !truncated) {
+            core.info(`✅ All ${commits.length} commit(s) are verified.`);
+            return;
+          }
+
+          const failure = truncated
+            ? `Commit signature validation could not evaluate all ${declared} commits (only ${commits.length} returned by the API); ${offenders.length} of those are unsigned or unverified.`
+            : `${offenders.length} of ${commits.length} commit(s) in this pull request are unsigned or unverified.`;
+
+          if (dryRun) {
+            core.notice(`DRY RUN — ${failure}`);
+            return;
+          }
+
+          core.setFailed(failure);

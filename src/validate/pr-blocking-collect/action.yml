@@ -12,6 +12,10 @@ inputs:
   description-outcome:
     description: Outcome of the PR description validation step
     required: true
+  commit-signatures-outcome:
+    description: Outcome of the commit signature validation step
+    required: false
+    default: skipped
 
 outputs:
   source_branch:
@@ -23,6 +27,9 @@ outputs:
   description:
     description: Outcome of PR description validation
     value: ${{ steps.collect.outputs.description }}
+  commit_signatures:
+    description: Outcome of commit signature validation
+    value: ${{ steps.collect.outputs.commit_signatures }}
 
 runs:
   using: composite
@@ -34,17 +41,20 @@ runs:
         SOURCE_BRANCH: ${{ inputs.source-branch-outcome }}
         TITLE: ${{ inputs.title-outcome }}
         DESCRIPTION: ${{ inputs.description-outcome }}
+        COMMIT_SIGNATURES: ${{ inputs.commit-signatures-outcome }}
       run: |
         {
           echo "source_branch=${SOURCE_BRANCH}"
           echo "title=${TITLE}"
           echo "description=${DESCRIPTION}"
+          echo "commit_signatures=${COMMIT_SIGNATURES}"
         } >> "$GITHUB_OUTPUT"
 
         FAILED=""
         if [ "${SOURCE_BRANCH}" = "failure" ]; then FAILED="${FAILED} source-branch"; fi
         if [ "${TITLE}" = "failure" ]; then FAILED="${FAILED} title"; fi
         if [ "${DESCRIPTION}" = "failure" ]; then FAILED="${FAILED} description"; fi
+        if [ "${COMMIT_SIGNATURES}" = "failure" ]; then FAILED="${FAILED} commit-signatures"; fi
 
         if [ -n "${FAILED}" ]; then
           echo "::error::Blocking checks failed:${FAILED}"

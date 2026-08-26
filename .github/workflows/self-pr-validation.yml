@@ -90,6 +90,21 @@ jobs:
       - name: Run permission-manifest-publish behavioural tests
         run: python3 src/validate/permission-manifest-publish/test.py
 
+  # ----------------- Commit Signature Validation Tests -----------------
+  pr-commit-signatures-tests:
+    name: Commit Signature Validation Tests
+    runs-on: ${{ vars.GENERAL_RUNNERS || 'blacksmith-4vcpu-ubuntu-2404' }}
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+        with:
+          persist-credentials: false
+
+      - name: Run pr-commit-signatures behavioural tests
+        run: python3 src/validate/pr-commit-signatures/test.py
+
   # ----------------- YAML Lint -----------------
   yamllint:
     name: YAML Lint
