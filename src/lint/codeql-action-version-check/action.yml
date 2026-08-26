@@ -1,5 +1,5 @@
 name: CodeQL Action Version Check
-description: Fail if github/codeql-action/* steps (init, autobuild, analyze) are pinned to different releases anywhere in the repo.
+description: Fail if github/codeql-action/* steps (init, autobuild, analyze, upload-sarif, etc.) are pinned to different releases anywhere in the repo.
 
 runs:
   using: composite
