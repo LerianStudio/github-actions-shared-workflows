@@ -234,11 +234,11 @@ The check reads GitHub's own verification verdict (`commit.verification.verified
 | `require_verified_commits: false` | Step skipped, no row in summary or report |
 | `dry_run: true` | Findings reported, `Blocking Checks` not failed |
 
-Remediation (also printed in the job summary):
+Remediation (also printed in the job summary, with `<base-branch>` already resolved to the pull request's own base branch):
 
 ```bash
 git config --local commit.gpgsign true
-git rebase --exec 'git commit --amend --no-edit -S' origin/main
+git rebase --exec 'git commit --amend --no-edit -S' origin/<base-branch>
 git push --force-with-lease
 ```
 

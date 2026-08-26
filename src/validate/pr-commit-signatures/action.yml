@@ -17,6 +17,11 @@ outputs:
   unverified-count:
     description: Number of commits that are unsigned or unverified
     value: ${{ steps.verify.outputs.unverified-count }}
+  has-signature-failures:
+    description: >-
+      Whether the check failed (true/false). True when any commit is unverified or when the
+      verdict could not cover every commit, which unverified-count alone does not express.
+    value: ${{ steps.verify.outputs.has-signature-failures }}
 
 runs:
   using: composite
@@ -62,6 +67,7 @@ runs:
 
           core.setOutput('total-commits', String(commits.length));
           core.setOutput('unverified-count', String(offenders.length));
+          core.setOutput('has-signature-failures', String(offenders.length > 0 || truncated));
 
           const remediation = [
             '### How to fix',

@@ -197,6 +197,7 @@ class CommitSignatureValidation(unittest.TestCase):
         self.assertFalse(record["failed"], msg=record["failedMessage"])
         self.assertEqual(record["outputs"]["total-commits"], "5")
         self.assertEqual(record["outputs"]["unverified-count"], "0")
+        self.assertEqual(record["outputs"]["has-signature-failures"], "false")
         self.assertEqual(record["errors"], [])
         self.assertIn("verified signature", record["summary"])
 
@@ -211,6 +212,7 @@ class CommitSignatureValidation(unittest.TestCase):
         record = run_script(commits)
         self.assertTrue(record["failed"])
         self.assertEqual(record["outputs"]["unverified-count"], "2")
+        self.assertEqual(record["outputs"]["has-signature-failures"], "true")
         self.assertEqual(len(record["errors"]), 2)
         joined = "\n".join(record["errors"])
         self.assertIn("unsigned", joined)
@@ -251,12 +253,17 @@ class CommitSignatureValidation(unittest.TestCase):
         self.assertFalse(record["failed"], msg=record["failedMessage"])
         self.assertEqual(record["outputs"]["total-commits"], "200")
         self.assertEqual(record["outputs"]["unverified-count"], "0")
+        self.assertEqual(record["outputs"]["has-signature-failures"], "false")
 
     # (f) Beyond the 250-commit API cap the verdict cannot be complete -> fail closed.
     def test_beyond_api_cap_fails_closed(self):
         record = run_script([commit(i, True) for i in range(1, 320)], declared=319)
         self.assertTrue(record["failed"])
         self.assertEqual(record["outputs"]["total-commits"], "250")
+        # Every returned commit is verified, so the count alone would read as a pass;
+        # has-signature-failures is what tells a caller the verdict is incomplete.
+        self.assertEqual(record["outputs"]["unverified-count"], "0")
+        self.assertEqual(record["outputs"]["has-signature-failures"], "true")
         self.assertIn("could not evaluate all 319", record["failedMessage"])
         self.assertIn("250 commits", record["summary"])
 

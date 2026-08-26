@@ -9,7 +9,7 @@ Fails the job when any commit in the pull request is unsigned or has an unverifi
 
 The check reads GitHub's own signature verification result (`commit.verification.verified`) for **every** commit in the PR — not only `HEAD` — and reports all offending commits at once in the job summary and as `::error::` annotations, with the short SHA, a link to the commit, the author, and the verification reason.
 
-Commits are fetched with `github.paginate`, so pull requests with more than 100 commits are fully evaluated. The Pull Request Commits API caps at 250 commits: when a PR declares more commits than the API returns, the check **fails closed** and asks for the PR to be split, rather than reporting a partial verdict.
+The composite wraps `actions/github-script` (pinned by SHA) rather than shelling out to `gh`: it needs `github.paginate` over `github.rest.pulls.listCommits` to walk every page of commits, and Octokit's typed response exposes `commit.verification` directly. Because of that pagination, pull requests with more than 100 commits are fully evaluated. The Pull Request Commits API caps at 250 commits: when a PR declares more commits than the API returns, the check **fails closed** and asks for the PR to be split, rather than reporting a partial verdict.
 
 No commit metadata beyond what is already visible in the repository is emitted, and the token is never printed.
 
@@ -26,6 +26,7 @@ No commit metadata beyond what is already visible in the repository is emitted, 
 |--------|-------------|
 | `total-commits` | Number of commits evaluated in the pull request |
 | `unverified-count` | Number of commits that are unsigned or unverified |
+| `has-signature-failures` | `true` when the check failed — any unverified commit, or a verdict that could not cover every commit. A truncated PR can report `unverified-count: 0` and still fail, which is why this output exists. |
 
 ## Behavior
 
@@ -38,14 +39,14 @@ No commit metadata beyond what is already visible in the repository is emitted, 
 
 ## Remediation
 
-Reported in the job summary and reproduced here:
+Reported in the job summary, where `<base-branch>` is already resolved to the pull request's own base branch:
 
 ```bash
 # 1. Make sure signing is configured (SSH or GPG key registered on GitHub)
 git config --local commit.gpgsign true
 
 # 2. Re-sign every commit of this branch on top of its base
-git rebase --exec 'git commit --amend --no-edit -S' origin/main
+git rebase --exec 'git commit --amend --no-edit -S' origin/<base-branch>
 
 # 3. Update the pull request
 git push --force-with-lease
