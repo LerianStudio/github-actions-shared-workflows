@@ -145,9 +145,10 @@ runs:
       with:
         images: ${{ steps.image-names.outputs.images }}
         tags: |
+          # Exact version only: floating major/minor aliases are incompatible
+          # with Docker Hub immutable-tag rules (re-pointing an existing alias
+          # is refused and fails the whole build).
           type=semver,pattern={{version}},value=${{ inputs.version }}
-          type=semver,pattern={{major}}.{{minor}},value=${{ inputs.version }}
-          type=semver,pattern={{major}},value=${{ inputs.version }},enable=${{ inputs.is-release }}
 
     - name: Resolve Dockerfile path
       id: dockerfile
