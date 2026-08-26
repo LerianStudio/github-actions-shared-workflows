@@ -49,6 +49,7 @@ The `go-analysis`, `security` and `lib-version` pipelines each have a `*-gate` a
 | `enforce_source_branches` | Enforce source branches into protected branches | boolean | `true` |
 | `allowed_source_branches` | Allowed source branches (pipe-separated, `*` prefix) | string | `develop\|release-candidate\|hotfix/*` |
 | `target_branches_for_source_check` | Target branches requiring source validation | string | `main` |
+| `require_verified_commits` | Block the PR when any commit is unsigned or unverified | boolean | `true` |
 | `go_version` | Go version | string | `1.23` |
 | `golangci_lint_version` | GolangCI-Lint version | string | `v1.62.2` |
 | `golangci_lint_args` | Extra arguments passed to golangci-lint (e.g. `--timeout=5m`) | string | `--timeout=5m` |

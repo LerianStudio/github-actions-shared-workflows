@@ -35,10 +35,47 @@ runs:
   using: composite
   steps:
     # ----------------- Setup -----------------
+    # The installer pulls the binary from the GitHub release assets, which are
+    # intermittently unreachable from runner egress (curl exit 56 — connection reset
+    # mid-transfer — with the bootstrap download seconds earlier having succeeded).
+    #
+    # A failure here is the worst possible timing in a release: the caller has
+    # already pushed the image, registry tags are immutable, so an unsigned tag can
+    # only be fixed by cutting a new version. `max-attempts` does not help — it
+    # budgets retries around `cosign sign`, long after this step. So the first
+    # attempt is allowed to fail and is retried before the step turns fatal.
     - name: Install cosign
+      id: install
+      continue-on-error: true
       uses: sigstore/cosign-installer@3454372f43399081ed03b604cb2d021dabca52bb # v3.8.2
       with:
         cosign-release: ${{ inputs.cosign-version }}
+
+    - name: Wait before retrying the cosign install
+      if: steps.install.outcome == 'failure'
+      shell: bash
+      env:
+        COSIGN_VERSION: ${{ inputs.cosign-version }}
+      run: |
+        echo "::warning::Installing cosign ${COSIGN_VERSION} failed — most likely transient egress toward the GitHub release assets. Retrying once in 15s."
+        sleep 15
+
+    - name: Install cosign (retry)
+      if: steps.install.outcome == 'failure'
+      uses: sigstore/cosign-installer@3454372f43399081ed03b604cb2d021dabca52bb # v3.8.2
+      with:
+        cosign-release: ${{ inputs.cosign-version }}
+
+    # Guards against a first attempt that failed halfway yet left something on PATH:
+    # signing must not start against a partially installed binary.
+    - name: Verify cosign is installed
+      shell: bash
+      run: |
+        if ! command -v cosign >/dev/null 2>&1; then
+          echo "::error::cosign is not on PATH after installation."
+          exit 1
+        fi
+        cosign version
 
     # ----------------- Validation -----------------
     - name: Validate image references

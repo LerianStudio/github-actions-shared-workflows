@@ -10,8 +10,8 @@ Umbrella reusable workflow for JavaScript/TypeScript repositories. A caller refe
 1. **PR metadata** — title, source branch, size, labels (delegates to `pr-validation.yml`).
 2. **Breaking Change Guard** — mandatory detection and enforcement inherited from `pr-validation.yml` for every PR target branch, whenever the metadata pipeline runs (see `run_metadata`).
 3. **Change gate** — detects whether the PR touches anything beyond docs/meta (`src/config/non-doc-changes`); documentation-only PRs skip the heavy pipelines.
-4. **Frontend analysis** — lint, typecheck, npm audit, tests, coverage and build (delegates to `frontend-pr-analysis.yml`), opt-in via `run_frontend_analysis`.
-5. **Security scan** — Trivy, CodeQL, prerelease checks (delegates to `pr-security-scan.yml`), opt-in via `run_security`.
+4. **Frontend analysis** — lint, typecheck, npm audit, tests, coverage and build (delegates to `frontend-pr-analysis.yml`). Enabled by default; disable with `run_frontend_analysis: false`.
+5. **Security scan** — Trivy, CodeQL, prerelease checks (delegates to `pr-security-scan.yml`). Enabled by default; disable with `run_security: false`.
 6. **Socket supply chain** — refuses malicious packages at install time, turns the Socket App's advisory verdict into an enforceable check, and reports per-package findings split into what this pull request introduced and what the tree already carried. Enabled by default; disable with `run_socket: false`.
 
 The `frontend-analysis`, `security` and `socket` pipelines each have a `*-gate` aggregator job that exposes a single stable status-check name (`Frontend Analysis`, `Security`, `Socket`) for branch protection, regardless of the internal job names. All are gated by the change detector, so documentation-only PRs skip them (and the aggregators still report success). If the change detector (`changes`) job itself fails, the aggregators propagate that failure instead of passing.
@@ -35,6 +35,7 @@ The `frontend-analysis`, `security` and `socket` pipelines each have a `*-gate` 
 | `enforce_source_branches` | Enforce source branches into protected branches | boolean | `true` |
 | `allowed_source_branches` | Allowed source branches (pipe-separated, `*` prefix) | string | `develop\|release-candidate\|hotfix/*` |
 | `target_branches_for_source_check` | Target branches requiring source validation | string | `main` |
+| `require_verified_commits` | Block the PR when any commit is unsigned or unverified | boolean | `true` |
 | `node_version` | Node.js version | string | `22` |
 | `package_manager` | Package manager (`npm`, `yarn`, `pnpm`) | string | `npm` |
 | `eslint_args` | Additional arguments for ESLint | string | `''` |

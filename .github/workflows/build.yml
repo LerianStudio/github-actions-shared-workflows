@@ -60,9 +60,13 @@ on:
         type: string
         default: ''
       on_existing_tag:
-        description: 'Behaviour when the target image tag already exists in an enabled registry (checked before build): "fail" (abort early, default), "skip" (skip build/push, still emit GitOps artifacts for an idempotent re-run), or "warn" (warn and build anyway).'
+        description: 'Behaviour when the target image tag already exists in an enabled registry (checked before build): "fail" (abort early, default), "skip" (skip build/push when the tag exists in EVERY enabled registry, still emitting GitOps artifacts for an idempotent re-run; abort when only some registries have it), "repair" (same as skip, but on a partial publish build and push only to the registries missing the tag), or "warn" (warn and build anyway).'
         type: string
         default: 'fail'
+      require_image_provenance:
+        description: 'Under on_existing_tag "skip"/"repair", abort when the existing image does not record the commit it was built from (the org.opencontainers.image.revision label, emitted by docker/metadata-action). An image whose recorded commit differs from this run always aborts, regardless of this input. Set false to accept unverifiable images, e.g. tags published before the label was emitted.'
+        type: boolean
+        default: true
       dockerfile_name:
         description: 'Name of the Dockerfile'
         type: string
@@ -405,45 +409,176 @@ jobs:
           GHCR_ORG: ${{ steps.image-names.outputs.ghcr_org }}
           APP_NAME: ${{ matrix.app.name }}
           VERSION: ${{ steps.version.outputs.version }}
+          ALL_IMAGES: ${{ steps.image-names.outputs.images }}
+          REQUIRE_PROVENANCE: ${{ inputs.require_image_provenance }}
         run: |
           set -uo pipefail
 
           MODE="${ON_EXISTING_TAG:-fail}"
           case "$MODE" in
-            fail|skip|warn) ;;
-            *) echo "::error::Invalid on_existing_tag '$MODE' (must be: fail, skip, warn)"; exit 1 ;;
+            fail|skip|repair|warn) ;;
+            *) echo "::error::Invalid on_existing_tag '$MODE' (must be: fail, skip, repair, warn)"; exit 1 ;;
           esac
 
           # Image tag matches what docker/metadata-action publishes (semver without leading 'v').
           TAG="${VERSION#v}"
           EXISTING=""
+          EXISTING_REFS=""
+          MISSING=""
+          MISSING_IMAGES=""
+          UNKNOWN=""
+          ENABLED_COUNT=0
+          EXISTING_COUNT=0
+
+          # The commit an image was built from is recorded by docker/metadata-action's
+          # default label set (org.opencontainers.image.revision), which this workflow
+          # feeds to build-push-action. Reading it back is the only thing that tells a
+          # genuine re-run of the same commit apart from a tag that was retargeted to a
+          # newer one — tag existence alone cannot.
+          #
+          # `.Image` is a single image config for a single-platform tag and a
+          # platform-keyed map for a multi-arch one, so the label is picked with a
+          # recursive descent rather than a fixed path. Prints the revision, or nothing
+          # when the lookup fails or the image carries no such label; the caller treats
+          # both as "unverifiable".
+          resolve_revision() {
+            local ref="$1" out
+            if out=$(docker buildx imagetools inspect "$ref" --format '{{json .Image}}' 2>/dev/null); then
+              printf '%s' "$out" | jq -r '[.. | objects | .Labels? | objects | .["org.opencontainers.image.revision"]? | strings] | first // empty'
+            fi
+          }
 
           # `docker manifest inspect` reuses the registry logins from earlier steps and
-          # returns non-zero when the tag is absent. A non-existence/error result is
-          # treated as "not present" so a flaky check never blocks a legitimate build.
-          if [ "$ENABLE_DOCKERHUB" = "true" ]; then
-            REF="${DOCKERHUB_ORG}/${APP_NAME}:${TAG}"
-            if docker manifest inspect "$REF" >/dev/null 2>&1; then
-              EXISTING="${EXISTING}${EXISTING:+, }docker.io/${REF}"
+          # returns non-zero both when the tag is absent and when the lookup itself
+          # fails, so the two are told apart by the registry's own error text. That
+          # distinction carries weight now that "missing from this registry" drives
+          # control flow: counting an unconfirmed registry as missing would make a
+          # transient blip on one registry look exactly like a partial publish.
+          #
+          # An unrecognised error is deliberately "unknown" rather than "absent" —
+          # guessing absent is the option that silently loses information.
+          classify_tag() {
+            local ref="$1" err
+            if err=$(docker manifest inspect "$ref" 2>&1 >/dev/null); then
+              printf 'present'
+            elif printf '%s' "$err" | grep -qiE 'manifest unknown|manifest_unknown|no such manifest|not found|repository does not exist|pull access denied'; then
+              printf 'absent'
+            else
+              printf 'unknown'
             fi
+          }
+
+          # Each enabled registry is tracked separately: a previous run can have
+          # published to one registry and failed on the other, and "the tag is in
+          # every enabled registry" and "the tag is in some of them" are different
+          # situations that `skip` and `repair` must not conflate.
+          if [ "$ENABLE_DOCKERHUB" = "true" ]; then
+            ENABLED_COUNT=$((ENABLED_COUNT + 1))
+            IMAGE="${DOCKERHUB_ORG}/${APP_NAME}"
+            case "$(classify_tag "${IMAGE}:${TAG}")" in
+              present)
+                EXISTING="${EXISTING}${EXISTING:+, }docker.io/${IMAGE}:${TAG}"
+                EXISTING_REFS="${EXISTING_REFS}docker.io/${IMAGE}:${TAG}"$'\n'
+                EXISTING_COUNT=$((EXISTING_COUNT + 1))
+                ;;
+              absent)
+                MISSING="${MISSING}${MISSING:+, }docker.io/${IMAGE}:${TAG}"
+                MISSING_IMAGES="${MISSING_IMAGES}${MISSING_IMAGES:+,}${IMAGE}"
+                ;;
+              *)
+                UNKNOWN="${UNKNOWN}${UNKNOWN:+, }docker.io/${IMAGE}:${TAG}"
+                ;;
+            esac
           fi
           if [ "$ENABLE_GHCR" = "true" ]; then
-            REF="ghcr.io/${GHCR_ORG}/${APP_NAME}:${TAG}"
-            if docker manifest inspect "$REF" >/dev/null 2>&1; then
-              EXISTING="${EXISTING}${EXISTING:+, }${REF}"
-            fi
+            ENABLED_COUNT=$((ENABLED_COUNT + 1))
+            IMAGE="ghcr.io/${GHCR_ORG}/${APP_NAME}"
+            case "$(classify_tag "${IMAGE}:${TAG}")" in
+              present)
+                EXISTING="${EXISTING}${EXISTING:+, }${IMAGE}:${TAG}"
+                EXISTING_REFS="${EXISTING_REFS}${IMAGE}:${TAG}"$'\n'
+                EXISTING_COUNT=$((EXISTING_COUNT + 1))
+                ;;
+              absent)
+                MISSING="${MISSING}${MISSING:+, }${IMAGE}:${TAG}"
+                MISSING_IMAGES="${MISSING_IMAGES}${MISSING_IMAGES:+,}${IMAGE}"
+                ;;
+              *)
+                UNKNOWN="${UNKNOWN}${UNKNOWN:+, }${IMAGE}:${TAG}"
+                ;;
+            esac
           fi
 
           SHOULD_BUILD=true
+          PARTIAL_EXISTING=false
+          PUSH_IMAGES="$ALL_IMAGES"
           if [ -n "$EXISTING" ]; then
             case "$MODE" in
               fail)
                 echo "::error::Tag ${TAG} already exists (${EXISTING}). Registry tags are immutable; aborting before rebuild. Use on_existing_tag: skip for idempotent re-runs."
                 exit 1
                 ;;
-              skip)
-                echo "::warning::Tag ${TAG} already exists (${EXISTING}) — skipping build/push (idempotent re-run)."
-                SHOULD_BUILD=false
+              skip|repair)
+                # A registry whose status could not be determined is not evidence of a
+                # partial publish, and treating it as one would turn a transient lookup
+                # failure into an abort (`skip`) or a push to a registry that may already
+                # hold the tag (`repair`). Stop on the unknown instead of guessing: the
+                # state is unresolved rather than known-bad, and a re-run once the
+                # registry answers is enough. Reached only when another registry did
+                # confirm the tag — when nothing is confirmed there is simply a build.
+                if [ -n "$UNKNOWN" ]; then
+                  echo "::error::Could not determine whether tag ${TAG} exists in ${UNKNOWN} (the registry lookup failed rather than reporting the tag absent). on_existing_tag: ${MODE} needs every enabled registry's status to be known before reusing an existing tag. Re-run once the registry is reachable."
+                  exit 1
+                fi
+
+                # Provenance gate. Both modes reuse an image that is already in the
+                # registry, so an existing tag has to be proven to come from this commit
+                # before it is honoured. Without this, a retargeted tag is skipped (GitOps
+                # deploys the older image) or repaired (the registries end up holding
+                # different content under one immutable tag).
+                DIVERGED=""
+                UNVERIFIABLE=""
+                while IFS= read -r REF; do
+                  [ -z "$REF" ] && continue
+                  REV="$(resolve_revision "$REF")"
+                  if [ -z "$REV" ]; then
+                    UNVERIFIABLE="${UNVERIFIABLE}${UNVERIFIABLE:+, }${REF}"
+                  elif [ "$REV" != "$GITHUB_SHA" ]; then
+                    DIVERGED="${DIVERGED}${DIVERGED:+, }${REF} (built from ${REV})"
+                  fi
+                done <<< "$EXISTING_REFS"
+
+                # A confirmed different commit is never a re-run, so it aborts even with
+                # require_image_provenance disabled — that input only governs the
+                # can't-tell case below.
+                if [ -n "$DIVERGED" ]; then
+                  echo "::error::Tag ${TAG} in the registry was not built from this commit: ${DIVERGED}; this run is at ${GITHUB_SHA}. Registry tags are immutable, so on_existing_tag: ${MODE} would publish the older image. Cut a new version instead of retargeting the tag."
+                  exit 1
+                fi
+                if [ -n "$UNVERIFIABLE" ]; then
+                  if [ "$REQUIRE_PROVENANCE" = "true" ]; then
+                    echo "::error::Cannot verify that tag ${TAG} was built from this commit (${UNVERIFIABLE}): the image carries no org.opencontainers.image.revision label, or the lookup failed. Set require_image_provenance: false to accept unverifiable images, or cut a new version."
+                    exit 1
+                  fi
+                  echo "::warning::Cannot verify that tag ${TAG} was built from this commit (${UNVERIFIABLE}) — proceeding because require_image_provenance is false."
+                fi
+
+                if [ "$EXISTING_COUNT" -eq "$ENABLED_COUNT" ]; then
+                  echo "::warning::Tag ${TAG} already exists in every enabled registry (${EXISTING}) — skipping build/push (idempotent re-run)."
+                  SHOULD_BUILD=false
+                elif [ "$MODE" = "repair" ]; then
+                  # Partial publish, repair opted in: build once and push only where the
+                  # tag is missing, leaving the immutable tags already in place untouched.
+                  echo "::warning::Tag ${TAG} exists in ${EXISTING} but is missing from ${MISSING} (partial publish) — repairing: building and pushing only to the missing registry/registries."
+                  PARTIAL_EXISTING=true
+                  PUSH_IMAGES="$MISSING_IMAGES"
+                else
+                  # Partial publish under `skip`. Skipping would emit GitOps artifacts for
+                  # a tag that is absent from an enabled registry, so the run stops instead
+                  # of publishing a reference that is not resolvable everywhere.
+                  echo "::error::Tag ${TAG} exists in ${EXISTING} but is missing from ${MISSING} — partial publish. Skipping would emit GitOps artifacts for a tag that is absent from an enabled registry. Use on_existing_tag: repair to build and push only the missing registries, or cut a new version."
+                  exit 1
+                fi
                 ;;
               warn)
                 echo "::warning::Tag ${TAG} already exists (${EXISTING}) — building anyway (push may fail on immutable registries)."
@@ -452,14 +587,20 @@ jobs:
           else
             echo "Tag ${TAG} not present in enabled registries — proceeding with build."
           fi
-          echo "should_build=$SHOULD_BUILD" >> "$GITHUB_OUTPUT"
+          {
+            echo "should_build=$SHOULD_BUILD"
+            echo "partial_existing=$PARTIAL_EXISTING"
+            echo "push_images=$PUSH_IMAGES"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Docker metadata
         if: steps.preflight.outputs.should_build != 'false'
         id: meta
         uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6
         with:
-          images: ${{ steps.image-names.outputs.images }}
+          # Every enabled registry, except under a partial-publish repair
+          # (`on_existing_tag: repair`), where it narrows to the missing ones only.
+          images: ${{ steps.preflight.outputs.push_images }}
           tags: |
             type=semver,pattern={{version}},value=${{ steps.version.outputs.version }}
 
@@ -485,8 +626,10 @@ jobs:
       # ----------------- Cosign Image Signing -----------------
       # Lets `on_existing_tag: skip` retry just the signing step for an already-pushed
       # tag (e.g. after a transient cosign/Rekor failure) without a full rebuild.
+      # Also runs after an `on_existing_tag: repair` partial publish, where the registry
+      # that already carried the tag has its own (possibly different) digest to resolve.
       - name: Resolve digest for existing tag
-        if: inputs.enable_cosign_sign && steps.preflight.outputs.should_build == 'false'
+        if: inputs.enable_cosign_sign && (steps.preflight.outputs.should_build == 'false' || steps.preflight.outputs.partial_existing == 'true')
         id: existing-digest
         env:
           APP_NAME: ${{ matrix.app.name }}
@@ -570,6 +713,7 @@ jobs:
           DOCKERHUB_ORG: ${{ inputs.dockerhub_org }}
           APP_NAME: ${{ matrix.app.name }}
           GHCR_ORG: ${{ steps.image-names.outputs.ghcr_org }}
+          PARTIAL_EXISTING: ${{ steps.preflight.outputs.partial_existing }}
         run: |
           REFS=""
 
@@ -578,8 +722,19 @@ jobs:
           # was skipped (existing tag), fall back to each registry's own resolved
           # digest instead, and only emit a ref when that registry's digest was
           # actually found.
-          DOCKERHUB_FINAL="${DIGEST:-$DOCKERHUB_DIGEST}"
-          GHCR_FINAL="${DIGEST:-$GHCR_DIGEST}"
+          #
+          # A partial-publish repair is the exception: build-push only pushed to
+          # the registry that was missing the tag, so its digest does not describe
+          # the image the other registry already carries (a rebuild is not
+          # bit-for-bit reproducible). Both registries use their own resolved
+          # digest there, read back from the registry after the push.
+          if [ "$PARTIAL_EXISTING" == "true" ]; then
+            DOCKERHUB_FINAL="$DOCKERHUB_DIGEST"
+            GHCR_FINAL="$GHCR_DIGEST"
+          else
+            DOCKERHUB_FINAL="${DIGEST:-$DOCKERHUB_DIGEST}"
+            GHCR_FINAL="${DIGEST:-$GHCR_DIGEST}"
+          fi
 
           if [ "$ENABLE_DOCKERHUB" == "true" ] && [ -n "$DOCKERHUB_FINAL" ]; then
             REFS="docker.io/${DOCKERHUB_ORG}/${APP_NAME}@${DOCKERHUB_FINAL}"

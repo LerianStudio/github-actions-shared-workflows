@@ -105,6 +105,10 @@ on:
         description: 'Target branches that require source branch validation (pipe-separated)'
         type: string
         default: 'main'
+      require_verified_commits:
+        description: 'Block the PR when any of its commits is unsigned or has an unverified signature'
+        type: boolean
+        default: true
 
       # ----------------- Frontend analysis (frontend-pr-analysis.yml) -----------------
       node_version:
@@ -459,6 +463,7 @@ jobs:
       enforce_source_branches: ${{ inputs.enforce_source_branches }}
       allowed_source_branches: ${{ inputs.allowed_source_branches }}
       target_branches_for_source_check: ${{ inputs.target_branches_for_source_check }}
+      require_verified_commits: ${{ inputs.require_verified_commits }}
     secrets: inherit
 
   # ----------------- Change Detection (gate) -----------------

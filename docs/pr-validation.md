@@ -17,6 +17,7 @@ Comprehensive pull request validation workflow that enforces best practices, cod
 - **Draft PR support** — Runs and enforces the mandatory guard (and still writes the step summary) while deferring title, branch, description, advisory, PR comments, reporter output, guard comments, and Slack notifications until ready for review
 - **Source branch validation** — Enforce PRs to protected branches come from specific source branches
 - **Mandatory breaking change guard** — Detects breaking-change commits on every target branch and blocks breaking changes without PR author acknowledgement
+- **Commit signature validation** — Blocks the PR when any of its commits is unsigned or unverified, listing every offending commit
 - **Dry run mode** — Preview validations without posting comments or labels
 - **Summary report** — Aggregated validation status (step summary + idempotent PR comment)
 - **Idempotent feedback** — Source branch failures and the mergeability summary are upserted via stable markers (no stacked duplicates across commits)
@@ -35,7 +36,8 @@ pr-validation.yml (reusable workflow)
     ├── breaking-change enforcement     (also runs for drafts)
     ├── src/validate/pr-source-branch   (non-draft source branch check)
     ├── src/validate/pr-title           (non-draft semantic title check)
-    └── src/validate/pr-description     (non-draft description quality)
+    ├── src/validate/pr-description     (non-draft description quality)
+    └── src/validate/pr-commit-signatures (non-draft commit signature check)
               ↓ (only continues if all pass)
   Tier 2 — advisory-checks (shared checkout)
     ├── src/validate/pr-metadata        (assignee + linked issues)
@@ -134,6 +136,7 @@ jobs:
 | `enforce_source_branches` | boolean | `true` | Enforce source branch rules (auto-skips when target is not in `target_branches_for_source_check`) |
 | `allowed_source_branches` | string | `develop\|release-candidate\|hotfix/*` | Allowed source branches (pipe-separated, supports `*` wildcard) |
 | `target_branches_for_source_check` | string | `main` | Target branches that require source branch validation |
+| `require_verified_commits` | boolean | `true` | Block the PR when any of its commits is unsigned or has an unverified signature |
 
 The breaking change guard has no enable input, target-branch input, acknowledgement input, or opt-out. It applies to every caller and every PR target branch. `dry_run: true` remains a global preview mode without guard enforcement; it is not a guard-specific opt-out and does not change normal `dry_run: false` operation. Existing callers must migrate their `pull_request.types` list to include both `edited` and `ready_for_review`; otherwise body edits and draft-to-ready transitions do not rerun validation.
 
@@ -188,7 +191,7 @@ feat fix docs style refactor perf test chore ci build revert
 | Job | Tier | Composites | Condition |
 |-----|------|------------|-----------|
 | `breaking-change-guard` | mandatory detection | `breaking-change-guard@v1` | always, including drafts |
-| `blocking-checks` | 1 (fail-fast) | guard enforcement, `pr-source-branch`, `pr-title`, `pr-description` | always; drafts run guard enforcement only |
+| `blocking-checks` | 1 (fail-fast) | guard enforcement, `pr-source-branch`, `pr-title`, `pr-description`, `pr-commit-signatures` | always; drafts run guard enforcement only |
 | `advisory-checks` | 2 (informational) | `pr-metadata`, `pr-size`, `pr-labels` | non-draft, blocking-checks passed |
 | `pr-checks-summary` | — | `pr-checks-summary` | always (writes to step summary) |
 | `breaking-change-comment` | — | `actions/github-script` | every non-draft live run, including detector failure or cancellation |
@@ -198,8 +201,8 @@ feat fix docs style refactor perf test chore ci build revert
 ### Blocking checks (Tier 1)
 - Run without checkout (lightweight, ~5 seconds)
 - Always enforce both the guard job state and its normalized output, including on drafts
-- Skip existing source branch, title, description, and collector steps on drafts; their non-draft behavior is unchanged
-- On non-drafts, all three existing validations run even if one fails (`continue-on-error` per step)
+- Skip existing source branch, title, description, commit signature, and collector steps on drafts; their non-draft behavior is unchanged
+- On non-drafts, every validation runs even if one fails (`continue-on-error` per step)
 - Job fails if the guard job, normalized guard output, or **any** existing blocking check fails, preventing advisory checks from running
 - In dry-run mode, guard state is logged but does not fail `Blocking Checks`
 
@@ -217,6 +220,30 @@ The detection job can remain successful when normalization handles the fault. Li
 
 Summary and reporter inputs normalize the combined detector job and output state: only two `success` values produce guard success. They also receive the independent `Blocking Checks` job result. Slack treats every `Blocking Checks` state other than `success` as failure and reports it as `Blocking Checks`, not as a guard failure.
 
+### Commit signature validation
+
+Enabled by default (`require_verified_commits: true`) and enforced through the existing `Blocking Checks` job — no new branch-protection check is needed.
+
+The check reads GitHub's own verification verdict (`commit.verification.verified`) for **every** commit in the PR, not only `HEAD`, and uses `github.paginate` so PRs with more than 100 commits are fully evaluated. Every offending commit is reported at once — in the job summary as a table (short SHA + link, author, verification reason) and as `::error::` annotations — so a single run surfaces all findings instead of the first one.
+
+| Situation | Result |
+|-----------|--------|
+| Every commit verified | ✅ `Blocking Checks` passes |
+| One or more commits unsigned/unverified | ❌ `Blocking Checks` fails, merge blocked |
+| PR declares more commits than the API returns (250-commit cap) | ❌ fails closed — split the PR so all commits can be validated |
+| `require_verified_commits: false` | Step skipped, no row in summary or report |
+| `dry_run: true` | Findings reported, `Blocking Checks` not failed |
+
+Remediation (also printed in the job summary, with `<base-branch>` already resolved to the pull request's own base branch):
+
+```bash
+git config --local commit.gpgsign true
+git rebase --exec 'git commit --amend --no-edit -S' origin/<base-branch>
+git push --force-with-lease
+```
+
+The step runs with read-only permissions and emits no commit metadata beyond what is already visible in the repository. See [`pr-commit-signatures`](../src/validate/pr-commit-signatures/README.md).
+
 ### Advisory checks (Tier 2)
 - Share a single `checkout` with `fetch-depth: 0`
 - Only run if all blocking checks passed
@@ -228,7 +255,8 @@ When `dry_run: true`:
 - Breaking-change detection still runs and emits deterministic outputs
 - The guard prints all resolved values but does not fail `Blocking Checks`
 - The breaking-change comment and validation report comments are not posted
-- Title, description, and metadata validations still run (read-only checks)
+- Title, description, commit signature, and metadata validations still run (read-only checks)
+- Unsigned/unverified commits are reported but do not fail `Blocking Checks`
 - Size is calculated and logged but **labels are not applied**
 - Source branch is validated but **the failure comment is not posted/updated**
 - Auto-labeling is **skipped entirely**
@@ -237,7 +265,7 @@ When `dry_run: true`:
 
 ## Draft PR Behavior
 
-When a PR is in draft mode, mandatory breaking-change detection and guard enforcement still run. `Blocking Checks` is the existing required check, so a breaking change without author acknowledgement or a detector failure blocks the draft without adding a new required check. Existing source branch, title, description, and collector steps remain skipped, and the step summary is still written. Advisory checks, PR comments, reporter output, guard comments, and Slack also remain skipped until the PR is marked ready for review.
+When a PR is in draft mode, mandatory breaking-change detection and guard enforcement still run. `Blocking Checks` is the existing required check, so a breaking change without author acknowledgement or a detector failure blocks the draft without adding a new required check. Existing source branch, title, description, commit signature, and collector steps remain skipped, and the step summary is still written. Advisory checks, PR comments, reporter output, guard comments, and Slack also remain skipped until the PR is marked ready for review.
 
 Every caller must include `ready_for_review` so deferred validation runs on that transition. Every caller must include `edited` so adding, changing, or removing the acknowledgement in the PR body reruns enforcement.
 

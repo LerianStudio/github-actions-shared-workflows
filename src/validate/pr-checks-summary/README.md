@@ -17,9 +17,12 @@ Generates a summary table of all PR validation check results in the GitHub Actio
 | `size-result` | Result of PR size check | No | `skipped` |
 | `label-result` | Result of auto-label step | No | `skipped` |
 | `metadata-result` | Result of PR metadata check | No | `skipped` |
+| `commit-signatures-result` | Result of commit signature validation | No | `skipped` |
 | `breaking-change-result` | Result of the breaking change guard | No | `skipped` |
 | `blocking-checks-result` | Runtime result of the blocking checks job | No | `skipped` |
 | `dry-run` | Whether this is a dry run | No | `false` |
+
+When `commit-signatures-result` is `skipped` or omitted, the summary omits the `Commit Signatures` row and preserves existing behavior. See [`pr-commit-signatures`](../pr-commit-signatures/README.md).
 
 When `breaking-change-result` is `skipped` or omitted, the summary omits the guard row and preserves existing behavior. This optional default exists only for backward compatibility with direct action consumers. The mandatory `pr-validation` integration always supplies the guard result and offers no guard opt-out.
 

@@ -3,7 +3,7 @@ name: "PR Validation"
 # Reusable workflow for pull_request events only.
 # A mandatory fail-closed breaking-change guard runs for every PR, including drafts, and is enforced
 # through Blocking Checks. Non-draft PRs also run the existing title, source branch, description,
-# advisory, reporting, and notification flow.
+# commit signature, advisory, reporting, and notification flow.
 
 on:
   workflow_call:
@@ -74,6 +74,10 @@ on:
         description: 'Target branches that require source branch validation (pipe-separated)'
         type: string
         default: 'main'
+      require_verified_commits:
+        description: 'Block the PR when any of its commits is unsigned or has an unverified signature'
+        type: boolean
+        default: true
     secrets:
       MANAGE_TOKEN:
         required: false
@@ -191,6 +195,7 @@ jobs:
       source-branch-result: ${{ steps.collect.outputs.source_branch }}
       title-result: ${{ steps.collect.outputs.title }}
       description-result: ${{ steps.collect.outputs.description }}
+      commit-signatures-result: ${{ steps.collect.outputs.commit_signatures }}
 
     steps:
       # The composite auto-skips when target branch is not in target_branches_for_source_check (default: main)
@@ -221,6 +226,15 @@ jobs:
         if: github.event_name == 'pull_request' && github.event.pull_request.draft != true
         continue-on-error: true
         uses: LerianStudio/github-actions-shared-workflows/src/validate/pr-description@v1
+
+      - name: Validate commit signatures
+        id: commit-signatures
+        if: github.event_name == 'pull_request' && github.event.pull_request.draft != true && inputs.require_verified_commits
+        continue-on-error: true
+        uses: LerianStudio/github-actions-shared-workflows/src/validate/pr-commit-signatures@v1
+        with:
+          github-token: ${{ github.token }}
+          dry-run: ${{ inputs.dry_run && 'true' || 'false' }}
 
       - name: Enforce breaking change guard
         if: always()
@@ -253,6 +267,7 @@ jobs:
           source-branch-outcome: ${{ steps.source-branch.outcome || 'skipped' }}
           title-outcome: ${{ steps.title.outcome }}
           description-outcome: ${{ steps.description.outcome }}
+          commit-signatures-outcome: ${{ steps.commit-signatures.outcome || 'skipped' }}
 
   # ----------------- Tier 2: Advisory Checks (shared checkout, depends on Tier 1) -----------------
   advisory-checks:
@@ -320,6 +335,7 @@ jobs:
           source-branch-result: ${{ needs.blocking-checks.outputs.source-branch-result || 'skipped' }}
           title-result: ${{ needs.blocking-checks.outputs.title-result || 'skipped' }}
           description-result: ${{ needs.blocking-checks.outputs.description-result || 'skipped' }}
+          commit-signatures-result: ${{ needs.blocking-checks.outputs.commit-signatures-result || 'skipped' }}
           size-result: ${{ needs.advisory-checks.outputs.size-result || 'skipped' }}
           label-result: ${{ needs.advisory-checks.outputs.label-result || 'skipped' }}
           metadata-result: ${{ needs.advisory-checks.outputs.metadata-result || 'skipped' }}
@@ -433,6 +449,7 @@ jobs:
           source-branch-result: ${{ needs.blocking-checks.outputs.source-branch-result || 'skipped' }}
           title-result: ${{ needs.blocking-checks.outputs.title-result || 'skipped' }}
           description-result: ${{ needs.blocking-checks.outputs.description-result || 'skipped' }}
+          commit-signatures-result: ${{ needs.blocking-checks.outputs.commit-signatures-result || 'skipped' }}
           size-result: ${{ needs.advisory-checks.outputs.size-result || 'skipped' }}
           label-result: ${{ needs.advisory-checks.outputs.label-result || 'skipped' }}
           metadata-result: ${{ needs.advisory-checks.outputs.metadata-result || 'skipped' }}
@@ -447,8 +464,8 @@ jobs:
     if: always() && github.event_name == 'pull_request' && github.event.pull_request.draft != true && !inputs.dry_run
     uses: LerianStudio/github-actions-shared-workflows/.github/workflows/slack-notify.yml@v1.28.12
     with:
-      status: ${{ (needs.breaking-change-guard.result != 'success' || needs.breaking-change-guard.outputs.result != 'success' || needs.blocking-checks.result != 'success' || needs.blocking-checks.outputs.source-branch-result == 'failure' || needs.blocking-checks.outputs.title-result == 'failure' || needs.blocking-checks.outputs.description-result == 'failure') && 'failure' || 'success' }}
+      status: ${{ (needs.breaking-change-guard.result != 'success' || needs.breaking-change-guard.outputs.result != 'success' || needs.blocking-checks.result != 'success' || needs.blocking-checks.outputs.source-branch-result == 'failure' || needs.blocking-checks.outputs.title-result == 'failure' || needs.blocking-checks.outputs.description-result == 'failure' || needs.blocking-checks.outputs.commit-signatures-result == 'failure') && 'failure' || 'success' }}
       workflow_name: "PR Validation"
-      failed_jobs: ${{ (needs.breaking-change-guard.result != 'success' || needs.breaking-change-guard.outputs.result != 'success') && 'Breaking Change Guard, ' || '' }}${{ needs.blocking-checks.result != 'success' && 'Blocking Checks, ' || '' }}${{ needs.blocking-checks.outputs.source-branch-result == 'failure' && 'Source Branch, ' || '' }}${{ needs.blocking-checks.outputs.title-result == 'failure' && 'PR Title, ' || '' }}${{ needs.blocking-checks.outputs.description-result == 'failure' && 'PR Description' || '' }}
+      failed_jobs: ${{ (needs.breaking-change-guard.result != 'success' || needs.breaking-change-guard.outputs.result != 'success') && 'Breaking Change Guard, ' || '' }}${{ needs.blocking-checks.result != 'success' && 'Blocking Checks, ' || '' }}${{ needs.blocking-checks.outputs.source-branch-result == 'failure' && 'Source Branch, ' || '' }}${{ needs.blocking-checks.outputs.title-result == 'failure' && 'PR Title, ' || '' }}${{ needs.blocking-checks.outputs.description-result == 'failure' && 'PR Description, ' || '' }}${{ needs.blocking-checks.outputs.commit-signatures-result == 'failure' && 'Commit Signatures' || '' }}
     secrets:
       SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}

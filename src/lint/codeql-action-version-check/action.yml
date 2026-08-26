@@ -1,0 +1,50 @@
+name: CodeQL Action Version Check
+description: Fail if github/codeql-action/* steps (init, autobuild, analyze, upload-sarif, etc.) are pinned to different releases anywhere in the repo.
+
+runs:
+  using: composite
+  steps:
+    - name: Verify codeql-action pins are aligned
+      shell: bash
+      run: |
+        mapfile -t matches < <(grep -rnE '^[[:space:]]*(-[[:space:]]*)?uses:[[:space:]]*github/codeql-action/[a-z0-9-]+@' --include='*.yml' --include='*.yaml' .)
+
+        if [ "${#matches[@]}" -eq 0 ]; then
+          echo "No github/codeql-action references found — nothing to check."
+          exit 0
+        fi
+
+        declare -A locations_by_ref
+        status=0
+
+        for match in "${matches[@]}"; do
+          location=${match%%:uses:*}
+          content=${match#*uses:}
+          normalized=$(printf '%s\n' "$content" | sed 's/[[:space:]]*#.*$//' | xargs)
+          ref=${normalized##*@}
+          version=$(printf '%s\n' "$content" | grep -oE '#[[:space:]]*v[0-9]+\.[0-9]+\.[0-9]+' | tr -d ' #')
+
+          if [ -z "$version" ]; then
+            echo "::error file=${location%%:*},line=${location##*:}::github/codeql-action reference is missing an exact '# vX.Y.Z' version comment:$content"
+            status=1
+            continue
+          fi
+
+          # github/codeql-action publishes init, autobuild and analyze from the same
+          # commit per release, so the SHA itself — not just the comment — must match.
+          locations_by_ref["$ref"]+="${location} "
+        done
+
+        if [ "${#locations_by_ref[@]}" -gt 1 ]; then
+          echo "::error::github/codeql-action steps (init, autobuild, analyze) must all be pinned to the exact same commit SHA — found ${#locations_by_ref[@]} different refs:"
+          for ref in "${!locations_by_ref[@]}"; do
+            echo "  ${ref}: ${locations_by_ref[$ref]}"
+          done
+          status=1
+        fi
+
+        if [ "$status" -eq 0 ]; then
+          echo "All github/codeql-action references pinned to the same ref: ${!locations_by_ref[*]}"
+        fi
+
+        exit "$status"
