@@ -60,7 +60,7 @@ on:
         type: string
         default: ''
       on_existing_tag:
-        description: 'Behaviour when the target image tag already exists in an enabled registry (checked before build): "fail" (abort early, default), "skip" (skip build/push when the tag exists in EVERY enabled registry, still emitting GitOps artifacts for an idempotent re-run; when only some registries have it, build and push to the missing ones), or "warn" (warn and build anyway).'
+        description: 'Behaviour when the target image tag already exists in an enabled registry (checked before build): "fail" (abort early, default), "skip" (skip build/push when the tag exists in EVERY enabled registry, still emitting GitOps artifacts for an idempotent re-run; abort when only some registries have it), "repair" (same as skip, but on a partial publish build and push only to the registries missing the tag), or "warn" (warn and build anyway).'
         type: string
         default: 'fail'
       dockerfile_name:
@@ -411,8 +411,8 @@ jobs:
 
           MODE="${ON_EXISTING_TAG:-fail}"
           case "$MODE" in
-            fail|skip|warn) ;;
-            *) echo "::error::Invalid on_existing_tag '$MODE' (must be: fail, skip, warn)"; exit 1 ;;
+            fail|skip|repair|warn) ;;
+            *) echo "::error::Invalid on_existing_tag '$MODE' (must be: fail, skip, repair, warn)"; exit 1 ;;
           esac
 
           # Image tag matches what docker/metadata-action publishes (semver without leading 'v').
@@ -428,8 +428,9 @@ jobs:
           # treated as "not present" so a flaky check never blocks a legitimate build.
           #
           # Each enabled registry is tracked separately: a previous run can have
-          # published to one registry and failed on the other, and the two cases
-          # ("everywhere" vs. "somewhere") need different handling under `skip`.
+          # published to one registry and failed on the other, and "the tag is in
+          # every enabled registry" and "the tag is in some of them" are different
+          # situations that `skip` and `repair` must not conflate.
           if [ "$ENABLE_DOCKERHUB" = "true" ]; then
             ENABLED_COUNT=$((ENABLED_COUNT + 1))
             IMAGE="${DOCKERHUB_ORG}/${APP_NAME}"
@@ -462,18 +463,22 @@ jobs:
                 echo "::error::Tag ${TAG} already exists (${EXISTING}). Registry tags are immutable; aborting before rebuild. Use on_existing_tag: skip for idempotent re-runs."
                 exit 1
                 ;;
-              skip)
+              skip|repair)
                 if [ "$EXISTING_COUNT" -eq "$ENABLED_COUNT" ]; then
                   echo "::warning::Tag ${TAG} already exists in every enabled registry (${EXISTING}) — skipping build/push (idempotent re-run)."
                   SHOULD_BUILD=false
-                else
-                  # Partial publish: skipping here would emit GitOps artifacts for a tag
-                  # that is absent from at least one enabled registry. Build once and push
-                  # only where it is missing, leaving the immutable tags already in place
-                  # untouched.
-                  echo "::warning::Tag ${TAG} exists in ${EXISTING} but is missing from ${MISSING} (partial publish) — building and pushing only to the missing registry/registries."
+                elif [ "$MODE" = "repair" ]; then
+                  # Partial publish, repair opted in: build once and push only where the
+                  # tag is missing, leaving the immutable tags already in place untouched.
+                  echo "::warning::Tag ${TAG} exists in ${EXISTING} but is missing from ${MISSING} (partial publish) — repairing: building and pushing only to the missing registry/registries."
                   PARTIAL_EXISTING=true
                   PUSH_IMAGES="$MISSING_IMAGES"
+                else
+                  # Partial publish under `skip`. Skipping would emit GitOps artifacts for
+                  # a tag that is absent from an enabled registry, so the run stops instead
+                  # of publishing a reference that is not resolvable everywhere.
+                  echo "::error::Tag ${TAG} exists in ${EXISTING} but is missing from ${MISSING} — partial publish. Skipping would emit GitOps artifacts for a tag that is absent from an enabled registry. Use on_existing_tag: repair to build and push only the missing registries, or cut a new version."
+                  exit 1
                 fi
                 ;;
               warn)
@@ -493,7 +498,7 @@ jobs:
         uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6
         with:
           # Every enabled registry, except under a partial-publish repair
-          # (`on_existing_tag: skip`), where it narrows to the missing ones only.
+          # (`on_existing_tag: repair`), where it narrows to the missing ones only.
           images: ${{ steps.preflight.outputs.push_images }}
           tags: |
             type=semver,pattern={{version}},value=${{ steps.version.outputs.version }}
@@ -520,8 +525,8 @@ jobs:
       # ----------------- Cosign Image Signing -----------------
       # Lets `on_existing_tag: skip` retry just the signing step for an already-pushed
       # tag (e.g. after a transient cosign/Rekor failure) without a full rebuild.
-      # Also runs after a partial-publish repair, where the registry that already
-      # carried the tag has its own (possibly different) digest to resolve.
+      # Also runs after an `on_existing_tag: repair` partial publish, where the registry
+      # that already carried the tag has its own (possibly different) digest to resolve.
       - name: Resolve digest for existing tag
         if: inputs.enable_cosign_sign && (steps.preflight.outputs.should_build == 'false' || steps.preflight.outputs.partial_existing == 'true')
         id: existing-digest
