@@ -35,6 +35,7 @@ The `frontend-analysis`, `security` and `socket` pipelines each have a `*-gate` 
 | `enforce_source_branches` | Enforce source branches into protected branches | boolean | `true` |
 | `allowed_source_branches` | Allowed source branches (pipe-separated, `*` prefix) | string | `develop\|release-candidate\|hotfix/*` |
 | `target_branches_for_source_check` | Target branches requiring source validation | string | `main` |
+| `require_verified_commits` | Block the PR when any commit is unsigned or unverified | boolean | `true` |
 | `node_version` | Node.js version | string | `22` |
 | `package_manager` | Package manager (`npm`, `yarn`, `pnpm`) | string | `npm` |
 | `eslint_args` | Additional arguments for ESLint | string | `''` |

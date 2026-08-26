@@ -14,6 +14,7 @@ Collects outcomes from blocking validation checks, exposes them as step outputs,
 | `source-branch-outcome` | Outcome of the source branch validation step | No | `skipped` |
 | `title-outcome` | Outcome of the PR title validation step | Yes | |
 | `description-outcome` | Outcome of the PR description validation step | Yes | |
+| `commit-signatures-outcome` | Outcome of the commit signature validation step | No | `skipped` |
 
 ## Outputs
 
@@ -22,6 +23,7 @@ Collects outcomes from blocking validation checks, exposes them as step outputs,
 | `source_branch` | Outcome of source branch validation |
 | `title` | Outcome of PR title validation |
 | `description` | Outcome of PR description validation |
+| `commit_signatures` | Outcome of commit signature validation |
 
 ## Usage as composite step
 
@@ -33,6 +35,7 @@ Collects outcomes from blocking validation checks, exposes them as step outputs,
     source-branch-outcome: ${{ steps.source-branch.outcome || 'skipped' }}
     title-outcome: ${{ steps.title.outcome }}
     description-outcome: ${{ steps.description.outcome }}
+    commit-signatures-outcome: ${{ steps.commit-signatures.outcome || 'skipped' }}
 ```
 
 ## Required permissions

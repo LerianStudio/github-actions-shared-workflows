@@ -29,6 +29,10 @@ inputs:
     description: Result of PR metadata check (success/failure/skipped)
     required: false
     default: "skipped"
+  commit-signatures-result:
+    description: Result of commit signature validation (success/failure/skipped)
+    required: false
+    default: "skipped"
   breaking-change-result:
     description: Result of breaking change guard (success/failure/cancelled/skipped)
     required: false
@@ -82,6 +86,7 @@ runs:
         SIZE_RESULT: ${{ inputs.size-result }}
         LABEL_RESULT: ${{ inputs.label-result }}
         METADATA_RESULT: ${{ inputs.metadata-result }}
+        COMMIT_SIGNATURES_RESULT: ${{ inputs.commit-signatures-result }}
         BREAKING_CHANGE_RESULT: ${{ inputs.breaking-change-result }}
         BLOCKING_CHECKS_RESULT: ${{ inputs.blocking-checks-result }}
       with:
@@ -91,6 +96,9 @@ runs:
             { label: 'Source Branch',  result: process.env.SOURCE_BRANCH_RESULT, blocking: true  },
             { label: 'PR Title',       result: process.env.TITLE_RESULT,         blocking: true  },
             { label: 'PR Description', result: process.env.DESCRIPTION_RESULT,   blocking: true  },
+            ...(process.env.COMMIT_SIGNATURES_RESULT !== 'skipped'
+              ? [{ label: 'Commit Signatures', result: process.env.COMMIT_SIGNATURES_RESULT, blocking: true }]
+              : []),
             { label: 'PR Size',        result: process.env.SIZE_RESULT,          blocking: false },
             { label: 'Auto Labels',    result: process.env.LABEL_RESULT,         blocking: false },
             { label: 'PR Metadata',    result: process.env.METADATA_RESULT,      blocking: false },
