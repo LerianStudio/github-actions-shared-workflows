@@ -7,7 +7,7 @@ runs:
     - name: Verify codeql-action pins are aligned
       shell: bash
       run: |
-        mapfile -t matches < <(grep -rnE '^[[:space:]]*(-[[:space:]]*)?uses:[[:space:]]*github/codeql-action/[a-z]+@' --include='*.yml' --include='*.yaml' .)
+        mapfile -t matches < <(grep -rnE '^[[:space:]]*(-[[:space:]]*)?uses:[[:space:]]*github/codeql-action/[a-z0-9-]+@' --include='*.yml' --include='*.yaml' .)
 
         if [ "${#matches[@]}" -eq 0 ]; then
           echo "No github/codeql-action references found — nothing to check."
