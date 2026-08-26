@@ -135,6 +135,17 @@ jobs:
         with:
           files: ${{ needs.changed-files.outputs.action_files }}
 
+  # ----------------- CodeQL Action Version Consistency -----------------
+  codeql-action-versions:
+    name: CodeQL Action Version Consistency
+    runs-on: ${{ vars.GENERAL_RUNNERS || 'blacksmith-4vcpu-ubuntu-2404' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+
+      - name: CodeQL Action Version Check
+        uses: ./src/lint/codeql-action-version-check
+
   # ----------------- Markdown Link Check -----------------
   markdown-link-check:
     name: Markdown Link Check
