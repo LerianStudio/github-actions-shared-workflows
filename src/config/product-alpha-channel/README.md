@@ -30,10 +30,10 @@ The generated `branches` list always includes `anchor-branch`. `semantic-release
 
 | Output | Description |
 |--------|-------------|
-| `is-alpha` | `'true'` when `ref-name` matches `branch-pattern` and the product is not excluded |
-| `product` | Product name extracted from the branch, empty when `is-alpha` is `'false'` |
-| `branches` | JSON branches config to override `semantic-release` with, empty when `is-alpha` is `'false'` |
-| `tag-format` | Tag format to override `semantic-release` with, empty when `is-alpha` is `'false'` |
+| `has-alpha` | `'true'` when `ref-name` matches `branch-pattern` and the product is not excluded |
+| `product` | Product name extracted from the branch, empty when `has-alpha` is `'false'` |
+| `branches` | JSON branches config to override `semantic-release` with, empty when `has-alpha` is `'false'` |
+| `tag-format` | Tag format to override `semantic-release` with, empty when `has-alpha` is `'false'` |
 
 For `develop-midaz` with the defaults:
 
@@ -95,7 +95,11 @@ The consuming repo must add the product branches to its `on.push.branches` — t
 
 ## Required permissions
 
+The composite itself only reads the ref name it is given — it makes no API call and touches no git state:
+
 ```yaml
 permissions:
   contents: read
 ```
+
+The reusable-workflow usage above is a different scope: `js-release.yml` publishes tags, releases and images, so the caller must grant the release workflow its own permission union, not this block. See [`js-release`](../../../docs/js-release.md) and [`release-workflow`](../../../docs/release-workflow.md) for the authoritative set.

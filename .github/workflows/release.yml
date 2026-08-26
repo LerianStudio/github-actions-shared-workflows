@@ -381,7 +381,7 @@ jobs:
         id: guard
         if: |
           steps.semantic_dry.outputs.new_release_published == 'true' &&
-          steps.alpha.outputs.is-alpha != 'true'
+          steps.alpha.outputs.has-alpha != 'true'
         uses: LerianStudio/github-actions-shared-workflows/src/config/prerelease-guard@v1
         with:
           calculated-version: ${{ steps.semantic_dry.outputs.new_release_version }}

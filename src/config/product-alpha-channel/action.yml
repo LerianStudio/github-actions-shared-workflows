@@ -27,17 +27,17 @@ inputs:
     default: ""
 
 outputs:
-  is-alpha:
+  has-alpha:
     description: "'true' when ref-name matches branch-pattern and the product is not excluded"
     value: ${{ steps.resolve.outputs.is_alpha }}
   product:
-    description: Product name extracted from the branch, empty when is-alpha is 'false'
+    description: Product name extracted from the branch, empty when has-alpha is 'false'
     value: ${{ steps.resolve.outputs.product }}
   branches:
-    description: JSON branches config to override semantic-release with, empty when is-alpha is 'false'
+    description: JSON branches config to override semantic-release with, empty when has-alpha is 'false'
     value: ${{ steps.resolve.outputs.branches }}
   tag-format:
-    description: Tag format to override semantic-release with, empty when is-alpha is 'false'
+    description: Tag format to override semantic-release with, empty when has-alpha is 'false'
     value: ${{ steps.resolve.outputs.tag_format }}
 
 runs:
@@ -75,10 +75,12 @@ runs:
         prefix="${BRANCH_PATTERN%%\**}"
         suffix="${BRANCH_PATTERN#*\*}"
 
+        # A non-match is the common case on the shared branches, so it stays a
+        # plain log line — only an engaged alpha line is worth a run annotation.
         case "$REF_NAME" in
           "${prefix}"*"${suffix}") ;;
           *)
-            echo "::notice::'${REF_NAME}' does not match '${BRANCH_PATTERN}' — no alpha channel"
+            echo "'${REF_NAME}' does not match '${BRANCH_PATTERN}' — no alpha channel"
             not_alpha
             ;;
         esac
@@ -96,7 +98,7 @@ runs:
         IFS=',' read -ra excluded <<< "$EXCLUDED_PRODUCTS"
         for item in "${excluded[@]}"; do
           if [ "$(echo "$item" | xargs)" = "$product" ]; then
-            echo "::notice::Product '${product}' is excluded — no alpha channel"
+            echo "Product '${product}' is excluded — no alpha channel"
             not_alpha
           fi
         done

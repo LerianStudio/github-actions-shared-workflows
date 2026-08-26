@@ -535,7 +535,7 @@ Notes:
 - The consuming repo must add the product branches to its own `on.push.branches`, otherwise the workflow never runs on them.
 - Each product line starts at `1.0.0-alpha.1`: no tag matches `<product>-v*` on the first run, so `semantic-release` falls back to its first-release baseline. Push an annotated tag in the product format to start from another version.
 - Product lines are excluded from the stale-prerelease guard. The guard compares a calculated version against the stable `v*` tags, and a product line never shares that namespace.
-- The pre-version backmerge sync (`prerelease_backmerge_sync_enabled`) is driven by `prerelease_branches`, which is an exact-match list. Product branches are not in it by default, and adding them is not recommended: the guard that follows the sync assumes the stable `v*` namespace.
+- The pre-version backmerge sync (`prerelease_backmerge_sync_enabled`) is driven by `prerelease_branches`, which is an exact-match list. Product branches are not in it by default. Adding one turns the sync on for that branch — `backmerge_source` is merged into the product line before its version is calculated, and the release is skipped for the run when that merge cannot complete directly. The stale-prerelease guard stays skipped either way. Add a product branch only when you do want the product line to track `backmerge_source`.
 - `product_alpha_excluded_products` keeps shared branches that match the pattern (for example `develop-core`) out of the alpha mechanism.
 
 ## Semantic Release Plugins
