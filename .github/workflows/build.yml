@@ -426,6 +426,7 @@ jobs:
           EXISTING_REFS=""
           MISSING=""
           MISSING_IMAGES=""
+          UNKNOWN=""
           ENABLED_COUNT=0
           EXISTING_COUNT=0
 
@@ -448,9 +449,25 @@ jobs:
           }
 
           # `docker manifest inspect` reuses the registry logins from earlier steps and
-          # returns non-zero when the tag is absent. A non-existence/error result is
-          # treated as "not present" so a flaky check never blocks a legitimate build.
+          # returns non-zero both when the tag is absent and when the lookup itself
+          # fails, so the two are told apart by the registry's own error text. That
+          # distinction carries weight now that "missing from this registry" drives
+          # control flow: counting an unconfirmed registry as missing would make a
+          # transient blip on one registry look exactly like a partial publish.
           #
+          # An unrecognised error is deliberately "unknown" rather than "absent" —
+          # guessing absent is the option that silently loses information.
+          classify_tag() {
+            local ref="$1" err
+            if err=$(docker manifest inspect "$ref" 2>&1 >/dev/null); then
+              printf 'present'
+            elif printf '%s' "$err" | grep -qiE 'manifest unknown|manifest_unknown|no such manifest|not found|repository does not exist|pull access denied'; then
+              printf 'absent'
+            else
+              printf 'unknown'
+            fi
+          }
+
           # Each enabled registry is tracked separately: a previous run can have
           # published to one registry and failed on the other, and "the tag is in
           # every enabled registry" and "the tag is in some of them" are different
@@ -458,26 +475,38 @@ jobs:
           if [ "$ENABLE_DOCKERHUB" = "true" ]; then
             ENABLED_COUNT=$((ENABLED_COUNT + 1))
             IMAGE="${DOCKERHUB_ORG}/${APP_NAME}"
-            if docker manifest inspect "${IMAGE}:${TAG}" >/dev/null 2>&1; then
-              EXISTING="${EXISTING}${EXISTING:+, }docker.io/${IMAGE}:${TAG}"
-              EXISTING_REFS="${EXISTING_REFS}docker.io/${IMAGE}:${TAG}"$'\n'
-              EXISTING_COUNT=$((EXISTING_COUNT + 1))
-            else
-              MISSING="${MISSING}${MISSING:+, }docker.io/${IMAGE}:${TAG}"
-              MISSING_IMAGES="${MISSING_IMAGES}${MISSING_IMAGES:+,}${IMAGE}"
-            fi
+            case "$(classify_tag "${IMAGE}:${TAG}")" in
+              present)
+                EXISTING="${EXISTING}${EXISTING:+, }docker.io/${IMAGE}:${TAG}"
+                EXISTING_REFS="${EXISTING_REFS}docker.io/${IMAGE}:${TAG}"$'\n'
+                EXISTING_COUNT=$((EXISTING_COUNT + 1))
+                ;;
+              absent)
+                MISSING="${MISSING}${MISSING:+, }docker.io/${IMAGE}:${TAG}"
+                MISSING_IMAGES="${MISSING_IMAGES}${MISSING_IMAGES:+,}${IMAGE}"
+                ;;
+              *)
+                UNKNOWN="${UNKNOWN}${UNKNOWN:+, }docker.io/${IMAGE}:${TAG}"
+                ;;
+            esac
           fi
           if [ "$ENABLE_GHCR" = "true" ]; then
             ENABLED_COUNT=$((ENABLED_COUNT + 1))
             IMAGE="ghcr.io/${GHCR_ORG}/${APP_NAME}"
-            if docker manifest inspect "${IMAGE}:${TAG}" >/dev/null 2>&1; then
-              EXISTING="${EXISTING}${EXISTING:+, }${IMAGE}:${TAG}"
-              EXISTING_REFS="${EXISTING_REFS}${IMAGE}:${TAG}"$'\n'
-              EXISTING_COUNT=$((EXISTING_COUNT + 1))
-            else
-              MISSING="${MISSING}${MISSING:+, }${IMAGE}:${TAG}"
-              MISSING_IMAGES="${MISSING_IMAGES}${MISSING_IMAGES:+,}${IMAGE}"
-            fi
+            case "$(classify_tag "${IMAGE}:${TAG}")" in
+              present)
+                EXISTING="${EXISTING}${EXISTING:+, }${IMAGE}:${TAG}"
+                EXISTING_REFS="${EXISTING_REFS}${IMAGE}:${TAG}"$'\n'
+                EXISTING_COUNT=$((EXISTING_COUNT + 1))
+                ;;
+              absent)
+                MISSING="${MISSING}${MISSING:+, }${IMAGE}:${TAG}"
+                MISSING_IMAGES="${MISSING_IMAGES}${MISSING_IMAGES:+,}${IMAGE}"
+                ;;
+              *)
+                UNKNOWN="${UNKNOWN}${UNKNOWN:+, }${IMAGE}:${TAG}"
+                ;;
+            esac
           fi
 
           SHOULD_BUILD=true
@@ -490,6 +519,18 @@ jobs:
                 exit 1
                 ;;
               skip|repair)
+                # A registry whose status could not be determined is not evidence of a
+                # partial publish, and treating it as one would turn a transient lookup
+                # failure into an abort (`skip`) or a push to a registry that may already
+                # hold the tag (`repair`). Stop on the unknown instead of guessing: the
+                # state is unresolved rather than known-bad, and a re-run once the
+                # registry answers is enough. Reached only when another registry did
+                # confirm the tag — when nothing is confirmed there is simply a build.
+                if [ -n "$UNKNOWN" ]; then
+                  echo "::error::Could not determine whether tag ${TAG} exists in ${UNKNOWN} (the registry lookup failed rather than reporting the tag absent). on_existing_tag: ${MODE} needs every enabled registry's status to be known before reusing an existing tag. Re-run once the registry is reachable."
+                  exit 1
+                fi
+
                 # Provenance gate. Both modes reuse an image that is already in the
                 # registry, so an existing tag has to be proven to come from this commit
                 # before it is honoured. Without this, a retargeted tag is skipped (GitOps

@@ -138,7 +138,9 @@ Before building, the workflow checks whether the target image tag already exists
 - **`repair`**: same as `skip`, plus it repairs a partial publish instead of aborting on it. Opt-in — see partial publishes below.
 - **`warn`**: emit a warning and build anyway (push may still fail on immutable registries).
 
-A non-existent tag (or a check that errors out, e.g. transient registry issues) is treated as "not present" so the check never blocks a legitimate build.
+`docker manifest inspect` exits non-zero both when the tag is absent and when the lookup itself fails, so the pre-flight reads the registry's error text to tell the two apart — a tag is only treated as missing when the registry actually reports it absent. When no registry confirms the tag, an errored check still counts as "not present" and the build proceeds, so a flaky check never blocks a legitimate build.
+
+When one registry confirms the tag and another could not be reached, `skip` and `repair` abort naming the unreachable registry: an undetermined status is not evidence of a partial publish, and guessing either way is wrong (`skip` would publish a GitOps reference it cannot vouch for, `repair` would push to a registry that may already hold the immutable tag). A re-run once the registry answers is enough. `fail` and `warn` are unaffected — neither depends on which registries are missing the tag.
 
 ### Partial publishes
 
