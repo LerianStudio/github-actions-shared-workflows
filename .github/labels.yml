@@ -149,3 +149,9 @@
 - name: pinned
   color: "d4a017"
   description: Pinned discussion/tracker — exempt from stale auto-close
+
+# ── Review routing ─────────────────────────────────────────────────────────────
+
+- name: skip-coderabbit
+  color: "5319e7"
+  description: CodeRabbit skips auto-review on this PR

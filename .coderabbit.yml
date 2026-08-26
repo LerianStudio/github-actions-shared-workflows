@@ -76,6 +76,14 @@ reviews:
     drafts: false
     base_branches:
       - "develop"
+    # Negative match: review everything except PRs carrying this label.
+    # `base_branches` cannot express this on its own — the default branch (main)
+    # is always reviewed and `base_branches` only extends that set. The label is
+    # applied to every PR not targeting develop by
+    # `.github/workflows/self-coderabbit-guard.yml`. Remove it from a PR (and
+    # comment `@coderabbitai review`) to review that PR anyway.
+    labels:
+      - "!skip-coderabbit"
     ignore_title_keywords:
       - "WIP"
       - "wip"
