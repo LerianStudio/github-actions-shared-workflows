@@ -114,6 +114,7 @@ apps:
     # Provisioned by Severino (app-provisioning automation)
     - billing-worker
     - finance-hub
+    - status-page-lerian
 
 clusters:
   anacleto:
@@ -171,6 +172,7 @@ clusters:
 
       # Provisioned by Severino (app-provisioning automation)
       finance-hub: cross
+      status-page-lerian: cross
     apps:
       - midaz
       - fetcher
@@ -213,3 +215,4 @@ clusters:
       # Provisioned by Severino (app-provisioning automation)
       - billing-worker
       - finance-hub
+      - status-page-lerian

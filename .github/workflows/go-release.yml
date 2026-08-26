@@ -99,6 +99,22 @@ on:
         description: 'Sign container images with cosign keyless (OIDC) signing after push'
         type: boolean
         default: true
+      cosign_max_attempts:
+        description: 'Maximum cosign signing attempts per image reference. Increase to absorb transient OIDC/Fulcio/Rekor rate limits. Forwarded to build.yml.'
+        type: string
+        default: '5'
+      cosign_initial_delay:
+        description: 'Initial delay (seconds) between cosign retries. Grows exponentially (×3) after each failed attempt, capped at cosign_max_delay, then randomized (equal jitter). Forwarded to build.yml.'
+        type: string
+        default: '5'
+      cosign_max_delay:
+        description: 'Maximum delay (seconds) between cosign retries. Caps the exponential backoff before jitter is applied. Forwarded to build.yml.'
+        type: string
+        default: '60'
+      continue_gitops_on_signing_failure:
+        description: 'When true, continue to GitOps artifact upload even if cosign signing fails after all retries. The image stays in the registry unsigned and a warning is emitted; manual signing is required afterwards. Forwarded to build.yml.'
+        type: boolean
+        default: false
       app_name_prefix:
         description: 'Prefix for app names in monorepo (e.g., "midaz" -> "midaz-agent")'
         type: string
@@ -474,6 +490,10 @@ jobs:
       build_context_from_working_dir: ${{ inputs.build_context_from_working_dir }}
       docker_build_args: ${{ inputs.docker_build_args }}
       enable_cosign_sign: ${{ inputs.enable_cosign_sign }}
+      cosign_max_attempts: ${{ inputs.cosign_max_attempts }}
+      cosign_initial_delay: ${{ inputs.cosign_initial_delay }}
+      cosign_max_delay: ${{ inputs.cosign_max_delay }}
+      continue_gitops_on_signing_failure: ${{ inputs.continue_gitops_on_signing_failure }}
       enable_helm_dispatch: ${{ inputs.enable_helm_dispatch }}
       helm_chart: ${{ inputs.helm_chart }}
       helm_repository: ${{ inputs.helm_repository }}
@@ -747,6 +767,10 @@ jobs:
       enable_ghcr: ${{ (matrix.group.enable_ghcr == null && inputs.enable_ghcr == true) || matrix.group.enable_ghcr == true }}
       dockerhub_org: ${{ inputs.dockerhub_org }}
       enable_cosign_sign: ${{ inputs.enable_cosign_sign }}
+      cosign_max_attempts: ${{ inputs.cosign_max_attempts }}
+      cosign_initial_delay: ${{ inputs.cosign_initial_delay }}
+      cosign_max_delay: ${{ inputs.cosign_max_delay }}
+      continue_gitops_on_signing_failure: ${{ inputs.continue_gitops_on_signing_failure }}
       enable_gitops_artifacts: ${{ matrix.group.enable_gitops_artifacts == null && true || matrix.group.enable_gitops_artifacts }}
       filter_paths: ${{ matrix.group.filter_paths }}
       shared_paths: ${{ matrix.group.shared_paths || inputs.shared_paths }}

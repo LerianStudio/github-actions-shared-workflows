@@ -1,5 +1,48 @@
 # Github-actions-shared-workflows Changelog
 
+## [1.60.0](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.60.0)
+
+Features:
+- Add per-job runner overrides to JavaScript workflows. (@fredcamaral)
+
+Fixes:
+- Correct the release process from `develop` to `main`. (@bedatty)
+- Stop publishing floating major/minor image tags. (@bedatty, @fredcamaral)
+- Pin the Docker actions by commit SHA to ensure consistency. (@bedatty)
+
+[Compare changes](https://github.com/LerianStudio/github-actions-shared-workflows/compare/v1.59.0...v1.60.0)
+
+---
+
+## [1.59.0](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.59.0)
+
+Features:
+- Implemented a mechanism to block merges with unsigned or unverified commits. (@bedatty)
+
+Fixes:
+- Addressed an issue where the release process incorrectly transitioned from `develop` to `main`. (@bedatty)
+- Enhanced the `cosign` installation process by adding retries and exposing configuration options via `go-release`. (@bedatty)
+- Improved the build process to handle partial and stale tags more robustly. (@bedatty)
+- Differentiated between a failed registry lookup and a missing tag during the build process. (@bedatty)
+- Required the presence of a tag in every registry before allowing a build to be skipped. (@bedatty)
+- Aligned `codeql-action` pins and added a drift guard to enhance security. (@bedatty)
+- Pinned third-party actions in `typescript-ci.yml` by SHA for improved security. (@bedatty)
+- Matched hyphenated `codeql-action` names in the drift guard for consistency. (@bedatty)
+- Validated the `codeql-action` reference directly, rather than just its comment, to ensure accuracy. (@bedatty)
+
+Improvements:
+- Grouped pre-flight step outputs into a single redirect for better organization. (@bedatty)
+- Gated the skip/repair process on image provenance to enhance build reliability. (@bedatty)
+- Placed the partial-publish repair process behind the `on_existing_tag: repair` setting for better control. (@bedatty)
+- Updated documentation to fix opt-in wording for default-enabled pipelines. (@bedatty)
+- Addressed feedback on commit signature checks in the documentation. (@bedatty)
+- Synchronized the `codeql-action-version-check` description with the README for consistency. (@bedatty)
+- Documented `upload-sarif` coverage in the `codeql-action-version-check` documentation. (@bedatty)
+
+[Compare changes](https://github.com/LerianStudio/github-actions-shared-workflows/compare/v1.58.1...v1.59.0)
+
+---
+
 ## [1.58.1](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.58.1)
 
 Fixes:

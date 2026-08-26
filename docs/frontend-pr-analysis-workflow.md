@@ -153,6 +153,8 @@ Set `enable_socket_firewall: false` to restore the previous behaviour (cached, u
 | Input | Description | Required | Default |
 |-------|-------------|----------|---------|
 | `runner_type` | GitHub runner type | No | `blacksmith-4vcpu-ubuntu-2404` |
+| `build_runner_type` | Optional runner override for the Build jobs only; empty falls back to `vars.GENERAL_RUNNERS`, then `runner_type` | No | `''` |
+| `custom_checks_runner_type` | Optional runner override for the Custom Checks jobs only; empty falls back to `vars.GENERAL_RUNNERS`, then `runner_type` | No | `''` |
 | `filter_paths` | JSON array of paths to monitor for changes. If empty, treats repo as single-app. | No | `''` |
 | `shared_paths` | Newline-separated path patterns (e.g. `package.json`) that, when matched by any changed file, trigger analysis for ALL components in `filter_paths` | No | `''` |
 | `path_level` | Directory depth level to extract app name | No | `2` |
