@@ -68,6 +68,7 @@ Mirrors the [`go-release`](./go-release-workflow.md) umbrella for Go services â€
 | `e2e_script` | npm script for E2E tests (e.g. `test:e2e`, `test:e2e:mock`) | string | `test:e2e` |
 | `e2e_base_url` | Base URL injected as `BASE_URL` env var. Empty = localhost fallback | string | `''` |
 | `node_version` | Node.js version for the E2E runner | string | `22` |
+| `e2e_runner_type` | Optional runner override for the E2E Tests job only; empty falls back to `runner_type` | string | `''` |
 | `e2e_s3_artifact_path` | Subpath under `s3://lerian-e2e-artifacts/<repo>/<channel>/<tag>/` where the Playwright report is uploaded. Channel (`main`/`beta`/`rc`) is derived from the tag's prerelease identifier. Only used when `AWS_E2E_ARTIFACTS_ROLE_ARN` is set | string | `playwright-report` |
 | `enable_ungoliant_release_diff` | Fire the Ungoliant release-diff webhook on tag push after a successful gitops-update (see [Ungoliant release diff](#ungoliant-release-diff)) | boolean | `false` |
 | `ungoliant_app` | App slug sent to the controller; when empty falls back to `app_name_prefix`, then the repo name | string | `''` |
