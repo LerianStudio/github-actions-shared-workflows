@@ -196,7 +196,10 @@ Generated tags based on semantic versioning:
 | Tag Pattern | Example | When Applied |
 |-------------|---------|--------------|
 | `{{version}}` | `1.0.0-beta.1` | Always |
-| `{{major}}` | `1` | Release tags only |
+
+Only the exact version is published. Floating aliases (`1`, `1.12`) are not:
+re-pointing an existing alias is refused by Docker Hub immutable-tag rules and
+fails the whole build. Consumers must pin the exact version.
 
 ## Monorepo Change Detection
 
