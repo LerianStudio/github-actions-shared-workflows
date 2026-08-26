@@ -103,7 +103,7 @@ jobs:
 | `enable_ghcr` | boolean | `true` | Enable pushing to GitHub Container Registry (requires `MANAGE_TOKEN`) |
 | `dockerhub_org` | string | `lerianstudio` | DockerHub organization name |
 | `ghcr_org` | string | `''` | GHCR organization (defaults to repository owner) |
-| `on_existing_tag` | string | `fail` | Behaviour when the target tag already exists in an enabled registry (pre-flight check before build): `fail` (abort early), `skip` (skip build/push, still emit GitOps artifacts for an idempotent re-run), `warn` (warn and build anyway) |
+| `on_existing_tag` | string | `fail` | Behaviour when the target tag already exists in an enabled registry (pre-flight check before build): `fail` (abort early), `skip` (skip build/push when every enabled registry already has the tag, still emitting GitOps artifacts for an idempotent re-run; push only to the missing registries when some do not), `warn` (warn and build anyway) |
 | `dockerfile_name` | string | `Dockerfile` | Name of the Dockerfile |
 | `tag_prefix` | string | `''` | Skip this build entirely (`has_builds=false`) when triggered by a tag that does not start with this prefix. For callers with multiple independently-tagged components sharing one workflow_call chain. Empty = build on every tag |
 | `app_name_prefix` | string | `''` | Prefix for app names in monorepo |
@@ -133,10 +133,16 @@ Uses `secrets: inherit` pattern. Required secrets:
 Before building, the workflow checks whether the target image tag already exists in each enabled registry (via `docker manifest inspect`, reusing the registry logins). This avoids a full rebuild that would only fail at push time on registries with tag immutability enabled. Behaviour is controlled by `on_existing_tag`:
 
 - **`fail`** (default): abort early with a clear error instead of rebuilding then failing at push.
-- **`skip`**: skip the build/push but still emit the GitOps tag artifacts (from the version), so a re-run remains idempotent for the downstream GitOps update. Cosign signing (if enabled) also retries in this mode: the digest is resolved from the existing registry tag via `docker buildx imagetools inspect` instead of the build/push step, so a transient signing failure on an already-pushed tag can be recovered with a plain re-run instead of cutting a new release.
+- **`skip`**: skip the build/push but still emit the GitOps tag artifacts (from the version), so a re-run remains idempotent for the downstream GitOps update. Cosign signing (if enabled) also retries in this mode: the digest is resolved from the existing registry tag via `docker buildx imagetools inspect` instead of the build/push step, so a transient signing failure on an already-pushed tag can be recovered with a plain re-run instead of cutting a new release. The skip requires the tag in **every** enabled registry — see partial publishes below.
 - **`warn`**: emit a warning and build anyway (push may still fail on immutable registries).
 
 A non-existent tag (or a check that errors out, e.g. transient registry issues) is treated as "not present" so the check never blocks a legitimate build.
+
+### Partial publishes under `skip`
+
+When more than one registry is enabled, a previous run can have published to one and failed on the other (e.g. the DockerHub push succeeded and the GHCR push did not). Skipping outright there would emit a GitOps tag artifact for a tag that is missing from an enabled registry.
+
+So `skip` short-circuits only when **every** enabled registry already has the tag. When only some do, the pre-flight reports which registries are missing it, then builds once and pushes **only** to those — the immutable tags already in place are left untouched. Cosign signs each registry with its own digest read back from that registry, since a rebuild is not bit-for-bit reproducible and the newly pushed digest does not describe the image the other registry already carries.
 
 ## Platform Build Strategy
 
