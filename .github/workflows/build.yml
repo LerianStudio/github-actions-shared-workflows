@@ -63,6 +63,10 @@ on:
         description: 'Behaviour when the target image tag already exists in an enabled registry (checked before build): "fail" (abort early, default), "skip" (skip build/push when the tag exists in EVERY enabled registry, still emitting GitOps artifacts for an idempotent re-run; abort when only some registries have it), "repair" (same as skip, but on a partial publish build and push only to the registries missing the tag), or "warn" (warn and build anyway).'
         type: string
         default: 'fail'
+      require_image_provenance:
+        description: 'Under on_existing_tag "skip"/"repair", abort when the existing image does not record the commit it was built from (the org.opencontainers.image.revision label, emitted by docker/metadata-action). An image whose recorded commit differs from this run always aborts, regardless of this input. Set false to accept unverifiable images, e.g. tags published before the label was emitted.'
+        type: boolean
+        default: true
       dockerfile_name:
         description: 'Name of the Dockerfile'
         type: string
@@ -406,6 +410,7 @@ jobs:
           APP_NAME: ${{ matrix.app.name }}
           VERSION: ${{ steps.version.outputs.version }}
           ALL_IMAGES: ${{ steps.image-names.outputs.images }}
+          REQUIRE_PROVENANCE: ${{ inputs.require_image_provenance }}
         run: |
           set -uo pipefail
 
@@ -418,10 +423,29 @@ jobs:
           # Image tag matches what docker/metadata-action publishes (semver without leading 'v').
           TAG="${VERSION#v}"
           EXISTING=""
+          EXISTING_REFS=""
           MISSING=""
           MISSING_IMAGES=""
           ENABLED_COUNT=0
           EXISTING_COUNT=0
+
+          # The commit an image was built from is recorded by docker/metadata-action's
+          # default label set (org.opencontainers.image.revision), which this workflow
+          # feeds to build-push-action. Reading it back is the only thing that tells a
+          # genuine re-run of the same commit apart from a tag that was retargeted to a
+          # newer one — tag existence alone cannot.
+          #
+          # `.Image` is a single image config for a single-platform tag and a
+          # platform-keyed map for a multi-arch one, so the label is picked with a
+          # recursive descent rather than a fixed path. Prints the revision, or nothing
+          # when the lookup fails or the image carries no such label; the caller treats
+          # both as "unverifiable".
+          resolve_revision() {
+            local ref="$1" out
+            if out=$(docker buildx imagetools inspect "$ref" --format '{{json .Image}}' 2>/dev/null); then
+              printf '%s' "$out" | jq -r '[.. | objects | .Labels? | objects | .["org.opencontainers.image.revision"]? | strings] | first // empty'
+            fi
+          }
 
           # `docker manifest inspect` reuses the registry logins from earlier steps and
           # returns non-zero when the tag is absent. A non-existence/error result is
@@ -436,6 +460,7 @@ jobs:
             IMAGE="${DOCKERHUB_ORG}/${APP_NAME}"
             if docker manifest inspect "${IMAGE}:${TAG}" >/dev/null 2>&1; then
               EXISTING="${EXISTING}${EXISTING:+, }docker.io/${IMAGE}:${TAG}"
+              EXISTING_REFS="${EXISTING_REFS}docker.io/${IMAGE}:${TAG}"$'\n'
               EXISTING_COUNT=$((EXISTING_COUNT + 1))
             else
               MISSING="${MISSING}${MISSING:+, }docker.io/${IMAGE}:${TAG}"
@@ -447,6 +472,7 @@ jobs:
             IMAGE="ghcr.io/${GHCR_ORG}/${APP_NAME}"
             if docker manifest inspect "${IMAGE}:${TAG}" >/dev/null 2>&1; then
               EXISTING="${EXISTING}${EXISTING:+, }${IMAGE}:${TAG}"
+              EXISTING_REFS="${EXISTING_REFS}${IMAGE}:${TAG}"$'\n'
               EXISTING_COUNT=$((EXISTING_COUNT + 1))
             else
               MISSING="${MISSING}${MISSING:+, }${IMAGE}:${TAG}"
@@ -464,6 +490,38 @@ jobs:
                 exit 1
                 ;;
               skip|repair)
+                # Provenance gate. Both modes reuse an image that is already in the
+                # registry, so an existing tag has to be proven to come from this commit
+                # before it is honoured. Without this, a retargeted tag is skipped (GitOps
+                # deploys the older image) or repaired (the registries end up holding
+                # different content under one immutable tag).
+                DIVERGED=""
+                UNVERIFIABLE=""
+                while IFS= read -r REF; do
+                  [ -z "$REF" ] && continue
+                  REV="$(resolve_revision "$REF")"
+                  if [ -z "$REV" ]; then
+                    UNVERIFIABLE="${UNVERIFIABLE}${UNVERIFIABLE:+, }${REF}"
+                  elif [ "$REV" != "$GITHUB_SHA" ]; then
+                    DIVERGED="${DIVERGED}${DIVERGED:+, }${REF} (built from ${REV})"
+                  fi
+                done <<< "$EXISTING_REFS"
+
+                # A confirmed different commit is never a re-run, so it aborts even with
+                # require_image_provenance disabled — that input only governs the
+                # can't-tell case below.
+                if [ -n "$DIVERGED" ]; then
+                  echo "::error::Tag ${TAG} in the registry was not built from this commit: ${DIVERGED}; this run is at ${GITHUB_SHA}. Registry tags are immutable, so on_existing_tag: ${MODE} would publish the older image. Cut a new version instead of retargeting the tag."
+                  exit 1
+                fi
+                if [ -n "$UNVERIFIABLE" ]; then
+                  if [ "$REQUIRE_PROVENANCE" = "true" ]; then
+                    echo "::error::Cannot verify that tag ${TAG} was built from this commit (${UNVERIFIABLE}): the image carries no org.opencontainers.image.revision label, or the lookup failed. Set require_image_provenance: false to accept unverifiable images, or cut a new version."
+                    exit 1
+                  fi
+                  echo "::warning::Cannot verify that tag ${TAG} was built from this commit (${UNVERIFIABLE}) — proceeding because require_image_provenance is false."
+                fi
+
                 if [ "$EXISTING_COUNT" -eq "$ENABLED_COUNT" ]; then
                   echo "::warning::Tag ${TAG} already exists in every enabled registry (${EXISTING}) — skipping build/push (idempotent re-run)."
                   SHOULD_BUILD=false

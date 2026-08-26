@@ -104,6 +104,7 @@ jobs:
 | `dockerhub_org` | string | `lerianstudio` | DockerHub organization name |
 | `ghcr_org` | string | `''` | GHCR organization (defaults to repository owner) |
 | `on_existing_tag` | string | `fail` | Behaviour when the target tag already exists in an enabled registry (pre-flight check before build): `fail` (abort early), `skip` (skip build/push when every enabled registry already has the tag, still emitting GitOps artifacts for an idempotent re-run; abort on a partial publish), `repair` (same as `skip`, but on a partial publish push only to the registries missing the tag), `warn` (warn and build anyway) |
+| `require_image_provenance` | boolean | `true` | Under `on_existing_tag: skip`/`repair`, abort when the existing image does not record the commit it was built from (`org.opencontainers.image.revision`). An image whose recorded commit *differs* from this run always aborts, regardless of this input. Set `false` to accept unverifiable images (e.g. tags published before the label was emitted) |
 | `dockerfile_name` | string | `Dockerfile` | Name of the Dockerfile |
 | `tag_prefix` | string | `''` | Skip this build entirely (`has_builds=false`) when triggered by a tag that does not start with this prefix. For callers with multiple independently-tagged components sharing one workflow_call chain. Empty = build on every tag |
 | `app_name_prefix` | string | `''` | Prefix for app names in monorepo |
@@ -153,7 +154,26 @@ A partial publish is an accident, not a normal state, so the default path is to 
 
 `repair` exists for the residual case that cleanup cannot reach: a registry with tag immutability enabled, where deleting the partially published tag is not possible at all. It builds once and pushes only where the tag is missing, leaving the immutable tags already in place untouched. Cosign then signs each registry with its own digest read back from that registry, since a rebuild is not bit-for-bit reproducible and the newly pushed digest does not describe the image the other registry already carries.
 
-> **`repair` assumes the commit has not moved.** Neither `skip` nor `repair` compares the existing image against the current commit. If the tag was retargeted to a newer commit, `skip` deploys the older image and `repair` leaves the two registries holding different content under the same tag. Retargeting a released semver tag is an anti-pattern for exactly this reason — cut a new patch version instead.
+### Image provenance
+
+Tag existence alone does not prove the image in the registry is the code this run is building. Two situations look identical to a `docker manifest inspect`:
+
+- **A genuine re-run.** The push succeeded earlier and something after it failed (cosign, the GitOps upload, the Helm dispatch). The registry image *is* the merged code — this is what `skip` is for.
+- **A retargeted tag.** A released semver tag was deleted and recreated on a newer commit. Registry tags are immutable, so the registry still holds the image built from the **old** commit. Skipping would have GitOps deploy the older code, and repairing would leave the registries holding different content under one tag.
+
+So before `skip` or `repair` reuses an existing tag, the pre-flight reads `org.opencontainers.image.revision` off the existing image (`docker buildx imagetools inspect`) and compares it with the run's commit. `docker/metadata-action` emits that label by default and this workflow passes its label set to the build, so every image it publishes carries the commit it came from.
+
+| Recorded commit | Behaviour |
+|---|---|
+| matches this run | proceed with `skip` / `repair` as described above |
+| differs from this run | **abort**, naming both commits — always, regardless of `require_image_provenance` |
+| absent, or the lookup failed | abort when `require_image_provenance: true` (default); warn and proceed when `false` |
+
+A confirmed different commit is never a re-run, so it is not something an input should be able to wave through. `require_image_provenance` governs only the can't-tell case — set it to `false` for repositories whose registry still holds tags published before the label was emitted, and images that *do* carry the label are still checked.
+
+`fail` and `warn` never reach this gate: neither reuses an existing image.
+
+Retargeting a released semver tag stays an anti-pattern — cut a new patch version instead. The gate is there so CI fails loudly rather than deploying stale code quietly.
 
 ## Platform Build Strategy
 
