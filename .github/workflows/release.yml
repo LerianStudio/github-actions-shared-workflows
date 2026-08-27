@@ -125,6 +125,26 @@ on:
         required: false
         type: boolean
         default: false
+      product_alpha_enabled:
+        description: 'Release product branches (see product_alpha_branch_pattern) on their own alpha line: the product name is taken from the branch and drives both the tag prefix and the prerelease identifier, so develop-midaz publishes midaz-v1.0.0-alpha.1. Off by default; when off, branches and tag format come solely from the caller .releaserc.'
+        required: false
+        type: boolean
+        default: false
+      product_alpha_branch_pattern:
+        description: 'Glob matching the product branches that get their own alpha line. The text replacing `*` becomes the product name. Only read when product_alpha_enabled is true.'
+        required: false
+        type: string
+        default: 'develop-*'
+      product_alpha_anchor_branch:
+        description: 'Release branch included in the generated alpha config. semantic-release rejects a branches list containing only prerelease branches, so one release branch must be named even though no tag in the product format is expected on it.'
+        required: false
+        type: string
+        default: 'main'
+      product_alpha_excluded_products:
+        description: 'Comma-separated product names that must not get an alpha line even when their branch matches product_alpha_branch_pattern (e.g. shared branches like `core`).'
+        required: false
+        type: string
+        default: ''
 
 permissions:
   contents: read
@@ -308,6 +328,17 @@ jobs:
         run: |
           printf '::warning::Release skipped for %s — %s could not be auto-merged into %s (PR: %s). Merge it and push again to release.\n' "$APP_NAME" "$BACKMERGE_SOURCE" "$REF_NAME" "$PR_URL"
 
+      # ----------------- Per-product alpha line -----------------
+      - name: Resolve product alpha channel
+        id: alpha
+        if: inputs.product_alpha_enabled
+        uses: LerianStudio/github-actions-shared-workflows/src/config/product-alpha-channel@v1
+        with:
+          ref-name: ${{ github.ref_name }}
+          branch-pattern: ${{ inputs.product_alpha_branch_pattern }}
+          anchor-branch: ${{ inputs.product_alpha_anchor_branch }}
+          excluded-products: ${{ inputs.product_alpha_excluded_products }}
+
       - name: Setup Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v6
         with:
@@ -335,15 +366,22 @@ jobs:
           dry_run: true
           semantic_version: ${{ inputs.semantic_version }}
           working_directory: ${{ matrix.app.working_dir }}
+          # Empty strings are dropped by the action, leaving the caller .releaserc untouched.
+          branches: ${{ steps.alpha.outputs.branches }}
+          tag_format: ${{ steps.alpha.outputs.tag-format }}
           extra_plugins: |
             conventional-changelog-conventionalcommits@v7.0.2
         env:
           GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
 
+      # A product alpha line carries its own tag prefix, so it never shares an
+      # X.Y.Z namespace with the stable `v*` tags the guard compares against.
       - name: Guard against stale prerelease
         id: guard
-        if: steps.semantic_dry.outputs.new_release_published == 'true'
+        if: |
+          steps.semantic_dry.outputs.new_release_published == 'true' &&
+          steps.alpha.outputs.has-alpha != 'true'
         uses: LerianStudio/github-actions-shared-workflows/src/config/prerelease-guard@v1
         with:
           calculated-version: ${{ steps.semantic_dry.outputs.new_release_version }}
@@ -361,6 +399,9 @@ jobs:
           dry_run: ${{ inputs.dry_run }}
           semantic_version: ${{ inputs.semantic_version }}
           working_directory: ${{ matrix.app.working_dir }}
+          # Empty strings are dropped by the action, leaving the caller .releaserc untouched.
+          branches: ${{ steps.alpha.outputs.branches }}
+          tag_format: ${{ steps.alpha.outputs.tag-format }}
           extra_plugins: |
             conventional-changelog-conventionalcommits@v7.0.2
         env:
