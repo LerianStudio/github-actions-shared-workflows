@@ -331,3 +331,97 @@ jobs:
           composite-schema-files: ${{ needs.changed-files.outputs.composite_files }}
           deployment-matrix-result: ${{ needs.deployment-matrix.result }}
           deployment-matrix-files: ${{ contains(needs.changed-files.outputs.all_files, 'config/deployment-matrix.yml') && 'config/deployment-matrix.yml' || '' }}
+
+  # ----------------- CodeRabbit Gate -----------------
+  # Releases CodeRabbit onto the PR only after every required check is green.
+  #
+  # `.coderabbit.yml` sets `reviews.auto_review.enabled: false`, so nothing is
+  # reviewed automatically; a positive label match is what triggers the review.
+  # Applying `review-ready` here is that trigger, which keeps CodeRabbit from
+  # spending a review on a PR that still fails lint or validation.
+  #
+  # PRs whose base is not develop also carry `skip-coderabbit` (applied by
+  # self-coderabbit-guard.yml), and that negative match wins — they stay
+  # unreviewed even once this label lands.
+  #
+  # `revoke-coderabbit` withdraws the label as soon as a new revision is pushed,
+  # so it has to be re-earned by that revision. Without it the label from the
+  # previous run would still be on the PR while the new checks run, and since
+  # incremental reviews stay enabled, CodeRabbit would review a revision that may
+  # well be failing — exactly what the gate exists to prevent. It also means each
+  # green push re-applies the label and therefore does get reviewed.
+  revoke-coderabbit:
+    name: Hold CodeRabbit Review
+    runs-on: ${{ vars.GENERAL_RUNNERS || 'blacksmith-4vcpu-ubuntu-2404' }}
+    permissions:
+      pull-requests: write
+    # No `needs`: this must land before the checks finish, not after them.
+    if: github.event_name == 'pull_request' && github.event.action == 'synchronize'
+    steps:
+      - name: Withdraw review-ready label
+        env:
+          GH_TOKEN: ${{ secrets.MANAGE_TOKEN || github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          labels=$(gh pr view "$PR_NUMBER" --repo "$REPO" --json labels --jq '[.labels[].name] | join(" ")')
+
+          # `gh pr edit --remove-label` errors out when the label does not exist
+          # in the repository, so only call it when the PR actually carries it.
+          case " $labels " in
+            *" review-ready "*)
+              echo "🔒 New revision pushed — withdrawing review-ready from PR #${PR_NUMBER}"
+              gh pr edit "$PR_NUMBER" --repo "$REPO" --remove-label review-ready
+              echo "✅ Withdrawn — the revision must pass the checks to earn it back"
+              ;;
+            *)
+              echo "✅ PR #${PR_NUMBER} does not carry review-ready — nothing to withdraw"
+              ;;
+          esac
+
+  gate-coderabbit:
+    name: Release CodeRabbit Review
+    runs-on: ${{ vars.GENERAL_RUNNERS || 'blacksmith-4vcpu-ubuntu-2404' }}
+    permissions:
+      pull-requests: write
+    needs:
+      # Ordering guarantee: the withdrawal must never land after this job's
+      # re-application. If it failed, the gate stays closed rather than releasing
+      # a label we could not withdraw.
+      - revoke-coderabbit
+      - validation
+      - changed-files
+      - breaking-change-guard-tests
+      - permission-manifest-publish-tests
+      - pr-commit-signatures-tests
+      - yamllint
+      - actionlint
+      - pinned-actions
+      - codeql-action-versions
+      - markdown-link-check
+      - typos
+      - shellcheck
+      - readme-check
+      - composite-schema
+      - deployment-matrix
+      - codeql
+    # `always()` so skipped lints (no matching files changed) do not block the
+    # gate; only a real failure or cancellation does. Draft PRs are excluded —
+    # `drafts: false` in .coderabbit.yml means the label would be inert anyway.
+    if: >-
+      always()
+      && github.event_name == 'pull_request'
+      && github.event.pull_request.draft != true
+      && !contains(needs.*.result, 'failure')
+      && !contains(needs.*.result, 'cancelled')
+    steps:
+      - name: Apply review-ready label
+        env:
+          GH_TOKEN: ${{ secrets.MANAGE_TOKEN || github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          echo "✅ All required checks passed — releasing CodeRabbit on PR #${PR_NUMBER}"
+
+          # Idempotent: re-adding a label the PR already carries is a no-op.
+          gh pr edit "$PR_NUMBER" --repo "$REPO" --add-label review-ready

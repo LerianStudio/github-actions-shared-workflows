@@ -10,8 +10,8 @@ Umbrella reusable workflow for JavaScript/TypeScript repositories. A caller refe
 1. **PR metadata** — title, source branch, size, labels (delegates to `pr-validation.yml`).
 2. **Breaking Change Guard** — mandatory detection and enforcement inherited from `pr-validation.yml` for every PR target branch, whenever the metadata pipeline runs (see `run_metadata`).
 3. **Change gate** — detects whether the PR touches anything beyond docs/meta (`src/config/non-doc-changes`); documentation-only PRs skip the heavy pipelines.
-4. **Frontend analysis** — lint, typecheck, npm audit, tests, coverage and build (delegates to `frontend-pr-analysis.yml`), opt-in via `run_frontend_analysis`.
-5. **Security scan** — Trivy, CodeQL, prerelease checks (delegates to `pr-security-scan.yml`), opt-in via `run_security`.
+4. **Frontend analysis** — lint, typecheck, npm audit, tests, coverage and build (delegates to `frontend-pr-analysis.yml`). Enabled by default; disable with `run_frontend_analysis: false`.
+5. **Security scan** — Trivy, CodeQL, prerelease checks (delegates to `pr-security-scan.yml`). Enabled by default; disable with `run_security: false`.
 6. **Socket supply chain** — refuses malicious packages at install time, turns the Socket App's advisory verdict into an enforceable check, and reports per-package findings split into what this pull request introduced and what the tree already carried. Enabled by default; disable with `run_socket: false`.
 
 The `frontend-analysis`, `security` and `socket` pipelines each have a `*-gate` aggregator job that exposes a single stable status-check name (`Frontend Analysis`, `Security`, `Socket`) for branch protection, regardless of the internal job names. All are gated by the change detector, so documentation-only PRs skip them (and the aggregators still report success). If the change detector (`changes`) job itself fails, the aggregators propagate that failure instead of passing.
@@ -21,6 +21,9 @@ The `frontend-analysis`, `security` and `socket` pipelines each have a `*-gate` 
 | Input | Description | Type | Default |
 |-------|-------------|------|---------|
 | `runner_type` | GitHub runner type | string | `blacksmith-4vcpu-ubuntu-2404` |
+| `build_runner_type` | Optional runner override for the frontend analysis Build jobs only; empty falls back to `vars.GENERAL_RUNNERS`, then `runner_type` | string | `''` |
+| `custom_checks_runner_type` | Optional runner override for the frontend analysis Custom Checks jobs only; empty falls back to `vars.GENERAL_RUNNERS`, then `runner_type` | string | `''` |
+| `security_scan_runner_type` | Optional runner override for the `security_scan` jobs only; empty falls back to `vars.GENERAL_RUNNERS`, then `runner_type` | string | `''` |
 | `dry_run` | Preview metadata validations without posting comments/labels | boolean | `false` |
 | `run_metadata` | Run the PR metadata pipeline (title, scopes, labeler, size, breaking-change guard). Set `false` in a multi-component repository that also calls `go-pr-validation.yml`, so exactly one umbrella owns PR metadata | boolean | `true` |
 | `run_frontend_analysis` | Run the frontend analysis pipeline | boolean | `true` |

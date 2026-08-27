@@ -22,6 +22,14 @@ on:
         description: 'GitHub runner type'
         type: string
         default: 'blacksmith-4vcpu-ubuntu-2404'
+      build_runner_type:
+        description: 'Optional runner override for the Build jobs only. Empty = vars.GENERAL_RUNNERS, then runner_type.'
+        type: string
+        default: ''
+      custom_checks_runner_type:
+        description: 'Optional runner override for the Custom Checks jobs only. Empty = vars.GENERAL_RUNNERS, then runner_type.'
+        type: string
+        default: ''
       filter_paths:
         description: 'JSON array of paths to monitor for changes (e.g., ["apps/web", "apps/console"]). If empty, treats repo as single-app and runs against root directory.'
         type: string
@@ -544,7 +552,7 @@ jobs:
     name: Build (${{ matrix.app.name }})
     needs: detect-changes
     if: needs.detect-changes.outputs.has_changes == 'true' && inputs.enable_build
-    runs-on: ${{ vars.GENERAL_RUNNERS || inputs.runner_type }}
+    runs-on: ${{ inputs.build_runner_type || vars.GENERAL_RUNNERS || inputs.runner_type }}
     strategy:
       fail-fast: false
       matrix:
@@ -691,7 +699,7 @@ jobs:
     name: Custom Checks (${{ matrix.app.name }})
     needs: detect-changes
     if: needs.detect-changes.outputs.has_changes == 'true' && inputs.enable_custom_checks
-    runs-on: ${{ vars.GENERAL_RUNNERS || inputs.runner_type }}
+    runs-on: ${{ inputs.custom_checks_runner_type || vars.GENERAL_RUNNERS || inputs.runner_type }}
     strategy:
       fail-fast: false
       matrix:

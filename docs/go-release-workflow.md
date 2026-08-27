@@ -44,6 +44,10 @@ A third layout needs `release_single_app: true`: **one semantic-release tag for 
 | `tag_prefix` | Restrict the primary release/build jobs to tags starting with this prefix. Use when the repo also pushes tags for an unrelated component with its own `extra_builds` `tag_prefix`, so the primary jobs ignore that component's tags. Empty = react to every tag (current behavior) | string | `''` |
 | `docker_build_args` | Newline-separated Docker build args | string | `''` |
 | `enable_cosign_sign` | Sign images with cosign keyless (OIDC) | boolean | `true` |
+| `cosign_max_attempts` | Maximum cosign signing attempts per image reference. Increase to absorb transient OIDC/Fulcio/Rekor rate limits. Forwarded to `build.yml` | string | `'5'` |
+| `cosign_initial_delay` | Initial delay (seconds) between cosign retries. Grows exponentially (×3), capped at `cosign_max_delay`, then jittered. Forwarded to `build.yml` | string | `'5'` |
+| `cosign_max_delay` | Maximum delay (seconds) between cosign retries. Caps the backoff before jitter | string | `'60'` |
+| `continue_gitops_on_signing_failure` | Continue to the GitOps artifact upload even when cosign signing fails after all retries. The image stays in the registry unsigned and a warning is emitted; manual signing is required afterwards. Forwarded to `build.yml` | boolean | `false` |
 | `app_name_prefix` | Prefix for app names in monorepo (e.g. `midaz` -> `midaz-agent`) | string | `''` |
 | `app_name_overrides` | Explicit `path:name` app name mappings | string | `''` |
 | `dockerhub_org` | DockerHub organization name | string | `lerianstudio` |

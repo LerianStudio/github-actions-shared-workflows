@@ -215,6 +215,10 @@ on:
         description: 'Node.js version for the E2E test runner'
         type: string
         default: '22'
+      e2e_runner_type:
+        description: 'Optional runner override for the E2E Tests job only. Empty = runner_type.'
+        type: string
+        default: ''
       e2e_s3_artifact_path:
         description: 'Subpath under s3://lerian-e2e-artifacts/<repo>/<channel>/<tag>/ where the Playwright report is uploaded. Channel (main/beta/rc) is derived from the tag''s prerelease identifier.'
         type: string
@@ -356,7 +360,7 @@ jobs:
     if: >-
       github.ref_type == 'tag' && inputs.enable_e2e &&
       !cancelled() && needs.build.result == 'success' && !inputs.dry_run
-    runs-on: ${{ inputs.runner_type }}
+    runs-on: ${{ inputs.e2e_runner_type || inputs.runner_type }}
     permissions:
       id-token: write
       contents: read
