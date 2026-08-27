@@ -42,7 +42,7 @@ A third layout needs `release_single_app: true`: **one semantic-release tag for 
 | `enable_gitops_artifacts` | Upload GitOps artifacts for the downstream update | boolean | `false` |
 | `app_name` | Override app/image name (build single-app mode + gitops deploy name). Empty → gitops name derives from `app_name_prefix`, then repo name | string | `''` |
 | `tag_prefix` | Restrict the primary release/build jobs to tags starting with this prefix. Use when the repo also pushes tags for an unrelated component with its own `extra_builds` `tag_prefix`, so the primary jobs ignore that component's tags. Empty = react to every tag (current behavior) | string | `''` |
-| `docker_build_args` | Newline-separated Docker build args | string | `''` |
+| `docker_build_args` | Newline-separated Docker build args. `VERSION` (computed release version) and `BUILD_TIME` (RFC3339 UTC) are always appended after these, for the primary build and every `extra_builds` group — see [Build Arguments](build-workflow.md#build-arguments) | string | `''` |
 | `enable_cosign_sign` | Sign images with cosign keyless (OIDC) | boolean | `true` |
 | `cosign_max_attempts` | Maximum cosign signing attempts per image reference. Increase to absorb transient OIDC/Fulcio/Rekor rate limits. Forwarded to `build.yml` | string | `'5'` |
 | `cosign_initial_delay` | Initial delay (seconds) between cosign retries. Grows exponentially (×3), capped at `cosign_max_delay`, then jittered. Forwarded to `build.yml` | string | `'5'` |

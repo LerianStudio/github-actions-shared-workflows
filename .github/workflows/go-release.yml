@@ -92,7 +92,7 @@ on:
         type: string
         default: ''
       docker_build_args:
-        description: 'Newline-separated Docker build arguments (e.g., "APP_NAME=spi"). Use BuildKit secrets for sensitive values.'
+        description: 'Newline-separated Docker build arguments (e.g., "APP_NAME=spi"). Use BuildKit secrets for sensitive values. build.yml always appends VERSION (the computed release version) and BUILD_TIME (RFC3339 UTC) after these, for the primary build and every extra_builds group — the release version cannot be supplied here because semantic-release computes it inside this workflow.'
         type: string
         default: ''
       enable_cosign_sign:
