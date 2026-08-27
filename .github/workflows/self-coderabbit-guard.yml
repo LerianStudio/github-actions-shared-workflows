@@ -69,24 +69,45 @@ jobs:
 
           labels=$(gh pr view "$PR_NUMBER" --repo "$REPO" --json labels --jq '[.labels[].name] | join(" ")')
           case " $labels " in
-            *" skip-coderabbit "*) has_label=true ;;
-            *) has_label=false ;;
+            *" skip-coderabbit "*) has_skip=true ;;
+            *) has_skip=false ;;
+          esac
+          case " $labels " in
+            *" review-ready "*) has_ready=true ;;
+            *) has_ready=false ;;
           esac
 
-          echo "📌 PR #${PR_NUMBER}: ${HEAD_REF} → ${BASE_REF} (suppress=${should_skip}, labelled=${has_label})"
+          echo "📌 PR #${PR_NUMBER}: ${HEAD_REF} → ${BASE_REF} (suppress=${should_skip}, skip=${has_skip}, ready=${has_ready})"
 
           # Only mutate when the state actually differs. `gh pr edit --remove-label`
           # errors out when the label does not exist in the repository, so guarding
           # on the current state keeps PRs to develop working before labels-sync
           # has created it.
-          if [ "$should_skip" = true ] && [ "$has_label" = false ]; then
-            gh pr edit "$PR_NUMBER" --repo "$REPO" --add-label skip-coderabbit
-            echo "✅ Suppression applied"
-          elif [ "$should_skip" = false ] && [ "$has_label" = true ]; then
-            gh pr edit "$PR_NUMBER" --repo "$REPO" --remove-label skip-coderabbit
-            echo "✅ Suppression cleared"
+          if [ "$should_skip" = true ]; then
+            if [ "$has_skip" = false ]; then
+              gh pr edit "$PR_NUMBER" --repo "$REPO" --add-label skip-coderabbit
+              echo "✅ Suppression applied"
+            fi
+
+            # Suppressing has to revoke the authorisation too, not just add a
+            # contradictory label. A PR that collected review-ready while it
+            # targeted develop and was then retargeted to main would otherwise keep
+            # it, and the positive label is what triggers the review — the skip
+            # label does not veto it (see .coderabbit.yml).
+            if [ "$has_ready" = true ]; then
+              gh pr edit "$PR_NUMBER" --repo "$REPO" --remove-label review-ready
+              echo "✅ Authorisation revoked — review-ready withdrawn"
+            fi
           else
-            echo "✅ Already in the desired state — nothing to do"
+            if [ "$has_skip" = true ]; then
+              gh pr edit "$PR_NUMBER" --repo "$REPO" --remove-label skip-coderabbit
+              echo "✅ Suppression cleared"
+            fi
+
+            # Deliberately not adding review-ready here: CI owns that label. This
+            # workflow also runs on `edited`, so a PR retargeted back to develop
+            # re-triggers Self — PR Validation, and the gate applies it once the
+            # checks pass.
           fi
 
-          echo "✅ Label applied"
+          echo "✅ Reconciled"
