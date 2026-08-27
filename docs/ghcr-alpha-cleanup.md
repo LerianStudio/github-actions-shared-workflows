@@ -44,9 +44,31 @@ The `alpha/` prefix check also runs inside the [`ghcr-alpha-cleanup`](../src/con
 
 ## Secrets
 
+Supply **either** the App credentials (preferred) **or** the PAT. The run fails with a named error when neither is present.
+
 | Secret | Description |
 |--------|-------------|
-| `GHCR_CLEANUP_PAT` | PAT with `delete:packages`. Required — `GITHUB_TOKEN` cannot delete organization-level packages, and App tokens are not guaranteed to either |
+| `CLEANUP_APP_ID` | App ID of a GitHub App with `packages: write` on the account that owns the package |
+| `CLEANUP_APP_PRIVATE_KEY` | Private key for `CLEANUP_APP_ID` |
+| `GHCR_CLEANUP_PAT` | Fallback. Classic PAT with `delete:packages` |
+
+### Why the App is preferred
+
+A classic PAT cannot be scoped to a repository: selecting `delete:packages` forces `repo` along with it, so the token gains read/write access to every repository the owner can see. An App installation token is limited to where the App is installed.
+
+The installation token is requested with `owner` set to `account`, because organization-level package deletion is authorized against the organization installation — a repository-scoped token is not enough.
+
+### Token format constraint
+
+The underlying action matches token formats by regex ([`src/cli/models.rs`](https://github.com/snok/container-retention-policy/blob/main/src/cli/models.rs)) and accepts only:
+
+| Pattern | Kind |
+|---|---|
+| `^ghp_[a-zA-Z0-9]{36}$` | Classic PAT |
+| `^ghs_[a-zA-Z0-9]{36}$` | `GITHUB_TOKEN` / App installation token |
+| `^ghs_[0-9]+_...` | App installation token, 2026 JWT format |
+
+**Fine-grained tokens (`github_pat_`) are rejected before any API call**, regardless of how their permissions are configured. `GITHUB_TOKEN` is accepted by the parser but cannot delete organization-level packages.
 
 ## Usage
 
@@ -76,11 +98,18 @@ jobs:
     with:
       image_names: alpha/product-console
       image_tags: >-
-        ${{ (github.event_name == 'schedule' || inputs.product == 'all')
-            && '*-alpha*' || format('{0}-alpha.*', inputs.product) }}
-      dry_run: ${{ github.event_name == 'schedule' && false || inputs.dry_run }}
+        ${{ (github.event_name == 'workflow_dispatch' && inputs.product != 'all')
+            && format('{0}-alpha.*', inputs.product) || '*-alpha*' }}
+      # Written as a negation on purpose. The obvious `cond && false || x` form
+      # can never yield false — a falsy left side falls through to the right
+      # operand — so it silently turns a preview into a real deletion on any
+      # trigger that carries no dispatch inputs.
+      dry_run: >-
+        ${{ !(github.event_name == 'schedule'
+              || (github.event_name == 'workflow_dispatch' && !inputs.dry_run)) }}
     secrets:
-      GHCR_CLEANUP_PAT: ${{ secrets.GHCR_CLEANUP_PAT }}
+      CLEANUP_APP_ID: ${{ secrets.LERIAN_STUDIO_MIDAZ_PUSH_BOT_APP_ID }}
+      CLEANUP_APP_PRIVATE_KEY: ${{ secrets.LERIAN_STUDIO_MIDAZ_PUSH_BOT_PRIVATE_KEY }}
 ```
 
 ### On-demand purge after a product branch is integrated
@@ -98,7 +127,8 @@ jobs:
       keep_n_most_recent: 0
       dry_run: false
     secrets:
-      GHCR_CLEANUP_PAT: ${{ secrets.GHCR_CLEANUP_PAT }}
+      CLEANUP_APP_ID: ${{ secrets.LERIAN_STUDIO_MIDAZ_PUSH_BOT_APP_ID }}
+      CLEANUP_APP_PRIVATE_KEY: ${{ secrets.LERIAN_STUDIO_MIDAZ_PUSH_BOT_PRIVATE_KEY }}
 ```
 
 ## Naming constraint on products sharing a package

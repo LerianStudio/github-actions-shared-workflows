@@ -63,9 +63,21 @@ on:
         type: boolean
         default: true
     secrets:
+      # Preferred: a GitHub App installation token. Its permissions are scoped
+      # to the installation rather than to everything the owner can see, unlike
+      # a classic PAT, whose delete:packages scope drags `repo` along with it.
+      CLEANUP_APP_ID:
+        description: App ID of a GitHub App with packages:write on the account that owns the package
+        required: false
+      CLEANUP_APP_PRIVATE_KEY:
+        description: Private key for CLEANUP_APP_ID
+        required: false
+      # Fallback, used when no App credentials are supplied. Must be a classic
+      # PAT (ghp_) — the underlying action matches token formats by regex and
+      # rejects fine-grained tokens (github_pat_) outright.
       GHCR_CLEANUP_PAT:
-        description: PAT with delete:packages (GITHUB_TOKEN cannot delete org-level packages)
-        required: true
+        description: Classic PAT with delete:packages. Only needed when the App credentials are absent.
+        required: false
 
 # Least privilege: read by default, escalate per-job.
 permissions:
@@ -83,6 +95,10 @@ jobs:
     runs-on: ${{ vars.GENERAL_RUNNERS || 'blacksmith-4vcpu-ubuntu-2404' }}
     permissions:
       packages: write # delete alpha package versions from GHCR
+    env:
+      # The secrets context is not available in a step-level `if:`, so the App
+      # ID is surfaced as env to gate the token step on.
+      APP_ID: ${{ secrets.CLEANUP_APP_ID }}
     steps:
       # ----------------- Scope validation -----------------
       # The composite guards the alpha/ prefix already. These checks close the
@@ -132,6 +148,30 @@ jobs:
 
           echo "Scope validated."
 
+      # ----------------- Authentication -----------------
+      # `owner` scopes the installation token to the account that owns the
+      # package, which is what org-level package deletion is checked against —
+      # the default repository-scoped token is not enough.
+      - name: Mint App token
+        id: app-token
+        if: env.APP_ID != ''
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ secrets.CLEANUP_APP_ID }}
+          private-key: ${{ secrets.CLEANUP_APP_PRIVATE_KEY }}
+          owner: ${{ inputs.account }}
+
+      - name: Require a usable token
+        env:
+          RESOLVED_TOKEN: ${{ steps.app-token.outputs.token || secrets.GHCR_CLEANUP_PAT }}
+        run: |
+          set -euo pipefail
+          if [ -z "$RESOLVED_TOKEN" ]; then
+            echo "::error::No credentials. Supply CLEANUP_APP_ID and CLEANUP_APP_PRIVATE_KEY (preferred), or GHCR_CLEANUP_PAT as a classic PAT with delete:packages."
+            exit 1
+          fi
+          echo "Authenticating with ${APP_ID:+a GitHub App installation token}${APP_ID:-a personal access token}."
+
       - name: Dry run summary
         if: ${{ inputs.dry_run }}
         env:
@@ -153,7 +193,7 @@ jobs:
         uses: LerianStudio/github-actions-shared-workflows/src/config/ghcr-alpha-cleanup@v1
         with:
           account: ${{ inputs.account }}
-          token: ${{ secrets.GHCR_CLEANUP_PAT }}
+          token: ${{ steps.app-token.outputs.token || secrets.GHCR_CLEANUP_PAT }}
           image-names: ${{ inputs.image_names }}
           image-tags: ${{ inputs.image_tags }}
           cut-off: ${{ inputs.cut_off }}
