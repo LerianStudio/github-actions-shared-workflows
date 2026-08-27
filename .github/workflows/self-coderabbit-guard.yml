@@ -1,0 +1,92 @@
+name: Self — CodeRabbit Guard
+
+# Keeps CodeRabbit auto-review scoped to PRs targeting develop.
+#
+# CodeRabbit always reviews the repository default branch (main) and its
+# `reviews.auto_review.base_branches` setting only *extends* that set — there is
+# no way to exclude a base branch through configuration. The exclusion is
+# therefore expressed as a label: `.coderabbit.yml` sets
+# `reviews.auto_review.labels: ["!skip-coderabbit"]`, a negative match meaning
+# "review every PR except the labelled ones". This workflow applies that label
+# to every PR whose base branch is not develop.
+#
+# It is deliberately a standalone workflow instead of a `.github/labeler.yml`
+# rule: the auto-labeler runs inside the `advisory-checks` job, which waits on
+# `blocking-checks`, so the label would only land minutes after the PR opens —
+# long after CodeRabbit has already reviewed it. This one runs on its own within
+# seconds of the `opened` event.
+#
+# `branches-ignore: [develop]` is the exact complement of develop, so main,
+# release-candidate and any future base branch are covered without listing them.
+#
+# hotfix/* is excluded from the suppression on purpose: those PRs carry code that
+# never passed through develop, so they have never been reviewed. Everything else
+# reaching main comes from develop, where CodeRabbit already reviewed it — those
+# release PRs are the expensive duplicate this workflow exists to avoid.
+#
+# The label is reconciled in both directions rather than only applied, because a
+# PR's base branch can change after it is opened (the `edited` event). Retargeting
+# main → develop has to clear the label, otherwise it stays stuck and the PR is
+# never reviewed — silently, since reviews are gated.
+#
+# To get a review on a labelled PR, remove the label and comment
+# `@coderabbitai review`. Only another `edited`/`reopened` event re-applies it.
+
+on:
+  pull_request:
+    types:
+      - opened
+      - reopened
+      # `edited` fires when the base branch changes — that is what needs
+      # reconciling. It also fires on title/body edits, which cost one cheap run.
+      - edited
+
+permissions:
+  contents: read
+
+jobs:
+  reconcile-review-scope:
+    name: Reconcile CodeRabbit Review Scope
+    runs-on: ${{ vars.GENERAL_RUNNERS || 'blacksmith-4vcpu-ubuntu-2404' }}
+    permissions:
+      pull-requests: write
+    steps:
+      - name: Reconcile skip-coderabbit label
+        env:
+          GH_TOKEN: ${{ secrets.MANAGE_TOKEN || github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+          BASE_REF: ${{ github.base_ref }}
+          HEAD_REF: ${{ github.head_ref }}
+        run: |
+          # Suppress reviews unless the PR targets develop, or is a hotfix —
+          # hotfix code never passed through develop, so it was never reviewed.
+          if [ "$BASE_REF" = "develop" ] || [[ "$HEAD_REF" == hotfix/* ]]; then
+            should_skip=false
+          else
+            should_skip=true
+          fi
+
+          labels=$(gh pr view "$PR_NUMBER" --repo "$REPO" --json labels --jq '[.labels[].name] | join(" ")')
+          case " $labels " in
+            *" skip-coderabbit "*) has_label=true ;;
+            *) has_label=false ;;
+          esac
+
+          echo "📌 PR #${PR_NUMBER}: ${HEAD_REF} → ${BASE_REF} (suppress=${should_skip}, labelled=${has_label})"
+
+          # Only mutate when the state actually differs. `gh pr edit --remove-label`
+          # errors out when the label does not exist in the repository, so guarding
+          # on the current state keeps PRs to develop working before labels-sync
+          # has created it.
+          if [ "$should_skip" = true ] && [ "$has_label" = false ]; then
+            gh pr edit "$PR_NUMBER" --repo "$REPO" --add-label skip-coderabbit
+            echo "✅ Suppression applied"
+          elif [ "$should_skip" = false ] && [ "$has_label" = true ]; then
+            gh pr edit "$PR_NUMBER" --repo "$REPO" --remove-label skip-coderabbit
+            echo "✅ Suppression cleared"
+          else
+            echo "✅ Already in the desired state — nothing to do"
+          fi
+
+          echo "✅ Label applied"
