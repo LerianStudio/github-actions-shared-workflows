@@ -48,8 +48,8 @@ Supply **either** the App credentials (preferred) **or** the PAT. The run fails 
 
 | Secret | Description |
 |--------|-------------|
-| `CLEANUP_APP_ID` | App ID of a GitHub App with `packages: write` on the account that owns the package |
-| `CLEANUP_APP_PRIVATE_KEY` | Private key for `CLEANUP_APP_ID` |
+| `CLEANUP_APP_CLIENT_ID` | Client ID of a GitHub App with `packages: write` on the account that owns the package |
+| `CLEANUP_APP_PRIVATE_KEY` | Private key for `CLEANUP_APP_CLIENT_ID` |
 | `GHCR_CLEANUP_PAT` | Fallback. Classic PAT with `delete:packages` |
 
 ### Why the App is preferred
@@ -108,7 +108,7 @@ jobs:
         ${{ !(github.event_name == 'schedule'
               || (github.event_name == 'workflow_dispatch' && !inputs.dry_run)) }}
     secrets:
-      CLEANUP_APP_ID: ${{ secrets.LERIAN_STUDIO_MIDAZ_PUSH_BOT_APP_ID }}
+      CLEANUP_APP_CLIENT_ID: ${{ secrets.LERIAN_STUDIO_MIDAZ_PUSH_BOT_APP_ID }}
       CLEANUP_APP_PRIVATE_KEY: ${{ secrets.LERIAN_STUDIO_MIDAZ_PUSH_BOT_PRIVATE_KEY }}
 ```
 
@@ -127,7 +127,7 @@ jobs:
       keep_n_most_recent: 0
       dry_run: false
     secrets:
-      CLEANUP_APP_ID: ${{ secrets.LERIAN_STUDIO_MIDAZ_PUSH_BOT_APP_ID }}
+      CLEANUP_APP_CLIENT_ID: ${{ secrets.LERIAN_STUDIO_MIDAZ_PUSH_BOT_APP_ID }}
       CLEANUP_APP_PRIVATE_KEY: ${{ secrets.LERIAN_STUDIO_MIDAZ_PUSH_BOT_PRIVATE_KEY }}
 ```
 
