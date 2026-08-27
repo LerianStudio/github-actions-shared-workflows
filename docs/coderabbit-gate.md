@@ -227,6 +227,45 @@ The gate governs automatic reviews only. These still work on any pull request:
 
 Both are intentional. The gate is a spending policy, not an access control.
 
+## Adoption in another repository
+
+The gate is on by default in `go-pr-validation.yml` and `js-pr-validation.yml`, and
+**inert until the repository opts in**. Three steps:
+
+1. Declare the label in `.github/labels.yml` and run the labels sync:
+
+   ```yaml
+   - name: review-ready
+     color: "0e8a16"
+     description: Required checks passed — CodeRabbit is cleared to review
+   ```
+
+2. Invert CodeRabbit's default in `.coderabbit.yml`:
+
+   ```yaml
+   reviews:
+     auto_review:
+       enabled: false
+       labels:
+         - "review-ready"
+   ```
+
+3. Nothing else — the umbrella already calls the gate.
+
+Until step 1 is done the job emits a warning and exits successfully, leaving
+CodeRabbit at its own behaviour. It does **not** fail the pull request: the GitHub
+API rejects adding a label the repository does not define, and failing on that
+would turn every pull request red in every repository that has not adopted yet.
+
+Step 2 matters as much as step 1. With the label present but `enabled` still
+`true`, CodeRabbit reviews everything as before and the label decides nothing —
+the gate looks installed while doing nothing.
+
+Repositories calling **both** umbrellas should enable the gate on exactly one of
+them, the same way `run_metadata` is owned by one. Two callers would each try to
+release the same label, and whichever finished first would authorise before the
+other had validated anything.
+
 ## What the gate does not cover
 
 **The summary and walkthrough are not gated.** CodeRabbit regenerates them on
