@@ -201,6 +201,42 @@ Only the exact version is published. Floating aliases (`1`, `1.12`) are not:
 re-pointing an existing alias is refused by Docker Hub immutable-tag rules and
 fails the whole build. Consumers must pin the exact version.
 
+## Build Arguments
+
+Every image build receives the `docker_build_args` input first, then two build
+arguments this workflow computes:
+
+| Build argument | Value | Example |
+|----------------|-------|---------|
+| `VERSION` | The resolved release version — the `release_version` input verbatim, or the version parsed out of the git tag | `1.4.0` / `v1.4.0` |
+| `BUILD_TIME` | Build timestamp, RFC3339 UTC, captured once per app | `2026-08-28T14:03:11Z` |
+
+The leading `v` is **not** normalized: the tag-push path yields `v1.4.0` while the
+same-run branch-push path yields whatever semantic-release computed (usually
+`1.4.0`). Strip it before comparing against the published image tag, which is
+always the bare semver.
+
+This is additive. A Dockerfile that declares the arguments can stamp them into
+the artifact:
+
+```dockerfile
+ARG VERSION=dev
+ARG BUILD_TIME=unknown
+RUN go build -ldflags "-X main.Version=${VERSION} -X main.BuildTime=${BUILD_TIME}" ./cmd/app
+```
+
+A Dockerfile that declares neither is unaffected — Docker only warns about an
+unused build argument, and an undeclared argument does not invalidate build
+cache. `BUILD_TIME` changes on every run, so in repos that *do* declare it the
+layers from its `ARG` onward rebuild each time; put the `ARG` as late as
+possible to keep dependency layers cached.
+
+`VERSION` cannot be passed through `docker_build_args` by a caller of
+`go-release.yml`: semantic-release computes the release version inside that
+workflow, after the static input is already bound. The primary build and every
+`extra_builds` group get both arguments, because both route through this
+workflow.
+
 ## Monorepo Change Detection
 
 When `filter_paths` is provided, the workflow:
