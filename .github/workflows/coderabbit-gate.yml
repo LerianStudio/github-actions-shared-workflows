@@ -73,6 +73,10 @@ on:
         required: false
         type: string
         default: blacksmith-4vcpu-ubuntu-2404
+    secrets:
+      MANAGE_TOKEN:
+        description: 'Token with `pull-requests: write` on the target repository. Falls back to `github.token` when absent, which is enough for same-repository pull requests.'
+        required: false
 
 # No `workflow_dispatch`: reusable workflows must not offer one. Its inputs are
 # always free-text strings and reach `run:` blocks, which is a script injection
@@ -123,22 +127,37 @@ jobs:
             *) has_label=false ;;
           esac
 
-          echo "📌 PR #${PR_NUMBER}: ${head} → ${base} (mode=${MODE}, ${LABEL}=${has_label})"
+          # Verbose only under dry_run, per the repository's dry_run contract. A
+          # real run emits a single `::notice::` with the decision — this job's
+          # only observable product is *why* a pull request was or was not
+          # released, so that one line has to survive.
+          if [ "$DRY_RUN" = "true" ]; then
+            echo "::notice::DRY RUN — no label will be changed"
+            echo "  pull request      : #${PR_NUMBER}"
+            echo "  head → base       : ${head} → ${base}"
+            echo "  mode              : ${MODE}"
+            echo "  label             : ${LABEL} (present=${has_label})"
+            echo "  checks passed     : ${CHECKS_PASSED}"
+            echo "  scope bases       : [${REVIEW_BASE_BRANCHES}]"
+            echo "  scope head globs  : [${REVIEW_HEAD_PATTERNS}]"
+          fi
 
           # ---------- withdraw ----------
           # Unconditional: a revision must re-earn the authorisation whatever the
           # scope says. Removing is always the safe direction.
           if [ "$MODE" = "withdraw" ]; then
             if [ "$has_label" = false ]; then
-              echo "✅ Nothing to withdraw"
+              if [ "$DRY_RUN" = "true" ]; then
+                echo "  decision          : nothing to withdraw"
+              fi
               exit 0
             fi
             if [ "$DRY_RUN" = "true" ]; then
-              echo "🔍 [dry-run] would remove '${LABEL}'"
+              echo "  decision          : would remove '${LABEL}'"
               exit 0
             fi
             gh pr edit "$PR_NUMBER" --repo "$REPO" --remove-label "$LABEL"
-            echo "🔒 Withdrawn — this revision must pass the checks to earn it back"
+            echo "::notice::Withdrew '${LABEL}' from PR #${PR_NUMBER} — this revision must pass the checks to earn it back"
             exit 0
           fi
 
@@ -163,27 +182,27 @@ jobs:
             done < <(tr ',' '\n' <<< "$REVIEW_HEAD_PATTERNS" | xargs -n1 2>/dev/null)
           fi
 
-          echo "   scope: bases=[${REVIEW_BASE_BRANCHES}] head patterns=[${REVIEW_HEAD_PATTERNS}]"
-
           if [ -z "$matched" ]; then
-            echo "⏭️ Out of scope — withholding '${LABEL}', CodeRabbit will not review this pull request"
+            echo "::notice::PR #${PR_NUMBER} (${head} → ${base}) is out of the review scope — withholding '${LABEL}', CodeRabbit will not review it"
             exit 0
           fi
 
           if [ "$CHECKS_PASSED" != "true" ]; then
-            echo "⏭️ In scope via ${matched}, but a required check did not pass — withholding '${LABEL}'"
+            echo "::notice::PR #${PR_NUMBER} is in scope via ${matched}, but a required check did not pass — withholding '${LABEL}'"
             exit 0
           fi
 
           if [ "$has_label" = true ]; then
-            echo "✅ In scope via ${matched}, checks passed, '${LABEL}' already present"
+            if [ "$DRY_RUN" = "true" ]; then
+              echo "  decision          : in scope via ${matched}, '${LABEL}' already present"
+            fi
             exit 0
           fi
 
           if [ "$DRY_RUN" = "true" ]; then
-            echo "🔍 [dry-run] would add '${LABEL}' (in scope via ${matched}, checks passed)"
+            echo "  decision          : would add '${LABEL}' (in scope via ${matched}, checks passed)"
             exit 0
           fi
 
           gh pr edit "$PR_NUMBER" --repo "$REPO" --add-label "$LABEL"
-          echo "✅ In scope via ${matched} and every required check passed — CodeRabbit released"
+          echo "::notice::Released CodeRabbit on PR #${PR_NUMBER} — in scope via ${matched} and every required check passed"

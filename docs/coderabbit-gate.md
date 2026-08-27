@@ -123,8 +123,18 @@ workflow cannot request more than its caller grants, and this one declares
 `contents: read` at the top level — omitting it in the caller fails the run with
 `startup_failure` before any job begins, with no log to explain it.
 
-The workflow uses `secrets.MANAGE_TOKEN` when available and falls back to
-`github.token`, so callers should pass `secrets: inherit`.
+## Secrets
+
+| Secret | Required | Description |
+|--------|----------|-------------|
+| `MANAGE_TOKEN` | no | Token with `pull-requests: write` on the target repository. Falls back to `github.token` when absent, which is enough for same-repository pull requests. |
+
+`secrets: inherit` covers it. Passing it explicitly also works:
+
+```yaml
+    secrets:
+      MANAGE_TOKEN: ${{ secrets.MANAGE_TOKEN }}
+```
 
 ## Usage
 
