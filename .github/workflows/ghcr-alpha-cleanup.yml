@@ -172,8 +172,56 @@ jobs:
           fi
           echo "Authenticating with ${APP_ID:+a GitHub App installation token}${APP_ID:-a personal access token}."
 
+      # The pruning action parses every API response straight into its Package
+      # model without checking the status first (client.rs:306), so a 404 or a
+      # 403 body surfaces as `missing field 'id'` from a Rust panic. This
+      # resolves each package first and turns those two cases into an answer.
+      - name: Check packages exist
+        id: preflight
+        env:
+          ACCOUNT: ${{ inputs.account }}
+          IMAGE_NAMES: ${{ inputs.image_names }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token || secrets.GHCR_CLEANUP_PAT }}
+        run: |
+          set -euo pipefail
+          missing=0
+          found=0
+
+          for name in $IMAGE_NAMES; do
+            # The package name goes in a path segment, so the namespace slash
+            # has to be escaped or it reads as a route separator.
+            encoded="${name//\//%2F}"
+            status="$(gh api "orgs/${ACCOUNT}/packages/container/${encoded}" \
+              --silent --include 2>/dev/null | head -1 | awk '{print $2}' || true)"
+
+            case "$status" in
+              200)
+                found=$((found + 1))
+                ;;
+              404)
+                echo "::notice::Package '${name}' does not exist yet — nothing to prune."
+                missing=$((missing + 1))
+                ;;
+              403)
+                echo "::error::Not authorized to read package '${name}'. The App needs the packages permission on ${ACCOUNT}, granted in the App settings and re-approved on the installation. Otherwise supply GHCR_CLEANUP_PAT."
+                exit 1
+                ;;
+              *)
+                echo "::error::Unexpected status '${status:-none}' reading package '${name}'."
+                exit 1
+                ;;
+            esac
+          done
+
+          if [ "$found" -eq 0 ]; then
+            echo "::notice::No alpha packages present (${missing} missing). Skipping the prune."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Dry run summary
-        if: ${{ inputs.dry_run }}
+        if: ${{ inputs.dry_run && steps.preflight.outputs.skip != 'true' }}
         env:
           ACCOUNT: ${{ inputs.account }}
           IMAGE_NAMES: ${{ inputs.image_names }}
@@ -190,6 +238,7 @@ jobs:
 
       # ----------------- Prune -----------------
       - name: Prune alpha versions
+        if: steps.preflight.outputs.skip != 'true'
         uses: LerianStudio/github-actions-shared-workflows/src/config/ghcr-alpha-cleanup@v1
         with:
           account: ${{ inputs.account }}
