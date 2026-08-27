@@ -24,30 +24,34 @@ name: Self — CodeRabbit Guard
 # reaching main comes from develop, where CodeRabbit already reviewed it — those
 # release PRs are the expensive duplicate this workflow exists to avoid.
 #
-# To get a review on a PR that was labelled, remove the label and comment
-# `@coderabbitai review`. Nothing re-applies it.
+# The label is reconciled in both directions rather than only applied, because a
+# PR's base branch can change after it is opened (the `edited` event). Retargeting
+# main → develop has to clear the label, otherwise it stays stuck and the PR is
+# never reviewed — silently, since reviews are gated.
+#
+# To get a review on a labelled PR, remove the label and comment
+# `@coderabbitai review`. Only another `edited`/`reopened` event re-applies it.
 
 on:
   pull_request:
     types:
       - opened
       - reopened
-    branches-ignore:
-      - develop
+      # `edited` fires when the base branch changes — that is what needs
+      # reconciling. It also fires on title/body edits, which cost one cheap run.
+      - edited
 
 permissions:
   contents: read
 
 jobs:
-  skip-review:
-    name: Suppress CodeRabbit Review
-    # Never suppress hotfixes — that code has not been reviewed anywhere else.
-    if: ${{ !startsWith(github.head_ref, 'hotfix/') }}
+  reconcile-review-scope:
+    name: Reconcile CodeRabbit Review Scope
     runs-on: ${{ vars.GENERAL_RUNNERS || 'blacksmith-4vcpu-ubuntu-2404' }}
     permissions:
       pull-requests: write
     steps:
-      - name: Apply skip-coderabbit label
+      - name: Reconcile skip-coderabbit label
         env:
           GH_TOKEN: ${{ secrets.MANAGE_TOKEN || github.token }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
@@ -55,11 +59,34 @@ jobs:
           BASE_REF: ${{ github.base_ref }}
           HEAD_REF: ${{ github.head_ref }}
         run: |
-          echo "📌 PR #${PR_NUMBER}: ${HEAD_REF} → ${BASE_REF} (base is not develop) — suppressing CodeRabbit review"
+          # Suppress reviews unless the PR targets develop, or is a hotfix —
+          # hotfix code never passed through develop, so it was never reviewed.
+          if [ "$BASE_REF" = "develop" ] || [[ "$HEAD_REF" == hotfix/* ]]; then
+            should_skip=false
+          else
+            should_skip=true
+          fi
 
-          # Idempotent: adding a label the PR already carries is a no-op.
-          # The label itself is declared in .github/labels.yml and created by
-          # the labels-sync routine — this only attaches it.
-          gh pr edit "$PR_NUMBER" --repo "$REPO" --add-label skip-coderabbit
+          labels=$(gh pr view "$PR_NUMBER" --repo "$REPO" --json labels --jq '[.labels[].name] | join(" ")')
+          case " $labels " in
+            *" skip-coderabbit "*) has_label=true ;;
+            *) has_label=false ;;
+          esac
+
+          echo "📌 PR #${PR_NUMBER}: ${HEAD_REF} → ${BASE_REF} (suppress=${should_skip}, labelled=${has_label})"
+
+          # Only mutate when the state actually differs. `gh pr edit --remove-label`
+          # errors out when the label does not exist in the repository, so guarding
+          # on the current state keeps PRs to develop working before labels-sync
+          # has created it.
+          if [ "$should_skip" = true ] && [ "$has_label" = false ]; then
+            gh pr edit "$PR_NUMBER" --repo "$REPO" --add-label skip-coderabbit
+            echo "✅ Suppression applied"
+          elif [ "$should_skip" = false ] && [ "$has_label" = true ]; then
+            gh pr edit "$PR_NUMBER" --repo "$REPO" --remove-label skip-coderabbit
+            echo "✅ Suppression cleared"
+          else
+            echo "✅ Already in the desired state — nothing to do"
+          fi
 
           echo "✅ Label applied"
