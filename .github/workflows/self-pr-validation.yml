@@ -332,74 +332,38 @@ jobs:
           deployment-matrix-result: ${{ needs.deployment-matrix.result }}
           deployment-matrix-files: ${{ contains(needs.changed-files.outputs.all_files, 'config/deployment-matrix.yml') && 'config/deployment-matrix.yml' || '' }}
 
+
   # ----------------- CodeRabbit Gate -----------------
-  # Single owner of when CodeRabbit reviews anything in this repository.
+  # This repository's review scope, declared here rather than buried in the gate.
   #
-  # `.coderabbit.yml` sets `reviews.auto_review.enabled: false`, which inverts the
-  # default to "do not review": nothing is reviewed unless the `review-ready`
-  # label is present. Applying that label is therefore the only trigger, and this
-  # job is the only place that applies it — so both questions, *whether* a PR is
-  # in scope and *whether* it is green, are answered here and nowhere else.
+  # Only pull requests targeting develop, plus hotfix/* branches wherever they
+  # land, get a CodeRabbit review. hotfix/* is included because that code never
+  # passed through develop and was therefore never reviewed anywhere; release PRs
+  # (develop → main) are excluded because their content was already reviewed on
+  # the way into develop, and they are the largest PRs in the repo.
   #
-  # Scope is configurable through repository variables, defaulting to the previous
-  # hardcoded behaviour:
+  # Bounded by this workflow's own `on.pull_request.branches` above: a base branch
+  # named here but missing from that list never triggers a run, so the label never
+  # arrives. Add it in both places to widen the scope.
   #
-  #   CODERABBIT_REVIEW_BASE_BRANCHES  comma-separated exact base branch names
-  #                                    (default: develop)
-  #   CODERABBIT_REVIEW_HEAD_PATTERNS  comma-separated globs matched against the
-  #                                    head branch (default: hotfix/*)
-  #
-  # A PR is in scope when its base is listed, or its head matches a pattern. The
-  # head patterns exist for branches that must be reviewed wherever they land —
-  # hotfix/* carries code that never passed through develop, so it was never
-  # reviewed anywhere. Setting both variables to an empty string disables reviews
-  # entirely without touching this file.
-  #
-  # `revoke-coderabbit` withdraws the label as soon as a new revision is pushed,
-  # so it has to be re-earned by that revision. Without it the label from the
-  # previous run would still be on the PR while the new checks run, and since
-  # incremental reviews stay enabled, CodeRabbit would review a revision that may
-  # well be failing — exactly what the gate exists to prevent. It also means each
-  # green push re-applies the label and therefore does get reviewed.
-  revoke-coderabbit:
+  # The logic lives in .github/workflows/coderabbit-gate.yml — see docs/coderabbit-gate.md.
+  withdraw-coderabbit:
     name: Hold CodeRabbit Review
-    runs-on: ${{ vars.GENERAL_RUNNERS || 'blacksmith-4vcpu-ubuntu-2404' }}
-    permissions:
-      pull-requests: write
-    # No `needs`: this must land before the checks finish, not after them.
+    # No `needs`: this has to land before the checks finish, not after them, so a
+    # revision cannot be reviewed on the strength of the previous revision's pass.
     if: github.event_name == 'pull_request' && github.event.action == 'synchronize'
-    steps:
-      - name: Withdraw review-ready label
-        env:
-          GH_TOKEN: ${{ secrets.MANAGE_TOKEN || github.token }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-          REPO: ${{ github.repository }}
-        run: |
-          labels=$(gh pr view "$PR_NUMBER" --repo "$REPO" --json labels --jq '[.labels[].name] | join(" ")')
-
-          # `gh pr edit --remove-label` errors out when the label does not exist
-          # in the repository, so only call it when the PR actually carries it.
-          case " $labels " in
-            *" review-ready "*)
-              echo "🔒 New revision pushed — withdrawing review-ready from PR #${PR_NUMBER}"
-              gh pr edit "$PR_NUMBER" --repo "$REPO" --remove-label review-ready
-              echo "✅ Withdrawn — the revision must pass the checks to earn it back"
-              ;;
-            *)
-              echo "✅ PR #${PR_NUMBER} does not carry review-ready — nothing to withdraw"
-              ;;
-          esac
-
-  gate-coderabbit:
-    name: Release CodeRabbit Review
-    runs-on: ${{ vars.GENERAL_RUNNERS || 'blacksmith-4vcpu-ubuntu-2404' }}
     permissions:
       pull-requests: write
+    uses: ./.github/workflows/coderabbit-gate.yml
+    with:
+      mode: withdraw
+      pr_number: ${{ github.event.pull_request.number }}
+    secrets: inherit
+
+  release-coderabbit:
+    name: Release CodeRabbit Review
     needs:
-      # Ordering guarantee: the withdrawal must never land after this job's
-      # re-application. If it failed, the gate stays closed rather than releasing
-      # a label we could not withdraw.
-      - revoke-coderabbit
+      - withdraw-coderabbit
       - validation
       - changed-files
       - breaking-change-guard-tests
@@ -417,70 +381,22 @@ jobs:
       - deployment-matrix
       - codeql
     # `always()` so skipped lints (no matching files changed) do not block the
-    # gate; only a real failure or cancellation does. Draft PRs are excluded —
-    # `drafts: false` in .coderabbit.yml means the label would be inert anyway.
-    #
-    # Scope is deliberately NOT filtered here. `github.base_ref` comes from the
-    # event payload and is frozen at dispatch, so a run that started before a
-    # retarget would evaluate a branch that no longer applies. The step below
-    # reads the live pull request instead, which keeps the decision in one place
-    # and correct regardless of how many runs are in flight.
+    # gate; the `checks_passed` input below carries the real verdict. Draft PRs
+    # are excluded — `drafts: false` in .coderabbit.yml makes the label inert
+    # there anyway.
     if: >-
       always()
       && github.event_name == 'pull_request'
       && github.event.pull_request.draft != true
-      && !contains(needs.*.result, 'failure')
-      && !contains(needs.*.result, 'cancelled')
-    steps:
-      - name: Apply review-ready label
-        env:
-          GH_TOKEN: ${{ secrets.MANAGE_TOKEN || github.token }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-          REPO: ${{ github.repository }}
-          # Empty string is meaningful: it removes that dimension from the scope.
-          # Both empty disables CodeRabbit reviews without editing this workflow.
-          REVIEW_BASE_BRANCHES: ${{ vars.CODERABBIT_REVIEW_BASE_BRANCHES || 'develop' }}
-          REVIEW_HEAD_PATTERNS: ${{ vars.CODERABBIT_REVIEW_HEAD_PATTERNS || 'hotfix/*' }}
-        run: |
-          # Live read, not the frozen event payload — see the `if:` above.
-          read -r base head < <(
-            gh pr view "$PR_NUMBER" --repo "$REPO" \
-              --json baseRefName,headRefName \
-              --jq '"\(.baseRefName) \(.headRefName)"'
-          )
-
-          matched=""
-
-          # Exact match on the base branch.
-          while IFS= read -r entry; do
-            [ -z "$entry" ] && continue
-            if [ "$base" = "$entry" ]; then
-              matched="base '${entry}'"
-              break
-            fi
-          done < <(tr ',' '\n' <<< "$REVIEW_BASE_BRANCHES" | xargs -n1 2>/dev/null)
-
-          # Glob match on the head branch, for branches that must be reviewed
-          # wherever they land.
-          if [ -z "$matched" ]; then
-            while IFS= read -r entry; do
-              [ -z "$entry" ] && continue
-              # shellcheck disable=SC2254
-              case "$head" in
-                $entry) matched="head pattern '${entry}'"; break ;;
-              esac
-            done < <(tr ',' '\n' <<< "$REVIEW_HEAD_PATTERNS" | xargs -n1 2>/dev/null)
-          fi
-
-          echo "📌 PR #${PR_NUMBER}: ${head} → ${base}"
-          echo "   scope: bases=[${REVIEW_BASE_BRANCHES}] head patterns=[${REVIEW_HEAD_PATTERNS}]"
-
-          if [ -z "$matched" ]; then
-            echo "⏭️ Out of the review scope — withholding review-ready, CodeRabbit will not review this PR"
-            exit 0
-          fi
-
-          echo "✅ In scope via ${matched}, and every required check passed — releasing CodeRabbit"
-
-          # Idempotent: re-adding a label the PR already carries is a no-op.
-          gh pr edit "$PR_NUMBER" --repo "$REPO" --add-label review-ready
+    permissions:
+      pull-requests: write
+    uses: ./.github/workflows/coderabbit-gate.yml
+    with:
+      mode: release
+      pr_number: ${{ github.event.pull_request.number }}
+      # A required check failing or being cancelled withholds the label; skipped
+      # is fine, since most lints are conditional on the file types touched.
+      checks_passed: ${{ !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') }}
+      review_base_branches: develop
+      review_head_patterns: hotfix/*
+    secrets: inherit
