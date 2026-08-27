@@ -44,6 +44,14 @@ on:
 permissions:
   contents: read
 
+# Serialized per PR so two reconcilers never fight over the same labels — a base
+# change fires `edited` while an earlier run may still be in flight. Cancelling is
+# safe and wanted here, unlike the repo's other concurrency groups: the superseded
+# run would only be acting on a base branch that no longer applies.
+concurrency:
+  group: self-coderabbit-guard-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
 jobs:
   reconcile-review-scope:
     name: Reconcile CodeRabbit Review Scope
@@ -59,15 +67,29 @@ jobs:
           BASE_REF: ${{ github.base_ref }}
           HEAD_REF: ${{ github.head_ref }}
         run: |
+          # BASE_REF/HEAD_REF come from the event payload, frozen at dispatch time.
+          # Read the live values instead, so a run superseded by a base change
+          # cannot reconcile against a branch that no longer applies. They are still
+          # logged to make a divergence visible.
+          read -r base head labels < <(
+            gh pr view "$PR_NUMBER" --repo "$REPO" \
+              --json baseRefName,headRefName,labels \
+              --jq '"\(.baseRefName) \(.headRefName) \([.labels[].name] | join(","))"'
+          )
+          labels=${labels//,/ }
+
+          if [ "$base" != "$BASE_REF" ] || [ "$head" != "$HEAD_REF" ]; then
+            echo "ℹ️ PR moved since dispatch: event said ${HEAD_REF} → ${BASE_REF}, live is ${head} → ${base}. Using the live values."
+          fi
+
           # Suppress reviews unless the PR targets develop, or is a hotfix —
           # hotfix code never passed through develop, so it was never reviewed.
-          if [ "$BASE_REF" = "develop" ] || [[ "$HEAD_REF" == hotfix/* ]]; then
+          if [ "$base" = "develop" ] || [[ "$head" == hotfix/* ]]; then
             should_skip=false
           else
             should_skip=true
           fi
 
-          labels=$(gh pr view "$PR_NUMBER" --repo "$REPO" --json labels --jq '[.labels[].name] | join(" ")')
           case " $labels " in
             *" skip-coderabbit "*) has_skip=true ;;
             *) has_skip=false ;;
@@ -77,7 +99,7 @@ jobs:
             *) has_ready=false ;;
           esac
 
-          echo "📌 PR #${PR_NUMBER}: ${HEAD_REF} → ${BASE_REF} (suppress=${should_skip}, skip=${has_skip}, ready=${has_ready})"
+          echo "📌 PR #${PR_NUMBER}: ${head} → ${base} (suppress=${should_skip}, skip=${has_skip}, ready=${has_ready})"
 
           # Only mutate when the state actually differs. `gh pr edit --remove-label`
           # errors out when the label does not exist in the repository, so guarding

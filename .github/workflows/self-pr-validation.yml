@@ -431,7 +431,24 @@ jobs:
           PR_NUMBER: ${{ github.event.pull_request.number }}
           REPO: ${{ github.repository }}
         run: |
-          echo "✅ All required checks passed — releasing CodeRabbit on PR #${PR_NUMBER}"
+          # The `if:` above reads `github.base_ref`, which comes from the event
+          # payload and is frozen at dispatch time. A run that started while the PR
+          # targeted develop would still pass that check after the PR was retargeted
+          # to main, and would then re-apply the label the guard had just revoked.
+          # Re-read the live state before mutating, which holds regardless of how
+          # many runs are in flight.
+          read -r base head < <(
+            gh pr view "$PR_NUMBER" --repo "$REPO" \
+              --json baseRefName,headRefName \
+              --jq '"\(.baseRefName) \(.headRefName)"'
+          )
+
+          if [ "$base" != "develop" ] && [[ "$head" != hotfix/* ]]; then
+            echo "⏭️ PR #${PR_NUMBER} now targets '${base}' from '${head}' — out of the review scope, withholding review-ready"
+            exit 0
+          fi
+
+          echo "✅ All required checks passed — releasing CodeRabbit on PR #${PR_NUMBER} (${head} → ${base})"
 
           # Idempotent: re-adding a label the PR already carries is a no-op.
           gh pr edit "$PR_NUMBER" --repo "$REPO" --add-label review-ready
