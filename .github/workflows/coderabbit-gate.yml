@@ -104,8 +104,8 @@ permissions:
 
 jobs:
   gate:
-    name: ${{ inputs.mode == 'withdraw' && 'Withdraw Review Authorisation' || 'Release CodeRabbit Review' }}
-    runs-on: ${{ vars.GENERAL_RUNNERS || inputs.runner_type || 'blacksmith-4vcpu-ubuntu-2404' }}
+    name: Reconcile Review Authorisation
+    runs-on: ${{ vars.GENERAL_RUNNERS || inputs.runner_type }}
     permissions:
       pull-requests: write
     steps:
