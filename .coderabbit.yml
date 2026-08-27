@@ -72,10 +72,28 @@ reviews:
         Flag any usage example that references `@main` — examples must use `@develop` or `@feat/<branch>` for testing and `@vX.Y.Z` for production.
 
   auto_review:
-    enabled: true
+    # Reviews are gated on CI rather than firing when the PR opens: with
+    # `enabled: false` a positive label match is what triggers the review, so
+    # nothing is spent on a PR until it is green. `Self — PR Validation` applies
+    # `review-ready` once every required check has passed.
+    enabled: false
     drafts: false
     base_branches:
       - "develop"
+    # `review-ready` is what opts a PR in, applied by CI once the checks pass.
+    #
+    # `!skip-coderabbit` is kept as defence in depth only — do NOT rely on it.
+    # With `enabled: false` the positive label acts as a trigger and this negative
+    # match does not veto it: on PR #705 `skip-coderabbit` was applied 8 minutes
+    # before CodeRabbit reviewed that release PR regardless. Restricting reviews
+    # to develop is therefore enforced in `self-pr-validation.yml`, by withholding
+    # `review-ready` altogether, and the label here is redundant signalling.
+    #
+    # To review a PR anyway, add `review-ready` by hand, or comment
+    # `@coderabbitai review`.
+    labels:
+      - "review-ready"
+      - "!skip-coderabbit"
     ignore_title_keywords:
       - "WIP"
       - "wip"
