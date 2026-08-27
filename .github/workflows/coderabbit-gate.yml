@@ -73,31 +73,12 @@ on:
         required: false
         type: string
         default: blacksmith-4vcpu-ubuntu-2404
-  workflow_dispatch:
-    inputs:
-      mode:
-        description: Action to take
-        type: choice
-        options:
-          - release
-          - withdraw
-        default: release
-      pr_number:
-        description: Pull request to act on
-        required: true
-        type: number
-      review_base_branches:
-        description: Comma-separated exact base branch names whose pull requests are reviewed
-        type: string
-        default: develop
-      review_head_patterns:
-        description: Comma-separated globs matched against the head branch
-        type: string
-        default: hotfix/*
-      dry_run:
-        description: Log the decision without changing any label
-        type: boolean
-        default: true
+
+# No `workflow_dispatch`: reusable workflows must not offer one. Its inputs are
+# always free-text strings and reach `run:` blocks, which is a script injection
+# surface, and manual triggering belongs in a `self-*` entrypoint. There is no
+# such entrypoint here because the manual equivalent is simpler — add or remove
+# the trigger label on the pull request by hand.
 
 permissions:
   contents: read

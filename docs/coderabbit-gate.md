@@ -1,4 +1,9 @@
-# CodeRabbit Gate
+<table border="0" cellspacing="0" cellpadding="0">
+  <tr>
+    <td><img src="https://github.com/LerianStudio.png" width="72" alt="Lerian" /></td>
+    <td><h1>coderabbit-gate</h1></td>
+  </tr>
+</table>
 
 Gates CodeRabbit reviews on CI, and declares which pull requests are in scope.
 
@@ -105,15 +110,21 @@ request, so requiring success from all of them would never release anything.
 
 ## Permissions
 
-The calling job needs:
+The calling job must grant **both**:
 
 ```yaml
 permissions:
+  contents: read
   pull-requests: write
 ```
 
+`contents: read` is not optional even though nothing is checked out. A reusable
+workflow cannot request more than its caller grants, and this one declares
+`contents: read` at the top level — omitting it in the caller fails the run with
+`startup_failure` before any job begins, with no log to explain it.
+
 The workflow uses `secrets.MANAGE_TOKEN` when available and falls back to
-`github.token`.
+`github.token`, so callers should pass `secrets: inherit`.
 
 ## Usage
 
@@ -124,8 +135,9 @@ jobs:
     # No needs: must land before the checks finish, not after them.
     if: github.event_name == 'pull_request' && github.event.action == 'synchronize'
     permissions:
+      contents: read
       pull-requests: write
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/coderabbit-gate.yml@v1
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/coderabbit-gate.yml@vX.Y.Z
     with:
       mode: withdraw
       pr_number: ${{ github.event.pull_request.number }}
@@ -136,8 +148,9 @@ jobs:
     needs: [withdraw-coderabbit, lint, test, validate]   # every required check
     if: always() && github.event_name == 'pull_request' && github.event.pull_request.draft != true
     permissions:
+      contents: read
       pull-requests: write
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/coderabbit-gate.yml@v1
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/coderabbit-gate.yml@vX.Y.Z
     with:
       mode: release
       pr_number: ${{ github.event.pull_request.number }}
@@ -146,6 +159,9 @@ jobs:
       review_head_patterns: hotfix/*
     secrets: inherit
 ```
+
+Pin to a released version in production. When testing a change to the gate
+itself, point at the branch instead — `@develop`, or `@feat/<branch>`.
 
 `always()` on the release job is required, otherwise a skipped dependency keeps
 the job from running at all and the verdict never gets evaluated.
