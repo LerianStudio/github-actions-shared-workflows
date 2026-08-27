@@ -114,6 +114,7 @@ apps:
     # Provisioned by Severino (app-provisioning automation)
     - billing-worker
     - finance-hub
+    - plugin-br-ted-lerian
     - status-page-lerian
 
 clusters:
@@ -143,6 +144,7 @@ clusters:
 
       # Provisioned by Severino (app-provisioning automation)
       - billing-worker
+      - plugin-br-ted-lerian
 
   benedita:
     # Benedita hosts two parallel variants per environment as sibling namespaces:
@@ -215,4 +217,5 @@ clusters:
       # Provisioned by Severino (app-provisioning automation)
       - billing-worker
       - finance-hub
+      - plugin-br-ted-lerian
       - status-page-lerian
