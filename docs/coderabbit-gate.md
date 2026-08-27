@@ -60,6 +60,24 @@ comes back, and that transition is the trigger.
 Removal is unconditional and needs no scope check: giving up an authorisation is
 always the safe direction.
 
+### The label churn is the mechanism, not noise
+
+Every push produces one `removed … added` entry on the pull request timeline.
+That is expected and load-bearing, not an oversight:
+
+- CodeRabbit reacts to a push in roughly one to two minutes. `withdraw` lands in
+  about fifteen seconds, so it wins that race — which is the only reason a
+  not-yet-validated revision goes unreviewed.
+- The remove → add transition is itself what triggers the incremental review of a
+  green push. Re-adding a label the pull request already carries is a no-op and
+  fires nothing, so without the removal there would be no per-revision review.
+
+Dropping `withdraw` to keep the timeline quiet turns the gate into a first-review
+gate: the label is granted once and never leaves, and from then on every push is
+reviewed immediately, before CI has any verdict. The `release` job already skips
+re-adding when the label is present, so the churn cannot be reduced further
+without giving that up.
+
 ## Scope
 
 Two independent dimensions, OR'd together.
