@@ -141,10 +141,15 @@ permissions:
   pull-requests: write
 ```
 
-`contents: read` is not optional even though nothing is checked out. A reusable
-workflow cannot request more than its caller grants, and this one declares
-`contents: read` at the top level — omitting it in the caller fails the run with
+`contents: read` is not optional even though nothing is checked out, and even
+though the `gate` job overrides permissions with `pull-requests: write` alone.
+GitHub validates the **workflow-level** `permissions` block of the called
+workflow against what the caller grants, not just the job's. This one declares
+`contents: read` at that level, so omitting it in the caller fails the run with
 `startup_failure` before any job begins, with no log to explain it.
+
+Verified by isolating it: commit `e9a4d1d` removed only that line and the run
+failed to start; restoring it fixed the run.
 
 ## Secrets
 
