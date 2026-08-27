@@ -257,6 +257,11 @@ CodeRabbit at its own behaviour. It does **not** fail the pull request: the GitH
 API rejects adding a label the repository does not define, and failing on that
 would turn every pull request red in every repository that has not adopted yet.
 
+Only a confirmed `404` is read as "not adopted". A permissions error, a rate limit
+or a transient `5xx` fails the job instead — those are outages, and silently
+treating them as an un-adopted repository would disable the gate while reporting
+the wrong cause.
+
 Step 2 matters as much as step 1. With the label present but `enabled` still
 `true`, CodeRabbit reviews everything as before and the label decides nothing —
 the gate looks installed while doing nothing.

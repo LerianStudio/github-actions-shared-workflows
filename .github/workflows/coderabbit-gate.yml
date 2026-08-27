@@ -135,17 +135,6 @@ jobs:
             *) has_label=false ;;
           esac
 
-          # A repository that has not adopted the gate yet simply has no such
-          # label. Treat that as "not adopted", not as an error: `gh pr edit
-          # --add-label` fails outright on a label the repository does not define,
-          # which would turn every pull request red in every repository that has
-          # not run its labels sync yet. Warn loudly and leave CodeRabbit at its
-          # own default instead.
-          if ! gh api "repos/${REPO}/labels/${LABEL}" --silent 2>/dev/null; then
-            echo "::warning::Label '${LABEL}' does not exist in ${REPO} — the CodeRabbit gate is inert here. Declare it in .github/labels.yml and run the labels sync, and set reviews.auto_review.enabled=false with labels=[\"${LABEL}\"] in .coderabbit.yml. See docs/coderabbit-gate.md."
-            exit 0
-          fi
-
           # Verbose only under dry_run, per the repository's dry_run contract. A
           # real run emits a single `::notice::` with the decision — this job's
           # only observable product is *why* a pull request was or was not
@@ -161,6 +150,37 @@ jobs:
             echo "  live head         : ${live_sha}"
             echo "  scope bases       : [${REVIEW_BASE_BRANCHES}]"
             echo "  scope head globs  : [${REVIEW_HEAD_PATTERNS}]"
+          fi
+
+          # A repository that has not adopted the gate simply has no such label.
+          # Treat that — and only that — as "not adopted": `gh pr edit --add-label`
+          # fails outright on a label the repository does not define, which would
+          # turn every pull request red everywhere the labels sync has not run yet.
+          #
+          # Any other failure must not be mistaken for it. `gh api` exits non-zero
+          # on 4xx and 5xx alike, so a rate limit, a permissions problem or a
+          # transient 5xx would otherwise disable the gate while reporting a
+          # missing label — a wrong diagnosis on top of a silent outage.
+          if lookup_error=$(gh api "repos/${REPO}/labels/${LABEL}" 2>&1 >/dev/null); then
+            label_defined=true
+          else
+            case "$lookup_error" in
+              *"Not Found"*|*"404"*)
+                label_defined=false
+                ;;
+              *)
+                echo "::error::Could not determine whether label '${LABEL}' exists in ${REPO}: ${lookup_error}"
+                exit 1
+                ;;
+            esac
+          fi
+
+          if [ "$label_defined" = false ]; then
+            if [ "$DRY_RUN" = "true" ]; then
+              echo "  decision          : label not defined in the repository — gate inert"
+            fi
+            echo "::warning::Label '${LABEL}' does not exist in ${REPO} — the CodeRabbit gate is inert here. Declare it in .github/labels.yml and run the labels sync, and set reviews.auto_review.enabled=false with labels=[\"${LABEL}\"] in .coderabbit.yml. See docs/coderabbit-gate.md."
+            exit 0
           fi
 
           # ---------- withdraw ----------
