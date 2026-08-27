@@ -346,25 +346,24 @@ jobs:
   # named here but missing from that list never triggers a run, so the label never
   # arrives. Add it in both places to widen the scope.
   #
+  # The gate runs in `release` mode only: the label is granted once, when the pull
+  # request first goes green, and is never taken back. Subsequent pushes still run
+  # this job, find the label already present, and change nothing.
+  #
+  # The `withdraw` mode exists in the reusable workflow and is deliberately unused
+  # here. It would make every revision re-earn the label, but measurement showed
+  # the guarantee it promises does not hold: CodeRabbit decides at the moment of
+  # the event and publishes minutes later, so withdrawing afterwards cannot cancel
+  # a decision already taken. On PR #705 the push landed at 14:09:38, the
+  # withdrawal at 14:09:59 — 21 seconds late — and the review was published at
+  # 14:15:23 regardless. It won the race on PR #708 and lost it on #705, so what
+  # it buys is a probability, at the cost of a label add/remove pair on the
+  # timeline for every push. Not worth it here.
+  #
   # The logic lives in .github/workflows/coderabbit-gate.yml — see docs/coderabbit-gate.md.
-  withdraw-coderabbit:
-    name: Hold CodeRabbit Review
-    # No `needs`: this has to land before the checks finish, not after them, so a
-    # revision cannot be reviewed on the strength of the previous revision's pass.
-    if: github.event_name == 'pull_request' && github.event.action == 'synchronize'
-    permissions:
-      contents: read
-      pull-requests: write
-    uses: ./.github/workflows/coderabbit-gate.yml
-    with:
-      mode: withdraw
-      pr_number: ${{ github.event.pull_request.number }}
-    secrets: inherit
-
   release-coderabbit:
     name: Release CodeRabbit Review
     needs:
-      - withdraw-coderabbit
       - validation
       - changed-files
       - breaking-change-guard-tests

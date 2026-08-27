@@ -9,9 +9,16 @@ early_access: false
 reviews:
   profile: "assertive"
 
-  high_level_summary: true
-  high_level_summary_in_walkthrough: true
+  # Off because these are NOT governed by the review gate. CodeRabbit regenerates
+  # the summary on every push even with `auto_review.enabled: false` — on PR #708
+  # the summary comment's `updated_at` matched the push second for second, while
+  # the PR carried no `review-ready` label and received no review. That is work
+  # spent on pull requests the gate deliberately left unreviewed.
+  high_level_summary: false
+  high_level_summary_in_walkthrough: false
 
+  # Kept on: this is what posts "Review skipped — required labels: review-ready",
+  # which is the cheapest way to confirm the gate is behaving as intended.
   review_status: true
   review_details: false
   collapse_walkthrough: false

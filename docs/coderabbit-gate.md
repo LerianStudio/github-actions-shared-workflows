@@ -51,32 +51,37 @@ Called at two points of the caller's job graph.
 | `withdraw` | early, no `needs`, on `synchronize` | Removes the label so the new revision must earn it again |
 | `release` | last, needing every required check | Applies the label when the PR is in scope and nothing failed |
 
-`withdraw` is not optional. Without it, the label from the previous revision stays
-on the pull request while the new checks run, and CodeRabbit — whose incremental
-reviews remain enabled — reviews a revision that may well be failing. It is also
-what makes each green push get its own incremental review: the label leaves and
-comes back, and that transition is the trigger.
+Calling `release` alone gates the **first** review: the label is granted once the
+pull request goes green and never taken back. Adding `withdraw` makes every
+revision re-earn it, which also gives each green push its own incremental review,
+since the remove → add transition is what triggers one.
 
 Removal is unconditional and needs no scope check: giving up an authorisation is
 always the safe direction.
 
-### The label churn is the mechanism, not noise
+### `withdraw` buys a probability, not a guarantee
 
-Every push produces one `removed … added` entry on the pull request timeline.
-That is expected and load-bearing, not an oversight:
+CodeRabbit decides whether to review **at the moment of the event** and publishes
+minutes later. A withdrawal that lands after that decision cannot cancel it.
 
-- CodeRabbit reacts to a push in roughly one to two minutes. `withdraw` lands in
-  about fifteen seconds, so it wins that race — which is the only reason a
-  not-yet-validated revision goes unreviewed.
-- The remove → add transition is itself what triggers the incremental review of a
-  green push. Re-adding a label the pull request already carries is a no-op and
-  fires nothing, so without the removal there would be no per-revision review.
+Measured on this repository:
 
-Dropping `withdraw` to keep the timeline quiet turns the gate into a first-review
-gate: the label is granted once and never leaves, and from then on every push is
-reviewed immediately, before CI has any verdict. The `release` job already skips
-re-adding when the label is present, so the churn cannot be reduced further
-without giving that up.
+| Pull request | Push | Withdrawal | Review | Outcome |
+|---|---|---|---|---|
+| #708 | — | 3 windows of 1–7 min without the label | none in any window | withdrawal won |
+| #705 | 14:09:38 | 14:09:59 (**21s late**) | 14:15:23 | withdrawal lost |
+
+So `withdraw` helps when CI reaction time exceeds CodeRabbit's (~1–2 min), which
+is the common case, and fails when it does not. The cost is a label add/remove
+pair on the timeline for every push.
+
+Whether that trade is worth it depends on the repository. This one decided it is
+not, and calls the gate in `release` mode only — see the rationale in
+`.github/workflows/self-pr-validation.yml`. A repository with slow CI and
+expensive reviews may reasonably decide the opposite.
+
+Note that `release` never re-adds a label that is already present, so running it
+on every push costs one short job and mutates nothing.
 
 ## Scope
 
@@ -156,24 +161,13 @@ workflow cannot request more than its caller grants, and this one declares
 
 ## Usage
 
+Minimal setup — gates the first review, which is what most repositories want:
+
 ```yaml
 jobs:
-  withdraw-coderabbit:
-    name: Hold CodeRabbit Review
-    # No needs: must land before the checks finish, not after them.
-    if: github.event_name == 'pull_request' && github.event.action == 'synchronize'
-    permissions:
-      contents: read
-      pull-requests: write
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/coderabbit-gate.yml@vX.Y.Z
-    with:
-      mode: withdraw
-      pr_number: ${{ github.event.pull_request.number }}
-    secrets: inherit
-
   release-coderabbit:
     name: Release CodeRabbit Review
-    needs: [withdraw-coderabbit, lint, test, validate]   # every required check
+    needs: [lint, test, validate]   # every required check
     if: always() && github.event_name == 'pull_request' && github.event.pull_request.draft != true
     permissions:
       contents: read
@@ -188,15 +182,36 @@ jobs:
     secrets: inherit
 ```
 
-Pin to a released version in production. When testing a change to the gate
-itself, point at the branch instead — `@develop`, or `@feat/<branch>`.
+`always()` is required, otherwise a skipped dependency keeps the job from running
+at all and the verdict never gets evaluated.
 
-`always()` on the release job is required, otherwise a skipped dependency keeps
-the job from running at all and the verdict never gets evaluated.
+Pin to a released version in production. When testing a change to the gate itself,
+point at the branch instead — `@develop`, or `@feat/<branch>`.
 
-Listing `withdraw-coderabbit` in `needs` orders the two calls: the withdrawal can
-never land after the re-application. It is skipped on events other than
-`synchronize`, which `always()` tolerates.
+### Optional: gate every revision
+
+Add a `withdraw` call ahead of the checks so each revision has to re-earn the
+label. Read [the trade-off](#withdraw-buys-a-probability-not-a-guarantee) first —
+it is a probability, paid for with timeline churn.
+
+```yaml
+  withdraw-coderabbit:
+    name: Hold CodeRabbit Review
+    # No needs: must land before the checks finish, not after them.
+    if: github.event_name == 'pull_request' && github.event.action == 'synchronize'
+    permissions:
+      contents: read
+      pull-requests: write
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/coderabbit-gate.yml@vX.Y.Z
+    with:
+      mode: withdraw
+      pr_number: ${{ github.event.pull_request.number }}
+    secrets: inherit
+```
+
+Then list it first in the release job's `needs`, so the withdrawal can never land
+after the re-application. It is skipped on events other than `synchronize`, which
+`always()` tolerates.
 
 ## Escape hatches
 
@@ -207,13 +222,28 @@ The gate governs automatic reviews only. These still work on any pull request:
 
 Both are intentional. The gate is a spending policy, not an access control.
 
-## Known limitation
+## What the gate does not cover
 
-A pull request already reviewed and then moved out of scope keeps receiving
-incremental reviews. Once CodeRabbit has engaged with a pull request, removing the
-label does not disengage it — the label governs the initial trigger, not an
-engagement already established. Stopping that requires `@coderabbitai ignore` in
-the pull request description, or `@coderabbitai pause` as a comment.
+**The summary and walkthrough are not gated.** CodeRabbit regenerates them on
+every push even under `auto_review.enabled: false`. On PR #708 the summary
+comment's `updated_at` matched the push second for second while the pull request
+carried no label and received no review. If that processing is unwanted, turn it
+off separately:
 
-This only affects retargeting an already-reviewed pull request, not the common
-paths.
+```yaml
+reviews:
+  high_level_summary: false
+  high_level_summary_in_walkthrough: false
+```
+
+Keep `review_status: true` — that is what posts *"Review skipped — required
+labels: review-ready"*, the cheapest confirmation that the gate is working.
+
+**A review already decided cannot be cancelled.** See the `withdraw` section
+above: the decision is taken at the event, so nothing done afterwards stops the
+publication.
+
+**An engaged pull request stays engaged.** Once CodeRabbit has reviewed a pull
+request, moving it out of scope does not disengage it — the label governs the
+initial trigger, not an established engagement. Stopping that needs
+`@coderabbitai ignore` in the description, or `@coderabbitai pause` as a comment.
