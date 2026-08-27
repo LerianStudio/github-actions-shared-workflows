@@ -408,10 +408,20 @@ jobs:
     # `always()` so skipped lints (no matching files changed) do not block the
     # gate; only a real failure or cancellation does. Draft PRs are excluded —
     # `drafts: false` in .coderabbit.yml means the label would be inert anyway.
+    #
+    # The base/head condition is what actually keeps release PRs unreviewed. The
+    # `!skip-coderabbit` negative match in .coderabbit.yml does not do it: with
+    # `auto_review.enabled: false` the positive label is a *trigger*, and the
+    # negative match does not veto it. PR #705 proved it — `skip-coderabbit` was
+    # applied 8 minutes before CodeRabbit reviewed that release PR anyway. So the
+    # scope is decided here, where it is deterministic: withhold the label unless
+    # the PR targets develop, or is a hotfix (hotfix code never passed through
+    # develop, so it was never reviewed).
     if: >-
       always()
       && github.event_name == 'pull_request'
       && github.event.pull_request.draft != true
+      && (github.base_ref == 'develop' || startsWith(github.head_ref, 'hotfix/'))
       && !contains(needs.*.result, 'failure')
       && !contains(needs.*.result, 'cancelled')
     steps:

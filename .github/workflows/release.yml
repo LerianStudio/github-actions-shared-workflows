@@ -126,7 +126,7 @@ on:
         type: boolean
         default: false
       product_alpha_enabled:
-        description: 'Release product branches (see product_alpha_branch_pattern) on their own alpha line: the product name is taken from the branch and drives both the tag prefix and the prerelease identifier, so develop-midaz publishes midaz-v1.0.0-alpha.1. Off by default; when off, branches and tag format come solely from the caller .releaserc.'
+        description: 'Release product branches (see product_alpha_branch_pattern) on their own alpha line: the product name is taken from the branch and drives the tag prefix, while the prerelease identifier stays alpha, so develop-midaz publishes midaz-v1.0.0-alpha.1. Off by default; when off, branches and tag format come solely from the caller .releaserc.'
         required: false
         type: boolean
         default: false
