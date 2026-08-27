@@ -9,9 +9,16 @@ early_access: false
 reviews:
   profile: "assertive"
 
-  high_level_summary: true
-  high_level_summary_in_walkthrough: true
+  # Off because these are NOT governed by the review gate. CodeRabbit regenerates
+  # the summary on every push even with `auto_review.enabled: false` — on PR #708
+  # the summary comment's `updated_at` matched the push second for second, while
+  # the PR carried no `review-ready` label and received no review. That is work
+  # spent on pull requests the gate deliberately left unreviewed.
+  high_level_summary: false
+  high_level_summary_in_walkthrough: false
 
+  # Kept on: this is what posts "Review skipped — required labels: review-ready",
+  # which is the cheapest way to confirm the gate is behaving as intended.
   review_status: true
   review_details: false
   collapse_walkthrough: false
@@ -72,28 +79,30 @@ reviews:
         Flag any usage example that references `@main` — examples must use `@develop` or `@feat/<branch>` for testing and `@vX.Y.Z` for production.
 
   auto_review:
-    # Reviews are gated on CI rather than firing when the PR opens: with
-    # `enabled: false` a positive label match is what triggers the review, so
-    # nothing is spent on a PR until it is green. `Self — PR Validation` applies
-    # `review-ready` once every required check has passed.
+    # `enabled: false` inverts the default to "do not review": nothing is reviewed
+    # unless `review-ready` is on the PR. That label is applied by the
+    # `gate-coderabbit` job in `Self — PR Validation`, once every required check
+    # has passed and the PR is within the configured review scope — so no review
+    # is ever spent on a PR that is failing or out of scope.
+    #
+    # The gate is the single owner of that decision. Do not add exclusion rules
+    # here expecting them to restrict anything: a negative label match does not
+    # veto the positive trigger under `enabled: false`. PR #705 demonstrated it —
+    # a release PR carried `skip-coderabbit` for over two minutes before
+    # `review-ready` arrived, and was reviewed five minutes after that. Any such
+    # rule is also inert in the common case, since a PR that never receives
+    # `review-ready` is already excluded by the inverted default.
+    #
+    # `base_branches` is intentionally absent for the same reason: it governs
+    # which base branches are *auto*-reviewed, and there is no auto-review to
+    # govern. Restore it only alongside `enabled: true`.
+    #
+    # To review an out-of-scope PR anyway, add `review-ready` by hand or comment
+    # `@coderabbitai review`.
     enabled: false
     drafts: false
-    base_branches:
-      - "develop"
-    # `review-ready` is what opts a PR in, applied by CI once the checks pass.
-    #
-    # `!skip-coderabbit` is kept as defence in depth only — do NOT rely on it.
-    # With `enabled: false` the positive label acts as a trigger and this negative
-    # match does not veto it: on PR #705 `skip-coderabbit` was applied 8 minutes
-    # before CodeRabbit reviewed that release PR regardless. Restricting reviews
-    # to develop is therefore enforced in `self-pr-validation.yml`, by withholding
-    # `review-ready` altogether, and the label here is redundant signalling.
-    #
-    # To review a PR anyway, add `review-ready` by hand, or comment
-    # `@coderabbitai review`.
     labels:
       - "review-ready"
-      - "!skip-coderabbit"
     ignore_title_keywords:
       - "WIP"
       - "wip"

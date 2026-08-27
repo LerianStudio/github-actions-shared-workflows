@@ -159,7 +159,7 @@ on:
         type: boolean
         default: false
       docker_build_args:
-        description: 'Newline-separated Docker build arguments (e.g., "APP_NAME=spi\nCOMPONENT_NAME=api"). For sensitive values (tokens, keys, passwords), use BuildKit secrets instead — build arguments are visible in image history.'
+        description: 'Newline-separated Docker build arguments (e.g., "APP_NAME=spi\nCOMPONENT_NAME=api"). For sensitive values (tokens, keys, passwords), use BuildKit secrets instead — build arguments are visible in image history. Two more arguments are always appended after these: VERSION (the published image version) and BUILD_TIME (RFC3339 UTC); a Dockerfile declaring ARG VERSION / ARG BUILD_TIME gets them stamped in, one that declares neither is unaffected.'
         type: string
         required: false
         default: ''
@@ -379,7 +379,7 @@ jobs:
           echo "images=$IMAGES" >> "$GITHUB_OUTPUT"
           echo "ghcr_org=$GHCR_ORG" >> "$GITHUB_OUTPUT"
 
-      - name: Extract version from tag
+      - name: Resolve version and build timestamp
         id: version
         env:
           RELEASE_VERSION: ${{ inputs.release_version }}
@@ -398,6 +398,13 @@ jobs:
             echo "version=$VERSION" >> "$GITHUB_OUTPUT"
             echo "Extracted version: $VERSION from tag: $TAG"
           fi
+
+          # Build provenance timestamp, fed to the image as the BUILD_TIME build
+          # argument below. Captured here (once per app, alongside the version it
+          # is published with) so every layer of one image sees the same instant.
+          BUILD_TIME=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          echo "build_time=$BUILD_TIME" >> "$GITHUB_OUTPUT"
+          echo "Build timestamp: $BUILD_TIME"
 
       - name: Pre-flight tag existence check
         id: preflight
@@ -615,7 +622,22 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          build-args: ${{ inputs.docker_build_args }}
+          # Caller-supplied arguments first, then the release provenance pair this
+          # workflow computes. A caller cannot pass VERSION itself: the version is
+          # only known after semantic-release runs inside the release umbrella, well
+          # after the static docker_build_args input is bound.
+          #
+          # Additive for every consumer: a Dockerfile that declares `ARG VERSION` /
+          # `ARG BUILD_TIME` gets a stamped binary (e.g. via -ldflags -X or OCI
+          # labels); one that declares neither is unaffected, because an undeclared
+          # build argument only warns and does not invalidate build cache.
+          #
+          # The computed pair goes LAST so an empty docker_build_args leaves a blank
+          # leading line (ignored by build-push-action) rather than a dangling one.
+          build-args: |
+            ${{ inputs.docker_build_args }}
+            VERSION=${{ steps.version.outputs.version }}
+            BUILD_TIME=${{ steps.version.outputs.build_time }}
           sbom: generator=docker/scout-sbom-indexer:latest
           provenance: mode=max
           cache-from: type=gha
