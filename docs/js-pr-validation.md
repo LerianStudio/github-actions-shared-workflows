@@ -101,6 +101,10 @@ The `frontend-analysis`, `security` and `socket` pipelines each have a `*-gate` 
 | `socket_app_fail_on_findings` | Fail the Socket job when the App reports adverse checks | boolean | `true` |
 | `socket_app_on_inconclusive` | `block` or `warn` when the App reached no verdict | string | `block` |
 | `socket_app_on_missing` | `warn` or `block` when the App published no checks | string | `warn` |
+| `enable_coderabbit_gate` | Hold CodeRabbit until this validation passes. Requires setup in the consuming repo — see [coderabbit-gate](coderabbit-gate.md) | boolean | `false` |
+| `coderabbit_review_base_branches` | Comma-separated exact base branch names whose PRs get a review. Empty removes this dimension | string | `develop` |
+| `coderabbit_review_head_patterns` | Comma-separated globs matched against the head branch; a match is reviewed regardless of base | string | `hotfix/*` |
+| `coderabbit_gate_label` | Trigger label. Must match `reviews.auto_review.labels` in `.coderabbit.yml` | string | `review-ready` |
 | `socket_enable_api_report` | Read the App's full scan and report per-package alerts, vulnerabilities and scores (advisory) | boolean | `true` |
 | `socket_api_max_rows` | Maximum package rows per findings section | number | `25` |
 | `socket_api_include_actions` | Socket alert actions reported as findings | string | `error,warn,monitor` |

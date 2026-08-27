@@ -436,6 +436,24 @@ on:
           "warn" (default) keeps those repositories green, "block" requires the App.
         type: string
         default: 'warn'
+
+      # ----------------- CodeRabbit Review Gate -----------------
+      enable_coderabbit_gate:
+        description: 'Hold CodeRabbit until this validation passes. Off by default — it requires setup in the consuming repository (see docs/coderabbit-gate.md): `reviews.auto_review.enabled: false` plus `labels: ["review-ready"]` in .coderabbit.yml, and the label created. Enabling it without that setup fails the job on a missing label.'
+        type: boolean
+        default: false
+      coderabbit_review_base_branches:
+        description: 'Comma-separated exact base branch names whose pull requests get a review. Empty removes this dimension.'
+        type: string
+        default: develop
+      coderabbit_review_head_patterns:
+        description: 'Comma-separated globs matched against the head branch. A match is reviewed regardless of base — for code that reached no other review on its way in.'
+        type: string
+        default: hotfix/*
+      coderabbit_gate_label:
+        description: 'Label used as the review trigger. Must match `reviews.auto_review.labels` in .coderabbit.yml.'
+        type: string
+        default: review-ready
     secrets:
       MANAGE_TOKEN:
         required: false
@@ -795,3 +813,48 @@ jobs:
       contents: read
     steps:
       - run: echo "Not applicable for JS/TS repositories"
+
+  # ----------------- CodeRabbit Review Gate -----------------
+  # Holds CodeRabbit until this umbrella passes, so no review is spent on a pull
+  # request that is failing or out of the configured scope. Opt-in: it needs
+  # `reviews.auto_review.enabled: false` plus `labels: ["review-ready"]` in the
+  # consuming repository's .coderabbit.yml, and the label to exist there.
+  #
+  # In a repository that calls both umbrellas, enable this on exactly one of them
+  # — two callers would each try to release the same label, and the one that runs
+  # first would authorise before the other finished validating.
+  #
+  # See docs/coderabbit-gate.md for the contract and the setup checklist.
+  coderabbit-review:
+    name: CodeRabbit Review
+    needs:
+      - metadata
+      - changes
+      - frontend-analysis-gate
+      - security-gate
+      - socket-gate
+    # `always()` so a skipped component gate does not block this one — the
+    # verdict below distinguishes skipped from failed. Draft pull requests are
+    # excluded; CodeRabbit ignores them anyway.
+    if: >-
+      always()
+      && inputs.enable_coderabbit_gate
+      && github.event_name == 'pull_request'
+      && github.event.pull_request.draft != true
+    permissions:
+      contents: read
+      pull-requests: write
+    uses: ./.github/workflows/coderabbit-gate.yml
+    with:
+      mode: release
+      pr_number: ${{ github.event.pull_request.number }}
+      # Skipped is fine; only a real failure or cancellation withholds the label.
+      checks_passed: ${{ !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') }}
+      # Binds the verdict to the commit it was computed for, so a run superseded
+      # by a newer push cannot authorise a head it never validated.
+      head_sha: ${{ github.event.pull_request.head.sha }}
+      review_base_branches: ${{ inputs.coderabbit_review_base_branches }}
+      review_head_patterns: ${{ inputs.coderabbit_review_head_patterns }}
+      label: ${{ inputs.coderabbit_gate_label }}
+      dry_run: ${{ inputs.dry_run }}
+    secrets: inherit
