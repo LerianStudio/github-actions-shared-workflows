@@ -1,0 +1,161 @@
+name: GHCR Alpha Cleanup
+
+# Reusable workflow that prunes disposable alpha artifacts from a single GHCR
+# package. Alphas are ephemeral by design — a preview image or chart built from
+# a product branch — so they are deleted once they age past the TTL, or on
+# demand when the branch that produced them has been integrated.
+#
+# Deletion is irreversible, so the scope is validated before anything runs:
+# the package must be alpha/-scoped and named exactly (no globs), and the tag
+# pattern must be alpha-specific. See "Scope validation" below.
+#
+# workflow_call only — the schedule/manual entrypoint belongs in the consuming
+# repo (see docs/ghcr-alpha-cleanup.md).
+#
+# Usage:
+#   jobs:
+#     cleanup:
+#       uses: LerianStudio/github-actions-shared-workflows/.github/workflows/ghcr-alpha-cleanup.yml@v1
+#       with:
+#         image_names: alpha/product-console
+#         image_tags: 'midaz-alpha.*'
+#         dry_run: false
+#       secrets:
+#         GHCR_CLEANUP_PAT: ${{ secrets.GHCR_CLEANUP_PAT }}
+
+on:
+  workflow_call:
+    inputs:
+      account:
+        description: GitHub org/user that owns the package
+        required: false
+        type: string
+        default: "lerianstudio"
+      image_names:
+        description: >-
+          Exact package name(s) to prune, space-separated. Must be alpha/-scoped
+          (e.g. alpha/product-console). Globs are rejected: `alpha/*` spans every
+          alpha package in the org, which mixes unrelated repositories.
+        required: true
+        type: string
+      image_tags:
+        description: >-
+          Tag globs to target within those packages. Must contain "alpha" so a
+          run can never select a non-alpha tag. Defaults to every alpha tag.
+        required: false
+        type: string
+        default: "*-alpha*"
+      cut_off:
+        description: Delete versions older than this (e.g. "3d", "1w"). Use a small value like "1s" to purge on demand.
+        required: false
+        type: string
+        default: "3d"
+      keep_n_most_recent:
+        description: >-
+          Always keep at least this many recent versions. Counted per package,
+          not per product, so products sharing a package share this safety net.
+        required: false
+        type: number
+        default: 5
+      dry_run:
+        description: Preview deletions without applying them. Defaults to true — this workflow deletes.
+        required: false
+        type: boolean
+        default: true
+    secrets:
+      GHCR_CLEANUP_PAT:
+        description: PAT with delete:packages (GITHUB_TOKEN cannot delete org-level packages)
+        required: true
+
+# Least privilege: read by default, escalate per-job.
+permissions:
+  contents: read
+
+# Serialize runs so overlapping schedule/dispatch invocations don't race on the
+# same GHCR package versions.
+concurrency:
+  group: ghcr-alpha-cleanup-${{ github.repository }}-${{ inputs.image_names }}
+  cancel-in-progress: false
+
+jobs:
+  cleanup:
+    name: Prune alpha versions
+    runs-on: ${{ vars.GENERAL_RUNNERS || 'blacksmith-4vcpu-ubuntu-2404' }}
+    permissions:
+      packages: write # delete alpha package versions from GHCR
+    steps:
+      # ----------------- Scope validation -----------------
+      # The composite guards the alpha/ prefix already. These checks close the
+      # two gaps that prefix alone leaves open: a glob that reaches other repos'
+      # alpha packages, and a tag pattern that selects non-alpha versions.
+      - name: Validate deletion scope
+        env:
+          ACCOUNT: ${{ inputs.account }}
+          IMAGE_NAMES: ${{ inputs.image_names }}
+          IMAGE_TAGS: ${{ inputs.image_tags }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${IMAGE_NAMES// /}" ]; then
+            echo "::error::image_names is empty — refusing to run."
+            exit 1
+          fi
+
+          set -f # keep patterns literal while validating them
+          for name in $IMAGE_NAMES; do
+            case "$name" in
+              *[*?[]*)
+                echo "::error::image_names entry '${name}' contains a glob. Name each package exactly — a pattern like 'alpha/*' spans every alpha package in the ${ACCOUNT:-org}, including other repositories'."
+                exit 1
+                ;;
+            esac
+            case "$name" in
+              alpha/?*) ;;
+              *)
+                echo "::error::image_names entry '${name}' is not under the alpha/ namespace. Release packages must be unreachable from this workflow."
+                exit 1
+                ;;
+            esac
+          done
+
+          if [ -z "${IMAGE_TAGS// /}" ]; then
+            echo "::error::image_tags is empty — that would select every version in the package. Refusing to run."
+            exit 1
+          fi
+          case "$IMAGE_TAGS" in
+            *alpha*) ;;
+            *)
+              echo "::error::image_tags '${IMAGE_TAGS}' does not contain 'alpha'. Only alpha versions may be deleted by this workflow."
+              exit 1
+              ;;
+          esac
+
+          echo "Scope validated."
+
+      - name: Dry run summary
+        if: ${{ inputs.dry_run }}
+        env:
+          ACCOUNT: ${{ inputs.account }}
+          IMAGE_NAMES: ${{ inputs.image_names }}
+          IMAGE_TAGS: ${{ inputs.image_tags }}
+          CUT_OFF: ${{ inputs.cut_off }}
+          KEEP_N: ${{ inputs.keep_n_most_recent }}
+        run: |
+          echo "::notice::DRY RUN — no versions will be deleted"
+          echo "  account            : ${ACCOUNT}"
+          echo "  image_names        : ${IMAGE_NAMES}"
+          echo "  image_tags         : ${IMAGE_TAGS}"
+          echo "  cut_off            : ${CUT_OFF}"
+          echo "  keep_n_most_recent : ${KEEP_N}"
+
+      # ----------------- Prune -----------------
+      - name: Prune alpha versions
+        uses: LerianStudio/github-actions-shared-workflows/src/config/ghcr-alpha-cleanup@v1
+        with:
+          account: ${{ inputs.account }}
+          token: ${{ secrets.GHCR_CLEANUP_PAT }}
+          image-names: ${{ inputs.image_names }}
+          image-tags: ${{ inputs.image_tags }}
+          cut-off: ${{ inputs.cut_off }}
+          keep-n-most-recent: ${{ inputs.keep_n_most_recent }}
+          dry-run: ${{ inputs.dry_run }}
