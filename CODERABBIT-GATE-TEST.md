@@ -11,21 +11,37 @@ once the behaviour has been observed.
 `reviews.auto_review.enabled: false` in `.coderabbit.yml`, that label is the
 trigger for a review — so no label means no review.
 
-The two words below are misspelled on purpose, which makes `Spelling Check`
-fail. It runs whenever any file changes, so it is the most reliable check to
-break deliberately:
+## First revision — red path (confirmed)
 
-- enviroment
-- recieve
+The first commit carried two deliberate misspellings, which failed
+`Spelling Check`. That check runs whenever any file changes, so it is the most
+reliable one to break on purpose. Observed on commit `b263f5d`:
 
-## Expected outcome
+| Step | Expected | Observed |
+|------|----------|----------|
+| `Spelling Check` | fails | failed on both words |
+| `gate-coderabbit` | skipped | skipped |
+| `review-ready` | never applied | never applied |
+| CodeRabbit | no review | no review, no inline comments |
+
+CodeRabbit stated the reason itself, rather than staying silent:
+
+> Review skipped — auto reviews are limited based on label configuration.
+> Required labels (at least one): `review-ready`.
+> Excluded labels (none allowed): `skip-coderabbit`.
+
+A summary/walkthrough comment did appear: `high_level_summary` is independent of
+`auto_review.enabled` and is not governed by the gate.
+
+## Second revision — transition to green
+
+This revision fixes both spellings, so every required check should pass. It
+exercises the one path the earlier PRs never covered: a revision going from red
+to green on the same pull request.
 
 | Step | Expectation |
 |------|-------------|
-| `Spelling Check` | fails on the two words above |
-| `gate-coderabbit` | skipped — its `if:` requires no failure among `needs` |
-| `review-ready` | never applied |
-| CodeRabbit | posts no review |
-
-A summary/walkthrough comment may still appear: `high_level_summary` is
-independent of `auto_review.enabled` and is not governed by the gate.
+| `Hold CodeRabbit Review` | runs (this push is a `synchronize`) and finds nothing to withdraw |
+| `Spelling Check` | passes |
+| `gate-coderabbit` | runs and applies `review-ready` |
+| CodeRabbit | reviews, now that the revision earned the label |
