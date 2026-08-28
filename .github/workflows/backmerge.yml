@@ -174,7 +174,7 @@ jobs:
           source-branch: ${{ matrix.from }}
           target-branch: ${{ matrix.to }}
           mode: ${{ matrix.mode }}
-          commit-message: "${{ matrix.commit_message != '' && matrix.commit_message || 'chore(backmerge): sync ${source} into ${target} [skip ci]' }}"
+          commit-message: "${{ matrix.commit_message != '' && matrix.commit_message || 'chore(backmerge): sync ${source} into ${target} [backmerge]' }}"
           pr-title: "${{ matrix.pr_title != '' && matrix.pr_title || 'chore(backmerge): sync ${source} → ${target} [backmerge]' }}"
           pr-labels: ${{ matrix.pr_labels != '' && matrix.pr_labels || inputs.pr_labels }}
           git-user-name: ${{ secrets.LERIAN_CI_CD_USER_NAME }}

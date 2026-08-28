@@ -18,7 +18,7 @@ inputs:
   commit-message:
     description: Commit message for direct merge. Supports ${source} and ${target} placeholders.
     required: false
-    default: "chore(backmerge): sync ${source} into ${target} [skip ci]"
+    default: "chore(backmerge): sync ${source} into ${target} [backmerge]"
   pr-title:
     description: PR title template. Supports ${source} and ${target} placeholders.
     required: false
