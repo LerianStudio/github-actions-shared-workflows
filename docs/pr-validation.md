@@ -310,7 +310,7 @@ with:
   enforce_source_branches: true
   source_branch_rules: |
     {
-      "main": "develop|release-candidate|hotfix/*",
+      "main": "release-candidate|hotfix/*",
       "release-candidate": "develop-*|hotfix/*"
     }
 ```
@@ -320,8 +320,8 @@ with:
 | `release-candidate` | `develop-midaz` | allowed |
 | `release-candidate` | `hotfix/CVE-123` | allowed |
 | `release-candidate` | `develop` | **blocked** |
-| `main` | `develop` | allowed |
-| `main` | `develop-midaz` | **blocked** |
+| `main` | `release-candidate` | allowed |
+| `main` | `develop` | **blocked** — promoted through the release candidate, never merged directly |
 | `develop` | anything | not validated — no rule, not a listed target |
 
 A target present in `source_branch_rules` uses its own patterns and ignores `allowed_source_branches`. Targets absent from it keep following the two flat inputs, so leaving `source_branch_rules` empty preserves the current behavior exactly.
