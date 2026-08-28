@@ -1,5 +1,29 @@
 # Github-actions-shared-workflows Changelog
 
+## [1.62.0](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.62.0)
+
+Features:
+- Made the review scope configurable and removed the inert skip label in CodeRabbit. (@bedatty)
+- Enabled the gate by default in PR validation and ensured it operates as a no-op without setup. (@bedatty)
+- Offered the CodeRabbit gate in the Go and JS umbrellas for PR validation. (@bedatty)
+- Gated the first review only in CodeRabbit and stopped the ungated summary. (@bedatty)
+
+Fixes:
+- Distinguished between a missing label and a failed lookup in CodeRabbit. (@bedatty)
+- Reconciled scope on release in CodeRabbit and bound the verdict to its commit. (@bedatty)
+- Declared the token contract in CodeRabbit and honored the `dry_run` convention. (@bedatty)
+- Granted the gate caller the permissions the reusable declares in CodeRabbit. (@bedatty)
+
+Improvements:
+- Passed computed `VERSION` and `BUILD_TIME` as build arguments. (@fredcamaral)
+- Declared the review scope as workflow inputs in CodeRabbit. (@bedatty)
+- Explained why the gate cycles the label on every push in CodeRabbit documentation. (@bedatty)
+- Aligned the gate with the repository workflow conventions in CodeRabbit documentation. (@bedatty)
+
+[Compare changes](https://github.com/LerianStudio/github-actions-shared-workflows/compare/v1.61.0...v1.62.0)
+
+---
+
 ## [1.60.0](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.60.0)
 
 Features:
