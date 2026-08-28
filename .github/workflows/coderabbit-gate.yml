@@ -182,6 +182,28 @@ jobs:
             exit 0
           fi
 
+          # Collapse the previous requests before adding a new one. A pull request
+          # revised many times would otherwise accumulate one visible bot comment
+          # per revision, burying the human conversation. Minimising as `RESOLVED`
+          # keeps the history — the comments are still there, just folded away.
+          #
+          # Done before posting, so the fresh request needs no exclusion, and kept
+          # non-fatal: failing to tidy up must never cost a review.
+          while IFS= read -r node_id; do
+            [ -z "$node_id" ] && continue
+            if gh api graphql \
+                 -f query='mutation($id:ID!){minimizeComment(input:{subjectId:$id,classifier:RESOLVED}){minimizedComment{isMinimized}}}' \
+                 -F id="$node_id" >/dev/null 2>&1; then
+              collapsed=$((${collapsed:-0} + 1))
+            fi
+          done < <(
+            gh api "repos/${REPO}/issues/${PR_NUMBER}/comments" --paginate \
+              --jq '.[] | select(.body | contains("coderabbit-gate:")) | select(.body | contains("@coderabbitai review")) | .node_id' 2>/dev/null || true
+          )
+          if [ "${collapsed:-0}" -gt 0 ]; then
+            echo "🧹 Collapsed ${collapsed} earlier review request(s)"
+          fi
+
           gh pr comment "$PR_NUMBER" --repo "$REPO" --body "$(printf '@coderabbitai review\n\n%s' "$marker")"
           echo "::notice::Requested a CodeRabbit review on PR #${PR_NUMBER} — in scope via ${matched} and every required check passed"
 

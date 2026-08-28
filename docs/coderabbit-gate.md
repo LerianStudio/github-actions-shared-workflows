@@ -72,6 +72,28 @@ true rather than merely intended. It matters more than it sounds: CodeRabbit
 plans are rate-limited, and a burst of duplicate requests degrades the allowance
 for the whole organisation.
 
+
+### Keeping the pull request readable
+
+A pull request revised many times would otherwise collect one visible bot comment
+per revision, burying the human conversation under review requests. Before posting
+a new one, the gate collapses the previous ones with the GraphQL `minimizeComment`
+mutation and classifier `RESOLVED` — they render as *"This comment was marked as
+resolved"* and fold away.
+
+The history is kept, not deleted: the comments are still there, one click from
+being expanded, so the record of which revision was requested and when survives.
+
+Two deliberate choices:
+
+- **Collapsed before posting**, so the fresh request needs no special-casing.
+- **Non-fatal.** A failure to tidy up is swallowed — losing a review because the
+  cleanup failed would be a bad trade.
+
+Only the gate's own requests are collapsed: the filter requires both the
+`coderabbit-gate:` marker and the command text, so it never touches a review
+request a human typed.
+
 ## Scope
 
 Two independent dimensions, OR'd together.
