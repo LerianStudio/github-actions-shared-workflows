@@ -43,3 +43,9 @@ suppressed by pre-posting its own idempotency marker.
 
 If a review lands on this revision, incremental review runs unprompted and the
 gate only needs to ask once per pull request.
+
+### Third revision — clean attempt
+
+The second attempt was contaminated: the suppression comment mentioned the
+command inside its own explanatory text, and CodeRabbit read that as a request.
+This revision repeats the experiment with a marker carrying no prose at all.
