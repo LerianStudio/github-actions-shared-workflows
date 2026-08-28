@@ -32,3 +32,14 @@ label was removed. Nothing has been measured under the command-based config.
 ## Section for the second revision
 
 <!-- second push appends below this line -->
+
+### Second revision
+
+This paragraph is the only change in the second push. It exists to give
+CodeRabbit something to review incrementally, and to be substantial enough that
+a review would have something to say: the sentence you are reading was added
+without any `@coderabbitai review` command accompanying it, because the gate was
+suppressed by pre-posting its own idempotency marker.
+
+If a review lands on this revision, incremental review runs unprompted and the
+gate only needs to ask once per pull request.
