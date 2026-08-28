@@ -1,0 +1,88 @@
+name: Product Branch Resolver
+description: "Resolves the product a branch belongs to, for repositories where each product owns a long-lived branch."
+
+inputs:
+  ref-name:
+    description: Branch name being built (e.g. github.ref_name)
+    required: true
+  branch-pattern:
+    description: Glob matching product branches. The text replacing `*` becomes the product name.
+    required: false
+    default: "develop-*"
+  excluded-products:
+    description: Comma-separated product names that must not be treated as a product, even when the branch matches the pattern.
+    required: false
+    default: ""
+
+outputs:
+  has-product:
+    description: "'true' when ref-name matches branch-pattern and the product is not excluded"
+    value: ${{ steps.resolve.outputs.has_product }}
+  product:
+    description: Product name extracted from the branch, empty when has-product is 'false'
+    value: ${{ steps.resolve.outputs.product }}
+
+runs:
+  using: composite
+  steps:
+    - name: Resolve product from branch
+      id: resolve
+      shell: bash
+      env:
+        REF_NAME: ${{ inputs.ref-name }}
+        BRANCH_PATTERN: ${{ inputs.branch-pattern }}
+        EXCLUDED_PRODUCTS: ${{ inputs.excluded-products }}
+      run: |
+        set -euo pipefail
+
+        not_a_product() {
+          echo "has_product=false" >> "$GITHUB_OUTPUT"
+          echo "product=" >> "$GITHUB_OUTPUT"
+          exit 0
+        }
+
+        case "$BRANCH_PATTERN" in
+          *'*'*) ;;
+          *)
+            echo "::error::branch-pattern must contain a '*' placeholder (got '${BRANCH_PATTERN}')"
+            exit 1
+            ;;
+        esac
+
+        prefix="${BRANCH_PATTERN%%\**}"
+        suffix="${BRANCH_PATTERN#*\*}"
+
+        # A non-match is the common case on the shared branches, so it stays a
+        # plain log line — only a resolved product is worth a run annotation.
+        case "$REF_NAME" in
+          "${prefix}"*"${suffix}") ;;
+          *)
+            echo "'${REF_NAME}' does not match '${BRANCH_PATTERN}' — not a product branch"
+            not_a_product
+            ;;
+        esac
+
+        product="${REF_NAME#"$prefix"}"
+        product="${product%"$suffix"}"
+
+        # The product name lands in an image tag, so keep it to a conservative
+        # charset instead of trusting whatever the branch is called.
+        if ! printf '%s' "$product" | grep -qE '^[a-z0-9][a-z0-9-]*$'; then
+          echo "::error::Product name '${product}' (from branch '${REF_NAME}') must match ^[a-z0-9][a-z0-9-]*$"
+          exit 1
+        fi
+
+        IFS=',' read -ra excluded <<< "$EXCLUDED_PRODUCTS"
+        for item in "${excluded[@]}"; do
+          if [ "$(echo "$item" | xargs)" = "$product" ]; then
+            echo "Product '${product}' is excluded — not a product branch"
+            not_a_product
+          fi
+        done
+
+        {
+          echo "has_product=true"
+          echo "product=${product}"
+        } >> "$GITHUB_OUTPUT"
+
+        echo "::notice::Resolved product '${product}' from branch '${REF_NAME}'"

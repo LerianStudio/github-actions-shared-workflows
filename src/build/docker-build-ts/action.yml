@@ -32,6 +32,14 @@ inputs:
     description: Token for GHCR login and npmrc authentication
     required: true
   # Build
+  dockerhub-app-name:
+    description: >-
+      Repository name on Docker Hub, when it has to differ from app-name.
+      Docker Hub has no nested namespaces — a name like `alpha/my-app` is valid
+      on GHCR and rejected there — so a package published under a GHCR
+      namespace needs a flat name here. Empty reuses app-name.
+    required: false
+    default: ""
   app-name:
     description: Image name for this component
     required: true
@@ -60,8 +68,19 @@ inputs:
     required: false
     default: "linux/amd64"
   version:
-    description: Semver version extracted from tag (e.g., v1.0.0-beta.1)
-    required: true
+    description: >-
+      Semver version extracted from tag (e.g. v1.0.0-beta.1). Ignored when
+      raw-tag is set, which is the case for builds that are not cut from a tag.
+    required: false
+    default: ""
+  raw-tag:
+    description: >-
+      Tag the image verbatim instead of deriving it from version. Use for
+      artifacts outside the release line — a disposable preview built from a
+      branch, whose name is not a semver version and would be rejected by the
+      semver tag strategy.
+    required: false
+    default: ""
   is-release:
     description: Whether this is a production release (enables major tag)
     required: false
@@ -107,6 +126,20 @@ runs:
         password: ${{ inputs.ghcr-token }}
 
     # ----------------- Image Configuration -----------------
+    # An image with no tag at all is a silent failure: the build succeeds and
+    # nothing usable is published.
+    - name: Require a tag source
+      shell: bash
+      env:
+        VERSION: ${{ inputs.version }}
+        RAW_TAG: ${{ inputs.raw-tag }}
+      run: |
+        set -euo pipefail
+        if [ -z "$VERSION" ] && [ -z "$RAW_TAG" ]; then
+          echo "::error::Neither version nor raw-tag was provided — the image would be built untagged."
+          exit 1
+        fi
+
     - name: Normalize repository owner to lowercase
       id: normalize
       shell: bash
@@ -126,7 +159,11 @@ runs:
         fi
 
         if [ "${{ inputs.enable-dockerhub }}" == "true" ]; then
-          IMAGES="${{ inputs.dockerhub-org }}/${{ inputs.app-name }}"
+          DOCKERHUB_APP="${{ inputs.dockerhub-app-name }}"
+          if [ -z "$DOCKERHUB_APP" ]; then
+            DOCKERHUB_APP="${{ inputs.app-name }}"
+          fi
+          IMAGES="${{ inputs.dockerhub-org }}/${DOCKERHUB_APP}"
         fi
 
         if [ "${{ inputs.enable-ghcr }}" == "true" ]; then
@@ -148,7 +185,8 @@ runs:
           # Exact version only: floating major/minor aliases are incompatible
           # with Docker Hub immutable-tag rules (re-pointing an existing alias
           # is refused and fails the whole build).
-          type=semver,pattern={{version}},value=${{ inputs.version }}
+          ${{ inputs.raw-tag == '' && format('type=semver,pattern={0},value={1}', '{{version}}', inputs.version) || '' }}
+          ${{ inputs.raw-tag != '' && format('type=raw,value={0}', inputs.raw-tag) || '' }}
 
     - name: Resolve Dockerfile path
       id: dockerfile
