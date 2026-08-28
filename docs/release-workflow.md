@@ -91,10 +91,6 @@ jobs:
 | `dry_run` | boolean | `false` | Run semantic-release in dry-run mode (no tags/releases) and preview the backmerge instead of applying it |
 | `prerelease_branches` | string | `develop,release-candidate` | Comma-separated list of branches treated as prerelease lines (beta/rc) |
 | `prerelease_backmerge_sync_enabled` | boolean | `false` | Merge `backmerge_source` into a prerelease branch before calculating its next version. Independent of `backmerge_enabled`, which also gates the separate post-release backmerge on `backmerge_source` itself. Opt-in — set to `true` to enable this pre-version-calculation sync, which can skip/block a release on prerelease branches when the merge cannot complete directly |
-| `product_alpha_enabled` | boolean | `false` | Release product branches on their own alpha line, with the product name taken from the branch (see [Per-product alpha lines](#per-product-alpha-lines)) |
-| `product_alpha_branch_pattern` | string | `develop-*` | Glob matching the product branches that get their own alpha line. The text replacing `*` becomes the product name |
-| `product_alpha_anchor_branch` | string | `main` | Release branch included in the generated alpha config, required for `semantic-release` to accept it |
-| `product_alpha_excluded_products` | string | `''` | Comma-separated product names that must not get an alpha line even when their branch matches the pattern |
 | `enable_release_announcement` | boolean | `true` | Announce the published release to the repository Slack channel after a successful release |
 | `announcement_product_name` | string | `''` | Product name displayed in the announcement. Defaults to the repository name |
 | `announcement_slack_channel` | string | `''` | Slack channel that receives the announcement. Defaults to the `RELEASE_SLACK_CHANNEL` repository variable; the announcement is skipped when both are empty |
@@ -515,28 +511,6 @@ jobs:
     uses: LerianStudio/github-actions-shared-workflows/.github/workflows/release.yml@v1.0.0
     secrets: inherit
 ```
-
-## Per-product alpha lines
-
-A repo where each product owns its own long-lived branch can publish isolated alpha tags per product, so a product is validated on its own before being integrated into the unified prerelease line.
-
-Enable it with `product_alpha_enabled: true`. On every push, the `product-alpha-channel` composite matches the ref against `product_alpha_branch_pattern` and, on a match, extracts the product name and overrides `semantic-release` for that run:
-
-| Branch | Tag published |
-|--------|---------------|
-| `develop-midaz` | `midaz-v1.0.0-alpha.1` |
-| `develop-tracer` | `tracer-v1.0.0-alpha.1` |
-| `develop` | unchanged — from the caller `.releaserc` |
-| `release-candidate` | unchanged — from the caller `.releaserc` |
-| `main` | unchanged — from the caller `.releaserc` |
-
-Notes:
-
-- The consuming repo must add the product branches to its own `on.push.branches`, otherwise the workflow never runs on them.
-- Each product line starts at `1.0.0-alpha.1`: no tag matches `<product>-v*` on the first run, so `semantic-release` falls back to its first-release baseline. Push an annotated tag in the product format to start from another version.
-- Product lines are excluded from the stale-prerelease guard. The guard compares a calculated version against the stable `v*` tags, and a product line never shares that namespace.
-- The pre-version backmerge sync (`prerelease_backmerge_sync_enabled`) is driven by `prerelease_branches`, which is an exact-match list. Product branches are not in it by default. Adding one turns the sync on for that branch — `backmerge_source` is merged into the product line before its version is calculated, and the release is skipped for the run when that merge cannot complete directly. The stale-prerelease guard stays skipped either way. Add a product branch only when you do want the product line to track `backmerge_source`.
-- `product_alpha_excluded_products` keeps shared branches that match the pattern (for example `develop-core`) out of the alpha mechanism.
 
 ## Semantic Release Plugins
 

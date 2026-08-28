@@ -332,63 +332,38 @@ jobs:
           deployment-matrix-result: ${{ needs.deployment-matrix.result }}
           deployment-matrix-files: ${{ contains(needs.changed-files.outputs.all_files, 'config/deployment-matrix.yml') && 'config/deployment-matrix.yml' || '' }}
 
+
   # ----------------- CodeRabbit Gate -----------------
-  # Releases CodeRabbit onto the PR only after every required check is green.
+  # This repository's review scope, declared here rather than buried in the gate.
   #
-  # `.coderabbit.yml` sets `reviews.auto_review.enabled: false`, so nothing is
-  # reviewed automatically; a positive label match is what triggers the review.
-  # Applying `review-ready` here is that trigger, which keeps CodeRabbit from
-  # spending a review on a PR that still fails lint or validation.
+  # Only pull requests targeting develop, plus hotfix/* branches wherever they
+  # land, get a CodeRabbit review. hotfix/* is included because that code never
+  # passed through develop and was therefore never reviewed anywhere; release PRs
+  # (develop → main) are excluded because their content was already reviewed on
+  # the way into develop, and they are the largest PRs in the repo.
   #
-  # PRs whose base is not develop also carry `skip-coderabbit` (applied by
-  # self-coderabbit-guard.yml), and that negative match wins — they stay
-  # unreviewed even once this label lands.
+  # Bounded by this workflow's own `on.pull_request.branches` above: a base branch
+  # named here but missing from that list never triggers a run, so the label never
+  # arrives. Add it in both places to widen the scope.
   #
-  # `revoke-coderabbit` withdraws the label as soon as a new revision is pushed,
-  # so it has to be re-earned by that revision. Without it the label from the
-  # previous run would still be on the PR while the new checks run, and since
-  # incremental reviews stay enabled, CodeRabbit would review a revision that may
-  # well be failing — exactly what the gate exists to prevent. It also means each
-  # green push re-applies the label and therefore does get reviewed.
-  revoke-coderabbit:
-    name: Hold CodeRabbit Review
-    runs-on: ${{ vars.GENERAL_RUNNERS || 'blacksmith-4vcpu-ubuntu-2404' }}
-    permissions:
-      pull-requests: write
-    # No `needs`: this must land before the checks finish, not after them.
-    if: github.event_name == 'pull_request' && github.event.action == 'synchronize'
-    steps:
-      - name: Withdraw review-ready label
-        env:
-          GH_TOKEN: ${{ secrets.MANAGE_TOKEN || github.token }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-          REPO: ${{ github.repository }}
-        run: |
-          labels=$(gh pr view "$PR_NUMBER" --repo "$REPO" --json labels --jq '[.labels[].name] | join(" ")')
-
-          # `gh pr edit --remove-label` errors out when the label does not exist
-          # in the repository, so only call it when the PR actually carries it.
-          case " $labels " in
-            *" review-ready "*)
-              echo "🔒 New revision pushed — withdrawing review-ready from PR #${PR_NUMBER}"
-              gh pr edit "$PR_NUMBER" --repo "$REPO" --remove-label review-ready
-              echo "✅ Withdrawn — the revision must pass the checks to earn it back"
-              ;;
-            *)
-              echo "✅ PR #${PR_NUMBER} does not carry review-ready — nothing to withdraw"
-              ;;
-          esac
-
-  gate-coderabbit:
+  # The gate runs in `release` mode only: the label is granted once, when the pull
+  # request first goes green, and is never taken back. Subsequent pushes still run
+  # this job, find the label already present, and change nothing.
+  #
+  # The `withdraw` mode exists in the reusable workflow and is deliberately unused
+  # here. It would make every revision re-earn the label, but measurement showed
+  # the guarantee it promises does not hold: CodeRabbit decides at the moment of
+  # the event and publishes minutes later, so withdrawing afterwards cannot cancel
+  # a decision already taken. On PR #705 the push landed at 14:09:38, the
+  # withdrawal at 14:09:59 — 21 seconds late — and the review was published at
+  # 14:15:23 regardless. It won the race on PR #708 and lost it on #705, so what
+  # it buys is a probability, at the cost of a label add/remove pair on the
+  # timeline for every push. Not worth it here.
+  #
+  # The logic lives in .github/workflows/coderabbit-gate.yml — see docs/coderabbit-gate.md.
+  release-coderabbit:
     name: Release CodeRabbit Review
-    runs-on: ${{ vars.GENERAL_RUNNERS || 'blacksmith-4vcpu-ubuntu-2404' }}
-    permissions:
-      pull-requests: write
     needs:
-      # Ordering guarantee: the withdrawal must never land after this job's
-      # re-application. If it failed, the gate stays closed rather than releasing
-      # a label we could not withdraw.
-      - revoke-coderabbit
       - validation
       - changed-files
       - breaking-change-guard-tests
@@ -406,49 +381,25 @@ jobs:
       - deployment-matrix
       - codeql
     # `always()` so skipped lints (no matching files changed) do not block the
-    # gate; only a real failure or cancellation does. Draft PRs are excluded —
-    # `drafts: false` in .coderabbit.yml means the label would be inert anyway.
-    #
-    # The base/head condition is what actually keeps release PRs unreviewed. The
-    # `!skip-coderabbit` negative match in .coderabbit.yml does not do it: with
-    # `auto_review.enabled: false` the positive label is a *trigger*, and the
-    # negative match does not veto it. PR #705 proved it — `skip-coderabbit` was
-    # applied 8 minutes before CodeRabbit reviewed that release PR anyway. So the
-    # scope is decided here, where it is deterministic: withhold the label unless
-    # the PR targets develop, or is a hotfix (hotfix code never passed through
-    # develop, so it was never reviewed).
+    # gate; the `checks_passed` input below carries the real verdict. Draft PRs
+    # are excluded — `drafts: false` in .coderabbit.yml makes the label inert
+    # there anyway.
     if: >-
       always()
       && github.event_name == 'pull_request'
       && github.event.pull_request.draft != true
-      && (github.base_ref == 'develop' || startsWith(github.head_ref, 'hotfix/'))
-      && !contains(needs.*.result, 'failure')
-      && !contains(needs.*.result, 'cancelled')
-    steps:
-      - name: Apply review-ready label
-        env:
-          GH_TOKEN: ${{ secrets.MANAGE_TOKEN || github.token }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-          REPO: ${{ github.repository }}
-        run: |
-          # The `if:` above reads `github.base_ref`, which comes from the event
-          # payload and is frozen at dispatch time. A run that started while the PR
-          # targeted develop would still pass that check after the PR was retargeted
-          # to main, and would then re-apply the label the guard had just revoked.
-          # Re-read the live state before mutating, which holds regardless of how
-          # many runs are in flight.
-          read -r base head < <(
-            gh pr view "$PR_NUMBER" --repo "$REPO" \
-              --json baseRefName,headRefName \
-              --jq '"\(.baseRefName) \(.headRefName)"'
-          )
-
-          if [ "$base" != "develop" ] && [[ "$head" != hotfix/* ]]; then
-            echo "⏭️ PR #${PR_NUMBER} now targets '${base}' from '${head}' — out of the review scope, withholding review-ready"
-            exit 0
-          fi
-
-          echo "✅ All required checks passed — releasing CodeRabbit on PR #${PR_NUMBER} (${head} → ${base})"
-
-          # Idempotent: re-adding a label the PR already carries is a no-op.
-          gh pr edit "$PR_NUMBER" --repo "$REPO" --add-label review-ready
+    permissions:
+      contents: read
+      pull-requests: write
+    uses: ./.github/workflows/coderabbit-gate.yml
+    with:
+      pr_number: ${{ github.event.pull_request.number }}
+      # A required check failing or being cancelled withholds the label; skipped
+      # is fine, since most lints are conditional on the file types touched.
+      checks_passed: ${{ !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') }}
+      # Binds the verdict above to the commit it was computed for, so a run
+      # superseded by a newer push cannot authorise a head it never validated.
+      head_sha: ${{ github.event.pull_request.head.sha }}
+      review_base_branches: develop
+      review_head_patterns: hotfix/*
+    secrets: inherit

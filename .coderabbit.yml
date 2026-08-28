@@ -9,9 +9,16 @@ early_access: false
 reviews:
   profile: "assertive"
 
-  high_level_summary: true
-  high_level_summary_in_walkthrough: true
+  # Off because these are NOT governed by the review gate. CodeRabbit regenerates
+  # the summary on every push even with `auto_review.enabled: false` — on PR #708
+  # the summary comment's `updated_at` matched the push second for second, while
+  # the PR carried no `review-ready` label and received no review. That is work
+  # spent on pull requests the gate deliberately left unreviewed.
+  high_level_summary: false
+  high_level_summary_in_walkthrough: false
 
+  # Kept on: this is what posts "Review skipped — required labels: review-ready",
+  # which is the cheapest way to confirm the gate is behaving as intended.
   review_status: true
   review_details: false
   collapse_walkthrough: false
@@ -72,28 +79,24 @@ reviews:
         Flag any usage example that references `@main` — examples must use `@develop` or `@feat/<branch>` for testing and `@vX.Y.Z` for production.
 
   auto_review:
-    # Reviews are gated on CI rather than firing when the PR opens: with
-    # `enabled: false` a positive label match is what triggers the review, so
-    # nothing is spent on a PR until it is green. `Self — PR Validation` applies
-    # `review-ready` once every required check has passed.
+    # Nothing is reviewed automatically. `Self — PR Validation` posts
+    # `@coderabbitai review` once every required check has passed and the pull
+    # request is in scope, and that command is the only trigger.
+    #
+    # Do NOT add `labels:` here. The `review-ready` label still exists, but as a
+    # visual marker applied alongside the command — putting it back in this list
+    # would make it a second, competing trigger for the same decision, which is
+    # what produced the bugs in #705 and #708.
+    #
+    # To review a pull request the gate skipped, comment `@coderabbitai review`.
     enabled: false
     drafts: false
+    # Kept even though nothing is auto-reviewed: `base_branches` is a separate
+    # filter from the trigger, and leaving it out made every pull request into
+    # develop ineligible (#712/#713). Harmless here, and correct if `enabled`
+    # is ever turned back on.
     base_branches:
       - "develop"
-    # `review-ready` is what opts a PR in, applied by CI once the checks pass.
-    #
-    # `!skip-coderabbit` is kept as defence in depth only — do NOT rely on it.
-    # With `enabled: false` the positive label acts as a trigger and this negative
-    # match does not veto it: on PR #705 `skip-coderabbit` was applied 8 minutes
-    # before CodeRabbit reviewed that release PR regardless. Restricting reviews
-    # to develop is therefore enforced in `self-pr-validation.yml`, by withholding
-    # `review-ready` altogether, and the label here is redundant signalling.
-    #
-    # To review a PR anyway, add `review-ready` by hand, or comment
-    # `@coderabbitai review`.
-    labels:
-      - "review-ready"
-      - "!skip-coderabbit"
     ignore_title_keywords:
       - "WIP"
       - "wip"
