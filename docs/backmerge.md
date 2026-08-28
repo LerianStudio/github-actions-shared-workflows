@@ -164,8 +164,14 @@ jobs:
 - The workflow uses `secrets: inherit` style — secrets are referenced directly without being declared in `workflow_call.secrets:` (same pattern as `release.yml`).
 - The GPG identity (`git_committer_name` / `git_committer_email`) and the composite's `git-user-name` / `git-user-email` are both bound to `LERIAN_CI_CD_USER_NAME` / `_EMAIL` so the merge-commit signature is valid.
 - Glob expansion uses HTTPS `git ls-remote` against `${{ github.repository }}` — no checkout required in the `expand` job.
-- The `[skip ci]` token is included in the default commit message **and the default PR title**, so neither
-  path retriggers CI on the target branch. The PR title matters because the fallback merges through a pull
-  request, whose merge commit carries the title — without the token, a backmerge that fell back to a PR cut a
-  release on the target branch. GitHub honours the token anywhere in the message, so it works for squash and
-  merge commits alike. Overriding `commit_message` or `pr_title` drops the token unless you keep it.
+- Direct merges commit with `[skip ci]`: no run starts, so nothing is released and nothing is wasted.
+- PR fallbacks title with `[backmerge]` instead. `[skip ci]` there would be actively harmful — `open_pr` uses
+  the source branch itself as the PR head, so the token would also suppress the PR's own checks. Required
+  checks would sit at *Pending* forever and the backmerge could only land through a bypass.
+  `[backmerge]` is not a token GitHub recognises, so the run starts and every check reports; `release.yml`
+  matches the marker in its `check-skip` step and skips only the release.
+- The marker is read from the full commit message, so it is found whether the PR is squashed (title becomes
+  the subject) or merged (title goes to the body).
+- Rebase merges are the gap: they replay the original commits and keep no marker, so a backmerge landed that
+  way can still cut a release.
+- Overriding `commit_message` or `pr_title` drops the markers unless you keep them.
