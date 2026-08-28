@@ -58,7 +58,7 @@ runs:
         PR_URL=$(gh pr create \
           --base "${TARGET_BRANCH}" \
           --head "${SOURCE_BRANCH}" \
-          --title "chore(release): backmerge ${VERSION} [skip ci]" \
+          --title "chore(release): backmerge ${VERSION} [backmerge]" \
           --body "${PR_BODY}")
 
         PR_NUM=$(echo "$PR_URL" | grep -oE '[0-9]+$')
