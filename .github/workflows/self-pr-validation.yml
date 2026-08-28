@@ -393,7 +393,6 @@ jobs:
       pull-requests: write
     uses: ./.github/workflows/coderabbit-gate.yml
     with:
-      mode: release
       pr_number: ${{ github.event.pull_request.number }}
       # A required check failing or being cancelled withholds the label; skipped
       # is fine, since most lints are conditional on the file types touched.
