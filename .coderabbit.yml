@@ -93,14 +93,23 @@ reviews:
     # rule is also inert in the common case, since a PR that never receives
     # `review-ready` is already excluded by the inverted default.
     #
-    # `base_branches` is intentionally absent for the same reason: it governs
-    # which base branches are *auto*-reviewed, and there is no auto-review to
-    # govern. Restore it only alongside `enabled: true`.
+    # `base_branches` is REQUIRED, and is not made redundant by `enabled: false`.
+    # It is a separate filter: a pull request is reviewed only when its base is
+    # eligible AND the trigger label is present. Left absent, the eligible set
+    # falls back to the default branch alone (main), and every pull request into
+    # develop is refused with "reviews are disabled for this base branch" —
+    # exactly what happened on PR #712 after #708 removed this key. It must list
+    # every base the gate is allowed to release on, mirroring
+    # `review_base_branches` in Self — PR Validation.
     #
     # To review an out-of-scope PR anyway, add `review-ready` by hand or comment
     # `@coderabbitai review`.
     enabled: false
     drafts: false
+    # Must cover every base the gate may release on. `main` is always eligible as
+    # the default branch; develop has to be named explicitly.
+    base_branches:
+      - "develop"
     labels:
       - "review-ready"
     ignore_title_keywords:
