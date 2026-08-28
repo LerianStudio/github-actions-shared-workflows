@@ -166,10 +166,10 @@ runs:
         # metadata-action reads `images` as a comma-separated list, so a comma
         # inside a name would add an image target that build-push-action then
         # publishes. `=` and newlines would likewise be read as list syntax.
-        for candidate in "$APP_NAME" "$DOCKERHUB_APP_NAME"; do
+        for candidate in "$APP_NAME" "$DOCKERHUB_APP_NAME" "$DOCKERHUB_ORG" "$GHCR_ORG_INPUT"; do
           case "$candidate" in
             *,*|*=*|*$'\n'*)
-              echo "::error::Image name '${candidate}' contains a comma, an equals sign or a newline. Those are list syntax for docker/metadata-action and would add an unintended image target."
+              echo "::error::Image name component '${candidate}' contains a comma, an equals sign or a newline. Those are list and attribute syntax for docker/metadata-action, and a newline would also corrupt the step output."
               exit 1
               ;;
           esac

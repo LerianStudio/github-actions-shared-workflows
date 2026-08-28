@@ -88,7 +88,7 @@ on:
 
     outputs:
       published:
-        description: "'true' when a preview image was published for this ref"
+        description: "'true' when a preview image was pushed for this ref. Always 'false' in a dry run, which builds nothing to pull."
         value: ${{ jobs.preview.outputs.published }}
       reference:
         description: Full image reference of the preview, empty when none was published
@@ -111,8 +111,10 @@ jobs:
       contents: read
       packages: write
     outputs:
-      published: ${{ steps.resolve.outputs.has-product }}
-      reference: ${{ steps.tag.outputs.reference }}
+      # A dry run builds without pushing, so neither value may suggest an image
+      # a caller could pull.
+      published: ${{ steps.resolve.outputs.has-product == 'true' && !inputs.dry_run }}
+      reference: ${{ (steps.resolve.outputs.has-product == 'true' && !inputs.dry_run) && steps.tag.outputs.reference || '' }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6

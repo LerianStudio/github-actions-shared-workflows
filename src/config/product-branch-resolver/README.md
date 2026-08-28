@@ -14,7 +14,7 @@ It only reads the branch name — no git history, no API calls, no side effects.
 | Input | Description | Required | Default |
 |-------|-------------|----------|---------|
 | `ref-name` | Branch name being built (e.g. `github.ref_name`) | Yes | |
-| `branch-pattern` | Glob matching product branches. The text replacing `*` becomes the product name. | No | `develop-*` |
+| `branch-pattern` | Branch pattern with **exactly one** `*`. The text replacing it becomes the product name. | No | `develop-*` |
 | `excluded-products` | Comma-separated product names that must not be treated as a product, even when the branch matches | No | `''` |
 
 ## Outputs
@@ -24,7 +24,20 @@ It only reads the branch name — no git history, no API calls, no side effects.
 | `has-product` | `'true'` when `ref-name` matches `branch-pattern` and the product is not excluded |
 | `product` | Product name extracted from the branch, empty when `has-product` is `'false'` |
 
-The action fails the run when `branch-pattern` has no `*`, or when the extracted product name does not match `^[a-z0-9][a-z0-9-]*$` — the name reaches an image tag, so it is held to a conservative charset rather than trusted from the branch.
+The action fails the run when the extracted product name does not match `^[a-z0-9][a-z0-9-]*$` — the name reaches an image tag, so it is held to a conservative charset rather than trusted from the branch.
+
+### One wildcard, not zero and not several
+
+`branch-pattern` takes **exactly one** `*`. It is not a full glob: the name is split into the text before the placeholder and the text after it, so a second `*` would survive as a literal character in the suffix and the pattern would quietly stop matching anything.
+
+| Pattern | Result |
+|---|---|
+| `develop-*` | accepted — `develop-midaz` → `midaz` |
+| `alpha/*` | accepted — `alpha/midaz` → `midaz` |
+| `develop` | rejected — no placeholder |
+| `develop-*-preview-*` | rejected — two placeholders |
+
+A pattern with more than one placeholder has no single-wildcard equivalent; a branch layout that needs it wants a different resolver, not this one. Earlier revisions accepted such a pattern and silently matched nothing, so the failure is now explicit.
 
 ## Usage as composite step
 
