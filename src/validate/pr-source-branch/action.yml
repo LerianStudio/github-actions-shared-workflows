@@ -13,6 +13,15 @@ inputs:
     description: "Target branches that require source branch validation (pipe-separated)"
     required: false
     default: "main"
+  branch-rules:
+    description: >-
+      Per-target rules as JSON, for repositories where each protected branch
+      accepts a different set of sources — e.g.
+      {"main": "develop|hotfix/*", "release-candidate": "develop-*|hotfix/*"}.
+      A target listed here is validated against its own patterns and ignores
+      allowed-branches/target-branches, which still govern every other target.
+    required: false
+    default: ""
   dry-run:
     description: "When true, validate without posting REQUEST_CHANGES review"
     required: false
@@ -26,22 +35,50 @@ runs:
       env:
         ALLOWED_BRANCHES: ${{ inputs.allowed-branches }}
         TARGET_BRANCHES: ${{ inputs.target-branches }}
+        BRANCH_RULES: ${{ inputs.branch-rules }}
         DRY_RUN: ${{ inputs.dry-run }}
       with:
         github-token: ${{ inputs.github-token }}
         script: |
           const sourceBranch = context.payload.pull_request.head.ref;
           const targetBranch = context.payload.pull_request.base.ref;
-          const allowedBranches = process.env.ALLOWED_BRANCHES.split('|').map(b => b.trim());
           const targetBranchesForCheck = process.env.TARGET_BRANCHES.split('|').map(b => b.trim());
           const dryRun = process.env.DRY_RUN === 'true';
 
-          if (!targetBranchesForCheck.includes(targetBranch)) {
+          // A per-target rule wins over the flat allowed-branches list, so a
+          // repository whose protected branches accept different sources can
+          // express that without the flat list having to cover all of them.
+          let branchRules = {};
+          const rawRules = (process.env.BRANCH_RULES || '').trim();
+          if (rawRules) {
+            try {
+              branchRules = JSON.parse(rawRules);
+            } catch (error) {
+              core.setFailed(`branch-rules is not valid JSON: ${error.message}`);
+              return;
+            }
+            if (typeof branchRules !== 'object' || branchRules === null || Array.isArray(branchRules)) {
+              core.setFailed('branch-rules must be a JSON object mapping target branch to allowed patterns.');
+              return;
+            }
+          }
+
+          const hasRule = Object.prototype.hasOwnProperty.call(branchRules, targetBranch);
+          if (!hasRule && !targetBranchesForCheck.includes(targetBranch)) {
             console.log(`Target branch '${targetBranch}' does not require source branch validation`);
             return;
           }
 
+          const patterns = hasRule ? String(branchRules[targetBranch]) : process.env.ALLOWED_BRANCHES;
+          const allowedBranches = patterns.split('|').map(b => b.trim()).filter(Boolean);
+
+          if (allowedBranches.length === 0) {
+            core.setFailed(`No allowed source patterns configured for target '${targetBranch}'.`);
+            return;
+          }
+
           console.log(`Checking if source branch '${sourceBranch}' is allowed for target '${targetBranch}'`);
+          console.log(`Rule source: ${hasRule ? 'branch-rules' : 'allowed-branches'}`);
           console.log(`Allowed patterns: ${allowedBranches.join(', ')}`);
 
           let isAllowed = false;

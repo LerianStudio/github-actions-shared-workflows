@@ -22,7 +22,7 @@ inputs:
   pr-title:
     description: PR title template. Supports ${source} and ${target} placeholders.
     required: false
-    default: "chore(backmerge): sync ${source} → ${target}"
+    default: "chore(backmerge): sync ${source} → ${target} [skip ci]"
   pr-labels:
     description: Comma-separated labels applied to the PR opened in `pr` or fallback mode. Default empty so the composite works in any repo; opt in by passing labels that exist in the caller repo.
     required: false

@@ -117,6 +117,15 @@ on:
         description: 'Target branches that require source branch validation (pipe-separated)'
         type: string
         default: 'main'
+      source_branch_rules:
+        description: >-
+          Per-target source rules as JSON, for repositories where each protected
+          branch accepts a different set of sources — e.g.
+          {"main": "develop|hotfix/*", "release-candidate": "develop-*|hotfix/*"}.
+          A target listed here uses its own patterns; every other target still
+          follows allowed_source_branches/target_branches_for_source_check.
+        type: string
+        default: ''
       require_verified_commits:
         description: 'Block the PR when any of its commits is unsigned or has an unverified signature'
         type: boolean
@@ -475,6 +484,7 @@ jobs:
       enforce_source_branches: ${{ inputs.enforce_source_branches }}
       allowed_source_branches: ${{ inputs.allowed_source_branches }}
       target_branches_for_source_check: ${{ inputs.target_branches_for_source_check }}
+      source_branch_rules: ${{ inputs.source_branch_rules }}
       require_verified_commits: ${{ inputs.require_verified_commits }}
     secrets: inherit
 

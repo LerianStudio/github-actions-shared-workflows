@@ -164,4 +164,8 @@ jobs:
 - The workflow uses `secrets: inherit` style — secrets are referenced directly without being declared in `workflow_call.secrets:` (same pattern as `release.yml`).
 - The GPG identity (`git_committer_name` / `git_committer_email`) and the composite's `git-user-name` / `git-user-email` are both bound to `LERIAN_CI_CD_USER_NAME` / `_EMAIL` so the merge-commit signature is valid.
 - Glob expansion uses HTTPS `git ls-remote` against `${{ github.repository }}` — no checkout required in the `expand` job.
-- The `[skip ci]` token is included in the default commit message to avoid retriggering CI on each target branch.
+- The `[skip ci]` token is included in the default commit message **and the default PR title**, so neither
+  path retriggers CI on the target branch. The PR title matters because the fallback merges through a pull
+  request, whose merge commit carries the title — without the token, a backmerge that fell back to a PR cut a
+  release on the target branch. GitHub honours the token anywhere in the message, so it works for squash and
+  merge commits alike. Overriding `commit_message` or `pr_title` drops the token unless you keep it.

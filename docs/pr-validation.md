@@ -136,6 +136,7 @@ jobs:
 | `enforce_source_branches` | boolean | `true` | Enforce source branch rules (auto-skips when target is not in `target_branches_for_source_check`) |
 | `allowed_source_branches` | string | `develop\|release-candidate\|hotfix/*` | Allowed source branches (pipe-separated, supports `*` wildcard) |
 | `target_branches_for_source_check` | string | `main` | Target branches that require source branch validation |
+| `source_branch_rules` | string | `''` | Per-target source rules as JSON. A target listed here uses its own patterns and ignores the two inputs above |
 | `require_verified_commits` | boolean | `true` | Block the PR when any of its commits is unsigned or has an unverified signature |
 
 The breaking change guard has no enable input, target-branch input, acknowledgement input, or opt-out. It applies to every caller and every PR target branch. `dry_run: true` remains a global preview mode without guard enforcement; it is not a guard-specific opt-out and does not change normal `dry_run: false` operation. Existing callers must migrate their `pull_request.types` list to include both `edited` and `ready_for_review`; otherwise body edits and draft-to-ready transitions do not rerun validation.
@@ -299,3 +300,28 @@ Every caller must include `ready_for_review` so deferred validation runs on that
 
 **Last Updated:** 2026-08-06
 **Release line:** `v1`
+
+## Per-target source rules
+
+`allowed_source_branches` and `target_branches_for_source_check` describe a single rule applied to every protected branch. When protected branches accept different sources, use `source_branch_rules` instead:
+
+```yaml
+with:
+  enforce_source_branches: true
+  source_branch_rules: |
+    {
+      "main": "develop|release-candidate|hotfix/*",
+      "release-candidate": "develop-*|hotfix/*"
+    }
+```
+
+| Target | Source | Result |
+|---|---|---|
+| `release-candidate` | `develop-midaz` | allowed |
+| `release-candidate` | `hotfix/CVE-123` | allowed |
+| `release-candidate` | `develop` | **blocked** |
+| `main` | `develop` | allowed |
+| `main` | `develop-midaz` | **blocked** |
+| `develop` | anything | not validated — no rule, not a listed target |
+
+A target present in `source_branch_rules` uses its own patterns and ignores `allowed_source_branches`. Targets absent from it keep following the two flat inputs, so leaving `source_branch_rules` empty preserves the current behavior exactly.
