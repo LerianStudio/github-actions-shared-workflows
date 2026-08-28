@@ -146,35 +146,46 @@ runs:
       run: |
         echo "owner_lower=$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')" >> $GITHUB_OUTPUT
 
+    # Values reach the shell through env, never interpolated into the script:
+    # app-name and the org names travel from a caller workflow and can carry a
+    # branch name, so expanding them inline would let a ref decide what runs.
     - name: Set image names
       id: image-names
       shell: bash
+      env:
+        GHCR_ORG_INPUT: ${{ inputs.ghcr-org }}
+        OWNER_LOWER: ${{ steps.normalize.outputs.owner_lower }}
+        ENABLE_DOCKERHUB: ${{ inputs.enable-dockerhub }}
+        ENABLE_GHCR: ${{ inputs.enable-ghcr }}
+        DOCKERHUB_ORG: ${{ inputs.dockerhub-org }}
+        DOCKERHUB_APP_NAME: ${{ inputs.dockerhub-app-name }}
+        APP_NAME: ${{ inputs.app-name }}
       run: |
         IMAGES=""
-        GHCR_ORG="${{ inputs.ghcr-org }}"
+        GHCR_ORG="$GHCR_ORG_INPUT"
         if [ -z "$GHCR_ORG" ]; then
-          GHCR_ORG="${{ steps.normalize.outputs.owner_lower }}"
+          GHCR_ORG="$OWNER_LOWER"
         else
           GHCR_ORG=$(echo "$GHCR_ORG" | tr '[:upper:]' '[:lower:]')
         fi
 
-        if [ "${{ inputs.enable-dockerhub }}" == "true" ]; then
-          DOCKERHUB_APP="${{ inputs.dockerhub-app-name }}"
+        if [ "$ENABLE_DOCKERHUB" == "true" ]; then
+          DOCKERHUB_APP="$DOCKERHUB_APP_NAME"
           if [ -z "$DOCKERHUB_APP" ]; then
-            DOCKERHUB_APP="${{ inputs.app-name }}"
+            DOCKERHUB_APP="$APP_NAME"
           fi
-          IMAGES="${{ inputs.dockerhub-org }}/${DOCKERHUB_APP}"
+          IMAGES="${DOCKERHUB_ORG}/${DOCKERHUB_APP}"
         fi
 
-        if [ "${{ inputs.enable-ghcr }}" == "true" ]; then
+        if [ "$ENABLE_GHCR" == "true" ]; then
           if [ -n "$IMAGES" ]; then
-            IMAGES="${IMAGES},ghcr.io/${GHCR_ORG}/${{ inputs.app-name }}"
+            IMAGES="${IMAGES},ghcr.io/${GHCR_ORG}/${APP_NAME}"
           else
-            IMAGES="ghcr.io/${GHCR_ORG}/${{ inputs.app-name }}"
+            IMAGES="ghcr.io/${GHCR_ORG}/${APP_NAME}"
           fi
         fi
 
-        echo "images=$IMAGES" >> $GITHUB_OUTPUT
+        echo "images=$IMAGES" >> "$GITHUB_OUTPUT"
 
     - name: Docker metadata
       id: meta
