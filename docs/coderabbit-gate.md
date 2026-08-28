@@ -260,7 +260,14 @@ The gate is on by default in `go-pr-validation.yml` and `js-pr-validation.yml`, 
 
    Both keys are needed. `base_branches` decides which bases are *eligible*;
    `labels` is the trigger. Omitting the first refuses every pull request into
-   `develop` with "reviews are disabled for this base branch", label or not.
+   `develop`, label or not, with CodeRabbit reporting: *"Auto reviews are
+   disabled on base/target branches other than the default branch."*
+
+   **Config changes take effect on merge, not in the pull request that
+   introduces them.** CodeRabbit reads `.coderabbit.yml` from the base branch, so
+   a pull request carrying a config fix is still judged by the old config — a fix
+   for a broken `base_branches` cannot validate itself. Confirm it on the next
+   pull request instead.
 
 3. Nothing else — the umbrella already calls the gate.
 
