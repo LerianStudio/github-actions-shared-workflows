@@ -77,18 +77,19 @@ for the whole organisation.
 
 Each revision adds a request from the gate, and CodeRabbit echoes every one with
 an "Action performed / Review finished" reply. A pull request revised a few times
-buries its human conversation under pairs of bot comments — PR #717 reached five
-requests and six echoes.
+buries its human conversation under pairs of bot comments.
 
 Before posting a new request, the gate folds the superseded ones away with the
 GraphQL `minimizeComment` mutation: its own requests as `RESOLVED`, CodeRabbit's
-echoes as `OUTDATED`. They render as *"This comment was marked as resolved"* and
+echoes as `OUTDATED`. Comments already folded are skipped, which needs GraphQL —
+the REST body is unchanged by minimisation and carries no marker, so a REST filter
+cannot tell a folded comment from a fresh one. They render as *"This comment was marked as resolved"* and
 collapse. Nothing is deleted — one click expands them, so the record of which
 revision was requested and when survives.
 
-**Findings are never touched, by construction.** Both queries read
-`/issues/{n}/comments`, which returns issue comments only. Reviews and review
-comments — where findings live — are not in that endpoint. This matters more than
+**Findings are never touched, by construction.** The listing reads
+`pullRequest.comments`, which is issue comments only. Reviews and review
+comments — where findings live — are separate connections. This matters more than
 it sounds: on PR #717 the review carrying CodeRabbit's *"insufficient GitHub
 permissions"* warning also carries 13 actionable findings, so collapsing by review
 would have hidden real work. If that warning is the annoyance, the fix is granting

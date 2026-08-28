@@ -184,60 +184,75 @@ jobs:
 
           # ----------------- Collapse the superseded noise -----------------
           # Each revision adds a request from this workflow, and CodeRabbit echoes
-          # every one of them with an "Action performed / Review finished" reply.
-          # A pull request revised a few times therefore buries its human
-          # conversation under pairs of bot comments — PR #717 reached four of each.
+          # every one of them with an "Action performed / Review finished" reply, so
+          # a pull request revised a few times buries its human conversation under
+          # pairs of bot comments.
           #
           # Both sides are folded away with GraphQL `minimizeComment` before the new
           # request goes out, so the fresh one needs no exclusion. Minimising keeps
           # the history: the comments remain, one click from being expanded.
           #
+          # Listing goes through GraphQL rather than REST because only GraphQL
+          # exposes `isMinimized`. The REST body is unchanged by minimisation — it
+          # carries no marker — so a REST-based filter cannot tell an already-folded
+          # comment from a fresh one, and every run would re-minimise everything.
+          #
+          # Findings are structurally out of reach: this reads `pullRequest.comments`,
+          # which is issue comments only. Reviews and review comments — where
+          # findings live — are separate connections. Do not "improve" this by
+          # reaching into `reviews`: on PR #717 the review carrying CodeRabbit's
+          # permissions warning also carries 13 actionable findings, and the two are
+          # the same object.
+          #
           # Kept non-fatal throughout — losing a review because the tidying failed
           # would be a bad trade.
           collapse() {
             local node_id="$1" classifier="$2"
-            # shellcheck disable=SC2016  # $id is a GraphQL variable, not a shell one
+            # shellcheck disable=SC2016  # $id and $c are GraphQL variables, not shell ones
             gh api graphql \
               -f query='mutation($id:ID!,$c:ReportedContentClassifiers!){minimizeComment(input:{subjectId:$id,classifier:$c}){minimizedComment{isMinimized}}}' \
               -F id="$node_id" -F c="$classifier" >/dev/null 2>&1
           }
 
+          owner=${REPO%%/*}
+          name=${REPO##*/}
           collapsed=0
 
-          # Our own earlier requests.
-          while IFS= read -r node_id; do
+          # One listing, both categories, already-minimised excluded. Each line is
+          # "<node_id> <classifier>".
+          while read -r node_id classifier; do
             [ -z "$node_id" ] && continue
-            if collapse "$node_id" RESOLVED; then
+            if collapse "$node_id" "$classifier"; then
               collapsed=$((collapsed + 1))
             fi
           done < <(
-            gh api "repos/${REPO}/issues/${PR_NUMBER}/comments" --paginate \
-              --jq '.[] | select(.body | contains("coderabbit-gate:")) | select(.body | contains("@coderabbitai review")) | select(.body | contains("<!-- minimized")  | not) | .node_id' 2>/dev/null || true
+            # shellcheck disable=SC2016  # GraphQL variables
+            gh api graphql --paginate \
+              -f query='
+                query($owner:String!,$name:String!,$pr:Int!,$endCursor:String){
+                  repository(owner:$owner,name:$name){
+                    pullRequest(number:$pr){
+                      comments(first:100,after:$endCursor){
+                        pageInfo{hasNextPage endCursor}
+                        nodes{id isMinimized body}
+                      }
+                    }
+                  }
+                }' \
+              -F owner="$owner" -F name="$name" -F pr="$PR_NUMBER" \
+              --jq '
+                .data.repository.pullRequest.comments.nodes[]
+                | select(.isMinimized == false)
+                | if (.body | contains("coderabbit-gate:")) and (.body | contains("@coderabbitai review"))
+                  then "\(.id) RESOLVED"
+                  elif (.body | contains("CodeRabbit review command invocation:"))
+                  then "\(.id) OUTDATED"
+                  else empty
+                  end' 2>/dev/null || true
           )
 
-          # CodeRabbit's acknowledgement of each of them. Identified by the
-          # invocation marker, which the review and the summary do not carry — so
-          # this never folds away anything of substance.
-          #
-          # Findings are structurally out of reach: both queries hit
-          # `/issues/{n}/comments`, which returns only issue comments. Reviews and
-          # review comments — where findings live — are not in that endpoint, so a
-          # finding cannot be collapsed even by mistake. Do not "improve" this by
-          # reaching into `/pulls/{n}/reviews`: the review that carries the
-          # permissions warning on PR #717 also carries 13 actionable findings, and
-          # the two are not separable.
-          while IFS= read -r node_id; do
-            [ -z "$node_id" ] && continue
-            if collapse "$node_id" OUTDATED; then
-              collapsed=$((collapsed + 1))
-            fi
-          done < <(
-            gh api "repos/${REPO}/issues/${PR_NUMBER}/comments" --paginate \
-              --jq '.[] | select(.body | contains("CodeRabbit review command invocation:")) | .node_id' 2>/dev/null || true
-          )
-
-          if [ "$collapsed" -gt 0 ]; then
-            echo "🧹 Collapsed ${collapsed} superseded bot comment(s)"
+          if [ "$DRY_RUN" = "true" ] && [ "$collapsed" -gt 0 ]; then
+            echo "  collapsed         : ${collapsed} superseded bot comment(s)"
           fi
 
           gh pr comment "$PR_NUMBER" --repo "$REPO" --body "$(printf '@coderabbitai review\n\n%s' "$marker")"
