@@ -72,6 +72,36 @@ true rather than merely intended. It matters more than it sounds: CodeRabbit
 plans are rate-limited, and a burst of duplicate requests degrades the allowance
 for the whole organisation.
 
+
+### Keeping the pull request readable
+
+Each revision adds a request from the gate, and CodeRabbit echoes every one with
+an "Action performed / Review finished" reply. A pull request revised a few times
+buries its human conversation under pairs of bot comments.
+
+Before posting a new request, the gate folds the superseded ones away with the
+GraphQL `minimizeComment` mutation: its own requests as `RESOLVED`, CodeRabbit's
+echoes as `OUTDATED`. Comments already folded are skipped, which needs GraphQL —
+the REST body is unchanged by minimisation and carries no marker, so a REST filter
+cannot tell a folded comment from a fresh one. They render as *"This comment was marked as resolved"* and
+collapse. Nothing is deleted — one click expands them, so the record of which
+revision was requested and when survives.
+
+**Findings are never touched, by construction.** The listing reads
+`pullRequest.comments`, which is issue comments only. Reviews and review
+comments — where findings live — are separate connections. This matters more than
+it sounds: on PR #717 the review carrying CodeRabbit's *"insufficient GitHub
+permissions"* warning also carries 13 actionable findings, so collapsing by review
+would have hidden real work. If that warning is the annoyance, the fix is granting
+the app `Pull requests: Read and write`, which removes it at the source.
+
+Also left alone: the walkthrough summary, and the sticky CI reports
+(`lint-analysis`, `pr-validation-report`, `codeql-scan`) — those are updated in
+place rather than duplicated, so they never accumulate.
+
+Tidying is non-fatal throughout: losing a review because the cleanup failed would
+be a bad trade.
+
 ## Scope
 
 Two independent dimensions, OR'd together.
