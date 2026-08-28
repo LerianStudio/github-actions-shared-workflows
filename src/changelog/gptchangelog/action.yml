@@ -346,8 +346,13 @@ runs:
             # from the changelog. The bracket markers are matched against the
             # full message via MARKED_SHAS; the chore() prefixes stay anchored to
             # the subject, where a conventional-commit type belongs.
-            if printf '%s\n' "$MARKED_SHAS" | grep -qxF "$SHA" \
-              || echo "$SUBJECT" | grep -qiE 'chore\(release\):|chore\(changelog\):|chore\(backmerge\):'; then
+            # Here-strings rather than pipes: `grep -q` exits on first match, and
+            # under pipefail the SIGPIPE that reaches the writer turns the whole
+            # pipeline non-zero — so a marked commit would test as unmarked and
+            # land in the changelog. Only bites once the input outgrows the pipe
+            # buffer, which a large release range does.
+            if grep -qxF "$SHA" <<< "$MARKED_SHAS" \
+              || grep -qiE '^chore\((release|changelog|backmerge)\):' <<< "$SUBJECT"; then
               echo "⏭️ Skipping skip-ci commit: $SHORT_HASH $SUBJECT"
               SKIPPED_SKIP_CI=$((SKIPPED_SKIP_CI + 1))
               continue
