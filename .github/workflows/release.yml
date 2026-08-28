@@ -143,8 +143,13 @@ jobs:
         run: |
           echo "📌 Checking commit message for skip patterns"
 
-          # Skip if commit message contains [skip ci] or is a changelog update
-          if echo "$COMMIT_MSG" | grep -qiE '\[skip ci\]|chore\(release\): Update CHANGELOGs'; then
+          # Backmerges and syncs mark themselves [backmerge], which GitHub does
+          # not recognise: the run starts and every check reports, so a PR whose
+          # head carries the marker is still mergeable, and a push still triggers
+          # whatever is chained to it. Only the release is skipped, here.
+          # [skip ci] stays matched for commits that arrive by other means; it
+          # suppresses the run at the GitHub level and never reaches this step.
+          if echo "$COMMIT_MSG" | grep -qiE '\[skip ci\]|\[backmerge\]|chore\(release\): Update CHANGELOGs'; then
             echo "🛑 Skipping release - changelog/skip-ci commit detected"
             echo "should_skip=true" >> "$GITHUB_OUTPUT"
           else
@@ -292,8 +297,8 @@ jobs:
           target-branch: ${{ github.ref_name }}
           mode: direct-with-pr-fallback
           dry-run: ${{ inputs.dry_run }}
-          commit-message: "chore(release): sync ${source} into ${target} before release [skip ci]"
-          pr-title: "chore(release): sync ${source} → ${target}"
+          commit-message: "chore(release): sync ${source} into ${target} before release [backmerge]"
+          pr-title: "chore(release): sync ${source} → ${target} [backmerge]"
           git-user-name: ${{ secrets.LERIAN_CI_CD_USER_NAME }}
           git-user-email: ${{ secrets.LERIAN_CI_CD_USER_EMAIL }}
 
@@ -563,8 +568,8 @@ jobs:
           target-branch: ${{ inputs.backmerge_target }}
           mode: ${{ inputs.backmerge_mode }}
           dry-run: ${{ inputs.dry_run }}
-          commit-message: "chore(release): backmerge ${source} into ${target} [skip ci]"
-          pr-title: "chore(release): backmerge ${source} → ${target} (v${{ needs.publish_release_status.outputs.release_version }})"
+          commit-message: "chore(release): backmerge ${source} into ${target} [backmerge]"
+          pr-title: "chore(release): backmerge ${source} → ${target} (v${{ needs.publish_release_status.outputs.release_version }}) [backmerge]"
           git-user-name: ${{ secrets.LERIAN_CI_CD_USER_NAME }}
           git-user-email: ${{ secrets.LERIAN_CI_CD_USER_EMAIL }}
 

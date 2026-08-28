@@ -18,11 +18,11 @@ inputs:
   commit-message:
     description: Commit message for direct merge. Supports ${source} and ${target} placeholders.
     required: false
-    default: "chore(backmerge): sync ${source} into ${target} [skip ci]"
+    default: "chore(backmerge): sync ${source} into ${target} [backmerge]"
   pr-title:
     description: PR title template. Supports ${source} and ${target} placeholders.
     required: false
-    default: "chore(backmerge): sync ${source} → ${target}"
+    default: "chore(backmerge): sync ${source} → ${target} [backmerge]"
   pr-labels:
     description: Comma-separated labels applied to the PR opened in `pr` or fallback mode. Default empty so the composite works in any repo; opt in by passing labels that exist in the caller repo.
     required: false
@@ -165,6 +165,12 @@ runs:
           if [ -n "$EXISTING_PR" ]; then
             PR_NUM=$(echo "$EXISTING_PR" | jq -r '.number')
             PR_URL=$(echo "$EXISTING_PR" | jq -r '.url')
+            # A PR opened before the marker existed would merge without it, and
+            # the release run on the target branch would not be skipped.
+            if [ "$DRY_RUN" != "true" ]; then
+              gh pr edit "$PR_NUM" --title "$PR_TITLE" >/dev/null || \
+                echo "::warning::could not retitle backmerge PR #${PR_NUM}; check that it carries the marker before merging"
+            fi
             echo "::notice::Backmerge PR #${PR_NUM} already exists: ${PR_URL}"
             emit "pr-existing" "$PR_URL" "$PR_NUM"
             return 0
