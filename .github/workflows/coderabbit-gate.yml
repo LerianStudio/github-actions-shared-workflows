@@ -1,22 +1,19 @@
 name: CodeRabbit Gate
 
-# Gates CodeRabbit reviews on CI, and declares which pull requests are in scope.
+# Asks CodeRabbit for a review once CI has passed, and only for pull requests in
+# scope. Nothing is reviewed automatically, so no review is spent on a revision
+# that is failing or on a pull request nobody wants reviewed.
 #
-# The consuming repository must set `reviews.auto_review.enabled: false` and
-# `reviews.auto_review.labels: ["review-ready"]` in its `.coderabbit.yml`. That
-# inverts CodeRabbit's default to "do not review": every PR is out until the
-# `review-ready` label arrives, and this workflow is what applies it. No review
-# is spent on a pull request that is failing, or that nobody asked to review.
+# The consuming repository sets `reviews.auto_review.enabled: false` in its
+# `.coderabbit.yml`. That turns automatic reviews off entirely; this workflow then
+# posts `@coderabbitai review`, the command CodeRabbit documents as working
+# regardless of auto-review settings — it says so itself when it skips a pull
+# request: "To trigger a single review, invoke the `@coderabbitai review` command."
 #
-# Two modes, called at different points of the caller's job graph:
-#
-#   withdraw  runs early, with no `needs`, on `synchronize`. Removes the label so
-#             the new revision has to earn it again. Without this, the label from
-#             the previous revision stays on the PR while the new checks run and
-#             CodeRabbit — whose incremental reviews remain enabled — reviews a
-#             revision that may well be failing.
-#   release   runs last, needing every required check. Applies the label when the
-#             PR is in scope and nothing failed.
+# The command is the trigger. The `review-ready` label is applied alongside it as
+# a visual marker only, best-effort: a repository that has not declared the label
+# still works, it just does not get the badge. Do NOT put that label back into
+# `reviews.auto_review.labels` — it would become a second, competing trigger.
 #
 # Scope is two independent dimensions, OR'd together:
 #
@@ -29,30 +26,25 @@ name: CodeRabbit Gate
 #
 # NOTE for callers: the caller's own `pull_request` trigger bounds this. A base
 # branch listed here but absent from `on.pull_request.branches` never sees the
-# workflow run at all, so the label never arrives. The effective scope is the
+# workflow run at all, so the command is never posted. The effective scope is the
 # intersection of the two.
 
 on:
   workflow_call:
     inputs:
-      mode:
-        description: '`release` to apply the label after checks pass, `withdraw` to remove it when a new revision arrives'
-        required: true
-        type: string
       pr_number:
         description: Pull request to act on
         required: true
         type: number
       checks_passed:
-        description: Whether every required check succeeded. Only read in `release` mode — pass the caller's `!contains(needs.*.result, ...)` verdict.
+        description: Whether every required check succeeded — pass the caller's `!contains(needs.*.result, ...)` verdict.
         required: false
         type: boolean
         default: false
       head_sha:
-        description: Commit the caller's verdict refers to. When it no longer matches the pull request head, the release is skipped — a stale run cannot authorise a commit it never validated. Empty disables the check.
-        required: false
+        description: Commit the caller's verdict refers to. Also the idempotency key — one review request per commit. When it no longer matches the pull request head, the request is skipped, so a stale run cannot ask for a review of a commit it never validated.
+        required: true
         type: string
-        default: ''
       review_base_branches:
         description: Comma-separated exact base branch names whose pull requests are reviewed. Empty removes this dimension.
         required: false
@@ -64,12 +56,12 @@ on:
         type: string
         default: hotfix/*
       label:
-        description: Label used as the review trigger. Must match `reviews.auto_review.labels` in .coderabbit.yml.
+        description: Visual marker applied when the review is requested. Cosmetic — failure to apply it never fails the job. Empty disables it.
         required: false
         type: string
         default: review-ready
       dry_run:
-        description: Log the decision without changing any label
+        description: Log the decision without commenting or labelling
         required: false
         type: boolean
         default: false
@@ -85,130 +77,60 @@ on:
 
 # No `workflow_dispatch`: the repository convention is that reusable workflows do
 # not offer one — manual triggering belongs in a `self-*` entrypoint, where the
-# inputs can be constrained. Dispatch does support `type: choice` and `boolean`,
-# but every value still arrives as a string at runtime, and free-text inputs
-# reaching `run:` blocks are a script injection surface. There is no `self-*`
-# entrypoint for this gate because the manual equivalent is simpler: add or remove
-# the trigger label on the pull request by hand.
+# inputs can be constrained. There is none for this gate because the manual
+# equivalent is simpler: comment `@coderabbitai review` on the pull request.
 
 permissions:
   contents: read
 
 jobs:
   gate:
-    name: Reconcile Review Authorisation
+    name: Request CodeRabbit Review
     runs-on: ${{ vars.GENERAL_RUNNERS || inputs.runner_type }}
     permissions:
       pull-requests: write
     steps:
-      - name: Reconcile review authorisation
+      - name: Request review when the pull request is green and in scope
         env:
           GH_TOKEN: ${{ secrets.MANAGE_TOKEN || github.token }}
           REPO: ${{ github.repository }}
-          MODE: ${{ inputs.mode }}
           PR_NUMBER: ${{ inputs.pr_number }}
           CHECKS_PASSED: ${{ inputs.checks_passed }}
           HEAD_SHA: ${{ inputs.head_sha }}
           REVIEW_BASE_BRANCHES: ${{ inputs.review_base_branches }}
           REVIEW_HEAD_PATTERNS: ${{ inputs.review_head_patterns }}
-          LABEL: ${{ inputs.label || 'review-ready' }}
+          LABEL: ${{ inputs.label }}
           DRY_RUN: ${{ inputs.dry_run }}
         run: |
-          case "$MODE" in
-            release|withdraw) ;;
-            *) echo "::error::Unknown mode '${MODE}' — expected 'release' or 'withdraw'"; exit 1 ;;
-          esac
-
           # Read the live pull request rather than trusting event payload values,
-          # which are frozen at dispatch. A run started before the PR was
-          # retargeted would otherwise decide against a branch that no longer
+          # which are frozen at dispatch. A run started before the pull request
+          # was retargeted would otherwise decide against a branch that no longer
           # applies.
-          read -r base head live_sha labels < <(
+          read -r base head live_sha < <(
             gh pr view "$PR_NUMBER" --repo "$REPO" \
-              --json baseRefName,headRefName,headRefOid,labels \
-              --jq '"\(.baseRefName) \(.headRefName) \(.headRefOid) \([.labels[].name] | join(","))"'
+              --json baseRefName,headRefName,headRefOid \
+              --jq '"\(.baseRefName) \(.headRefName) \(.headRefOid)"'
           )
-          labels=",${labels},"
-
-          case "$labels" in
-            *",${LABEL},"*) has_label=true ;;
-            *) has_label=false ;;
-          esac
 
           # Verbose only under dry_run, per the repository's dry_run contract. A
           # real run emits a single `::notice::` with the decision — this job's
-          # only observable product is *why* a pull request was or was not
-          # released, so that one line has to survive.
+          # only observable product is *why* a review was or was not requested.
           if [ "$DRY_RUN" = "true" ]; then
-            echo "::notice::DRY RUN — no label will be changed"
+            echo "::notice::DRY RUN — no comment and no label will be posted"
             echo "  pull request      : #${PR_NUMBER}"
             echo "  head → base       : ${head} → ${base}"
-            echo "  mode              : ${MODE}"
-            echo "  label             : ${LABEL} (present=${has_label})"
             echo "  checks passed     : ${CHECKS_PASSED}"
-            echo "  verdict commit    : ${HEAD_SHA:-<unchecked>}"
+            echo "  verdict commit    : ${HEAD_SHA}"
             echo "  live head         : ${live_sha}"
             echo "  scope bases       : [${REVIEW_BASE_BRANCHES}]"
             echo "  scope head globs  : [${REVIEW_HEAD_PATTERNS}]"
           fi
 
-          # A repository that has not adopted the gate simply has no such label.
-          # Treat that — and only that — as "not adopted": `gh pr edit --add-label`
-          # fails outright on a label the repository does not define, which would
-          # turn every pull request red everywhere the labels sync has not run yet.
-          #
-          # Any other failure must not be mistaken for it. `gh api` exits non-zero
-          # on 4xx and 5xx alike, so a rate limit, a permissions problem or a
-          # transient 5xx would otherwise disable the gate while reporting a
-          # missing label — a wrong diagnosis on top of a silent outage.
-          if lookup_error=$(gh api "repos/${REPO}/labels/${LABEL}" 2>&1 >/dev/null); then
-            label_defined=true
-          else
-            case "$lookup_error" in
-              *"Not Found"*|*"404"*)
-                label_defined=false
-                ;;
-              *)
-                echo "::error::Could not determine whether label '${LABEL}' exists in ${REPO}: ${lookup_error}"
-                exit 1
-                ;;
-            esac
-          fi
-
-          if [ "$label_defined" = false ]; then
-            if [ "$DRY_RUN" = "true" ]; then
-              echo "  decision          : label not defined in the repository — gate inert"
-            fi
-            echo "::warning::Label '${LABEL}' does not exist in ${REPO} — the CodeRabbit gate is inert here. Declare it in .github/labels.yml and run the labels sync, and set reviews.auto_review.enabled=false with labels=[\"${LABEL}\"] in .coderabbit.yml. See docs/coderabbit-gate.md."
-            exit 0
-          fi
-
-          # ---------- withdraw ----------
-          # Unconditional: a revision must re-earn the authorisation whatever the
-          # scope says. Removing is always the safe direction.
-          if [ "$MODE" = "withdraw" ]; then
-            if [ "$has_label" = false ]; then
-              if [ "$DRY_RUN" = "true" ]; then
-                echo "  decision          : nothing to withdraw"
-              fi
-              exit 0
-            fi
-            if [ "$DRY_RUN" = "true" ]; then
-              echo "  decision          : would remove '${LABEL}'"
-              exit 0
-            fi
-            gh pr edit "$PR_NUMBER" --repo "$REPO" --remove-label "$LABEL"
-            echo "::notice::Withdrew '${LABEL}' from PR #${PR_NUMBER} — this revision must pass the checks to earn it back"
-            exit 0
-          fi
-
-          # ---------- release ----------
           # `checks_passed` describes one specific commit. Without concurrency
           # control an older run can finish after a newer push, and would then
-          # authorise a head whose checks it never saw. Comparing the caller's
-          # commit against the live head closes that.
-          if [ -n "$HEAD_SHA" ] && [ "$HEAD_SHA" != "$live_sha" ]; then
-            echo "::notice::Stale run — the verdict covers ${HEAD_SHA:0:7} but PR #${PR_NUMBER} now heads at ${live_sha:0:7}; withholding '${LABEL}'"
+          # ask for a review of a head whose checks it never saw.
+          if [ "$HEAD_SHA" != "$live_sha" ]; then
+            echo "::notice::Stale run — the verdict covers ${HEAD_SHA:0:7} but PR #${PR_NUMBER} now heads at ${live_sha:0:7}; not requesting a review"
             exit 0
           fi
 
@@ -233,45 +155,42 @@ jobs:
           fi
 
           if [ -z "$matched" ]; then
-            # Withdraw an authorisation the pull request should no longer hold.
-            # This is the reconciling half of scope enforcement: a pull request
-            # that earned the label in scope and was then retargeted out of it
-            # would otherwise stay authorised, and the notice below would be a
-            # lie. Only fires when the state actually diverged, so it costs
-            # nothing on the common path.
-            if [ "$has_label" = true ]; then
-              if [ "$DRY_RUN" = "true" ]; then
-                echo "  decision          : out of scope, would remove '${LABEL}'"
-                exit 0
-              fi
-              gh pr edit "$PR_NUMBER" --repo "$REPO" --remove-label "$LABEL"
-              echo "::notice::PR #${PR_NUMBER} (${head} → ${base}) is out of the review scope — removed '${LABEL}'"
-              exit 0
-            fi
-            if [ "$DRY_RUN" = "true" ]; then
-              echo "  decision          : out of scope, nothing to do"
-              exit 0
-            fi
-            echo "::notice::PR #${PR_NUMBER} (${head} → ${base}) is out of the review scope — withholding '${LABEL}', CodeRabbit will not review it"
+            echo "::notice::PR #${PR_NUMBER} (${head} → ${base}) is out of the review scope — not requesting a review"
             exit 0
           fi
 
           if [ "$CHECKS_PASSED" != "true" ]; then
-            echo "::notice::PR #${PR_NUMBER} is in scope via ${matched}, but a required check did not pass — withholding '${LABEL}'"
+            echo "::notice::PR #${PR_NUMBER} is in scope via ${matched}, but a required check did not pass — not requesting a review"
             exit 0
           fi
 
-          if [ "$has_label" = true ]; then
-            if [ "$DRY_RUN" = "true" ]; then
-              echo "  decision          : in scope via ${matched}, '${LABEL}' already present"
-            fi
+          # Idempotency. Unlike a label, a comment is not a no-op when repeated:
+          # every `@coderabbitai review` spends another review. Re-runs and
+          # concurrent runs on the same commit are both reachable, so the marker
+          # below — carrying the commit — is what makes "one review per revision"
+          # true rather than merely intended.
+          marker="<!-- coderabbit-gate: ${live_sha} -->"
+
+          if gh api "repos/${REPO}/issues/${PR_NUMBER}/comments" --paginate \
+               --jq '.[].body' | grep -qF "$marker"; then
+            echo "::notice::A review was already requested for ${live_sha:0:7} on PR #${PR_NUMBER} — not asking again"
             exit 0
           fi
 
           if [ "$DRY_RUN" = "true" ]; then
-            echo "  decision          : would add '${LABEL}' (in scope via ${matched}, checks passed)"
+            echo "  decision          : would request a review (in scope via ${matched}, checks passed)"
             exit 0
           fi
 
-          gh pr edit "$PR_NUMBER" --repo "$REPO" --add-label "$LABEL"
-          echo "::notice::Released CodeRabbit on PR #${PR_NUMBER} — in scope via ${matched} and every required check passed"
+          gh pr comment "$PR_NUMBER" --repo "$REPO" --body "$(printf '@coderabbitai review\n\n%s' "$marker")"
+          echo "::notice::Requested a CodeRabbit review on PR #${PR_NUMBER} — in scope via ${matched} and every required check passed"
+
+          # Cosmetic only, and deliberately last: a repository that never declared
+          # the label still gets its review. Never let this fail the job.
+          if [ -n "$LABEL" ]; then
+            if gh pr edit "$PR_NUMBER" --repo "$REPO" --add-label "$LABEL" 2>/dev/null; then
+              echo "🏷️ Marked with '${LABEL}'"
+            else
+              echo "::notice::Label '${LABEL}' not applied — it is not declared in ${REPO}. Cosmetic only; the review was requested regardless."
+            fi
+          fi
