@@ -41,6 +41,10 @@ runs:
         if [ -n "$EXISTING_PR" ]; then
           PR_NUM=$(echo "$EXISTING_PR" | jq -r '.number')
           PR_URL=$(echo "$EXISTING_PR" | jq -r '.url')
+          # A PR opened before the marker existed would merge without it, and
+          # the release run on the target branch would not be skipped. Retitle
+          # rather than leaving the gap to whoever merges it.
+          gh pr edit "${PR_NUM}" --title "chore(release): backmerge ${VERSION} [backmerge]" >/dev/null
           echo "::notice::Backmerge PR #${PR_NUM} already exists: ${PR_URL}"
           echo "pr_number=${PR_NUM}" >> "$GITHUB_OUTPUT"
           echo "pr_url=${PR_URL}" >> "$GITHUB_OUTPUT"

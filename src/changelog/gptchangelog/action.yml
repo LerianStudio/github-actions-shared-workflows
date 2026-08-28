@@ -324,9 +324,12 @@ runs:
           while IFS=$'\x1f' read -r SHA SHORT_HASH SUBJECT; do
             [[ -z "$SHA" ]] && continue
 
-            # Skip commits whose subject matches [skip ci] / skip-ci patterns
-            # (semantic-release version bumps, changelog backmerges, etc.)
-            if echo "$SUBJECT" | grep -qiE '\[skip[[:space:]-]ci\]|chore\(release\):|chore\(changelog\):'; then
+            # Skip commits whose subject marks them as machinery rather than
+            # work: version bumps, changelog commits, and syncs. [backmerge] is
+            # matched alongside [skip ci] because a backmerge carries the former
+            # instead — it has to let the run start so the target branch's own
+            # checks report, while still being absent from the changelog.
+            if echo "$SUBJECT" | grep -qiE '\[skip[[:space:]-]ci\]|\[backmerge\]|chore\(release\):|chore\(changelog\):|chore\(backmerge\):'; then
               echo "⏭️ Skipping skip-ci commit: $SHORT_HASH $SUBJECT"
               SKIPPED_SKIP_CI=$((SKIPPED_SKIP_CI + 1))
               continue

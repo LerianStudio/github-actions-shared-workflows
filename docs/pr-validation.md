@@ -133,7 +133,7 @@ jobs:
 | `require_scope` | boolean | `false` | Require scope in PR title |
 | `enable_auto_labeler` | boolean | `true` | Enable automatic labeling |
 | `labeler_config_path` | string | `.github/labeler.yml` | Path to labeler config |
-| `enforce_source_branches` | boolean | `true` | Enforce source branch rules (auto-skips when target is not in `target_branches_for_source_check`) |
+| `enforce_source_branches` | boolean | `true` | Enforce source branch rules. Auto-skips when the target is neither in `target_branches_for_source_check` nor named in `source_branch_rules` |
 | `allowed_source_branches` | string | `develop\|release-candidate\|hotfix/*` | Allowed source branches (pipe-separated, supports `*` wildcard) |
 | `target_branches_for_source_check` | string | `main` | Target branches that require source branch validation |
 | `source_branch_rules` | string | `''` | Per-target source rules as JSON. A target listed here uses its own patterns and ignores the two inputs above |
@@ -324,4 +324,4 @@ with:
 | `main` | `develop` | **blocked** — promoted through the release candidate, never merged directly |
 | `develop` | anything | not validated — no rule, not a listed target |
 
-A target present in `source_branch_rules` uses its own patterns and ignores `allowed_source_branches`. Targets absent from it keep following the two flat inputs, so leaving `source_branch_rules` empty preserves the current behavior exactly.
+A target present in `source_branch_rules` overrides **both** flat inputs: it uses its own patterns instead of `allowed_source_branches`, and it is validated even when `target_branches_for_source_check` does not list it. Targets absent from the map keep following the two flat inputs, so leaving `source_branch_rules` empty preserves the current behavior exactly.

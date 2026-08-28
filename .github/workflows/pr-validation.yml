@@ -212,7 +212,10 @@ jobs:
         id: source-branch
         if: github.event_name == 'pull_request' && github.event.pull_request.draft != true && inputs.enforce_source_branches
         continue-on-error: true
-        uses: LerianStudio/github-actions-shared-workflows/src/validate/pr-source-branch@v1
+        # TODO: pin to @v1 once released. @v1 predates branch-rules, and passing
+        # an input the action does not declare fails silently — validation would
+        # quietly fall back to allowed-branches and let the blocked merges through.
+        uses: LerianStudio/github-actions-shared-workflows/src/validate/pr-source-branch@develop
         with:
           github-token: ${{ secrets.MANAGE_TOKEN || github.token }}
           allowed-branches: ${{ inputs.allowed_source_branches }}

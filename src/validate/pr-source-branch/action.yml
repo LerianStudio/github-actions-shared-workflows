@@ -69,7 +69,12 @@ runs:
             return;
           }
 
-          const patterns = hasRule ? String(branchRules[targetBranch]) : process.env.ALLOWED_BRANCHES;
+          if (hasRule && typeof branchRules[targetBranch] !== 'string') {
+            core.setFailed(`branch-rules value for '${targetBranch}' must be a string of pipe-separated patterns, got ${Array.isArray(branchRules[targetBranch]) ? 'an array' : typeof branchRules[targetBranch]}.`);
+            return;
+          }
+
+          const patterns = hasRule ? branchRules[targetBranch] : process.env.ALLOWED_BRANCHES;
           const allowedBranches = patterns.split('|').map(b => b.trim()).filter(Boolean);
 
           if (allowedBranches.length === 0) {
