@@ -132,7 +132,9 @@ jobs:
       # may use — must not drift between the two.
       - name: Resolve product from branch
         id: resolve
-        uses: LerianStudio/github-actions-shared-workflows/src/config/product-branch-resolver@v1
+        # TODO: pin to @v1 once released. The composite does not exist in v1 —
+        # it was added on develop, and @v1 tracks the last stable release.
+        uses: LerianStudio/github-actions-shared-workflows/src/config/product-branch-resolver@develop
         with:
           ref-name: ${{ github.ref_name }}
           branch-pattern: ${{ inputs.branch_pattern }}
@@ -188,7 +190,10 @@ jobs:
 
       - name: Build and push preview image
         if: steps.resolve.outputs.has-product == 'true'
-        uses: LerianStudio/github-actions-shared-workflows/src/build/docker-build-ts@v1
+        # TODO: pin to @v1 once released. v1 predates raw-tag and
+        # dockerhub-app-name; an input the action does not declare is ignored
+        # silently, so the image would be built with no tag at all.
+        uses: LerianStudio/github-actions-shared-workflows/src/build/docker-build-ts@develop
         with:
           app-name: ${{ steps.tag.outputs.package }}
           dockerhub-app-name: ${{ steps.tag.outputs.dockerhub-package }}
