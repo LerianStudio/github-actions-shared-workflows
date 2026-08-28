@@ -1,0 +1,196 @@
+name: CodeRabbit Gate
+
+# Asks CodeRabbit for a review once CI has passed, and only for pull requests in
+# scope. Nothing is reviewed automatically, so no review is spent on a revision
+# that is failing or on a pull request nobody wants reviewed.
+#
+# The consuming repository sets `reviews.auto_review.enabled: false` in its
+# `.coderabbit.yml`. That turns automatic reviews off entirely; this workflow then
+# posts `@coderabbitai review`, the command CodeRabbit documents as working
+# regardless of auto-review settings — it says so itself when it skips a pull
+# request: "To trigger a single review, invoke the `@coderabbitai review` command."
+#
+# The command is the trigger. The `review-ready` label is applied alongside it as
+# a visual marker only, best-effort: a repository that has not declared the label
+# still works, it just does not get the badge. Do NOT put that label back into
+# `reviews.auto_review.labels` — it would become a second, competing trigger.
+#
+# Scope is two independent dimensions, OR'd together:
+#
+#   review_base_branches  exact base branch names — "review anything landing here"
+#   review_head_patterns  globs on the head branch — "review this kind of branch
+#                         wherever it lands", for code that reached no other
+#                         review on its way (hotfix/*, for example)
+#
+# Setting both to an empty string disables reviews without editing any workflow.
+#
+# NOTE for callers: the caller's own `pull_request` trigger bounds this. A base
+# branch listed here but absent from `on.pull_request.branches` never sees the
+# workflow run at all, so the command is never posted. The effective scope is the
+# intersection of the two.
+
+on:
+  workflow_call:
+    inputs:
+      pr_number:
+        description: Pull request to act on
+        required: true
+        type: number
+      checks_passed:
+        description: Whether every required check succeeded — pass the caller's `!contains(needs.*.result, ...)` verdict.
+        required: false
+        type: boolean
+        default: false
+      head_sha:
+        description: Commit the caller's verdict refers to. Also the idempotency key — one review request per commit. When it no longer matches the pull request head, the request is skipped, so a stale run cannot ask for a review of a commit it never validated.
+        required: true
+        type: string
+      review_base_branches:
+        description: Comma-separated exact base branch names whose pull requests are reviewed. Empty removes this dimension.
+        required: false
+        type: string
+        default: develop
+      review_head_patterns:
+        description: Comma-separated globs matched against the head branch. A match is reviewed regardless of base. Empty removes this dimension.
+        required: false
+        type: string
+        default: hotfix/*
+      label:
+        description: Visual marker applied when the review is requested. Cosmetic — failure to apply it never fails the job. Empty disables it.
+        required: false
+        type: string
+        default: review-ready
+      dry_run:
+        description: Log the decision without commenting or labelling
+        required: false
+        type: boolean
+        default: false
+      runner_type:
+        description: Runner label for the job
+        required: false
+        type: string
+        default: blacksmith-4vcpu-ubuntu-2404
+    secrets:
+      MANAGE_TOKEN:
+        description: 'Token with `pull-requests: write` on the target repository. Falls back to `github.token` when absent, which is enough for same-repository pull requests.'
+        required: false
+
+# No `workflow_dispatch`: the repository convention is that reusable workflows do
+# not offer one — manual triggering belongs in a `self-*` entrypoint, where the
+# inputs can be constrained. There is none for this gate because the manual
+# equivalent is simpler: comment `@coderabbitai review` on the pull request.
+
+permissions:
+  contents: read
+
+jobs:
+  gate:
+    name: Request CodeRabbit Review
+    runs-on: ${{ vars.GENERAL_RUNNERS || inputs.runner_type }}
+    permissions:
+      pull-requests: write
+    steps:
+      - name: Request review when the pull request is green and in scope
+        env:
+          GH_TOKEN: ${{ secrets.MANAGE_TOKEN || github.token }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+          CHECKS_PASSED: ${{ inputs.checks_passed }}
+          HEAD_SHA: ${{ inputs.head_sha }}
+          REVIEW_BASE_BRANCHES: ${{ inputs.review_base_branches }}
+          REVIEW_HEAD_PATTERNS: ${{ inputs.review_head_patterns }}
+          LABEL: ${{ inputs.label }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          # Read the live pull request rather than trusting event payload values,
+          # which are frozen at dispatch. A run started before the pull request
+          # was retargeted would otherwise decide against a branch that no longer
+          # applies.
+          read -r base head live_sha < <(
+            gh pr view "$PR_NUMBER" --repo "$REPO" \
+              --json baseRefName,headRefName,headRefOid \
+              --jq '"\(.baseRefName) \(.headRefName) \(.headRefOid)"'
+          )
+
+          # Verbose only under dry_run, per the repository's dry_run contract. A
+          # real run emits a single `::notice::` with the decision — this job's
+          # only observable product is *why* a review was or was not requested.
+          if [ "$DRY_RUN" = "true" ]; then
+            echo "::notice::DRY RUN — no comment and no label will be posted"
+            echo "  pull request      : #${PR_NUMBER}"
+            echo "  head → base       : ${head} → ${base}"
+            echo "  checks passed     : ${CHECKS_PASSED}"
+            echo "  verdict commit    : ${HEAD_SHA}"
+            echo "  live head         : ${live_sha}"
+            echo "  scope bases       : [${REVIEW_BASE_BRANCHES}]"
+            echo "  scope head globs  : [${REVIEW_HEAD_PATTERNS}]"
+          fi
+
+          # `checks_passed` describes one specific commit. Without concurrency
+          # control an older run can finish after a newer push, and would then
+          # ask for a review of a head whose checks it never saw.
+          if [ "$HEAD_SHA" != "$live_sha" ]; then
+            echo "::notice::Stale run — the verdict covers ${HEAD_SHA:0:7} but PR #${PR_NUMBER} now heads at ${live_sha:0:7}; not requesting a review"
+            exit 0
+          fi
+
+          matched=""
+
+          while IFS= read -r entry; do
+            [ -z "$entry" ] && continue
+            if [ "$base" = "$entry" ]; then
+              matched="base '${entry}'"
+              break
+            fi
+          done < <(tr ',' '\n' <<< "$REVIEW_BASE_BRANCHES" | xargs -n1 2>/dev/null)
+
+          if [ -z "$matched" ]; then
+            while IFS= read -r entry; do
+              [ -z "$entry" ] && continue
+              # shellcheck disable=SC2254
+              case "$head" in
+                $entry) matched="head pattern '${entry}'"; break ;;
+              esac
+            done < <(tr ',' '\n' <<< "$REVIEW_HEAD_PATTERNS" | xargs -n1 2>/dev/null)
+          fi
+
+          if [ -z "$matched" ]; then
+            echo "::notice::PR #${PR_NUMBER} (${head} → ${base}) is out of the review scope — not requesting a review"
+            exit 0
+          fi
+
+          if [ "$CHECKS_PASSED" != "true" ]; then
+            echo "::notice::PR #${PR_NUMBER} is in scope via ${matched}, but a required check did not pass — not requesting a review"
+            exit 0
+          fi
+
+          # Idempotency. Unlike a label, a comment is not a no-op when repeated:
+          # every `@coderabbitai review` spends another review. Re-runs and
+          # concurrent runs on the same commit are both reachable, so the marker
+          # below — carrying the commit — is what makes "one review per revision"
+          # true rather than merely intended.
+          marker="<!-- coderabbit-gate: ${live_sha} -->"
+
+          if gh api "repos/${REPO}/issues/${PR_NUMBER}/comments" --paginate \
+               --jq '.[].body' | grep -qF "$marker"; then
+            echo "::notice::A review was already requested for ${live_sha:0:7} on PR #${PR_NUMBER} — not asking again"
+            exit 0
+          fi
+
+          if [ "$DRY_RUN" = "true" ]; then
+            echo "  decision          : would request a review (in scope via ${matched}, checks passed)"
+            exit 0
+          fi
+
+          gh pr comment "$PR_NUMBER" --repo "$REPO" --body "$(printf '@coderabbitai review\n\n%s' "$marker")"
+          echo "::notice::Requested a CodeRabbit review on PR #${PR_NUMBER} — in scope via ${matched} and every required check passed"
+
+          # Cosmetic only, and deliberately last: a repository that never declared
+          # the label still gets its review. Never let this fail the job.
+          if [ -n "$LABEL" ]; then
+            if gh pr edit "$PR_NUMBER" --repo "$REPO" --add-label "$LABEL" 2>/dev/null; then
+              echo "🏷️ Marked with '${LABEL}'"
+            else
+              echo "::notice::Label '${LABEL}' not applied — it is not declared in ${REPO}. Cosmetic only; the review was requested regardless."
+            fi
+          fi
