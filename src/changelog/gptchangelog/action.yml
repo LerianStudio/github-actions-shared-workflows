@@ -307,6 +307,21 @@ runs:
             GIT_LOG_DATA=$(git log "$SINCE".."$LAST_TAG" --format='%H%x1f%h%x1f%s' 2>/dev/null || true)
           fi
 
+          # A marker can sit in the body rather than the subject: GitHub's default
+          # merge commit puts the PR title on a later line, so a backmerge merged
+          # that way carries [backmerge] below "Merge pull request #N". Asking git
+          # for the SHAs whose FULL message matches keeps the single-pass loop
+          # below intact — a multi-line body would break its record boundaries.
+          if [ "$WORKING_DIR" != "." ]; then
+            MARKED_SHAS=$(git log "$SINCE".."$LAST_TAG" -E -i \
+              --grep='\[skip[[:space:]-]ci\]' --grep='\[backmerge\]' \
+              --format='%H' -- "$WORKING_DIR" 2>/dev/null || true)
+          else
+            MARKED_SHAS=$(git log "$SINCE".."$LAST_TAG" -E -i \
+              --grep='\[skip[[:space:]-]ci\]' --grep='\[backmerge\]' \
+              --format='%H' 2>/dev/null || true)
+          fi
+
           COMMIT_COUNT=$(echo "$GIT_LOG_DATA" | grep -c . || true)
           echo "📊 Found $COMMIT_COUNT commits for $APP_NAME"
 
@@ -324,12 +339,15 @@ runs:
           while IFS=$'\x1f' read -r SHA SHORT_HASH SUBJECT; do
             [[ -z "$SHA" ]] && continue
 
-            # Skip commits whose subject marks them as machinery rather than
-            # work: version bumps, changelog commits, and syncs. [backmerge] is
-            # matched alongside [skip ci] because a backmerge carries the former
-            # instead — it has to let the run start so the target branch's own
-            # checks report, while still being absent from the changelog.
-            if echo "$SUBJECT" | grep -qiE '\[skip[[:space:]-]ci\]|\[backmerge\]|chore\(release\):|chore\(changelog\):|chore\(backmerge\):'; then
+            # Machinery rather than work: version bumps, changelog commits and
+            # syncs. [backmerge] is matched alongside [skip ci] because a
+            # backmerge carries the former instead — it has to let the run start
+            # so the target branch's own checks report, while still being absent
+            # from the changelog. The bracket markers are matched against the
+            # full message via MARKED_SHAS; the chore() prefixes stay anchored to
+            # the subject, where a conventional-commit type belongs.
+            if printf '%s\n' "$MARKED_SHAS" | grep -qxF "$SHA" \
+              || echo "$SUBJECT" | grep -qiE 'chore\(release\):|chore\(changelog\):|chore\(backmerge\):'; then
               echo "⏭️ Skipping skip-ci commit: $SHORT_HASH $SUBJECT"
               SKIPPED_SKIP_CI=$((SKIPPED_SKIP_CI + 1))
               continue
