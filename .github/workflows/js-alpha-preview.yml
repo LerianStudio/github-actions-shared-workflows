@@ -87,6 +87,12 @@ on:
         required: false
 
     outputs:
+      has_preview:
+        description: >-
+          'true' when the ref resolved to a product, regardless of whether an
+          image was pushed. Distinguishes "this branch has no preview work" from
+          "a preview was built but not published", which `published` alone cannot.
+        value: ${{ jobs.preview.outputs.has_preview }}
       published:
         description: "'true' when a preview image was pushed for this ref. Always 'false' in a dry run, which builds nothing to pull."
         value: ${{ jobs.preview.outputs.published }}
@@ -111,6 +117,7 @@ jobs:
       contents: read
       packages: write
     outputs:
+      has_preview: ${{ steps.resolve.outputs.has-product }}
       # A dry run builds without pushing, so neither value may suggest an image
       # a caller could pull.
       published: ${{ steps.resolve.outputs.has-product == 'true' && !inputs.dry_run }}

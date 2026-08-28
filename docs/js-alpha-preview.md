@@ -46,6 +46,7 @@ That difference has a consequence worth knowing: the retention tooling is GHCR-o
 
 | Output | Description |
 |--------|-------------|
+| `has_preview` | `'true'` when the ref resolved to a product, whether or not an image was pushed. Use it to tell "no preview work on this branch" apart from "built but not published" |
 | `published` | `'true'` when a preview was published for this ref |
 | `reference` | Full GHCR reference of the preview, empty when none was published |
 
