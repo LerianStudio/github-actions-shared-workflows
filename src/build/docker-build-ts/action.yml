@@ -143,8 +143,10 @@ runs:
     - name: Normalize repository owner to lowercase
       id: normalize
       shell: bash
+      env:
+        REPOSITORY_OWNER: ${{ github.repository_owner }}
       run: |
-        echo "owner_lower=$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')" >> $GITHUB_OUTPUT
+        echo "owner_lower=$(echo "$REPOSITORY_OWNER" | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_OUTPUT"
 
     # Values reach the shell through env, never interpolated into the script:
     # app-name and the org names travel from a caller workflow and can carry a
@@ -214,20 +216,25 @@ runs:
     - name: Resolve Dockerfile path
       id: dockerfile
       shell: bash
+      env:
+        DOCKERFILE_PATH: ${{ inputs.dockerfile }}
+        DOCKERFILE_NAME: ${{ inputs.dockerfile-name }}
+        WORKING_DIR: ${{ inputs.working-dir }}
       run: |
-        DOCKERFILE="${{ inputs.dockerfile }}"
+        DOCKERFILE="$DOCKERFILE_PATH"
         if [ -z "$DOCKERFILE" ]; then
-          DOCKERFILE="${{ inputs.dockerfile-name }}"
+          DOCKERFILE="$DOCKERFILE_NAME"
         fi
-        echo "path=${{ inputs.working-dir }}/$DOCKERFILE" >> $GITHUB_OUTPUT
+        echo "path=${WORKING_DIR}/${DOCKERFILE}" >> "$GITHUB_OUTPUT"
 
     - name: Resolve build secrets
       id: secrets
       shell: bash
+      env:
+        GHCR_TOKEN: ${{ inputs.ghcr-token }}
+        EXTRA_SECRETS: ${{ inputs.build-secrets }}
       run: |
-        NPMRC_SECRET="npmrc=//npm.pkg.github.com/:_authToken=${{ inputs.ghcr-token }}"
-
-        EXTRA_SECRETS='${{ inputs.build-secrets }}'
+        NPMRC_SECRET="npmrc=//npm.pkg.github.com/:_authToken=${GHCR_TOKEN}"
         if [ -n "$EXTRA_SECRETS" ]; then
           {
             echo "value<<SECRETS_EOF"
@@ -247,14 +254,21 @@ runs:
     - name: Dry run summary
       if: ${{ inputs.dry-run == 'true' }}
       shell: bash
+      env:
+        APP_NAME: ${{ inputs.app-name }}
+        DOCKERFILE_RESOLVED: ${{ steps.dockerfile.outputs.path }}
+        BUILD_CONTEXT: ${{ inputs.build-context }}
+        PLATFORMS: ${{ inputs.platforms }}
+        META_TAGS: ${{ steps.meta.outputs.tags }}
+        IMAGES: ${{ steps.image-names.outputs.images }}
       run: |
         echo "::notice::DRY RUN — no images will be pushed"
-        echo "  component  : ${{ inputs.app-name }}"
-        echo "  dockerfile : ${{ steps.dockerfile.outputs.path }}"
-        echo "  context    : ${{ inputs.build-context }}"
-        echo "  platforms  : ${{ inputs.platforms }}"
-        echo "  tags       : ${{ steps.meta.outputs.tags }}"
-        echo "  registries : ${{ steps.image-names.outputs.images }}"
+        echo "  component  : ${APP_NAME}"
+        echo "  dockerfile : ${DOCKERFILE_RESOLVED}"
+        echo "  context    : ${BUILD_CONTEXT}"
+        echo "  platforms  : ${PLATFORMS}"
+        echo "  tags       : ${META_TAGS}"
+        echo "  registries : ${IMAGES}"
 
     - name: Build Docker image (dry run)
       if: ${{ inputs.dry-run == 'true' }}
