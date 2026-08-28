@@ -23,6 +23,8 @@ repository's `.coderabbit.yml`:
 reviews:
   auto_review:
     enabled: false
+    base_branches:      # every base the gate may release on
+      - "develop"
     labels:
       - "review-ready"
 ```
@@ -38,9 +40,13 @@ Two consequences worth internalising:
   trigger under `enabled: false`, and it is inert in the common case anyway — a
   pull request that never receives the label is already excluded by the inverted
   default. Scope belongs here, where it is deterministic.
-- **`base_branches` has nothing to govern.** It filters which base branches are
-  *auto*-reviewed, and there is no auto-review left. Restore it only alongside
-  `enabled: true`.
+- **`base_branches` is required, and is a separate filter.** It is not made
+  redundant by `enabled: false`: a pull request is reviewed only when its base is
+  eligible **and** the trigger label is present. Absent, the eligible set falls
+  back to the default branch alone — every pull request into `develop` is then
+  refused with *"reviews are disabled for this base branch"*, regardless of the
+  label. List every base the gate may release on, mirroring
+  `review_base_branches`.
 
 ## Modes
 
@@ -246,9 +252,22 @@ The gate is on by default in `go-pr-validation.yml` and `js-pr-validation.yml`, 
    reviews:
      auto_review:
        enabled: false
+       base_branches:
+         - "develop"        # every base the gate may release on
        labels:
          - "review-ready"
    ```
+
+   Both keys are needed. `base_branches` decides which bases are *eligible*;
+   `labels` is the trigger. Omitting the first refuses every pull request into
+   `develop`, label or not, with CodeRabbit reporting: *"Auto reviews are
+   disabled on base/target branches other than the default branch."*
+
+   **Config changes take effect on merge, not in the pull request that
+   introduces them.** CodeRabbit reads `.coderabbit.yml` from the base branch, so
+   a pull request carrying a config fix is still judged by the old config — a fix
+   for a broken `base_branches` cannot validate itself. Confirm it on the next
+   pull request instead.
 
 3. Nothing else — the umbrella already calls the gate.
 
