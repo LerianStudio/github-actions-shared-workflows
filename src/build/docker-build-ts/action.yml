@@ -161,6 +161,18 @@ runs:
         DOCKERHUB_APP_NAME: ${{ inputs.dockerhub-app-name }}
         APP_NAME: ${{ inputs.app-name }}
       run: |
+        # metadata-action reads `images` as a comma-separated list, so a comma
+        # inside a name would add an image target that build-push-action then
+        # publishes. `=` and newlines would likewise be read as list syntax.
+        for candidate in "$APP_NAME" "$DOCKERHUB_APP_NAME"; do
+          case "$candidate" in
+            *,*|*=*|*$'\n'*)
+              echo "::error::Image name '${candidate}' contains a comma, an equals sign or a newline. Those are list syntax for docker/metadata-action and would add an unintended image target."
+              exit 1
+              ;;
+          esac
+        done
+
         IMAGES=""
         GHCR_ORG="$GHCR_ORG_INPUT"
         if [ -z "$GHCR_ORG" ]; then

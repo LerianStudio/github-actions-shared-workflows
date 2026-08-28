@@ -41,13 +41,14 @@ runs:
           exit 0
         }
 
-        case "$BRANCH_PATTERN" in
-          *'*'*) ;;
-          *)
-            echo "::error::branch-pattern must contain a '*' placeholder (got '${BRANCH_PATTERN}')"
-            exit 1
-            ;;
-        esac
+        # Exactly one, not at least one: the prefix/suffix split below keys off
+        # the first `*`, so a second one would survive as a literal in the
+        # suffix and the pattern would silently stop matching.
+        stars="${BRANCH_PATTERN//[^*]/}"
+        if [ "$stars" != "*" ]; then
+          echo "::error::branch-pattern must contain exactly one '*' placeholder (got '${BRANCH_PATTERN}')"
+          exit 1
+        fi
 
         prefix="${BRANCH_PATTERN%%\**}"
         suffix="${BRANCH_PATTERN#*\*}"

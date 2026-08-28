@@ -25,15 +25,27 @@ The run fails before touching GHCR unless all of the following hold:
 | Every entry is `alpha/`-scoped | `product-console` | Release packages must be unreachable |
 | No entry contains a glob (`*`, `?`, `[`) | `alpha/*` | A glob spans other repositories' alpha packages |
 | `image_tags` is non-empty | `''` | Would select every version in the package |
-| `image_tags` contains `alpha` | `*`, `v1.12.0` | Only alpha versions may be deleted |
+| No `image_tags` entry is negated | `!alpha`, `*-alpha* !prod` | See below |
+| Every `image_tags` entry contains `alpha` | `*`, `v1.12.0`, `*-alpha* *` | One broad entry is enough to widen the whole selection |
+
+`image_tags` is validated per token rather than as a whole string, because the upstream action reads it as a list and an aggregate check does not hold:
+
+- `!alpha` contains the substring `alpha` and passes a whole-string test, but leaves the action's positive list empty. [`select_package_versions.rs`](https://github.com/snok/container-retention-policy/blob/main/src/core/select_package_versions.rs) then treats every version that does **not** match as selected — the exact inverse of this workflow's contract.
+- `*-alpha* *` also contains `alpha`, while the bare `*` broadens the positive selection to every tag in the package.
 
 The `alpha/` prefix check also runs inside the [`ghcr-alpha-cleanup`](../src/config/ghcr-alpha-cleanup/README.md) composite; the rules above are the outer layer and cover the two cases the prefix alone allows.
+
+## Outputs
+
+| Output | Description |
+|--------|-------------|
+| `has_packages` | `'true'` when at least one target package existed and the prune ran, `'false'` when every package was missing |
 
 ## Inputs
 
 | Input | Type | Default | Description |
 |-------|------|---------|-------------|
-| `account` | string | `lerianstudio` | GitHub org/user that owns the package |
+| `account` | string | `lerianstudio` | GitHub **organization** that owns the package. Personal accounts are unsupported — the preflight resolves through the `orgs` endpoint |
 | `image_names` | string | — (**required**) | Exact package name(s), space-separated. Must be `alpha/`-scoped, no globs |
 | `image_tags` | string | `*-alpha*` | Tag globs to target within those packages. Must contain `alpha` |
 | `cut_off` | string | `3d` | Delete versions older than this. Use `1s` to purge on demand |
@@ -94,7 +106,7 @@ on:
 
 jobs:
   cleanup:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/ghcr-alpha-cleanup.yml@v1
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/ghcr-alpha-cleanup.yml@v1.x.x
     with:
       image_names: alpha/product-console
       image_tags: >-
@@ -119,7 +131,7 @@ Once a product branch is merged, its previews are dead weight. `cut_off: 1s` wit
 ```yaml
 jobs:
   purge:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/ghcr-alpha-cleanup.yml@v1
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/ghcr-alpha-cleanup.yml@v1.x.x
     with:
       image_names: alpha/product-console
       image_tags: 'midaz-alpha.*'

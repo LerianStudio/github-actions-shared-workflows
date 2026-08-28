@@ -15,7 +15,7 @@ name: GHCR Alpha Cleanup
 # Usage:
 #   jobs:
 #     cleanup:
-#       uses: LerianStudio/github-actions-shared-workflows/.github/workflows/ghcr-alpha-cleanup.yml@v1
+#       uses: LerianStudio/github-actions-shared-workflows/.github/workflows/ghcr-alpha-cleanup.yml@v1.x.x
 #       with:
 #         image_names: alpha/product-console
 #         image_tags: 'midaz-alpha.*'
@@ -28,7 +28,9 @@ on:
   workflow_call:
     inputs:
       account:
-        description: GitHub org/user that owns the package
+        description: >-
+          GitHub organization that owns the package. Personal accounts are not
+          supported — the preflight resolves packages through the orgs endpoint.
         required: false
         type: string
         default: "lerianstudio"
@@ -63,6 +65,11 @@ on:
         required: false
         type: boolean
         default: true
+    outputs:
+      has_packages:
+        description: "'true' when at least one target package existed and the prune ran"
+        value: ${{ jobs.cleanup.outputs.has_packages }}
+
     secrets:
       # Preferred: a GitHub App installation token. Its permissions are scoped
       # to the installation rather than to everything the owner can see, unlike
@@ -96,10 +103,14 @@ jobs:
     runs-on: ${{ vars.GENERAL_RUNNERS || 'blacksmith-4vcpu-ubuntu-2404' }}
     permissions:
       packages: write # delete alpha package versions from GHCR
+    outputs:
+      has_packages: ${{ steps.preflight.outputs.skip == 'true' && 'false' || 'true' }}
     env:
       # The secrets context is not available in a step-level `if:`, so the App
-      # client ID is surfaced as env to gate the token step on.
+      # credentials are surfaced as env to gate the token step on. Only the
+      # presence of the key is exposed, never the key.
       CLIENT_ID: ${{ secrets.CLEANUP_APP_CLIENT_ID }}
+      HAS_APP_KEY: ${{ secrets.CLEANUP_APP_PRIVATE_KEY != '' && 'true' || 'false' }}
     steps:
       # ----------------- Scope validation -----------------
       # The composite guards the alpha/ prefix already. These checks close the
@@ -139,13 +150,29 @@ jobs:
             echo "::error::image_tags is empty — that would select every version in the package. Refusing to run."
             exit 1
           fi
-          case "$IMAGE_TAGS" in
-            *alpha*) ;;
-            *)
-              echo "::error::image_tags '${IMAGE_TAGS}' does not contain 'alpha'. Only alpha versions may be deleted by this workflow."
-              exit 1
-              ;;
-          esac
+
+          # Every token is checked on its own, because the upstream action reads
+          # the field as a list and an aggregate check is not enough:
+          #   "!alpha"        leaves the positive list empty, and the action then
+          #                   selects every version that is NOT alpha
+          #                   (select_package_versions.rs: `positive.is_empty()`)
+          #   "*-alpha* *"    adds a bare `*` that broadens the selection to all
+          # Both contain the substring "alpha" and would pass a whole-string test.
+          for pattern in $IMAGE_TAGS; do
+            case "$pattern" in
+              !*)
+                echo "::error::image_tags entry '${pattern}' is a negated pattern. Exclusions leave the positive list empty, which makes the action select every version that does not match — the opposite of this workflow's contract."
+                exit 1
+                ;;
+            esac
+            case "$pattern" in
+              *alpha*) ;;
+              *)
+                echo "::error::image_tags entry '${pattern}' does not contain 'alpha'. Every pattern must be alpha-specific, so a broad entry cannot widen the selection."
+                exit 1
+                ;;
+            esac
+          done
 
           echo "Scope validated."
 
@@ -155,7 +182,9 @@ jobs:
       # the default repository-scoped token is not enough.
       - name: Mint App token
         id: app-token
-        if: env.CLIENT_ID != ''
+        # Both, or neither: create-github-app-token rejects an empty private-key,
+        # and a failed step here would take the job down before the PAT fallback.
+        if: env.CLIENT_ID != '' && env.HAS_APP_KEY == 'true'
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
         with:
           client-id: ${{ secrets.CLEANUP_APP_CLIENT_ID }}
