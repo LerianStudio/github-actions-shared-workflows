@@ -20,6 +20,9 @@ on:
       # Same rationale: the version-propagation matrix is metadata for the
       # propagation controller; editing it must not cut a release.
       - 'config/version-propagation.yml'
+      # Likewise the tier promotion flow: it is read by the promotion
+      # controller at the published tag, so editing it must not cut a release.
+      - 'config/tier-promotion.yml'
       - '.github/workflows/self-*.yml'
     tags-ignore:
       - '**'

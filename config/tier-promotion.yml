@@ -1,0 +1,135 @@
+# Tier Promotion Flow
+#
+# Source of truth for how a stable release of
+# `LerianStudio/github-actions-shared-workflows` progresses through the tier
+# branches that downstream repositories pin their `uses:` to.
+#
+# The tiers are BRANCHES of this repository, not tags and not groups of
+# repositories. A consumer pins a tier once
+# (`uses: LerianStudio/github-actions-shared-workflows/.github/workflows/go-ci.yml@tier-1`)
+# and never edits that pin again; the release reaches it when the tier branch
+# it follows is promoted. Which tier a repository pins IS its declaration of
+# how fast it wants to receive.
+#
+# Flow: `main` -> stable tag -> tier-0 -> (approval) -> tier-1 -> (approval) -> tier-2
+#
+# Promotion is a COMMIT on the tier branch, not a ref move: the job replaces
+# the tier branch's tree with the promoted tag's tree and commits that on top
+# of the tier's current tip. Direct push first, PR fallback on failure — the
+# same mechanic `config/version-propagation.yml` uses against consumer repos.
+# Never a merge: a merge would conflict on every promotion once the tier
+# branches carry content that differs from `main` (see `ref_rewrite` below).
+#
+# Layout: `tiers` is an ORDERED list. Position in the list is the progression
+# order — the first entry is promoted first, and each subsequent entry waits
+# for the one before it. Reordering this list reorders the rollout.
+#
+# Per-tier keys (all optional unless noted):
+#   branch                 REQUIRED. Branch promoted into, and the ref
+#                          consumers pin. Must match the `tier-*` pattern
+#                          covered by the `tier-rule` ruleset.
+#   description            Free text, surfaced in the run's step summary so a
+#                          reviewer sees what they are approving.
+#   environment            GitHub Environment the promotion job runs under.
+#                          WHETHER IT GATES is a property of that
+#                          Environment's protection rules in GitHub, not of
+#                          this file — `tier-0` intentionally has none, so it
+#                          promotes without approval while still recording a
+#                          deployment. Set it on every tier: the deployment
+#                          history is the audit trail of which commit reached
+#                          which tier and when. Empty string means no
+#                          environment at all, and therefore no record.
+#   concurrency_group      Job-level concurrency group. Deliberately DISTINCT
+#                          per tier: a shared group would park a tier-0
+#                          promotion behind an unapproved tier-1, which is the
+#                          opposite of what tier-0 is for. See the note on
+#                          supersession below.
+#   auto_merge_pr_fallback When the direct push falls back to a PR, enable
+#                          `gh pr merge --auto --squash` on it.
+#
+# Resolution at runtime (executed by `src/config/tier-promote`):
+#   1. Controller fires from `release: published` on this repo's `main`.
+#   2. Reads this file at the published tag of shared-workflows.
+#   3. Resolves the tag to a commit ONCE and pins it for the whole train.
+#      Every tier promotes that same commit — never the current content of
+#      `main`, and never the current content of the preceding tier.
+#   4. Walks `tiers` in order. For each: await `environment` approval if set,
+#      materialize the pinned tree on the tier branch, commit, push; on push
+#      failure open a PR into the tier branch.
+#   5. Pre-releases (`v*-beta.N` from `develop`) are skipped.
+#
+# On superseded trains: each tier has its own concurrency group with
+# `cancel-in-progress: false`, so a tier-0 promotion never queues behind an
+# approval pending on tier-1. A concurrency group holds at most one pending
+# run, so when a newer release arrives while an older train is still waiting
+# for the same tier, the older pending promotion is dropped in favour of the
+# newer one. That is intended: the newer commit is a superset, and approving a
+# superseded train would promote something that never soaked.
+#
+# Rollback: promotions are forward-only. The `tier-rule` ruleset blocks
+# `non_fast_forward` on `refs/heads/tier-*`, so a tier is never moved
+# backwards. To undo, promote an earlier tag — that lands as a new commit on
+# the tier branch carrying the older tree.
+#
+# Out of scope (do NOT add here):
+#   - Environment reviewers. Configured in GitHub Environments, not here.
+#   - Ref rewriting. The workflows in `.github/workflows/` carry absolute
+#     self-references (`uses: LerianStudio/github-actions-shared-workflows/
+#     src/...@v1`), so a consumer pinned to a tier still resolves those
+#     composites from `v1`. Rewriting them to the promoting tier is required
+#     for the channel to be self-consistent, and is deliberately NOT part of
+#     this file yet — it is the next problem, tracked separately.
+#   - Active canary validation. Dispatching real workflow runs in canary
+#     repositories to prove a tier before promoting the next one is a separate
+#     concern; no key here implies it.
+#   - Which repository pins which tier. That lives in the consumer's own
+#     workflow files, by design. `config/version-propagation.yml` remains the
+#     inventory used to audit drift between intent and reality.
+
+version: 1
+
+defaults:
+  # Where a train starts. Only stable tags cut from this branch are promoted.
+  source_branch: main
+
+  # A resolved tag must match this to be promoted. Guards against a
+  # pre-release or a malformed tag entering the tier branches.
+  stable_tag_pattern: '^v[0-9]+\.[0-9]+\.[0-9]+$'
+
+  # PR fallback stays manual by default: a promotion that could not be pushed
+  # directly means something about the tier branch changed, and that deserves
+  # a human look rather than an auto-merge.
+  auto_merge_pr_fallback: false
+
+tiers:
+  # ---------------------------------------------------------------------------
+  # Promoted automatically on every stable release. The `tier-0` Environment
+  # carries no protection rule on purpose: at this point in the train there is
+  # no evidence for a reviewer to weigh — the contract gate has already run,
+  # and the canary signal this tier exists to produce does not exist yet. A
+  # gate here would only delay the start of the soak. The Environment is still
+  # named so the promotion is recorded as a deployment.
+  # ---------------------------------------------------------------------------
+  - branch: tier-0
+    description: Disposable and canary repositories. Receives every stable release.
+    environment: tier-0
+    concurrency_group: tier-promote-0
+
+  # ---------------------------------------------------------------------------
+  # Majority of product repositories. Gated: the reviewer approving this has
+  # the contract diff and whatever tier-0 produced to look at.
+  # ---------------------------------------------------------------------------
+  - branch: tier-1
+    description: Majority of product repositories. Promoted after tier-0 is accepted.
+    environment: tier-1
+    concurrency_group: tier-promote-1
+
+  # ---------------------------------------------------------------------------
+  # Critical repositories: shared libraries, regulatory services, plugins in
+  # production. Last to receive, and the tier a new repository is pinned to by
+  # default, so that the conservative choice is the one nobody has to make.
+  # ---------------------------------------------------------------------------
+  - branch: tier-2
+    description: Critical repositories — shared libs, regulatory services, production plugins.
+    environment: tier-2
+    concurrency_group: tier-promote-2
