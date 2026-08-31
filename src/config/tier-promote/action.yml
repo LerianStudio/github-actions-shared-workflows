@@ -135,6 +135,8 @@ runs:
       if: always()
       shell: bash
       env:
+        REPO: ${{ github.repository }}
+        SERVER: ${{ github.server_url }}
         TIER: ${{ inputs.tier }}
         TAG: ${{ inputs.tag }}
         ACTION: ${{ steps.promote.outputs.action }}
@@ -142,14 +144,25 @@ runs:
         COMMIT: ${{ steps.promote.outputs.commit }}
       run: |
         set -euo pipefail
+
+        # Linked, not just printed: the whole point of reading this summary is
+        # to go look at what landed. On `skip` the commit is the tier's current
+        # tip rather than a new one, which is still the commit worth opening.
+        if [[ -n "${COMMIT:-}" ]]; then
+          commit_cell="[\`${COMMIT:0:7}\`](${SERVER}/${REPO}/commit/${COMMIT})"
+        else
+          commit_cell="—"
+        fi
+
         {
           echo "### Tier promotion — \`$TIER\`"
           echo
           echo "| Field | Value |"
           echo "|---|---|"
-          echo "| Tag | \`$TAG\` |"
+          echo "| Tag | [\`$TAG\`](${SERVER}/${REPO}/releases/tag/${TAG}) |"
           echo "| Outcome | ${ACTION:-failed} |"
-          echo "| Commit | \`${COMMIT:-—}\` |"
+          echo "| Commit | $commit_cell |"
+          echo "| Branch | [\`$TIER\`](${SERVER}/${REPO}/tree/${TIER}) |"
           if [[ -n "${URL:-}" ]]; then
             echo "| PR | $URL |"
           fi

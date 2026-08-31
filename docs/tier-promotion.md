@@ -13,7 +13,7 @@ main → stable tag → tier-0 → (approval) → tier-1 → (approval) → tier
 
 **Internal-only.** The tier branches, the flow config and the Environments all live in this repository, so an external caller has no use for this workflow.
 
-> **Dispatch-only for now.** This workflow is deliberately not yet called from `self-release.yml`. GitHub only offers `workflow_dispatch` for workflows present on the default branch, so the controller cannot be exercised manually until it lands on `main` — and if it were already wired, the very release that lands it would be the first to run it, unvalidated. Validate with a manual run first, then add the `promote-tiers` job that is written out in the comments of `self-release.yml`.
+`self-release.yml` calls it after every stable release on `main`; `workflow_dispatch` covers manual promotions, resuming a failed tier, catching a lagging tier up, and rollbacks.
 
 ## Why tiers are branches
 
@@ -138,16 +138,9 @@ Adding or reordering a tier therefore means editing three things together: the c
 
 ## Usage
 
-Manual promotion (the only path today):
+### Automatic — every stable release
 
-```
-Actions → Tier Promotion → Run workflow
-  tag: v1.62.0        # empty = latest stable
-  only_tiers:         # empty = whole chain
-  dry_run: true       # default on dispatch
-```
-
-Once a manual run has been validated, wire it into `self-release.yml`:
+Wired in `self-release.yml`:
 
 ```yaml
 jobs:
@@ -162,6 +155,15 @@ jobs:
       tag: ${{ needs.publish-release.outputs.new_release_git_tag }}
       dry_run: false
     secrets: inherit
+```
+
+### Manual — dispatch
+
+```
+Actions → Tier Promotion → Run workflow
+  tag: v1.62.0        # empty = latest stable
+  only_tiers:         # empty = whole chain
+  dry_run: true       # default on dispatch
 ```
 
 Two details there are load-bearing. The `new_release_published` gate: semantic-release exits **successfully** when a push carries no releasable commits, so gating on the job's result alone would open a train for a tag already sitting on the tiers and reopen its approvals. And passing `new_release_git_tag` explicitly rather than letting the controller re-resolve "latest stable", which would race a concurrent release.
