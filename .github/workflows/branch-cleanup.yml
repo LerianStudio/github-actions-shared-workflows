@@ -17,7 +17,7 @@ on:
         description: Comma-separated branch patterns to never delete
         required: false
         type: string
-        default: "main,master,develop,release/*,hotfix/*"
+        default: "main,master,develop,release/*,hotfix/*,tier-*"
       merged_branch:
         description: Branch to delete (enables merged-branch mode)
         required: false
@@ -36,7 +36,7 @@ on:
       protected_branches:
         description: Comma-separated branch patterns to never delete
         type: string
-        default: "main,master,develop,release/*,hotfix/*"
+        default: "main,master,develop,release/*,hotfix/*,tier-*"
 
 permissions:
   contents: write
@@ -53,5 +53,5 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           stale-days: ${{ inputs.stale_days }}
           dry-run: ${{ inputs.dry_run || false }}
-          protected-branches: ${{ inputs.protected_branches || 'main,master,develop,release/*,hotfix/*' }}
+          protected-branches: ${{ inputs.protected_branches || 'main,master,develop,release/*,hotfix/*,tier-*' }}
           merged-branch: ${{ inputs.merged_branch || '' }}
