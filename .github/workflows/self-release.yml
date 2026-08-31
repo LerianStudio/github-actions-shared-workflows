@@ -62,11 +62,20 @@ jobs:
   # branch is a no-op for a repository that still pins `@vX.Y.Z`, so the two
   # models coexist safely while consumer pins migrate. Remove
   # `propagate-version` once every consumer pins a tier.
+  # Gated on `new_release_published`, not merely on the release job succeeding:
+  # semantic-release exits successfully when a push carries no releasable
+  # commits, and promoting on that would re-run the train for a tag already on
+  # the tiers. Promotes `new_release_git_tag` explicitly rather than
+  # re-resolving "latest stable", so the train carries the tag THIS run
+  # published even if another release lands meanwhile.
   promote-tiers:
     needs: publish-release
-    if: github.ref == 'refs/heads/main' && needs.publish-release.result == 'success'
+    if: >-
+      github.ref == 'refs/heads/main'
+      && needs.publish-release.result == 'success'
+      && needs.publish-release.outputs.new_release_published == 'true'
     uses: ./.github/workflows/tier-promotion.yml
     with:
-      tag: ""               # auto-resolve from `gh release list` in the workflow
+      tag: ${{ needs.publish-release.outputs.new_release_git_tag }}
       dry_run: false
     secrets: inherit
