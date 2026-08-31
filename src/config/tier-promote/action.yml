@@ -54,8 +54,11 @@ runs:
         SOURCE_SHA: ${{ inputs.source-sha }}
       run: |
         set -euo pipefail
-        # Inputs arrive through env rather than `${{ }}` interpolation inside the
-        # script body, so a crafted value cannot break out of the shell.
+        # Inputs arrive through `env:` rather than template interpolation inside
+        # the script body, so a crafted value cannot break out of the shell.
+        # (Do not write an empty expression pair in a run block to illustrate
+        # that — Actions parses it as an expression and fails to load the
+        # manifest with "An expression was expected".)
         if [[ ! "$TIER" =~ ^tier-[0-9]+$ ]]; then
           echo "::error::tier must match ^tier-[0-9]+$ — got '$TIER'"
           exit 1
