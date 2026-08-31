@@ -1,0 +1,300 @@
+name: Tier Promotion
+
+# Promotes a stable release through the tier branches declared in
+# `config/tier-promotion.yml`:
+#
+#   main -> stable tag -> tier-0 -> (approval) -> tier-1 -> (approval) -> tier-2
+#
+# Internal-only: the tier branches, the config and the Environments all live in
+# THIS repository, so an external caller has no use for this workflow. The
+# companion `self-release.yml` is the intended entrypoint; `workflow_dispatch`
+# covers manual promotions, re-runs and rollbacks.
+#
+# Why the job chain is written out literally instead of generated from the
+# config: GitHub Actions cannot build a job graph from data, and — more
+# importantly — an `environment:` resolved through an expression could be
+# pointed at an ungated environment by editing a config file, while a literal
+# `environment: tier-1` is auditable by reading this file. The `resolve` job
+# fails the run if the config and this chain ever disagree.
+#
+# Rollback is `workflow_dispatch` with an older `tag`: the promotion lands as a
+# new forward commit carrying the older tree, so the `non_fast_forward` rule on
+# `refs/heads/tier-*` is never violated and no force push is needed.
+#
+# Secrets pattern: relies on `secrets: inherit` from the caller. Required:
+#   MANAGE_TOKEN                       Token used to push the promotion and to
+#                                      open the fallback PR. A PAT rather than
+#                                      GITHUB_TOKEN on purpose: a PR opened by
+#                                      GITHUB_TOKEN does not trigger workflows,
+#                                      which would leave a fallback PR with no
+#                                      checks and therefore unmergeable.
+#   LERIAN_CI_CD_USER_GPG_KEY          GPG private key — the `tier-rule` ruleset
+#                                      requires signed commits on tier-*.
+#   LERIAN_CI_CD_USER_GPG_KEY_PASSWORD GPG passphrase.
+#   LERIAN_CI_CD_USER_NAME             Committer name (Lerian CI/CD identity).
+#   LERIAN_CI_CD_USER_EMAIL            Committer email.
+
+on:
+  workflow_call:
+    inputs:
+      tag:
+        description: Stable tag to promote (e.g. v1.63.0). Empty resolves the latest stable release.
+        type: string
+        required: false
+        default: ""
+      config:
+        description: Path to the tier promotion flow config.
+        type: string
+        required: false
+        default: config/tier-promotion.yml
+      dry_run:
+        description: Preview each promotion without committing, pushing or opening a PR
+        type: boolean
+        required: false
+        default: false
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Stable tag to promote (e.g. v1.63.0). Empty resolves the latest stable release. An older tag is the rollback path.
+        type: string
+        required: false
+        default: ""
+      config:
+        description: Path to the tier promotion flow config.
+        type: string
+        required: false
+        default: config/tier-promotion.yml
+      dry_run:
+        description: Preview each promotion without committing, pushing or opening a PR
+        type: boolean
+        required: false
+        default: true
+
+permissions:
+  contents: read
+
+jobs:
+  # ----------------- Train Opening -----------------
+  # Resolves the tag to a commit ONCE. Every tier promotes this exact SHA, so
+  # an approval granted days later still promotes what was reviewed, not
+  # whatever `main` looks like at that moment.
+  resolve:
+    name: Open train
+    runs-on: ${{ vars.GENERAL_RUNNERS || 'blacksmith-4vcpu-ubuntu-2404' }}
+    outputs:
+      tag: ${{ steps.tag.outputs.value }}
+      sha: ${{ steps.tag.outputs.sha }}
+      tiers: ${{ steps.flow.outputs.tiers }}
+    steps:
+      # Pin to the immutable workflow-file SHA that originated this run, so a
+      # push to main mid-train cannot change the config or the composite under
+      # our feet.
+      - name: Checkout shared-workflows
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+        with:
+          ref: ${{ github.workflow_sha }}
+          fetch-depth: 0
+
+      - name: Resolve tag and commit
+        id: tag
+        env:
+          # Read-only same-repo query — the implicit token is enough here.
+          GH_TOKEN: ${{ github.token }}
+          INPUT_TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          if [[ -n "$INPUT_TAG" ]]; then
+            tag="$INPUT_TAG"
+          else
+            tag=$(gh release list \
+              --repo "${GITHUB_REPOSITORY}" \
+              --exclude-drafts --exclude-pre-releases --limit 1 \
+              --json tagName --jq '.[0].tagName')
+          fi
+          if [[ -z "$tag" ]]; then
+            echo "::error::could not resolve a tag to promote"
+            exit 1
+          fi
+          if [[ ! "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::resolved tag '$tag' is not a stable semver — refusing to promote"
+            exit 1
+          fi
+          # Fetch both refs explicitly rather than relying on what the checkout
+          # action happened to bring: the ancestry check below is a real gate,
+          # and a missing ref would make it fail for the wrong reason.
+          git fetch --quiet origin "refs/tags/${tag}:refs/tags/${tag}"
+          git fetch --quiet origin "refs/heads/main:refs/remotes/origin/main"
+          sha=$(git rev-list -n1 "refs/tags/${tag}")
+          # The promoted commit must be an ancestor of main: promoting something
+          # that never landed there would put code into a tier branch that no
+          # review ever saw.
+          if ! git merge-base --is-ancestor "$sha" "refs/remotes/origin/main"; then
+            echo "::error::${tag} (${sha}) is not an ancestor of origin/main — refusing to promote"
+            exit 1
+          fi
+          {
+            echo "value=$tag"
+            echo "sha=$sha"
+          } >> "$GITHUB_OUTPUT"
+          echo "Train opened on $tag ($sha)"
+
+      # Fails the run when `config/tier-promotion.yml` no longer matches the
+      # job chain below. EXPECTED_FLOW must be updated together with the jobs.
+      - name: Validate flow against job chain
+        id: flow
+        env:
+          CONFIG_PATH: ${{ inputs.config }}
+          EXPECTED_FLOW: tier-0:tier-0,tier-1:tier-1,tier-2:tier-2
+        run: |
+          set -euo pipefail
+          chmod +x src/config/tier-promote/scripts/resolve-flow.sh
+          flow=$(src/config/tier-promote/scripts/resolve-flow.sh)
+          echo "tiers=$(jq -c '.tiers' <<<"$flow")" >> "$GITHUB_OUTPUT"
+          jq -r '"Flow: " + ([.tiers[].branch] | join(" -> "))' <<<"$flow"
+
+      - name: Summary
+        env:
+          TAG: ${{ steps.tag.outputs.value }}
+          SHA: ${{ steps.tag.outputs.sha }}
+          TIERS: ${{ steps.flow.outputs.tiers }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          set -euo pipefail
+          {
+            echo "## Tier promotion train — \`$TAG\`"
+            echo
+            echo "Pinned commit: \`$SHA\`"
+            [[ "$DRY_RUN" == "true" ]] && echo -e "\n> **Dry run** — nothing will be written."
+            echo
+            echo "| Tier | Environment | Gated | Notes |"
+            echo "|---|---|---|---|"
+            jq -r '.[] | "| `\(.branch)` | \(if .environment == "" then "—" else "`" + .environment + "`" end) | \(if .environment == "" then "no" else "by environment rules" end) | \(.description) |"' <<<"$TIERS"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # ----------------- Tier 0 -----------------
+  # Automatic. The `tier-0` Environment carries no protection rule on purpose:
+  # there is no evidence to review at this point in the train, so a gate here
+  # would only delay the start of the soak. The Environment is still declared
+  # so the promotion is recorded as a deployment.
+  tier-0:
+    name: Promote tier-0
+    needs: resolve
+    runs-on: ${{ vars.GENERAL_RUNNERS || 'blacksmith-4vcpu-ubuntu-2404' }}
+    environment: tier-0
+    # Per-tier group, never shared: a shared group would park this promotion
+    # behind an approval pending on a later tier. Because a group holds at most
+    # one pending run, a newer release also supersedes an older train still
+    # waiting here — which is wanted, since the newer commit is a superset.
+    concurrency:
+      group: tier-promote-0
+      cancel-in-progress: false
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout shared-workflows
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+        with:
+          ref: ${{ github.workflow_sha }}
+
+      - name: Import GPG key
+        uses: crazy-max/ghaction-import-gpg@2dc316deee8e90f13e1a351ab510b4d5bc0c82cd # v7
+        with:
+          gpg_private_key: ${{ secrets.LERIAN_CI_CD_USER_GPG_KEY }}
+          passphrase: ${{ secrets.LERIAN_CI_CD_USER_GPG_KEY_PASSWORD }}
+          git_committer_name: ${{ secrets.LERIAN_CI_CD_USER_NAME }}
+          git_committer_email: ${{ secrets.LERIAN_CI_CD_USER_EMAIL }}
+          git_config_global: true
+          git_user_signingkey: true
+          git_commit_gpgsign: true
+
+      # Intentional local path: this workflow is internal-only (see header) and
+      # the checkout above materializes the composite in the workspace.
+      - name: Promote
+        uses: ./src/config/tier-promote
+        with:
+          tier: tier-0
+          tag: ${{ needs.resolve.outputs.tag }}
+          source-sha: ${{ needs.resolve.outputs.sha }}
+          config: ${{ inputs.config }}
+          dry-run: ${{ inputs.dry_run }}
+          github-token: ${{ secrets.MANAGE_TOKEN }}
+
+  # ----------------- Tier 1 -----------------
+  # Gated by the `tier-1` Environment's required reviewers. The reviewer has the
+  # contract diff and whatever tier-0 produced to weigh.
+  tier-1:
+    name: Promote tier-1
+    needs: [resolve, tier-0]
+    runs-on: ${{ vars.GENERAL_RUNNERS || 'blacksmith-4vcpu-ubuntu-2404' }}
+    environment: tier-1
+    concurrency:
+      group: tier-promote-1
+      cancel-in-progress: false
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout shared-workflows
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+        with:
+          ref: ${{ github.workflow_sha }}
+
+      - name: Import GPG key
+        uses: crazy-max/ghaction-import-gpg@2dc316deee8e90f13e1a351ab510b4d5bc0c82cd # v7
+        with:
+          gpg_private_key: ${{ secrets.LERIAN_CI_CD_USER_GPG_KEY }}
+          passphrase: ${{ secrets.LERIAN_CI_CD_USER_GPG_KEY_PASSWORD }}
+          git_committer_name: ${{ secrets.LERIAN_CI_CD_USER_NAME }}
+          git_committer_email: ${{ secrets.LERIAN_CI_CD_USER_EMAIL }}
+          git_config_global: true
+          git_user_signingkey: true
+          git_commit_gpgsign: true
+
+      - name: Promote
+        uses: ./src/config/tier-promote
+        with:
+          tier: tier-1
+          tag: ${{ needs.resolve.outputs.tag }}
+          source-sha: ${{ needs.resolve.outputs.sha }}
+          config: ${{ inputs.config }}
+          dry-run: ${{ inputs.dry_run }}
+          github-token: ${{ secrets.MANAGE_TOKEN }}
+
+  # ----------------- Tier 2 -----------------
+  # Gated by the `tier-2` Environment's required reviewers. Critical consumers:
+  # shared libraries, regulatory services, plugins in production.
+  tier-2:
+    name: Promote tier-2
+    needs: [resolve, tier-1]
+    runs-on: ${{ vars.GENERAL_RUNNERS || 'blacksmith-4vcpu-ubuntu-2404' }}
+    environment: tier-2
+    concurrency:
+      group: tier-promote-2
+      cancel-in-progress: false
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout shared-workflows
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+        with:
+          ref: ${{ github.workflow_sha }}
+
+      - name: Import GPG key
+        uses: crazy-max/ghaction-import-gpg@2dc316deee8e90f13e1a351ab510b4d5bc0c82cd # v7
+        with:
+          gpg_private_key: ${{ secrets.LERIAN_CI_CD_USER_GPG_KEY }}
+          passphrase: ${{ secrets.LERIAN_CI_CD_USER_GPG_KEY_PASSWORD }}
+          git_committer_name: ${{ secrets.LERIAN_CI_CD_USER_NAME }}
+          git_committer_email: ${{ secrets.LERIAN_CI_CD_USER_EMAIL }}
+          git_config_global: true
+          git_user_signingkey: true
+          git_commit_gpgsign: true
+
+      - name: Promote
+        uses: ./src/config/tier-promote
+        with:
+          tier: tier-2
+          tag: ${{ needs.resolve.outputs.tag }}
+          source-sha: ${{ needs.resolve.outputs.sha }}
+          config: ${{ inputs.config }}
+          dry-run: ${{ inputs.dry_run }}
+          github-token: ${{ secrets.MANAGE_TOKEN }}

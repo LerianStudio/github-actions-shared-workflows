@@ -53,3 +53,20 @@ jobs:
       new_tag: ""           # auto-resolve from `gh release list` in the workflow
       dry_run: false
     secrets: inherit
+
+  # Also after every stable release on main, walk the new tag through the tier
+  # branches declared in `config/tier-promotion.yml`: tier-0 immediately, then
+  # tier-1 and tier-2 behind their Environment approvals.
+  #
+  # Runs alongside `propagate-version` rather than replacing it: moving a tier
+  # branch is a no-op for a repository that still pins `@vX.Y.Z`, so the two
+  # models coexist safely while consumer pins migrate. Remove
+  # `propagate-version` once every consumer pins a tier.
+  promote-tiers:
+    needs: publish-release
+    if: github.ref == 'refs/heads/main' && needs.publish-release.result == 'success'
+    uses: ./.github/workflows/tier-promotion.yml
+    with:
+      tag: ""               # auto-resolve from `gh release list` in the workflow
+      dry_run: false
+    secrets: inherit
