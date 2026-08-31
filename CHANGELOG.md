@@ -1,5 +1,16 @@
 # Github-actions-shared-workflows Changelog
 
+## [1.63.1](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.63.1)
+
+Fixes:
+
+- Corrected the release process by ensuring the `develop` branch merges into `main`. (@bedatty)
+- Removed an empty expression in the tier-promote workflow that was causing issues with manifest loading. (@bedatty)
+
+[Compare changes](https://github.com/LerianStudio/github-actions-shared-workflows/compare/v1.63.0...v1.63.1)
+
+---
+
 ## [1.63.0](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.63.0)
 
 Features:
