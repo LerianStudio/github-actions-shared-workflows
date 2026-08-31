@@ -1,5 +1,51 @@
 # Github-actions-shared-workflows Changelog
 
+## [1.63.0](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.63.0)
+
+Features:
+- Promote stable releases through tier branches, enhancing the release process. (@bedatty)
+- Scope a run to specific tiers and unwire the caller, adding flexibility to the workflow. (@bedatty)
+- Add a controller that reads the flow configuration for tier promotion. (@bedatty)
+- Declare the tier promotion flow to streamline the release process. (@bedatty)
+- Protect `tier-*` branches from stale sweeps by default, ensuring important branches are not accidentally deleted. (@bedatty)
+- Stop backmerges from triggering releases and allow per-target sources in validation. (@bedatty)
+- Make alpha a disposable image with a TTL, optimizing resource usage. (@bedatty)
+- Collapse superseded review requests and their echoes in `coderabbit`, improving review management. (@bedatty)
+- Expose `has_preview` so callers can gate on preview work, enhancing preview capabilities. (@bedatty)
+- Request reviews by command instead of by label in `coderabbit`, refining the review request process. (@bedatty)
+- Authenticate with a GitHub App for cleanup, with PAT as a fallback, improving security. (@bedatty)
+- Add scope-validated GHCR alpha cleanup, enhancing cleanup operations. (@bedatty)
+
+Fixes:
+- Address fallback PRs not being completed promotions in tier promotion. (@bedatty)
+- Reuse fallback PRs, expose `has_promotion`, and remove dead configuration in tier promotion. (@bedatty)
+- Ensure promotions only occur when a release is actually published in tier promotion. (@bedatty)
+- Skip releases on backmerge commits in TypeScript release, preventing unnecessary releases. (@bedatty)
+- Protect `tier-*` branches from the stale scan in branch cleanup, preserving important branches. (@bedatty)
+- Point the alpha preview at existing composites, ensuring correct preview functionality. (@bedatty)
+- Drop the pipe and anchor conventional-commit prefixes in changelog, improving changelog accuracy. (@bedatty)
+- Skip already-collapsed comments and quiet the real run in `coderabbit`, refining comment handling. (@bedatty)
+- Stop a dry run from reporting a published image in preview, ensuring accurate reporting. (@bedatty)
+- Remove remaining shell interpolations from the composite in build, enhancing build reliability. (@bedatty)
+- Validate `image_tags` per token, not as a whole string, in cleanup, improving validation accuracy. (@bedatty)
+- Pass image name inputs through environment variables instead of into the script in build, streamlining input handling. (@bedatty)
+- Restore `base_branches` in `coderabbit`, as reviews were off for develop, ensuring correct review configuration. (@bedatty)
+- Use `client-id` instead of the deprecated `app-id` in cleanup, updating to current standards. (@bedatty)
+- Resolve packages before pruning them in cleanup, ensuring proper package management. (@bedatty)
+
+Improvements:
+- Protect `tier-*` by default for every consumer, enhancing branch protection. (@bedatty)
+- Drop the conditional from the `tier-*` protection, simplifying the protection logic. (@bedatty)
+- Document both release-skip markers in TypeScript release, providing clearer documentation. (@bedatty)
+- Record that `coderabbit` config applies from the base branch, clarifying configuration scope. (@bedatty)
+- Correct the `base_branches` guidance in `coderabbit`, ensuring accurate documentation. (@bedatty)
+- Describe the two markers and the rebase gap in backmerge documentation, improving clarity. (@bedatty)
+- Align the example with the one-way promotion path in PR validation documentation, ensuring consistency. (@bedatty)
+
+[Compare changes](https://github.com/LerianStudio/github-actions-shared-workflows/compare/v1.62.0...v1.63.0)
+
+---
+
 ## [1.62.0](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.62.0)
 
 Features:

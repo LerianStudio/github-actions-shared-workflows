@@ -62,7 +62,12 @@ on:
         description: Comma-separated branch patterns to never delete (full override of default)
         required: false
         type: string
-        default: "main,master,develop,release-candidate,hotfix/*"
+        # `tier-*` covers repositories that publish promotion channels as
+        # branches their consumers pin `uses:` to: such a branch only advances
+        # when a promotion is approved, so it can sit past the stale threshold,
+        # and deleting one breaks every consumer pinned to it. Inert for repos
+        # that have no such branches.
+        default: "main,master,develop,release-candidate,hotfix/*,tier-*"
       extra_protected_branches:
         description: Comma-separated branch patterns appended to protected_branches
         required: false

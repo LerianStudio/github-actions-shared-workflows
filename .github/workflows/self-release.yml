@@ -20,6 +20,9 @@ on:
       # Same rationale: the version-propagation matrix is metadata for the
       # propagation controller; editing it must not cut a release.
       - 'config/version-propagation.yml'
+      # Likewise the tier promotion flow: it is read by the promotion
+      # controller at the published tag, so editing it must not cut a release.
+      - 'config/tier-promotion.yml'
       - '.github/workflows/self-*.yml'
     tags-ignore:
       - '**'
@@ -50,3 +53,34 @@ jobs:
       new_tag: ""           # auto-resolve from `gh release list` in the workflow
       dry_run: false
     secrets: inherit
+
+  # Tier promotion (`tier-promotion.yml`) is intentionally NOT wired here yet.
+  #
+  # GitHub only offers `workflow_dispatch` for workflows present on the default
+  # branch, so the controller cannot be exercised manually until it lands on
+  # `main` — and if it were wired, the very release that lands it would be the
+  # first to run it, unvalidated. It stays dispatch-only until a manual run has
+  # been validated, then this job is added:
+  #
+  #   promote-tiers:
+  #     needs: publish-release
+  #     if: >-
+  #       github.ref == 'refs/heads/main'
+  #       && needs.publish-release.result == 'success'
+  #       && needs.publish-release.outputs.new_release_published == 'true'
+  #     uses: ./.github/workflows/tier-promotion.yml
+  #     with:
+  #       tag: ${{ needs.publish-release.outputs.new_release_git_tag }}
+  #       dry_run: false
+  #     secrets: inherit
+  #
+  # Two details of that snippet are load-bearing. The `new_release_published`
+  # gate: semantic-release exits successfully when a push carries no releasable
+  # commits, and promoting on that reopens approvals for a tag already on the
+  # tiers. And passing `new_release_git_tag` explicitly rather than letting the
+  # controller re-resolve "latest stable", which would race a concurrent
+  # release.
+  #
+  # It will run alongside `propagate-version`, not replace it: moving a tier
+  # branch is a no-op for a repository that still pins `@vX.Y.Z`, so both
+  # models coexist while consumer pins migrate.
