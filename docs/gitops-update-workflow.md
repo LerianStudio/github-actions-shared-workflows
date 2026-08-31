@@ -391,12 +391,13 @@ The per-type environment lists are configurable via the `beta_environments`, `rc
 
 ### File Existence Validation
 
-The workflow validates that values files exist before applying tags:
+The workflow validates that target files exist before applying tags:
 
-1. **If a file is missing:** A warning is logged and the file is skipped
-2. **The workflow never fails due to missing files** - it simply logs and continues
+1. **If some files are missing:** Warnings are logged and those files are skipped while existing targets continue.
+2. **If every resolved target file is missing:** The workflow fails with a topology/configuration error.
+3. **If existing files already carry the requested tag:** The idempotent rerun succeeds without scheduling an unnecessary ArgoCD sync.
 
-This allows for partial deployments where not all server/environment combinations have values files configured.
+This allows intentional partial deployments without accepting a registered application whose entire GitOps topology is absent.
 
 ### Example: Production Release
 
