@@ -79,30 +79,24 @@ reviews:
         Flag any usage example that references `@main` — examples must use `@develop` or `@feat/<branch>` for testing and `@vX.Y.Z` for production.
 
   auto_review:
-    # `enabled: false` inverts the default to "do not review": nothing is reviewed
-    # unless `review-ready` is on the PR. That label is applied by the
-    # `gate-coderabbit` job in `Self — PR Validation`, once every required check
-    # has passed and the PR is within the configured review scope — so no review
-    # is ever spent on a PR that is failing or out of scope.
+    # Nothing is reviewed automatically. `Self — PR Validation` posts
+    # `@coderabbitai review` once every required check has passed and the pull
+    # request is in scope, and that command is the only trigger.
     #
-    # The gate is the single owner of that decision. Do not add exclusion rules
-    # here expecting them to restrict anything: a negative label match does not
-    # veto the positive trigger under `enabled: false`. PR #705 demonstrated it —
-    # a release PR carried `skip-coderabbit` for over two minutes before
-    # `review-ready` arrived, and was reviewed five minutes after that. Any such
-    # rule is also inert in the common case, since a PR that never receives
-    # `review-ready` is already excluded by the inverted default.
+    # Do NOT add `labels:` here. The `review-ready` label still exists, but as a
+    # visual marker applied alongside the command — putting it back in this list
+    # would make it a second, competing trigger for the same decision, which is
+    # what produced the bugs in #705 and #708.
     #
-    # `base_branches` is intentionally absent for the same reason: it governs
-    # which base branches are *auto*-reviewed, and there is no auto-review to
-    # govern. Restore it only alongside `enabled: true`.
-    #
-    # To review an out-of-scope PR anyway, add `review-ready` by hand or comment
-    # `@coderabbitai review`.
+    # To review a pull request the gate skipped, comment `@coderabbitai review`.
     enabled: false
     drafts: false
-    labels:
-      - "review-ready"
+    # Kept even though nothing is auto-reviewed: `base_branches` is a separate
+    # filter from the trigger, and leaving it out made every pull request into
+    # develop ineligible (#712/#713). Harmless here, and correct if `enabled`
+    # is ever turned back on.
+    base_branches:
+      - "develop"
     ignore_title_keywords:
       - "WIP"
       - "wip"

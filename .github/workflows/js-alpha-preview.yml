@@ -1,0 +1,231 @@
+name: JS Alpha Preview
+
+# Builds a disposable preview image from a product branch, so the work on that
+# branch can be run somewhere before it is integrated anywhere.
+#
+# Nothing about this is a release: no git tag, no GitHub release, no version
+# bump, no GitOps update. The image is named after the branch and the commit it
+# was built from, lands in an isolated alpha/ package, and is expected to be
+# pruned by ghcr-alpha-cleanup once it ages out.
+#
+# workflow_call only — the push entrypoint belongs in the consuming repo
+# (see docs/js-alpha-preview.md).
+
+on:
+  workflow_call:
+    inputs:
+      runner_type:
+        description: 'GitHub runner type to use'
+        required: false
+        type: string
+        default: 'blacksmith-4vcpu-ubuntu-2404'
+      branch_pattern:
+        description: 'Glob matching the product branches that get a preview. The text replacing `*` becomes the product name.'
+        required: false
+        type: string
+        default: 'develop-*'
+      excluded_products:
+        description: 'Comma-separated product names that must not get a preview even when their branch matches.'
+        required: false
+        type: string
+        default: ''
+      image_name:
+        description: >-
+          GHCR package to publish into. Must stay under the alpha/ namespace so
+          ghcr-alpha-cleanup can prune it and can never reach a release package.
+          Empty resolves to alpha/<repository name>.
+        required: false
+        type: string
+        default: ''
+      dockerhub_image_name:
+        description: >-
+          Docker Hub repository. Docker Hub has no nested namespaces, so the
+          alpha/ package name cannot be reused there. Empty resolves to
+          <repository name>-alpha.
+        required: false
+        type: string
+        default: ''
+      dockerhub_org:
+        description: 'Docker Hub organization name'
+        required: false
+        type: string
+        default: 'lerianstudio'
+      enable_dockerhub:
+        description: >-
+          Also publish to Docker Hub. Note that the TTL cleanup is GHCR-only —
+          previews pushed to Docker Hub are not pruned automatically.
+        required: false
+        type: boolean
+        default: true
+      dockerfile_name:
+        description: 'Name of the Dockerfile'
+        required: false
+        type: string
+        default: 'Dockerfile'
+      build_context:
+        description: 'Docker build context'
+        required: false
+        type: string
+        default: '.'
+      build_secrets:
+        description: 'Additional secrets for docker build (one per line). npmrc is always included automatically.'
+        required: false
+        type: string
+        default: ''
+      dry_run:
+        description: 'Build without pushing'
+        required: false
+        type: boolean
+        default: false
+
+    secrets:
+      DOCKER_USERNAME:
+        description: Docker Hub username, required when enable_dockerhub is true
+        required: false
+      DOCKERHUB_IMAGE_PUSH_TOKEN:
+        description: Docker Hub push token, required when enable_dockerhub is true
+        required: false
+
+    outputs:
+      has_preview:
+        description: >-
+          'true' when the ref resolved to a product, regardless of whether an
+          image was pushed. Distinguishes "this branch has no preview work" from
+          "a preview was built but not published", which `published` alone cannot.
+        value: ${{ jobs.preview.outputs.has_preview }}
+      published:
+        description: "'true' when a preview image was pushed for this ref. Always 'false' in a dry run, which builds nothing to pull."
+        value: ${{ jobs.preview.outputs.published }}
+      reference:
+        description: Full image reference of the preview, empty when none was published
+        value: ${{ jobs.preview.outputs.reference }}
+
+permissions:
+  contents: read
+
+# One preview per branch at a time — a newer commit supersedes an in-flight
+# build, which is safe because previews are disposable.
+concurrency:
+  group: js-alpha-preview-${{ github.repository }}-${{ github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  preview:
+    name: Publish preview image
+    runs-on: ${{ vars.GENERAL_RUNNERS || inputs.runner_type }}
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      has_preview: ${{ steps.resolve.outputs.has-product }}
+      # A dry run builds without pushing, so neither value may suggest an image
+      # a caller could pull.
+      published: ${{ steps.resolve.outputs.has-product == 'true' && !inputs.dry_run }}
+      reference: ${{ (steps.resolve.outputs.has-product == 'true' && !inputs.dry_run) && steps.tag.outputs.reference || '' }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+
+      # ----------------- Resolve the product -----------------
+      # Same composite the release path uses, for one reason: the branch-to-
+      # product rules — the pattern, the exclusions, the charset a product name
+      # may use — must not drift between the two.
+      - name: Resolve product from branch
+        id: resolve
+        # TODO: pin to @v1 once released. The composite does not exist in v1 —
+        # it was added on develop, and @v1 tracks the last stable release.
+        uses: LerianStudio/github-actions-shared-workflows/src/config/product-branch-resolver@develop
+        with:
+          ref-name: ${{ github.ref_name }}
+          branch-pattern: ${{ inputs.branch_pattern }}
+          excluded-products: ${{ inputs.excluded_products }}
+
+      - name: Build the image tag
+        id: tag
+        if: steps.resolve.outputs.has-product == 'true'
+        env:
+          PRODUCT: ${{ steps.resolve.outputs.product }}
+          IMAGE_NAME: ${{ inputs.image_name }}
+          DOCKERHUB_IMAGE_NAME: ${{ inputs.dockerhub_image_name }}
+          REPO_NAME: ${{ github.event.repository.name }}
+        run: |
+          set -euo pipefail
+
+          package="${IMAGE_NAME:-alpha/${REPO_NAME}}"
+          case "$package" in
+            alpha/?*) ;;
+            *)
+              echo "::error::image_name '${package}' must live under the alpha/ namespace, so the cleanup can reach it and a release package cannot."
+              exit 1
+              ;;
+          esac
+
+          # <product>-alpha.<utc>.<sha> mirrors the helm alpha convention and
+          # carries the substring the cleanup's default tag glob looks for.
+          tag="${PRODUCT}-alpha.$(date -u +%Y%m%d%H%M).$(git rev-parse --short HEAD)"
+
+          # Docker Hub allows one namespace level only, so the alpha/ package
+          # name cannot be reused; the marker moves into the repository name.
+          dockerhub_package="${DOCKERHUB_IMAGE_NAME:-${REPO_NAME}-alpha}"
+          case "$dockerhub_package" in
+            */*)
+              echo "::error::dockerhub_image_name '${dockerhub_package}' contains a '/'. Docker Hub has no nested namespaces — use a flat name."
+              exit 1
+              ;;
+          esac
+
+          {
+            echo "package=${package}"
+            echo "dockerhub-package=${dockerhub_package}"
+            echo "tag=${tag}"
+            echo "reference=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/${package}:${tag}"
+          } >> "$GITHUB_OUTPUT"
+
+      # ----------------- Build -----------------
+      - name: Setup Node.js
+        if: steps.resolve.outputs.has-product == 'true'
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v6
+        with:
+          node-version: '20'
+
+      - name: Build and push preview image
+        if: steps.resolve.outputs.has-product == 'true'
+        # TODO: pin to @v1 once released. v1 predates raw-tag and
+        # dockerhub-app-name; an input the action does not declare is ignored
+        # silently, so the image would be built with no tag at all.
+        uses: LerianStudio/github-actions-shared-workflows/src/build/docker-build-ts@develop
+        with:
+          app-name: ${{ steps.tag.outputs.package }}
+          dockerhub-app-name: ${{ steps.tag.outputs.dockerhub-package }}
+          raw-tag: ${{ steps.tag.outputs.tag }}
+          enable-dockerhub: ${{ inputs.enable_dockerhub }}
+          enable-ghcr: 'true'
+          dockerhub-org: ${{ inputs.dockerhub_org }}
+          dockerhub-username: ${{ secrets.DOCKER_USERNAME }}
+          dockerhub-password: ${{ secrets.DOCKERHUB_IMAGE_PUSH_TOKEN }}
+          ghcr-token: ${{ secrets.GITHUB_TOKEN }}
+          dockerfile-name: ${{ inputs.dockerfile_name }}
+          build-context: ${{ inputs.build_context }}
+          build-secrets: ${{ inputs.build_secrets }}
+          dry-run: ${{ inputs.dry_run }}
+
+      - name: Summarise
+        if: steps.resolve.outputs.has-product == 'true'
+        env:
+          REFERENCE: ${{ steps.tag.outputs.reference }}
+          DOCKERHUB_REF: ${{ inputs.enable_dockerhub && format('docker.io/{0}/{1}:{2}', inputs.dockerhub_org, steps.tag.outputs.dockerhub-package, steps.tag.outputs.tag) || '' }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          if [ "$DRY_RUN" = "true" ]; then
+            echo "::notice::[dry-run] preview image would be ${REFERENCE}"
+          else
+            echo "::notice::Preview image published: ${REFERENCE}"
+          fi
+          {
+            echo "### Alpha preview"
+            echo
+            echo '```'
+            echo "docker pull ${REFERENCE}"
+            [ -n "$DOCKERHUB_REF" ] && echo "docker pull ${DOCKERHUB_REF}"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

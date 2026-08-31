@@ -117,6 +117,15 @@ on:
         description: 'Target branches that require source branch validation (pipe-separated)'
         type: string
         default: 'main'
+      source_branch_rules:
+        description: >-
+          Per-target source rules as JSON, for repositories where each protected
+          branch accepts a different set of sources — e.g.
+          {"main": "develop|hotfix/*", "release-candidate": "develop-*|hotfix/*"}.
+          A target listed here uses its own patterns; every other target still
+          follows allowed_source_branches/target_branches_for_source_check.
+        type: string
+        default: ''
       require_verified_commits:
         description: 'Block the PR when any of its commits is unsigned or has an unverified signature'
         type: boolean
@@ -439,7 +448,7 @@ on:
 
       # ----------------- CodeRabbit Review Gate -----------------
       enable_coderabbit_gate:
-        description: 'Hold CodeRabbit until this validation passes, so no review is spent on a failing or out-of-scope pull request. On by default, and inert until the repository opts in: it needs the `review-ready` label declared in .github/labels.yml and synced, plus `reviews.auto_review.enabled: false` with `labels: ["review-ready"]` in .coderabbit.yml. Without that the job warns and does nothing, leaving CodeRabbit at its own default — it does not fail. See docs/coderabbit-gate.md.'
+        description: 'Ask CodeRabbit for a review once this validation passes, so no review is spent on a failing or out-of-scope pull request. On by default. The consuming repository only needs `reviews.auto_review.enabled: false` in its .coderabbit.yml — the gate posts `@coderabbitai review` itself. The `review-ready` label is applied as a visual marker when declared, and skipped silently when not. See docs/coderabbit-gate.md.'
         type: boolean
         default: true
       coderabbit_review_base_branches:
@@ -493,6 +502,7 @@ jobs:
       enforce_source_branches: ${{ inputs.enforce_source_branches }}
       allowed_source_branches: ${{ inputs.allowed_source_branches }}
       target_branches_for_source_check: ${{ inputs.target_branches_for_source_check }}
+      source_branch_rules: ${{ inputs.source_branch_rules }}
       require_verified_commits: ${{ inputs.require_verified_commits }}
     secrets: inherit
 
@@ -846,7 +856,6 @@ jobs:
       pull-requests: write
     uses: ./.github/workflows/coderabbit-gate.yml
     with:
-      mode: release
       pr_number: ${{ github.event.pull_request.number }}
       # Skipped is fine; only a real failure or cancellation withholds the label.
       checks_passed: ${{ !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') }}

@@ -275,7 +275,7 @@ on:
 
       # ----------------- CodeRabbit Review Gate -----------------
       enable_coderabbit_gate:
-        description: 'Hold CodeRabbit until this validation passes, so no review is spent on a failing or out-of-scope pull request. On by default, and inert until the repository opts in: it needs the `review-ready` label declared in .github/labels.yml and synced, plus `reviews.auto_review.enabled: false` with `labels: ["review-ready"]` in .coderabbit.yml. Without that the job warns and does nothing, leaving CodeRabbit at its own default — it does not fail. See docs/coderabbit-gate.md.'
+        description: 'Ask CodeRabbit for a review once this validation passes, so no review is spent on a failing or out-of-scope pull request. On by default. The consuming repository only needs `reviews.auto_review.enabled: false` in its .coderabbit.yml — the gate posts `@coderabbitai review` itself. The `review-ready` label is applied as a visual marker when declared, and skipped silently when not. See docs/coderabbit-gate.md.'
         type: boolean
         default: true
       coderabbit_review_base_branches:
@@ -524,7 +524,6 @@ jobs:
       pull-requests: write
     uses: ./.github/workflows/coderabbit-gate.yml
     with:
-      mode: release
       pr_number: ${{ github.event.pull_request.number }}
       # Skipped is fine; only a real failure or cancellation withholds the label.
       checks_passed: ${{ !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') }}

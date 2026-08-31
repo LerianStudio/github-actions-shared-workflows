@@ -32,10 +32,6 @@ Mirrors the [`go-release`](./go-release-workflow.md) umbrella for Go services â€
 | `dry_run` | Run semantic-release and build in dry-run mode (no tags/releases/images created); also skips the E2E test job entirely | boolean | `false` |
 | `ignore_globs` | Space-separated globs treated as docs/meta for the branch-push gate | string | `*.md docs/* .github/* LICENSE* .gitignore` |
 | `semantic_version` | semantic-release version | string | `23.0.8` |
-| `product_alpha_enabled` | Release product branches on their own alpha line, product name taken from the branch (see [release-workflow](release-workflow.md#per-product-alpha-lines)) | boolean | `false` |
-| `product_alpha_branch_pattern` | Glob matching the product branches that get their own alpha line | string | `develop-*` |
-| `product_alpha_anchor_branch` | Release branch included in the generated alpha config | string | `main` |
-| `product_alpha_excluded_products` | Comma-separated product names excluded from the alpha line | string | `''` |
 | `filter_paths` | Path prefixes to filter (empty = single-app repo) | string | `''` |
 | `shared_paths` | Path patterns that trigger a release/build for all components | string | `''` |
 | `path_level` | Directory depth level to extract app name | string | `2` |

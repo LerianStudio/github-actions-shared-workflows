@@ -37,7 +37,7 @@ The caller controls the triggers (schedule cron, push paths, pull_request types,
 | `issue_days_before_stale` | `number` | No | `30` | Days of issue inactivity before the stale label is applied |
 | `issue_days_before_close` | `number` | No | `7` | Days after an issue is marked stale before it is closed |
 | `workflow_runs_retention_days` | `number` | No | `45` | Delete workflow runs older than this many days |
-| `protected_branches` | `string` | No | `main,master,develop,release-candidate,hotfix/*` | Branch patterns the cleanup never deletes — full override |
+| `protected_branches` | `string` | No | `main,master,develop,release-candidate,hotfix/*,tier-*` | Branch patterns the cleanup never deletes — full override |
 | `extra_protected_branches` | `string` | No | `""` | Branch patterns appended to `protected_branches` (use this when you only want to add patterns) |
 
 ## Secrets

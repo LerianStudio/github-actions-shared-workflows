@@ -198,7 +198,15 @@ Determines which apps need releases:
 - **Single app mode** (default): When `filter_paths` is empty, releases from repository root
 - **Monorepo mode**: When `filter_paths` is provided, detects changed paths and builds a matrix
 
-Also skips releases for `[skip ci]` and changelog update commits.
+Also skips releases for machinery commits rather than work: the `[skip ci]` and
+`[backmerge]` markers, and changelog updates.
+
+The two markers exist for different reasons. `[skip ci]` suppresses the run at the
+GitHub level, so nothing starts at all. `[backmerge]` is deliberately not a token
+GitHub recognises: the run starts and every check reports — which keeps a backmerge
+pull request mergeable without a bypass, and lets anything chained to the push
+fire — while this workflow skips only the release. The expression is kept identical
+to the one in [`release.yml`](release-workflow.md).
 
 ### publish_release
 
@@ -311,9 +319,14 @@ No version bump, but included in changelog.
 **Issue**: Workflow is skipped unexpectedly
 
 **Solutions**:
-1. Check if commit message contains `[skip ci]`
-2. Check if commit message matches `chore(release): Update CHANGELOGs`
-3. For monorepo mode, verify files were changed in the configured `filter_paths`
+1. Check if commit message contains `[skip ci]` — note this suppresses the whole
+   run, so the workflow will not appear in the Actions list at all. The marker is
+   matched anywhere in the message, including the body, so merely *mentioning* it
+   is enough to trigger the behaviour
+2. Check if commit message contains `[backmerge]` — the run starts but the release
+   is skipped
+3. Check if commit message matches `chore(release): Update CHANGELOGs`
+4. For monorepo mode, verify files were changed in the configured `filter_paths`
 
 ## Differences from Generic `release.yml`
 
