@@ -54,28 +54,33 @@ jobs:
       dry_run: false
     secrets: inherit
 
-  # Also after every stable release on main, walk the new tag through the tier
-  # branches declared in `config/tier-promotion.yml`: tier-0 immediately, then
-  # tier-1 and tier-2 behind their Environment approvals.
+  # Tier promotion (`tier-promotion.yml`) is intentionally NOT wired here yet.
   #
-  # Runs alongside `propagate-version` rather than replacing it: moving a tier
-  # branch is a no-op for a repository that still pins `@vX.Y.Z`, so the two
-  # models coexist safely while consumer pins migrate. Remove
-  # `propagate-version` once every consumer pins a tier.
-  # Gated on `new_release_published`, not merely on the release job succeeding:
-  # semantic-release exits successfully when a push carries no releasable
-  # commits, and promoting on that would re-run the train for a tag already on
-  # the tiers. Promotes `new_release_git_tag` explicitly rather than
-  # re-resolving "latest stable", so the train carries the tag THIS run
-  # published even if another release lands meanwhile.
-  promote-tiers:
-    needs: publish-release
-    if: >-
-      github.ref == 'refs/heads/main'
-      && needs.publish-release.result == 'success'
-      && needs.publish-release.outputs.new_release_published == 'true'
-    uses: ./.github/workflows/tier-promotion.yml
-    with:
-      tag: ${{ needs.publish-release.outputs.new_release_git_tag }}
-      dry_run: false
-    secrets: inherit
+  # GitHub only offers `workflow_dispatch` for workflows present on the default
+  # branch, so the controller cannot be exercised manually until it lands on
+  # `main` — and if it were wired, the very release that lands it would be the
+  # first to run it, unvalidated. It stays dispatch-only until a manual run has
+  # been validated, then this job is added:
+  #
+  #   promote-tiers:
+  #     needs: publish-release
+  #     if: >-
+  #       github.ref == 'refs/heads/main'
+  #       && needs.publish-release.result == 'success'
+  #       && needs.publish-release.outputs.new_release_published == 'true'
+  #     uses: ./.github/workflows/tier-promotion.yml
+  #     with:
+  #       tag: ${{ needs.publish-release.outputs.new_release_git_tag }}
+  #       dry_run: false
+  #     secrets: inherit
+  #
+  # Two details of that snippet are load-bearing. The `new_release_published`
+  # gate: semantic-release exits successfully when a push carries no releasable
+  # commits, and promoting on that reopens approvals for a tag already on the
+  # tiers. And passing `new_release_git_tag` explicitly rather than letting the
+  # controller re-resolve "latest stable", which would race a concurrent
+  # release.
+  #
+  # It will run alongside `propagate-version`, not replace it: moving a tier
+  # branch is a no-op for a repository that still pins `@vX.Y.Z`, so both
+  # models coexist while consumer pins migrate.

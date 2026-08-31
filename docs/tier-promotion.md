@@ -11,7 +11,9 @@ Walks a stable release of this repository through the tier branches that downstr
 main → stable tag → tier-0 → (approval) → tier-1 → (approval) → tier-2
 ```
 
-**Internal-only.** The tier branches, the flow config and the Environments all live in this repository, so an external caller has no use for this workflow. `self-release.yml` is the intended entrypoint; `workflow_dispatch` covers manual promotions, re-runs and rollbacks.
+**Internal-only.** The tier branches, the flow config and the Environments all live in this repository, so an external caller has no use for this workflow.
+
+> **Dispatch-only for now.** This workflow is deliberately not yet called from `self-release.yml`. GitHub only offers `workflow_dispatch` for workflows present on the default branch, so the controller cannot be exercised manually until it lands on `main` — and if it were already wired, the very release that lands it would be the first to run it, unvalidated. Validate with a manual run first, then add the `promote-tiers` job that is written out in the comments of `self-release.yml`.
 
 ## Why tiers are branches
 
@@ -55,7 +57,16 @@ Sharing one group would park a `tier-0` promotion behind an approval pending on 
 
 ## Rollback
 
-Dispatch the workflow with an **older** `tag`. The promotion lands as a new forward commit carrying the older tree, so `non_fast_forward` is never violated and no force push or ruleset bypass is needed.
+Dispatch the workflow with an **older** `tag`, scoped to the tiers you actually mean to move:
+
+```
+Actions → Tier Promotion → Run workflow
+  tag: v1.62.0
+  only_tiers: tier-0
+  dry_run: true        # confirm the plan, then re-run with false
+```
+
+The promotion lands as a new forward commit carrying the older tree, so `non_fast_forward` is never violated and no force push or ruleset bypass is needed. See [`only_tiers`](#only_tiers) for why leaving it empty during a rollback can move a lagging tier *forward*.
 
 ## Inputs
 
@@ -63,7 +74,39 @@ Dispatch the workflow with an **older** `tag`. The promotion lands as a new forw
 |---|---|:---:|---|---|
 | `tag` | `string` | No | `""` | Stable tag to promote. Empty resolves the latest stable release. An older tag is the rollback path. |
 | `config` | `string` | No | `config/tier-promotion.yml` | Path to the flow config |
+| `only_tiers` | `string` | No | `""` | Comma-separated subset of tiers to promote, no spaces. Empty promotes the whole chain. |
 | `dry_run` | `boolean` | No | `false` (`true` on dispatch) | Report each promotion without committing, pushing or opening a PR |
+
+### `only_tiers`
+
+Limits which tier jobs run. Excluded tiers are skipped, and the jobs after them tolerate a skipped predecessor (`!cancelled()` plus an explicit `success || skipped` check) while still refusing to run after a *failed* one.
+
+Three situations call for it:
+
+**Resuming a failed promotion.** A transient push failure on `tier-1` would otherwise mean re-running the whole chain, which reopens the `tier-2` approval for no reason. `only_tiers: tier-1` retries just that step.
+
+**Catching a tier up.** An approval left pending dies after 30 days, leaving that tier behind. `only_tiers: tier-2` promotes only it.
+
+**Scoping a rollback.** Promoting an older tag through the full chain does *not* simply move every tier back — a tier that was further behind than the target tag gets moved **forward** to it, ungated by any soak. Concretely:
+
+```
+state:    tier-0=v1.63.0   tier-1=v1.62.0   tier-2=v1.60.0
+intent:   roll tier-0 back to v1.62.0
+
+full chain with tag=v1.62.0:
+  tier-0 → v1.62.0   correct — rolled back
+  tier-1 → v1.62.0   skipped — already carries that tree
+  tier-2 → v1.60.0 → v1.62.0   advances two releases
+```
+
+The `tier-2` advance is gated by its approval, and `dry_run: true` (the dispatch default) would reveal it beforehand — but the approval screen only names the environment, so a reviewer cannot see it from there. `only_tiers: tier-0` removes the question.
+
+The value is validated in the `resolve` job against the tiers declared in the config, so a typo fails the run instead of silently matching nothing and reporting success:
+
+```
+::error::only_tiers must be a comma-separated list of tier branches with no spaces (e.g. 'tier-0' or 'tier-1,tier-2') — got 'tier-1, tier-2'
+::error::only_tiers names 'tier-3', which is not declared in config/tier-promotion.yml (declared: tier-0 tier-1 tier-2)
+```
 
 ## Secrets
 
@@ -95,27 +138,33 @@ Adding or reordering a tier therefore means editing three things together: the c
 
 ## Usage
 
-Wired into `self-release.yml`:
+Manual promotion (the only path today):
+
+```
+Actions → Tier Promotion → Run workflow
+  tag: v1.62.0        # empty = latest stable
+  only_tiers:         # empty = whole chain
+  dry_run: true       # default on dispatch
+```
+
+Once a manual run has been validated, wire it into `self-release.yml`:
 
 ```yaml
 jobs:
   promote-tiers:
     needs: publish-release
-    if: github.ref == 'refs/heads/main' && needs.publish-release.result == 'success'
+    if: >-
+      github.ref == 'refs/heads/main'
+      && needs.publish-release.result == 'success'
+      && needs.publish-release.outputs.new_release_published == 'true'
     uses: ./.github/workflows/tier-promotion.yml
     with:
-      tag: ""
+      tag: ${{ needs.publish-release.outputs.new_release_git_tag }}
       dry_run: false
     secrets: inherit
 ```
 
-Manual promotion or rollback:
-
-```
-Actions → Tier Promotion → Run workflow
-  tag: v1.62.0        # empty = latest stable; older tag = rollback
-  dry_run: true       # default on dispatch
-```
+Two details there are load-bearing. The `new_release_published` gate: semantic-release exits **successfully** when a push carries no releasable commits, so gating on the job's result alone would open a train for a tag already sitting on the tiers and reopen its approvals. And passing `new_release_git_tag` explicitly rather than letting the controller re-resolve "latest stable", which would race a concurrent release.
 
 ## Not covered here
 

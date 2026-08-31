@@ -18,10 +18,15 @@
 #   CONFIG_PATH   path to config/tier-promotion.yml
 #   EXPECTED_FLOW ordered CSV of `branch:environment` implemented by the
 #                 workflow, e.g. "tier-0:tier-0,tier-1:tier-1,tier-2:tier-2"
+# Optional env:
+#   ONLY_TIERS    CSV subset of tiers this run may promote. Validated here so a
+#                 typo fails loudly instead of silently matching no tier and
+#                 promoting nothing.
 set -euo pipefail
 
 config="${CONFIG_PATH:-config/tier-promotion.yml}"
 : "${EXPECTED_FLOW:?EXPECTED_FLOW is required}"
+only_tiers="${ONLY_TIERS:-}"
 
 if [[ ! -f "$config" ]]; then
   echo "::error::config not found: $config"
@@ -83,6 +88,26 @@ dupes=$(yq -r '.tiers[].concurrency_group' "$config" | sort | uniq -d)
 if [[ -n "$dupes" ]]; then
   echo "::error::concurrency_group must be unique per tier — repeated: $(tr '\n' ' ' <<<"$dupes")"
   exit 1
+fi
+
+# ONLY_TIERS is matched in the workflow with
+# `contains(format(',{0},', inputs.only_tiers), ',tier-N,')`, which is exact but
+# unforgiving: a stray space makes every token miss, and the run would promote
+# nothing while reporting success. Reject anything that would not match rather
+# than normalising it, so what the operator typed is what gets used.
+if [[ -n "$only_tiers" ]]; then
+  if [[ ! "$only_tiers" =~ ^tier-[0-9]+(,tier-[0-9]+)*$ ]]; then
+    echo "::error::only_tiers must be a comma-separated list of tier branches with no spaces (e.g. 'tier-0' or 'tier-1,tier-2') — got '$only_tiers'"
+    exit 1
+  fi
+  declared=$(yq -r '.tiers[].branch' "$config")
+  while IFS= read -r want; do
+    [[ -z "$want" ]] && continue
+    if ! grep -qxF "$want" <<<"$declared"; then
+      echo "::error::only_tiers names '$want', which is not declared in $config (declared: $(tr '\n' ' ' <<<"$declared"))"
+      exit 1
+    fi
+  done < <(tr ',' '\n' <<<"$only_tiers")
 fi
 
 actual_flow=$(yq -r '[.tiers[] | .branch + ":" + (.environment // "")] | join(",")' "$config")
