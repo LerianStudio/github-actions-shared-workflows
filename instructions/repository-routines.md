@@ -53,7 +53,7 @@ Two cases:
 
 **Post-merge deletion.** When a PR is merged, the head branch is deleted immediately. This is the same behavior as GitHub's "Automatically delete head branches" setting — we run it as part of the routine so it works consistently across repos. Your code is preserved in the merge commit; nothing is lost.
 
-**Stale branch sweep.** Branches with no commits in 20+ days **and** no open PR are deleted in the weekly run. Protected branches (`main`, `master`, `develop`, `release-candidate`, `hotfix/*`) and any branch with GitHub branch protection rules are never touched. Repositories can extend this list — for example, a repo that uses domain-prefixed integration branches like `develop-fetcher` typically passes `extra_protected_branches: "develop-*"` when calling the routine.
+**Stale branch sweep.** Branches with no commits in 20+ days **and** no open PR are deleted in the weekly run. Protected branches (`main`, `master`, `develop`, `release-candidate`, `hotfix/*`, `tier-*`) and any branch with GitHub branch protection rules are never touched. `tier-*` is in the default list for repositories that publish promotion channels as branches their consumers pin `uses:` to — such a branch only advances when a promotion is approved, so it can sit past the stale threshold, and deleting one breaks every consumer pinned to it. Repositories can extend this list — for example, a repo that uses domain-prefixed integration branches like `develop-fetcher` typically passes `extra_protected_branches: "develop-*"` when calling the routine.
 
 If you need a long-lived working branch:
 

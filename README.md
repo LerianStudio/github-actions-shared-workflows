@@ -62,7 +62,7 @@ This repository runs a consolidated weekly routine (`.github/workflows/self-rout
 ### Jobs
 
 #### Branch cleanup (`branch_cleanup_stale`)
-Deletes branches with no commits for **20 days**. Protected patterns (`main`, `master`, `develop`, `release/*`, `hotfix/*`) are never touched. A separate job (`branch_cleanup_merged`) deletes feature branches the moment a PR is merged.
+Deletes branches with no commits for **20 days**. Protected patterns (`main`, `master`, `develop`, `release/*`, `hotfix/*`, `tier-*`) are never touched. A separate job (`branch_cleanup_merged`) deletes feature branches the moment a PR is merged.
 
 #### Stale PRs (`stale_pr`)
 - A PR with no activity for **20 days** receives a comment and the `stale` label.
