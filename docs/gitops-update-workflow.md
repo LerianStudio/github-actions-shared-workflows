@@ -16,7 +16,7 @@ Reusable workflow for updating GitOps repository with new image tags across mult
 - **Convention-based configuration**: Auto-generates paths, names, and patterns from repository name
 - **Multi-environment support**: dev (beta), stg (rc), prd (production), sandbox
 - **Configurable per-release environments**: Each release type targets its own environment by default (beta→`dev`, rc→`stg`, stable→`prd`), overridable via `beta_environments` / `rc_environments` / `stable_environments`
-- **File existence validation**: Graceful handling of missing values files with warnings (never fails)
+- **File existence validation**: Partial topologies skip missing files with warnings; a registered app resolving to zero existing GitOps files fails loudly
 - **Flexible tag mapping**: Static or dynamic YAML key mapping
 - **Automatic environment detection**: Based on git tag suffix
 - **ArgoCD integration**: Automatic sync for each cluster/environment combination where files were updated
@@ -405,7 +405,7 @@ When a production tag (e.g., `v1.2.3`) is pushed for an app declared in all thre
 1. Resolve cluster set from manifest: `firmino`, `clotilde`, `anacleto`.
 2. For each cluster, generate paths for the stable environment(s) (`prd` by default, plus `sandbox` when `update_sandbox=true`):
    - `gitops/environments/<cluster>/helmfile/applications/<env>/my-app/values.yaml`
-3. Apply tags to all existing files (skip missing ones with warning).
+3. Apply tags to all existing files. Missing files are warnings when at least one target exists; if every resolved target is missing, fail the update as a topology/configuration error.
 4. Sync ArgoCD apps for each cluster/environment where files were updated.
 
 To keep the previous behavior where a stable release also refreshes `dev` and `stg`, set `stable_environments: "dev stg prd"`.

@@ -599,6 +599,7 @@ jobs:
           UPDATED_FILES=""
           MISSING_FILES=""
           UPDATED_SERVERS_ENVS=""
+          EXISTING_TARGET_COUNT=0
 
           # Function to update a single YAML key using sed (preserves formatting)
           update_yaml_tag() {
@@ -692,6 +693,7 @@ jobs:
                   MISSING_FILES="${MISSING_FILES}${SERVER}/${ENV}:${KUSTOMIZATION_FILE}\n"
                   continue
                 fi
+                EXISTING_TARGET_COUNT=$((EXISTING_TARGET_COUNT + 1))
 
                 FILE_CHANGED=false
                 FILE_BEFORE_HASH=$(sha256sum "$KUSTOMIZATION_FILE" | cut -d' ' -f1)
@@ -776,6 +778,7 @@ jobs:
                 MISSING_FILES="${MISSING_FILES}${SERVER}/${ENV}:${VALUES_FILE}\n"
                 continue
               fi
+              EXISTING_TARGET_COUNT=$((EXISTING_TARGET_COUNT + 1))
 
               # Track if any changes were made to this file
               FILE_CHANGED=false
@@ -837,6 +840,20 @@ jobs:
               fi
             done
           done
+
+          # A registered, non-suppressed app resolving to zero files means the
+          # deployment topology and the GitOps tree disagree. Treat that as a
+          # configuration error instead of reporting a successful no-op. This
+          # still permits partial topologies (at least one target exists) and
+          # idempotent reruns where all existing files already carry the tag.
+          if [[ "$EXISTING_TARGET_COUNT" -eq 0 ]]; then
+            echo "::error::App '$APP_NAME' resolved deployment targets, but none of the expected GitOps files exist."
+            if [[ -n "$MISSING_FILES" ]]; then
+              echo "Missing targets:"
+              echo -e "$MISSING_FILES"
+            fi
+            exit 1
+          fi
 
           # Report results
           echo ""
