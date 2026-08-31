@@ -49,5 +49,10 @@ jobs:
       dry_run: ${{ inputs.dry_run || false }}
       merged_branch: ${{ github.head_ref }}
       protected_branches: ${{ inputs.protected_branches || 'main,master,develop,release-candidate,hotfix/*' }}
-      extra_protected_branches: ${{ inputs.extra_protected_branches || '' }}
+      # `tier-*` is appended unconditionally, never taken from the dispatch
+      # input: the tier branches are the refs downstream repos pin to, so the
+      # stale scan must never reach them (they can sit >30 days without a
+      # commit while a promotion waits for approval). Forcing it here keeps
+      # the guarantee even when a dispatcher overrides either branch input.
+      extra_protected_branches: ${{ inputs.extra_protected_branches != '' && format('tier-*,{0}', inputs.extra_protected_branches) || 'tier-*' }}
     secrets: inherit
