@@ -124,12 +124,14 @@ fi
 # `//` treats an explicit `false` as absent, so a tier that deliberately sets
 # `auto_merge_pr_fallback: false` would silently inherit a `true` default.
 # Booleans therefore go through `has()`.
+# Only the tier list is emitted. The source branch and the stable tag pattern
+# are guards enforced literally in the workflow, not config — see the note in
+# `config/tier-promotion.yml`. Emitting them here once made them look
+# configurable while the workflow ignored them.
 yq -o=json -I=0 '{"defaults": (.defaults // {}), "tiers": .tiers}' "$config" \
   | jq -c '
     .defaults as $d |
     {
-      source_branch: ($d.source_branch // "main"),
-      stable_tag_pattern: ($d.stable_tag_pattern // "^v[0-9]+\\.[0-9]+\\.[0-9]+$"),
       tiers: [
         .tiers[] | {
           branch: .branch,

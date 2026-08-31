@@ -57,6 +57,13 @@ on:
         type: boolean
         required: false
         default: false
+    outputs:
+      has_promotion:
+        description: "`'true'` when at least one tier branch was changed by this run. `'false'` when every tier was a no-op, skipped by `only_tiers`, or a dry run — a caller can gate notification or follow-up work on it."
+        value: ${{ jobs.tier-0.outputs.has_promotion == 'true' || jobs.tier-1.outputs.has_promotion == 'true' || jobs.tier-2.outputs.has_promotion == 'true' }}
+      promoted_tag:
+        description: Tag the train was pinned to, resolved once and promoted to every tier in this run.
+        value: ${{ jobs.resolve.outputs.tag }}
   workflow_dispatch:
     inputs:
       tag:
@@ -163,6 +170,33 @@ jobs:
           echo "tiers=$(jq -c '.tiers' <<<"$flow")" >> "$GITHUB_OUTPUT"
           jq -r '"Flow: " + ([.tiers[].branch] | join(" -> "))' <<<"$flow"
 
+      # Verbose only under dry_run: the point of a dry run is for the operator
+      # to confirm the scope before applying, and `only_tiers` in particular is
+      # invisible otherwise. Real runs stay quiet beyond tool output.
+      - name: Resolved inputs (dry run)
+        if: ${{ inputs.dry_run }}
+        env:
+          TAG: ${{ steps.tag.outputs.value }}
+          SHA: ${{ steps.tag.outputs.sha }}
+          CONFIG_PATH: ${{ inputs.config }}
+          ONLY_TIERS: ${{ inputs.only_tiers }}
+          TIERS: ${{ steps.flow.outputs.tiers }}
+        run: |
+          set -euo pipefail
+          echo "::notice::DRY RUN — no tier branch will be modified"
+          echo "  tag            : ${TAG}"
+          echo "  pinned commit  : ${SHA}"
+          echo "  config         : ${CONFIG_PATH}"
+          echo "  only_tiers     : ${ONLY_TIERS:-<empty — whole chain>}"
+          echo "  tiers declared : $(jq -r '[.[].branch] | join(", ")' <<<"$TIERS")"
+          echo "  tiers selected : $(
+            if [[ -z "${ONLY_TIERS:-}" ]]; then
+              jq -r '[.[].branch] | join(", ")' <<<"$TIERS"
+            else
+              echo "$ONLY_TIERS"
+            fi
+          )"
+
       - name: Summary
         env:
           TAG: ${{ steps.tag.outputs.value }}
@@ -208,6 +242,8 @@ jobs:
       cancel-in-progress: false
     permissions:
       contents: read
+    outputs:
+      has_promotion: ${{ steps.promote.outputs.has-promotion }}
     steps:
       - name: Checkout shared-workflows
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
@@ -228,6 +264,7 @@ jobs:
       # Intentional local path: this workflow is internal-only (see header) and
       # the checkout above materializes the composite in the workspace.
       - name: Promote
+        id: promote
         uses: ./src/config/tier-promote
         with:
           tier: tier-0
@@ -260,6 +297,8 @@ jobs:
       cancel-in-progress: false
     permissions:
       contents: read
+    outputs:
+      has_promotion: ${{ steps.promote.outputs.has-promotion }}
     steps:
       - name: Checkout shared-workflows
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
@@ -278,6 +317,7 @@ jobs:
           git_commit_gpgsign: true
 
       - name: Promote
+        id: promote
         uses: ./src/config/tier-promote
         with:
           tier: tier-1
@@ -306,6 +346,8 @@ jobs:
       cancel-in-progress: false
     permissions:
       contents: read
+    outputs:
+      has_promotion: ${{ steps.promote.outputs.has-promotion }}
     steps:
       - name: Checkout shared-workflows
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
@@ -324,6 +366,7 @@ jobs:
           git_commit_gpgsign: true
 
       - name: Promote
+        id: promote
         uses: ./src/config/tier-promote
         with:
           tier: tier-2

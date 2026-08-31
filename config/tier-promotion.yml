@@ -48,8 +48,13 @@
 #                          `gh pr merge --auto --squash` on it.
 #
 # Resolution at runtime (executed by `src/config/tier-promote`):
-#   1. Controller fires from `release: published` on this repo's `main`.
-#   2. Reads this file at the published tag of shared-workflows.
+#   1. Controller runs after a stable release on `main`, or on manual dispatch.
+#   2. Reads this file at `github.workflow_sha` — the commit that started the
+#      run, NOT the tag being promoted. So an edit here takes effect on the
+#      next run, and a dispatch picks up the config of the ref you dispatch
+#      from. Note this file is in the `paths-ignore` of `self-release.yml`:
+#      editing it alone does not cut a release, deliberately, so a flow change
+#      lands with the next release rather than creating one.
 #   3. Resolves the tag to a commit ONCE and pins it for the whole train.
 #      Every tier promotes that same commit — never the current content of
 #      `main`, and never the current content of the preceding tier.
@@ -89,17 +94,17 @@
 version: 1
 
 defaults:
-  # Where a train starts. Only stable tags cut from this branch are promoted.
-  source_branch: main
-
-  # A resolved tag must match this to be promoted. Guards against a
-  # pre-release or a malformed tag entering the tier branches.
-  stable_tag_pattern: '^v[0-9]+\.[0-9]+\.[0-9]+$'
-
   # PR fallback stays manual by default: a promotion that could not be pushed
   # directly means something about the tier branch changed, and that deserves
   # a human look rather than an auto-merge.
   auto_merge_pr_fallback: false
+
+# NOT configurable here, on purpose: the source branch (`main`) and the stable
+# tag pattern (`^v\d+\.\d+\.\d+$`) are enforced literally in
+# `.github/workflows/tier-promotion.yml`. Both are guards — one keeps a commit
+# that never landed on `main` out of the tier branches, the other keeps
+# pre-releases out. A guard that can be relaxed by editing a config file is not
+# a guard, and the same reasoning keeps `environment` literal in the job chain.
 
 tiers:
   # ---------------------------------------------------------------------------

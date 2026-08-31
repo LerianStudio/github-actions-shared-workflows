@@ -22,9 +22,87 @@ Promotes one already-resolved stable commit into **one** tier branch of this rep
 
 | Output | Description |
 |---|---|
+| `has-promotion` | `'true'` when this run changed the tier branch (push or PR), `'false'` on a no-op or dry run |
 | `action` | `push`, `pr`, `skip` (tier already carried this tree) or `dry-run` |
 | `url` | PR URL when the fallback opened one, empty otherwise |
 | `commit` | Resulting commit on the tier branch |
+
+## Usage
+
+### As a composite step
+
+The caller must configure the signing identity first — the `tier-rule` ruleset requires signed commits on `refs/heads/tier-*`, and this composite deliberately does not set it (see [Signing](#signing)).
+
+```yaml
+jobs:
+  promote:
+    runs-on: ${{ vars.GENERAL_RUNNERS || 'blacksmith-4vcpu-ubuntu-2404' }}
+    environment: tier-0
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout shared-workflows
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+        with:
+          ref: ${{ github.workflow_sha }}
+
+      - name: Import GPG key
+        uses: crazy-max/ghaction-import-gpg@2dc316deee8e90f13e1a351ab510b4d5bc0c82cd # v7
+        with:
+          gpg_private_key: ${{ secrets.LERIAN_CI_CD_USER_GPG_KEY }}
+          passphrase: ${{ secrets.LERIAN_CI_CD_USER_GPG_KEY_PASSWORD }}
+          git_committer_name: ${{ secrets.LERIAN_CI_CD_USER_NAME }}
+          git_committer_email: ${{ secrets.LERIAN_CI_CD_USER_EMAIL }}
+          git_config_global: true
+          git_user_signingkey: true
+          git_commit_gpgsign: true
+
+      - name: Promote
+        id: promote
+        uses: ./src/config/tier-promote
+        with:
+          tier: tier-0
+          tag: v1.2.3
+          source-sha: ${{ needs.resolve.outputs.sha }}
+          dry-run: false
+          github-token: ${{ secrets.MANAGE_TOKEN }}
+
+      - name: Notify
+        if: steps.promote.outputs.has-promotion == 'true'
+        run: echo "tier-0 now carries ${{ steps.promote.outputs.commit }}"
+```
+
+### As a reusable workflow
+
+Prefer this over calling the composite directly — the workflow owns the tier ordering, the approval gates and the per-tier concurrency groups:
+
+```yaml
+jobs:
+  promote-tiers:
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/tier-promotion.yml@v1.2.3
+    with:
+      tag: v1.2.3
+      dry_run: false
+    secrets: inherit
+```
+
+For testing, point at a branch instead: `@develop` or `@feat/<branch>`.
+
+## Permissions required
+
+The job needs no elevated `GITHUB_TOKEN` — every write goes through `github-token`:
+
+```yaml
+permissions:
+  contents: read
+```
+
+The token passed as `github-token` (typically `secrets.MANAGE_TOKEN`) needs, on this repository:
+
+| Scope | Why |
+|---|---|
+| `contents: write` | Push the promotion commit to the tier branch |
+| `pull-requests: write` | Open or reuse the fallback PR when the direct push is rejected |
 
 ## How it promotes
 

@@ -30,6 +30,9 @@ inputs:
     required: true
 
 outputs:
+  has-promotion:
+    description: "`'true'` when this run changed the tier branch (direct push or fallback PR), `'false'` when it was a no-op or a dry run."
+    value: ${{ steps.promote.outputs.has-promotion }}
   action:
     description: What happened — `push`, `pr`, `skip` (tier already carried this tree) or `dry-run`.
     value: ${{ steps.promote.outputs.action }}
@@ -108,8 +111,16 @@ runs:
         set -euo pipefail
         chmod +x "${{ github.action_path }}/scripts/promote.sh"
         result=$("${{ github.action_path }}/scripts/promote.sh")
+        action=$(jq -r '.action' <<<"$result")
+        # Only `push` and `pr` changed the tier branch. `skip` and `dry-run` did
+        # not, so a caller gating downstream work must see 'false' for them.
+        case "$action" in
+          push|pr) has_promotion=true ;;
+          *)       has_promotion=false ;;
+        esac
         {
-          echo "action=$(jq -r '.action' <<<"$result")"
+          echo "has-promotion=$has_promotion"
+          echo "action=$action"
           echo "url=$(jq -r '.url' <<<"$result")"
           echo "commit=$(jq -r '.commit' <<<"$result")"
         } >> "$GITHUB_OUTPUT"
