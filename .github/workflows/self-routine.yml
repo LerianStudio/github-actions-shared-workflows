@@ -33,7 +33,7 @@ on:
       extra_protected_branches:
         description: Comma-separated branch patterns appended to protected_branches
         type: string
-        default: ""
+        default: "tier-*"
 
 permissions:
   contents: write
@@ -49,10 +49,10 @@ jobs:
       dry_run: ${{ inputs.dry_run || false }}
       merged_branch: ${{ github.head_ref }}
       protected_branches: ${{ inputs.protected_branches || 'main,master,develop,release-candidate,hotfix/*' }}
-      # `tier-*` is appended unconditionally, never taken from the dispatch
-      # input: the tier branches are the refs downstream repos pin to, so the
-      # stale scan must never reach them (they can sit >30 days without a
-      # commit while a promotion waits for approval). Forcing it here keeps
-      # the guarantee even when a dispatcher overrides either branch input.
-      extra_protected_branches: ${{ inputs.extra_protected_branches != '' && format('tier-*,{0}', inputs.extra_protected_branches) || 'tier-*' }}
+      # `tier-*` are the refs downstream repos pin their `uses:` to, and a tier
+      # branch only moves when a promotion is approved, so it can sit past the
+      # stale threshold. The fallback (rather than a plain passthrough) is
+      # required because `workflow_dispatch` defaults do not apply to the
+      # `schedule` event, which is the run that performs the sweep.
+      extra_protected_branches: ${{ inputs.extra_protected_branches || 'tier-*' }}
     secrets: inherit
