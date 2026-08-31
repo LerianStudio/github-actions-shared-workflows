@@ -1,5 +1,16 @@
 # Github-actions-shared-workflows Changelog
 
+## [1.64.0](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.64.0)
+
+Features:
+
+- Develop branch changes merged into the main branch. (@bedatty)
+- Tier promotion workflow now runs on every stable release and includes a link to the promotion commit. (@bedatty)
+
+[Compare changes](https://github.com/LerianStudio/github-actions-shared-workflows/compare/v1.63.1...v1.64.0)
+
+---
+
 ## [1.63.1](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.63.1)
 
 Fixes:
