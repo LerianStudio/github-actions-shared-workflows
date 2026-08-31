@@ -1,0 +1,153 @@
+name: Tier Promote
+description: |
+  Promotes one already-resolved stable commit into one tier branch of
+  `LerianStudio/github-actions-shared-workflows`, as declared in
+  `config/tier-promotion.yml`. The promotion is a commit on top of the tier
+  tip — never a ref move, never a merge. Direct push first, PR fallback on
+  failure. Idempotent, and forward-only: promoting an older tag is the
+  rollback path.
+
+inputs:
+  tier:
+    description: Tier branch to promote into (e.g. `tier-0`). Must exist and match `tier-*`.
+    required: true
+  tag:
+    description: Stable tag being promoted (e.g. `v1.63.0`). Must match `^v\d+\.\d+\.\d+$`.
+    required: true
+  source-sha:
+    description: Commit the tag resolved to, pinned once by the caller so every tier in a train promotes the same tree.
+    required: true
+  config:
+    description: Path to the tier promotion flow config (in this repo).
+    required: false
+    default: config/tier-promotion.yml
+  dry-run:
+    description: When `true`, report the intended change but do not commit, push or open a PR.
+    required: false
+    default: "false"
+  github-token:
+    description: Token with `contents:write` and `pull-requests:write` on this repo. Typically `secrets.MANAGE_TOKEN`.
+    required: true
+
+outputs:
+  has-promotion:
+    description: "`'true'` only when the tier branch itself was moved by a direct push. `'false'` for a no-op, a dry run, AND for the PR fallback — there the tier is unchanged until the PR merges, so check `action == 'pr'` and `url` for a pending promotion."
+    value: ${{ steps.promote.outputs.has-promotion }}
+  action:
+    description: What happened — `push`, `pr`, `skip` (tier already carried this tree) or `dry-run`.
+    value: ${{ steps.promote.outputs.action }}
+  url:
+    description: PR URL when the fallback opened one, empty otherwise.
+    value: ${{ steps.promote.outputs.url }}
+  commit:
+    description: Resulting commit on the tier branch.
+    value: ${{ steps.promote.outputs.commit }}
+
+runs:
+  using: composite
+  steps:
+    - name: Validate inputs
+      shell: bash
+      env:
+        TIER: ${{ inputs.tier }}
+        TAG: ${{ inputs.tag }}
+        SOURCE_SHA: ${{ inputs.source-sha }}
+      run: |
+        set -euo pipefail
+        # Inputs arrive through env rather than `${{ }}` interpolation inside the
+        # script body, so a crafted value cannot break out of the shell.
+        if [[ ! "$TIER" =~ ^tier-[0-9]+$ ]]; then
+          echo "::error::tier must match ^tier-[0-9]+$ — got '$TIER'"
+          exit 1
+        fi
+        if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+          echo "::error::tag must be a stable semver ^v[0-9]+\.[0-9]+\.[0-9]+$ — got '$TAG'"
+          exit 1
+        fi
+        if [[ ! "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+          echo "::error::source-sha must be a full 40-character commit SHA — got '$SOURCE_SHA'"
+          exit 1
+        fi
+
+    - name: Resolve tier settings
+      id: tier
+      shell: bash
+      env:
+        CONFIG_PATH: ${{ inputs.config }}
+        TIER: ${{ inputs.tier }}
+      run: |
+        set -euo pipefail
+        entry=$(yq -o=json -I=0 \
+          '.tiers[] | select(.branch == strenv(TIER))' "$CONFIG_PATH")
+        if [[ -z "$entry" ]]; then
+          echo "::error::tier '$TIER' is not declared in $CONFIG_PATH"
+          exit 1
+        fi
+        # `//` treats an explicit `false` as absent, so the per-tier value is
+        # read through `has()` before falling back to the defaults block.
+        # The conditional lives in jq, not yq: mikefarah's yq has no
+        # `if/then/else`.
+        if jq -e 'has("auto_merge_pr_fallback")' <<<"$entry" >/dev/null; then
+          auto_merge=$(jq -r '.auto_merge_pr_fallback' <<<"$entry")
+        else
+          auto_merge=$(yq -o=json -I=0 '.defaults // {}' "$CONFIG_PATH" \
+            | jq -r 'if has("auto_merge_pr_fallback") then .auto_merge_pr_fallback else false end')
+        fi
+        echo "auto-merge=$auto_merge" >> "$GITHUB_OUTPUT"
+        echo "Tier $TIER — auto_merge_pr_fallback=$auto_merge"
+
+    - name: Promote
+      id: promote
+      shell: bash
+      env:
+        REPO: ${{ github.repository }}
+        TIER: ${{ inputs.tier }}
+        TAG: ${{ inputs.tag }}
+        SOURCE_SHA: ${{ inputs.source-sha }}
+        DRY_RUN: ${{ inputs.dry-run }}
+        AUTO_MERGE: ${{ steps.tier.outputs.auto-merge }}
+        GH_TOKEN: ${{ inputs.github-token }}
+      run: |
+        set -euo pipefail
+        chmod +x "${{ github.action_path }}/scripts/promote.sh"
+        result=$("${{ github.action_path }}/scripts/promote.sh")
+        action=$(jq -r '.action' <<<"$result")
+        # Only `push` actually moved the tier. `pr` updated the fallback branch
+        # and opened (or reused) a pull request — the tier branch is unchanged
+        # until someone merges it, so reporting a promotion there would let a
+        # caller announce a tier as carrying code it does not carry yet.
+        # `action` and `url` are what signal a pending promotion.
+        case "$action" in
+          push) has_promotion=true ;;
+          *)    has_promotion=false ;;
+        esac
+        {
+          echo "has-promotion=$has_promotion"
+          echo "action=$action"
+          echo "url=$(jq -r '.url' <<<"$result")"
+          echo "commit=$(jq -r '.commit' <<<"$result")"
+        } >> "$GITHUB_OUTPUT"
+
+    - name: Summary
+      if: always()
+      shell: bash
+      env:
+        TIER: ${{ inputs.tier }}
+        TAG: ${{ inputs.tag }}
+        ACTION: ${{ steps.promote.outputs.action }}
+        URL: ${{ steps.promote.outputs.url }}
+        COMMIT: ${{ steps.promote.outputs.commit }}
+      run: |
+        set -euo pipefail
+        {
+          echo "### Tier promotion — \`$TIER\`"
+          echo
+          echo "| Field | Value |"
+          echo "|---|---|"
+          echo "| Tag | \`$TAG\` |"
+          echo "| Outcome | ${ACTION:-failed} |"
+          echo "| Commit | \`${COMMIT:-—}\` |"
+          if [[ -n "${URL:-}" ]]; then
+            echo "| PR | $URL |"
+          fi
+        } >> "$GITHUB_STEP_SUMMARY"
