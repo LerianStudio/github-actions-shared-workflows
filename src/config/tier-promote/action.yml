@@ -31,7 +31,7 @@ inputs:
 
 outputs:
   has-promotion:
-    description: "`'true'` when this run changed the tier branch (direct push or fallback PR), `'false'` when it was a no-op or a dry run."
+    description: "`'true'` only when the tier branch itself was moved by a direct push. `'false'` for a no-op, a dry run, AND for the PR fallback — there the tier is unchanged until the PR merges, so check `action == 'pr'` and `url` for a pending promotion."
     value: ${{ steps.promote.outputs.has-promotion }}
   action:
     description: What happened — `push`, `pr`, `skip` (tier already carried this tree) or `dry-run`.
@@ -112,11 +112,14 @@ runs:
         chmod +x "${{ github.action_path }}/scripts/promote.sh"
         result=$("${{ github.action_path }}/scripts/promote.sh")
         action=$(jq -r '.action' <<<"$result")
-        # Only `push` and `pr` changed the tier branch. `skip` and `dry-run` did
-        # not, so a caller gating downstream work must see 'false' for them.
+        # Only `push` actually moved the tier. `pr` updated the fallback branch
+        # and opened (or reused) a pull request — the tier branch is unchanged
+        # until someone merges it, so reporting a promotion there would let a
+        # caller announce a tier as carrying code it does not carry yet.
+        # `action` and `url` are what signal a pending promotion.
         case "$action" in
-          push|pr) has_promotion=true ;;
-          *)       has_promotion=false ;;
+          push) has_promotion=true ;;
+          *)    has_promotion=false ;;
         esac
         {
           echo "has-promotion=$has_promotion"

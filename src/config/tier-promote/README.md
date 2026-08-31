@@ -22,21 +22,25 @@ Promotes one already-resolved stable commit into **one** tier branch of this rep
 
 | Output | Description |
 |---|---|
-| `has-promotion` | `'true'` when this run changed the tier branch (push or PR), `'false'` on a no-op or dry run |
+| `has-promotion` | `'true'` only when the tier branch was moved by a direct push. `'false'` on a no-op, a dry run, or an open fallback PR — see the note below |
 | `action` | `push`, `pr`, `skip` (tier already carried this tree) or `dry-run` |
 | `url` | PR URL when the fallback opened one, empty otherwise |
 | `commit` | Resulting commit on the tier branch |
 
+`has-promotion` answers one question only: **does the tier branch now carry the promoted tree?** The PR fallback does not update the tier — it updates `promote/<tier>/<tag>` and opens a pull request, and the tier is unchanged until that merges. So the fallback reports `has-promotion: false` with `action: pr` and a `url`. A caller announcing "tier-1 now runs vX" must gate on `has-promotion`; one that wants to chase a pending promotion should look at `action` and `url`.
+
 ## Usage
 
 ### As a composite step
+
+> **This example is repository-local.** It resolves the composite through `uses: ./src/config/tier-promote`, which only works from a workflow inside `github-actions-shared-workflows` — the checkout at `github.workflow_sha` materializes this repository's tree in the workspace. External callers cannot use this form, and are not meant to: the tier branches, the flow config and the Environments all live here. Use the reusable workflow below instead.
 
 The caller must configure the signing identity first — the `tier-rule` ruleset requires signed commits on `refs/heads/tier-*`, and this composite deliberately does not set it (see [Signing](#signing)).
 
 ```yaml
 jobs:
   promote:
-    runs-on: ${{ vars.GENERAL_RUNNERS || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     environment: tier-0
     permissions:
       contents: read

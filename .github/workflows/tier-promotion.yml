@@ -59,7 +59,7 @@ on:
         default: false
     outputs:
       has_promotion:
-        description: "`'true'` when at least one tier branch was changed by this run. `'false'` when every tier was a no-op, skipped by `only_tiers`, or a dry run — a caller can gate notification or follow-up work on it."
+        description: "`'true'` when at least one tier branch was moved by a direct push. `'false'` when every tier was a no-op, skipped by `only_tiers`, a dry run, or left as an open fallback PR — a promotion awaiting merge has not reached its tier yet, so a caller must not announce it."
         value: ${{ jobs.tier-0.outputs.has_promotion == 'true' || jobs.tier-1.outputs.has_promotion == 'true' || jobs.tier-2.outputs.has_promotion == 'true' }}
       promoted_tag:
         description: Tag the train was pinned to, resolved once and promoted to every tier in this run.
