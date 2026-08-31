@@ -9,7 +9,13 @@ Reusable workflow that keeps repositories clean by automatically deleting stale 
 | **Stale cleanup** | Schedule / manual dispatch / `workflow_call` | Scans all branches, deletes those with no commits for N days and no open PRs |
 | **Merged branch** | `workflow_call` with `merged_branch` input | Deletes the specified branch after a PR merge |
 
-Protected branches (`main`, `master`, `develop`, `release/*`, `hotfix/*`) and branches with GitHub branch protection rules are never deleted.
+Protected branches (`main`, `master`, `develop`, `release/*`, `hotfix/*`, `tier-*`) and branches with GitHub branch protection rules are never deleted.
+
+`tier-*` is protected by default because a repository that publishes reusable
+workflows may expose promotion channels as branches its consumers pin to. Such a
+branch only advances when a promotion is approved, so it can legitimately sit
+past the stale threshold — and deleting one breaks every consumer pinned to it.
+Harmless for repositories with no such branches.
 
 ## Inputs
 
@@ -17,7 +23,7 @@ Protected branches (`main`, `master`, `develop`, `release/*`, `hotfix/*`) and br
 |---|---|:---:|---|---|
 | `stale_days` | `number` | No | `30` | Days without commits before a branch is stale |
 | `dry_run` | `boolean` | No | `false` | Preview deletions without applying them |
-| `protected_branches` | `string` | No | `main,master,develop,release/*,hotfix/*` | Comma-separated patterns to never delete |
+| `protected_branches` | `string` | No | `main,master,develop,release/*,hotfix/*,tier-*` | Comma-separated patterns to never delete |
 | `merged_branch` | `string` | No | `""` | Branch to delete (enables merged mode) |
 
 ## Secrets

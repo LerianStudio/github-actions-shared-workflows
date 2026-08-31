@@ -16,72 +16,91 @@ This workflow makes the review something a revision has to earn.
 
 ## How it works
 
-CodeRabbit's own configuration provides the mechanism. In the consuming
-repository's `.coderabbit.yml`:
+The consuming repository turns automatic reviews off entirely:
 
 ```yaml
+# .coderabbit.yml
 reviews:
   auto_review:
     enabled: false
-    labels:
-      - "review-ready"
 ```
 
-`enabled: false` inverts the default to *do not review*. Every pull request is out
-of scope until the `review-ready` label appears, and a positive label match is
-what triggers the review. This workflow is what applies that label.
+Nothing is reviewed on its own. This workflow then posts `@coderabbitai review`
+once CI has passed — the command CodeRabbit documents as working regardless of
+auto-review settings, and which it recommends itself when it skips a pull
+request: *"To trigger a single review, invoke the `@coderabbitai review`
+command."*
 
-Two consequences worth internalising:
+The command is the trigger. That is the whole mechanism.
 
-- **Do not add exclusion rules to `.coderabbit.yml` expecting them to restrict
-  anything.** A negative match such as `!skip-review` does not veto the positive
-  trigger under `enabled: false`, and it is inert in the common case anyway — a
-  pull request that never receives the label is already excluded by the inverted
-  default. Scope belongs here, where it is deterministic.
-- **`base_branches` has nothing to govern.** It filters which base branches are
-  *auto*-reviewed, and there is no auto-review left. Restore it only alongside
-  `enabled: true`.
+### Why a command and not a label
 
-## Modes
+An earlier version used `auto_review.labels: ["review-ready"]` and had the gate
+apply that label. It worked, but the review then depended on four things
+agreeing — `enabled`, `base_branches`, `labels`, and the label existing in the
+repository — and each one broke in turn:
 
-Called at two points of the caller's job graph.
+| Failure | Cause |
+|---|---|
+| every PR red on a new repo | `gh pr edit --add-label` fails on a label the repo does not define |
+| release PRs reviewed anyway | a negative label match does not veto the positive trigger |
+| all of `develop` refused | `base_branches` removed on the wrong assumption that it was redundant |
+| a config fix could not validate itself | `.coderabbit.yml` is read from the base branch, not the head |
 
-| Mode | Position | Behaviour |
-|------|----------|-----------|
-| `withdraw` | early, no `needs`, on `synchronize` | Removes the label so the new revision must earn it again |
-| `release` | last, needing every required check | Applies the label when the PR is in scope and nothing failed |
+The command has none of those dependencies. It does not consult labels, and a
+repository adopting the gate needs one line of config.
 
-Calling `release` alone gates the **first** review: the label is granted once the
-pull request goes green and never taken back. Adding `withdraw` makes every
-revision re-earn it, which also gives each green push its own incremental review,
-since the remove → add transition is what triggers one.
+**`review-ready` still exists**, applied next to the command as a visual marker,
+best-effort: a repository that never declared it still gets its reviews. Do not
+put it back into `auto_review.labels` — it would become a second trigger for the
+same decision, which is exactly what produced the failures above.
 
-Removal is unconditional and needs no scope check: giving up an authorisation is
-always the safe direction.
+### One review per revision
 
-### `withdraw` buys a probability, not a guarantee
+Repeating a label is a no-op; repeating a command spends another review. Re-runs
+and concurrent runs on the same commit are both reachable, so the gate writes a
+marker carrying the commit:
 
-CodeRabbit decides whether to review **at the moment of the event** and publishes
-minutes later. A withdrawal that lands after that decision cannot cancel it.
+```
+@coderabbitai review
 
-Measured on this repository:
+<!-- coderabbit-gate: <head_sha> -->
+```
 
-| Pull request | Push | Withdrawal | Review | Outcome |
-|---|---|---|---|---|
-| #708 | — | 3 windows of 1–7 min without the label | none in any window | withdrawal won |
-| #705 | 14:09:38 | 14:09:59 (**21s late**) | 14:15:23 | withdrawal lost |
+and looks for it before commenting. That is what makes "one review per revision"
+true rather than merely intended. It matters more than it sounds: CodeRabbit
+plans are rate-limited, and a burst of duplicate requests degrades the allowance
+for the whole organisation.
 
-So `withdraw` helps when CI reaction time exceeds CodeRabbit's (~1–2 min), which
-is the common case, and fails when it does not. The cost is a label add/remove
-pair on the timeline for every push.
 
-Whether that trade is worth it depends on the repository. This one decided it is
-not, and calls the gate in `release` mode only — see the rationale in
-`.github/workflows/self-pr-validation.yml`. A repository with slow CI and
-expensive reviews may reasonably decide the opposite.
+### Keeping the pull request readable
 
-Note that `release` never re-adds a label that is already present, so running it
-on every push costs one short job and mutates nothing.
+Each revision adds a request from the gate, and CodeRabbit echoes every one with
+an "Action performed / Review finished" reply. A pull request revised a few times
+buries its human conversation under pairs of bot comments.
+
+Before posting a new request, the gate folds the superseded ones away with the
+GraphQL `minimizeComment` mutation: its own requests as `RESOLVED`, CodeRabbit's
+echoes as `OUTDATED`. Comments already folded are skipped, which needs GraphQL —
+the REST body is unchanged by minimisation and carries no marker, so a REST filter
+cannot tell a folded comment from a fresh one. They render as *"This comment was marked as resolved"* and
+collapse. Nothing is deleted — one click expands them, so the record of which
+revision was requested and when survives.
+
+**Findings are never touched, by construction.** The listing reads
+`pullRequest.comments`, which is issue comments only. Reviews and review
+comments — where findings live — are separate connections. This matters more than
+it sounds: on PR #717 the review carrying CodeRabbit's *"insufficient GitHub
+permissions"* warning also carries 13 actionable findings, so collapsing by review
+would have hidden real work. If that warning is the annoyance, the fix is granting
+the app `Pull requests: Read and write`, which removes it at the source.
+
+Also left alone: the walkthrough summary, and the sticky CI reports
+(`lint-analysis`, `pr-validation-report`, `codeql-scan`) — those are updated in
+place rather than duplicated, so they never accumulate.
+
+Tidying is non-fatal throughout: losing a review because the cleanup failed would
+be a bad trade.
 
 ## Scope
 
@@ -115,12 +134,12 @@ than which of them get reviewed.
 
 | Input | Type | Default | Description |
 |-------|------|---------|-------------|
-| `mode` | string | — | `release` or `withdraw`. Required. |
 | `pr_number` | number | — | Pull request to act on. Required. |
-| `checks_passed` | boolean | `false` | Whether every required check succeeded. Only read in `release` mode. |
+| `checks_passed` | boolean | `false` | Whether every required check succeeded. |
+| `head_sha` | string | — | Commit the verdict covers. Required — also the idempotency key. |
 | `review_base_branches` | string | `develop` | Comma-separated exact base branch names. Empty removes this dimension. |
 | `review_head_patterns` | string | `hotfix/*` | Comma-separated globs matched against the head branch. Empty removes this dimension. |
-| `label` | string | `review-ready` | Trigger label. Must match `reviews.auto_review.labels`. |
+| `label` | string | `review-ready` | Visual marker applied alongside the command. Cosmetic — failing to apply it never fails the job. Empty disables it. |
 | `dry_run` | boolean | `false` | Log the decision without changing any label. |
 | `runner_type` | string | `blacksmith-4vcpu-ubuntu-2404` | Runner label. Overridden by `vars.GENERAL_RUNNERS`. |
 
@@ -179,7 +198,6 @@ jobs:
       pull-requests: write
     uses: LerianStudio/github-actions-shared-workflows/.github/workflows/coderabbit-gate.yml@vX.Y.Z
     with:
-      mode: release
       pr_number: ${{ github.event.pull_request.number }}
       checks_passed: ${{ !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') }}
       review_base_branches: develop
@@ -192,31 +210,6 @@ at all and the verdict never gets evaluated.
 
 Pin to a released version in production. When testing a change to the gate itself,
 point at the branch instead — `@develop`, or `@feat/<branch>`.
-
-### Optional: gate every revision
-
-Add a `withdraw` call ahead of the checks so each revision has to re-earn the
-label. Read [the trade-off](#withdraw-buys-a-probability-not-a-guarantee) first —
-it is a probability, paid for with timeline churn.
-
-```yaml
-  withdraw-coderabbit:
-    name: Hold CodeRabbit Review
-    # No needs: must land before the checks finish, not after them.
-    if: github.event_name == 'pull_request' && github.event.action == 'synchronize'
-    permissions:
-      contents: read
-      pull-requests: write
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/coderabbit-gate.yml@vX.Y.Z
-    with:
-      mode: withdraw
-      pr_number: ${{ github.event.pull_request.number }}
-    secrets: inherit
-```
-
-Then list it first in the release job's `needs`, so the withdrawal can never land
-after the re-application. It is skipped on events other than `synchronize`, which
-`always()` tolerates.
 
 ## Escape hatches
 
@@ -232,7 +225,7 @@ Both are intentional. The gate is a spending policy, not an access control.
 The gate is on by default in `go-pr-validation.yml` and `js-pr-validation.yml`, and
 **inert until the repository opts in**. Three steps:
 
-1. Declare the label in `.github/labels.yml` and run the labels sync:
+1. *(Optional)* Declare the label in `.github/labels.yml` and run the labels sync, if you want the visual marker:
 
    ```yaml
    - name: review-ready
@@ -240,27 +233,21 @@ The gate is on by default in `go-pr-validation.yml` and `js-pr-validation.yml`, 
      description: Required checks passed — CodeRabbit is cleared to review
    ```
 
-2. Invert CodeRabbit's default in `.coderabbit.yml`:
+2. Turn automatic reviews off in `.coderabbit.yml`:
 
    ```yaml
    reviews:
      auto_review:
        enabled: false
-       labels:
-         - "review-ready"
    ```
+
+   Do not add `labels:` — the command is the trigger, and a label there would
+   compete with it.
 
 3. Nothing else — the umbrella already calls the gate.
 
-Until step 1 is done the job emits a warning and exits successfully, leaving
-CodeRabbit at its own behaviour. It does **not** fail the pull request: the GitHub
-API rejects adding a label the repository does not define, and failing on that
-would turn every pull request red in every repository that has not adopted yet.
-
-Only a confirmed `404` is read as "not adopted". A permissions error, a rate limit
-or a transient `5xx` fails the job instead — those are outages, and silently
-treating them as an un-adopted repository would disable the gate while reporting
-the wrong cause.
+Step 1 is genuinely optional now: without the label the reviews still happen,
+the pull requests just carry no badge. Only step 2 is required.
 
 Step 2 matters as much as step 1. With the label present but `enabled` still
 `true`, CodeRabbit reviews everything as before and the label decides nothing —
@@ -288,11 +275,14 @@ reviews:
 Keep `review_status: true` — that is what posts *"Review skipped — required
 labels: review-ready"*, the cheapest confirmation that the gate is working.
 
-**A review already decided cannot be cancelled.** See the `withdraw` section
-above: the decision is taken at the event, so nothing done afterwards stops the
-publication.
-
 **An engaged pull request stays engaged.** Once CodeRabbit has reviewed a pull
-request, moving it out of scope does not disengage it — the label governs the
-initial trigger, not an established engagement. Stopping that needs
-`@coderabbitai ignore` in the description, or `@coderabbitai pause` as a comment.
+request, incremental reviews continue on later pushes on their own — the gate
+controls when a review is *requested*, not an engagement already established.
+Stopping that needs `@coderabbitai ignore` in the description, or
+`@coderabbitai pause` as a comment.
+
+**Reviews are rate-limited by plan.** Requesting one is not free even when the
+gate is behaving: an organisation that burns through its allowance is throttled
+(observed: 61 review attempts in 7 days dropping the allowance to one review per
+hour, plus the spending cap being reached). This is the reason the gate exists,
+and the reason the idempotency marker matters.

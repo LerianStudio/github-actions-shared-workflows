@@ -164,4 +164,17 @@ jobs:
 - The workflow uses `secrets: inherit` style — secrets are referenced directly without being declared in `workflow_call.secrets:` (same pattern as `release.yml`).
 - The GPG identity (`git_committer_name` / `git_committer_email`) and the composite's `git-user-name` / `git-user-email` are both bound to `LERIAN_CI_CD_USER_NAME` / `_EMAIL` so the merge-commit signature is valid.
 - Glob expansion uses HTTPS `git ls-remote` against `${{ github.repository }}` — no checkout required in the `expand` job.
-- The `[skip ci]` token is included in the default commit message to avoid retriggering CI on each target branch.
+- Both paths mark themselves `[backmerge]`, a marker GitHub does not recognise. The run starts and every
+  check reports; `release.yml` matches the marker in its `check-skip` step and skips only the release.
+- `[skip ci]` is deliberately **not** used, even on the direct path. It suppresses the run at the GitHub
+  level, which costs two things that matter here. A PR opened by the fallback uses the source branch as its
+  head, so a suppressed run leaves required checks at *Pending* forever and the backmerge can only land
+  through a bypass — and the same applies to any later PR opened from a branch whose tip is a `[skip ci]`
+  backmerge commit. A suppressed push also fires nothing downstream, so a chain such as
+  `main → develop → develop-*` stops at the first link.
+- The cost of the marker over the token is one no-op run per backmerge.
+- The marker is read from the full commit message, so it is found whether the PR is squashed (title becomes
+  the subject) or merged (title goes to the body).
+- Rebase merges are the gap: they replay the original commits and keep no marker, so a backmerge landed that
+  way can still cut a release.
+- Overriding `commit_message` or `pr_title` drops the markers unless you keep them.
