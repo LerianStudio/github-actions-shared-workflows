@@ -7,13 +7,13 @@
 
 Walks a stable release of this repository through the tier branches that downstream repositories pin their `uses:` to.
 
-```
+```text
 main → stable tag → tier-0 → (approval) → tier-1 → (approval) → tier-2
 ```
 
 **Internal-only.** The tier branches, the flow config and the Environments all live in this repository, so an external caller has no use for this workflow.
 
-> **Dispatch-only for now.** This workflow is deliberately not yet called from `self-release.yml`. GitHub only offers `workflow_dispatch` for workflows present on the default branch, so the controller cannot be exercised manually until it lands on `main` — and if it were already wired, the very release that lands it would be the first to run it, unvalidated. Validate with a manual run first, then add the `promote-tiers` job that is written out in the comments of `self-release.yml`.
+`self-release.yml` calls it after every stable release on `main`; `workflow_dispatch` covers manual promotions, resuming a failed tier, catching a lagging tier up, and rollbacks.
 
 ## Why tiers are branches
 
@@ -59,7 +59,7 @@ Sharing one group would park a `tier-0` promotion behind an approval pending on 
 
 Dispatch the workflow with an **older** `tag`, scoped to the tiers you actually mean to move:
 
-```
+```text
 Actions → Tier Promotion → Run workflow
   tag: v1.62.0
   only_tiers: tier-0
@@ -89,7 +89,7 @@ Three situations call for it:
 
 **Scoping a rollback.** Promoting an older tag through the full chain does *not* simply move every tier back — a tier that was further behind than the target tag gets moved **forward** to it, ungated by any soak. Concretely:
 
-```
+```text
 state:    tier-0=v1.63.0   tier-1=v1.62.0   tier-2=v1.60.0
 intent:   roll tier-0 back to v1.62.0
 
@@ -103,7 +103,7 @@ The `tier-2` advance is gated by its approval, and `dry_run: true` (the dispatch
 
 The value is validated in the `resolve` job against the tiers declared in the config, so a typo fails the run instead of silently matching nothing and reporting success:
 
-```
+```text
 ::error::only_tiers must be a comma-separated list of tier branches with no spaces (e.g. 'tier-0' or 'tier-1,tier-2') — got 'tier-1, tier-2'
 ::error::only_tiers names 'tier-3', which is not declared in config/tier-promotion.yml (declared: tier-0 tier-1 tier-2)
 ```
@@ -128,7 +128,7 @@ That is deliberate. GitHub Actions cannot build a job graph from data, and an `e
 
 The cost is drift, so the `resolve` job compares the config against `EXPECTED_FLOW` and fails the run when they disagree:
 
-```
+```text
 ::error::config/tier-promotion.yml no longer matches the job chain in .github/workflows/tier-promotion.yml
 ::error::config:   tier-0:tier-0,tier-1:tier-1,tier-2:tier-2,tier-3:tier-3
 ::error::workflow: tier-0:tier-0,tier-1:tier-1,tier-2:tier-2
@@ -138,16 +138,9 @@ Adding or reordering a tier therefore means editing three things together: the c
 
 ## Usage
 
-Manual promotion (the only path today):
+### Automatic — every stable release
 
-```
-Actions → Tier Promotion → Run workflow
-  tag: v1.62.0        # empty = latest stable
-  only_tiers:         # empty = whole chain
-  dry_run: true       # default on dispatch
-```
-
-Once a manual run has been validated, wire it into `self-release.yml`:
+Wired in `self-release.yml`:
 
 ```yaml
 jobs:
@@ -162,6 +155,15 @@ jobs:
       tag: ${{ needs.publish-release.outputs.new_release_git_tag }}
       dry_run: false
     secrets: inherit
+```
+
+### Manual — dispatch
+
+```text
+Actions → Tier Promotion → Run workflow
+  tag: v1.62.0        # empty = latest stable
+  only_tiers:         # empty = whole chain
+  dry_run: true       # default on dispatch
 ```
 
 Two details there are load-bearing. The `new_release_published` gate: semantic-release exits **successfully** when a push carries no releasable commits, so gating on the job's result alone would open a train for a tag already sitting on the tiers and reopen its approvals. And passing `new_release_git_tag` explicitly rather than letting the controller re-resolve "latest stable", which would race a concurrent release.

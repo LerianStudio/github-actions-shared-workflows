@@ -54,33 +54,35 @@ jobs:
       dry_run: false
     secrets: inherit
 
-  # Tier promotion (`tier-promotion.yml`) is intentionally NOT wired here yet.
+  # After every stable release on main, walk the new tag through the tier
+  # branches declared in `config/tier-promotion.yml`: tier-0 immediately, then
+  # tier-1 and tier-2 each behind their Environment approval. The run stays open
+  # while an approval is pending, which is what keeps the promoted commit fixed
+  # to the tag resolved when the train opened.
   #
-  # GitHub only offers `workflow_dispatch` for workflows present on the default
-  # branch, so the controller cannot be exercised manually until it lands on
-  # `main` — and if it were wired, the very release that lands it would be the
-  # first to run it, unvalidated. It stays dispatch-only until a manual run has
-  # been validated, then this job is added:
+  # Two conditions here are load-bearing, not defensive noise:
   #
-  #   promote-tiers:
-  #     needs: publish-release
-  #     if: >-
-  #       github.ref == 'refs/heads/main'
-  #       && needs.publish-release.result == 'success'
-  #       && needs.publish-release.outputs.new_release_published == 'true'
-  #     uses: ./.github/workflows/tier-promotion.yml
-  #     with:
-  #       tag: ${{ needs.publish-release.outputs.new_release_git_tag }}
-  #       dry_run: false
-  #     secrets: inherit
+  #   `new_release_published` — semantic-release exits SUCCESSFULLY when a push
+  #   carries no releasable commits, so gating on the job result alone would
+  #   open a train for a tag already sitting on the tiers and reopen its
+  #   approvals on every such push.
   #
-  # Two details of that snippet are load-bearing. The `new_release_published`
-  # gate: semantic-release exits successfully when a push carries no releasable
-  # commits, and promoting on that reopens approvals for a tag already on the
-  # tiers. And passing `new_release_git_tag` explicitly rather than letting the
-  # controller re-resolve "latest stable", which would race a concurrent
-  # release.
+  #   `new_release_git_tag` passed explicitly — letting the controller
+  #   re-resolve "latest stable" would race a concurrent release and promote a
+  #   different tag than the one this run published.
   #
-  # It will run alongside `propagate-version`, not replace it: moving a tier
-  # branch is a no-op for a repository that still pins `@vX.Y.Z`, so both
-  # models coexist while consumer pins migrate.
+  # Runs alongside `propagate-version` rather than replacing it: moving a tier
+  # branch is a no-op for a repository that still pins `@vX.Y.Z`, so both models
+  # coexist while consumer pins migrate. Remove `propagate-version` once every
+  # consumer pins a tier.
+  promote-tiers:
+    needs: publish-release
+    if: >-
+      github.ref == 'refs/heads/main'
+      && needs.publish-release.result == 'success'
+      && needs.publish-release.outputs.new_release_published == 'true'
+    uses: ./.github/workflows/tier-promotion.yml
+    with:
+      tag: ${{ needs.publish-release.outputs.new_release_git_tag }}
+      dry_run: false
+    secrets: inherit
