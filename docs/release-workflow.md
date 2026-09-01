@@ -193,22 +193,23 @@ Commits to `main` branch create production releases:
 
 ### Deployment Environments
 
-The release jobs run under a GitHub Environment named after the channel:
+The release jobs run under a GitHub Environment named after the channel, mirroring the branch strategy above:
 
-| Ref | Environment |
-|---|---|
-| `main` | `stable` |
-| anything else (`develop`, `release-candidate`, …) | `beta` |
+| Ref | Environment | Release |
+|---|---|---|
+| `main` | `stable` | `v1.2.3` |
+| `release-candidate` | `rc` | `v1.2.3-rc.1` |
+| anything else (`develop`, …) | `beta` | `v1.2.3-beta.1` |
 
-Two things about this are easy to get wrong.
+**The environments belong to your repository, not to this one.** A reusable workflow's jobs run in the caller's context, so `environment: stable` resolves against *your* repo. GitHub creates each on first use, with **no protection rules and no branch policy** — they start as deployment history and nothing more.
 
-**The environments belong to your repository, not to this one.** A reusable workflow's jobs run in the caller's context, so `environment: stable` resolves against *your* repo. GitHub creates both on first use, with **no protection rules and no branch policy** — they start as deployment history and nothing more. If you want them to mean something, configure them in your repo: a deployment branch policy (`main` for `stable`, `develop` for `beta`), environment secrets scoped per channel, or required reviewers to gate cutting a stable release.
+A consequence worth knowing: you only get the environments your branching actually uses. A repository that never pushes to `release-candidate` never gets an `rc` environment, because GitHub creates one only when a job referencing it runs.
 
-Worth knowing if you add reviewers later: *Allow administrators to bypass configured protection rules* is checked by default and lets an admin skip the approval. The deployment branch policy is **not** bypassable, by anyone — which is why it, and not the environment name, is what actually enforces where a release may run from.
+**Configuring them is your repo's job.** If you want the environments to mean something rather than just record history, add a deployment branch policy (`main` for `stable`, `release-candidate` for `rc`, `develop` for `beta`), environment secrets scoped per channel, or required reviewers to gate cutting a stable release.
 
-**`release-candidate` lands in `beta`.** The split is two-way, so an RC release enters an environment named `beta`. Nothing breaks — the name is just imprecise. If your repo needs RC isolated (its own secrets or its own policy), open an issue rather than working around it locally.
+If you add reviewers later, note that *Allow administrators to bypass configured protection rules* is checked by default and lets an admin skip the approval. The deployment branch policy is **not** bypassable, by anyone — which is why the policy, and not the environment name, is what actually enforces where a release may run from.
 
-Repositories released by an earlier version of this workflow will still have an orphaned `create_release` environment holding the old history. It is inert and safe to delete once you no longer need that history.
+Repositories released by an earlier version of this workflow will still have an orphaned `create_release` environment holding the old history, from when a single environment served every branch. It is inert and safe to delete once you no longer need that history.
 
 ## Configuration
 
