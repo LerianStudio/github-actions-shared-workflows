@@ -218,12 +218,17 @@ jobs:
       # caller scopes the override with its own expression and keeps the channel
       # split for everything else.
       #
-      # Choosing the name by expression is safe specifically because the
-      # environment's deployment branch policy is the enforcement: even if this
-      # expression resolved wrongly, GitHub refuses a deployment from a ref the
-      # environment does not allow, and that restriction is not bypassable by
-      # administrators. The expression states intent; the policy imposes it.
-      name: ${{ inputs.environment_name != '' && inputs.environment_name || github.ref_name == 'main' && 'stable' || github.ref_name == 'release-candidate' && 'rc' || 'beta' }}
+      # Choosing the name by expression is backed by the environment's own
+      # deployment branch policy: if this expression resolved wrongly, GitHub
+      # refuses a deployment from a ref the environment does not allow. The
+      # expression states intent; the policy is what imposes it.
+      #
+      # Whether an administrator can override that policy is not something to
+      # assume either way — the environment's "Allow administrators to bypass
+      # configured protection rules" checkbox is on by default, and a caller
+      # that needs the branch restriction to apply to everyone should turn it
+      # off rather than rely on the default.
+      name: ${{ inputs.environment_name != '' && inputs.environment_name || github.ref == 'refs/heads/main' && 'stable' || github.ref == 'refs/heads/release-candidate' && 'rc' || 'beta' }}
     name: Release ${{ matrix.app.name }}
     strategy:
       max-parallel: 1
@@ -519,7 +524,7 @@ jobs:
     environment:
       # `stable` / `rc` / `beta` by ref — see the note on the first environment
       # block in this file.
-      name: ${{ inputs.environment_name != '' && inputs.environment_name || github.ref_name == 'main' && 'stable' || github.ref_name == 'release-candidate' && 'rc' || 'beta' }}
+      name: ${{ inputs.environment_name != '' && inputs.environment_name || github.ref == 'refs/heads/main' && 'stable' || github.ref == 'refs/heads/release-candidate' && 'rc' || 'beta' }}
     steps:
       - name: Create GitHub App Token
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
@@ -564,7 +569,7 @@ jobs:
     environment:
       # `stable` / `rc` / `beta` by ref — see the note on the first environment
       # block in this file.
-      name: ${{ inputs.environment_name != '' && inputs.environment_name || github.ref_name == 'main' && 'stable' || github.ref_name == 'release-candidate' && 'rc' || 'beta' }}
+      name: ${{ inputs.environment_name != '' && inputs.environment_name || github.ref == 'refs/heads/main' && 'stable' || github.ref == 'refs/heads/release-candidate' && 'rc' || 'beta' }}
     permissions:
       contents: write
       pull-requests: write
@@ -614,7 +619,7 @@ jobs:
     environment:
       # `stable` / `rc` / `beta` by ref — see the note on the first environment
       # block in this file.
-      name: ${{ inputs.environment_name != '' && inputs.environment_name || github.ref_name == 'main' && 'stable' || github.ref_name == 'release-candidate' && 'rc' || 'beta' }}
+      name: ${{ inputs.environment_name != '' && inputs.environment_name || github.ref == 'refs/heads/main' && 'stable' || github.ref == 'refs/heads/release-candidate' && 'rc' || 'beta' }}
     permissions:
       contents: write
     steps:

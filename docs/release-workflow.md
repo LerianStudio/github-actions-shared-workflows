@@ -221,9 +221,20 @@ A consequence worth knowing: you only get the environments your branching actual
 
 **Configuring them is your repo's job.** If you want the environments to mean something rather than just record history, add a deployment branch policy (`main` for `stable`, `release-candidate` for `rc`, `develop` for `beta`), environment secrets scoped per channel, or required reviewers to gate cutting a stable release.
 
-If you add reviewers later, note that *Allow administrators to bypass configured protection rules* is checked by default and lets an admin skip the approval. The deployment branch policy is **not** bypassable, by anyone — which is why the policy, and not the environment name, is what actually enforces where a release may run from.
+**Turn off administrator bypass if the restriction has to hold.** *Allow administrators to bypass configured protection rules* is checked by default. It clearly covers required reviewers and the wait timer; whether it also covers the deployment branch policy is not something to bet on either way, so if the branch restriction must apply to everyone, uncheck it rather than relying on the default.
+
+What the policy does buy, regardless: it is the environment — not the expression that picked its name — that decides whether a ref may deploy. That is why the branch policy, and not the naming, is what actually enforces where a release runs from.
 
 Repositories released by an earlier version of this workflow will still have an orphaned `create_release` environment holding the old history, from when a single environment served every branch. It is inert and safe to delete once you no longer need that history.
+
+**If you scoped secrets or variables to `create_release`, move them first.** The release jobs no longer run under that environment, so anything reachable only from it becomes unavailable and the publish, changelog, backmerge or major-tag step fails. Copy them to the channel environments that need them (`stable`, `rc`, `beta`), or to repository scope if every channel should see them, before this change reaches your repository.
+
+Ten repositories were sampled when this split was made — `midaz`, `matcher`, `lerian-map`, `lib-commons`, `lib-streaming`, the two boilerplates and three plugins — and all had zero secrets and zero variables on `create_release`, so for most repositories this is a no-op. Check yours rather than assuming:
+
+```bash
+gh api repos/LerianStudio/<repo>/environments/create_release/secrets   --jq '.total_count'
+gh api repos/LerianStudio/<repo>/environments/create_release/variables --jq '.total_count'
+```
 
 ## Configuration
 

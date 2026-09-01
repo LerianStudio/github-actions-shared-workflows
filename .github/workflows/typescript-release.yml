@@ -128,7 +128,7 @@ jobs:
       # expression resolved wrongly, GitHub refuses a deployment from a ref the
       # environment does not allow, and that restriction is not bypassable by
       # administrators. The expression states intent; the policy imposes it.
-      name: ${{ inputs.environment_name != '' && inputs.environment_name || github.ref_name == 'main' && 'stable' || github.ref_name == 'release-candidate' && 'rc' || 'beta' }}
+      name: ${{ inputs.environment_name != '' && inputs.environment_name || github.ref == 'refs/heads/main' && 'stable' || github.ref == 'refs/heads/release-candidate' && 'rc' || 'beta' }}
     name: Release ${{ matrix.app.name }}
     strategy:
       max-parallel: 1
