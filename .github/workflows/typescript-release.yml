@@ -41,6 +41,11 @@ on:
         description: 'Run semantic-release in dry-run mode (no tags/releases created)'
         type: boolean
         default: false
+      environment_name:
+        description: 'Overrides the per-channel deployment environment for this run. Empty (default) keeps `stable` on main, `rc` on release-candidate and `beta` on anything else. Scope it with your own expression so the split still applies to other refs.'
+        type: string
+        required: false
+        default: ''
 
 jobs:
   prepare:
@@ -123,7 +128,7 @@ jobs:
       # expression resolved wrongly, GitHub refuses a deployment from a ref the
       # environment does not allow, and that restriction is not bypassable by
       # administrators. The expression states intent; the policy imposes it.
-      name: ${{ github.ref_name == 'main' && 'stable' || github.ref_name == 'release-candidate' && 'rc' || 'beta' }}
+      name: ${{ inputs.environment_name != '' && inputs.environment_name || github.ref_name == 'main' && 'stable' || github.ref_name == 'release-candidate' && 'rc' || 'beta' }}
     name: Release ${{ matrix.app.name }}
     strategy:
       max-parallel: 1

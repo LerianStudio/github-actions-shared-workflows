@@ -94,6 +94,7 @@ jobs:
 | `enable_release_announcement` | boolean | `true` | Announce the published release to the repository Slack channel after a successful release |
 | `announcement_product_name` | string | `''` | Product name displayed in the announcement. Defaults to the repository name |
 | `announcement_slack_channel` | string | `''` | Slack channel that receives the announcement. Defaults to the `RELEASE_SLACK_CHANNEL` repository variable; the announcement is skipped when both are empty |
+| `environment_name` | string | `''` | Overrides the per-channel deployment environment for this run. Empty keeps `stable`/`rc`/`beta` by ref — see [Deployment Environments](#deployment-environments) |
 
 ## Release Announcement
 
@@ -200,6 +201,19 @@ The release jobs run under a GitHub Environment named after the channel, mirrori
 | `main` | `stable` | `v1.2.3` |
 | `release-candidate` | `rc` | `v1.2.3-rc.1` |
 | anything else (`develop`, …) | `beta` | `v1.2.3-beta.1` |
+
+**Adding one of your own.** If a ref needs an environment outside those three, pass `environment_name`. It overrides the calculation for that run, so scope it with your own expression and the split keeps applying everywhere else:
+
+```yaml
+jobs:
+  release:
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/release.yml@tier-1
+    with:
+      environment_name: ${{ github.ref_name == 'sandbox' && 'sandbox' || '' }}
+    secrets: inherit
+```
+
+It is one input rather than a ref-to-environment map because a run is on exactly one ref — the caller already knows which, and expressing it as a condition is both shorter and more flexible than any mapping this workflow could offer. If the environment you name has a branch policy that does not allow the ref, the job fails; that is the policy doing its job, not a bug.
 
 **The environments belong to your repository, not to this one.** A reusable workflow's jobs run in the caller's context, so `environment: stable` resolves against *your* repo. GitHub creates each on first use, with **no protection rules and no branch policy** — they start as deployment history and nothing more.
 

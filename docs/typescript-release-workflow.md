@@ -138,6 +138,7 @@ jobs:
 | `filter_paths` | string | `''` | No | Newline-separated list of path prefixes for monorepo filtering |
 | `path_level` | string | `2` | No | Limits the path to the first N segments (e.g., `2` → `apps/agent`) |
 | `dry_run` | boolean | `false` | No | Run semantic-release in dry-run mode (no tags/releases created) |
+| `environment_name` | string | `''` | No | Overrides the per-channel deployment environment for this run. Empty keeps `stable`/`rc`/`beta` by ref |
 
 ## Secrets
 
