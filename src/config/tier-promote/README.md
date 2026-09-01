@@ -55,6 +55,8 @@ jobs:
         with:
           client-id: ${{ secrets.LERIAN_STUDIO_MIDAZ_PUSH_BOT_APP_ID }}
           private-key: ${{ secrets.LERIAN_STUDIO_MIDAZ_PUSH_BOT_PRIVATE_KEY }}
+          permission-contents: write
+          permission-pull-requests: write
 
       - name: Import GPG key
         uses: crazy-max/ghaction-import-gpg@2dc316deee8e90f13e1a351ab510b4d5bc0c82cd # v7
@@ -126,7 +128,11 @@ It also cannot be `GITHUB_TOKEN`: a pull request opened by it does not trigger w
   with:
     client-id: ${{ secrets.LERIAN_STUDIO_MIDAZ_PUSH_BOT_APP_ID }}
     private-key: ${{ secrets.LERIAN_STUDIO_MIDAZ_PUSH_BOT_PRIVATE_KEY }}
+    permission-contents: write
+    permission-pull-requests: write
 ```
+
+Scope the token with those two `permission-*` inputs. Without them it inherits everything the App installation holds org-wide, and the promotion needs only these two: push the commit to the tier branch, and open the fallback PR if that push is rejected.
 
 ## How it promotes
 
