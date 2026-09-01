@@ -126,7 +126,7 @@ on:
         type: boolean
         default: false
       environment_name:
-        description: 'Overrides the per-channel deployment environment for this run. Empty (default) keeps `stable` on main, `rc` on release-candidate and `beta` on anything else. Pass a value only when a ref needs its own environment — scope it with your own expression, e.g. `${{ github.ref_name == ''sandbox'' && ''sandbox'' || '''' }}`, so the channel split still applies to every other ref. The environment lives in your repository; if it has a deployment branch policy that does not allow this ref, the job fails, which is the intended behaviour.'
+        description: 'Overrides the per-channel deployment environment for this run. Empty (default) keeps `stable` on main, `rc` on release-candidate and `beta` on anything else. Pass a value only when a ref needs its own environment, scoping it with a condition in the caller so the channel split still applies to every other ref (see docs/release-workflow.md, Deployment Environments). The environment lives in your repository; if it has a deployment branch policy that does not allow this ref, the job fails, which is the intended behaviour.'
         required: false
         type: string
         default: ''
