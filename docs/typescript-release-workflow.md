@@ -72,7 +72,7 @@ jobs:
 ```yaml
 jobs:
   release:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/typescript-release.yml@tier-1
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/typescript-release.yml@develop
     with:
       dry_run: true
     secrets: inherit

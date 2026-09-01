@@ -95,7 +95,7 @@ The `npmrc` secret is always injected automatically. `build_secrets` adds extra 
 ```yaml
 jobs:
   build:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/typescript-build.yml@tier-1
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/typescript-build.yml@develop
     with:
       dry_run: true
       components_json: '[{"name":"my-app","working_dir":".","dockerfile":"Dockerfile"}]'
