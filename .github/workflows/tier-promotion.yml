@@ -22,12 +22,18 @@ name: Tier Promotion
 # `refs/heads/tier-*` is never violated and no force push is needed.
 #
 # Secrets pattern: relies on `secrets: inherit` from the caller. Required:
-#   MANAGE_TOKEN                       Token used to push the promotion and to
-#                                      open the fallback PR. A PAT rather than
-#                                      GITHUB_TOKEN on purpose: a PR opened by
-#                                      GITHUB_TOKEN does not trigger workflows,
-#                                      which would leave a fallback PR with no
-#                                      checks and therefore unmergeable.
+#   LERIAN_STUDIO_MIDAZ_PUSH_BOT_APP_ID       and
+#   LERIAN_STUDIO_MIDAZ_PUSH_BOT_PRIVATE_KEY  Credentials for the GitHub App
+#                                      whose installation token pushes the
+#                                      promotion and opens the fallback PR. An
+#                                      App rather than a PAT so ruleset bypass
+#                                      on refs/heads/tier-* can be granted to
+#                                      this identity alone, instead of to a team
+#                                      of humans. And rather than GITHUB_TOKEN
+#                                      because a PR opened by GITHUB_TOKEN does
+#                                      not trigger workflows, which would leave
+#                                      the fallback PR with no checks and
+#                                      therefore unmergeable.
 #   LERIAN_CI_CD_USER_GPG_KEY          GPG private key — the `tier-rule` ruleset
 #                                      requires signed commits on tier-*.
 #   LERIAN_CI_CD_USER_GPG_KEY_PASSWORD GPG passphrase.
@@ -250,6 +256,20 @@ jobs:
         with:
           ref: ${{ github.workflow_sha }}
 
+      # A GitHub App installation token, not a PAT. Two reasons, and the second
+      # is the one that matters: an App identity can be granted ruleset bypass on
+      # its own, so `tiers-rule` can require a pull request for everyone else
+      # without a team of humans sharing that exemption. And unlike GITHUB_TOKEN,
+      # a pull request opened by an App token does trigger workflows, which the
+      # promote fallback depends on — a fallback PR with no checks would be
+      # unmergeable.
+      - name: Create GitHub App Token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        id: app-token
+        with:
+          client-id: ${{ secrets.LERIAN_STUDIO_MIDAZ_PUSH_BOT_APP_ID }}
+          private-key: ${{ secrets.LERIAN_STUDIO_MIDAZ_PUSH_BOT_PRIVATE_KEY }}
+
       - name: Import GPG key
         uses: crazy-max/ghaction-import-gpg@2dc316deee8e90f13e1a351ab510b4d5bc0c82cd # v7
         with:
@@ -272,7 +292,7 @@ jobs:
           source-sha: ${{ needs.resolve.outputs.sha }}
           config: ${{ inputs.config }}
           dry-run: ${{ inputs.dry_run }}
-          github-token: ${{ secrets.MANAGE_TOKEN }}
+          github-token: ${{ steps.app-token.outputs.token }}
 
   # ----------------- Tier 1 -----------------
   # Gated by the `tier-1` Environment's required reviewers. The reviewer has the
@@ -305,6 +325,13 @@ jobs:
         with:
           ref: ${{ github.workflow_sha }}
 
+      - name: Create GitHub App Token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        id: app-token
+        with:
+          client-id: ${{ secrets.LERIAN_STUDIO_MIDAZ_PUSH_BOT_APP_ID }}
+          private-key: ${{ secrets.LERIAN_STUDIO_MIDAZ_PUSH_BOT_PRIVATE_KEY }}
+
       - name: Import GPG key
         uses: crazy-max/ghaction-import-gpg@2dc316deee8e90f13e1a351ab510b4d5bc0c82cd # v7
         with:
@@ -325,7 +352,7 @@ jobs:
           source-sha: ${{ needs.resolve.outputs.sha }}
           config: ${{ inputs.config }}
           dry-run: ${{ inputs.dry_run }}
-          github-token: ${{ secrets.MANAGE_TOKEN }}
+          github-token: ${{ steps.app-token.outputs.token }}
 
   # ----------------- Tier 2 -----------------
   # Gated by the `tier-2` Environment's required reviewers. Critical consumers:
@@ -354,6 +381,13 @@ jobs:
         with:
           ref: ${{ github.workflow_sha }}
 
+      - name: Create GitHub App Token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        id: app-token
+        with:
+          client-id: ${{ secrets.LERIAN_STUDIO_MIDAZ_PUSH_BOT_APP_ID }}
+          private-key: ${{ secrets.LERIAN_STUDIO_MIDAZ_PUSH_BOT_PRIVATE_KEY }}
+
       - name: Import GPG key
         uses: crazy-max/ghaction-import-gpg@2dc316deee8e90f13e1a351ab510b4d5bc0c82cd # v7
         with:
@@ -374,4 +408,4 @@ jobs:
           source-sha: ${{ needs.resolve.outputs.sha }}
           config: ${{ inputs.config }}
           dry-run: ${{ inputs.dry_run }}
-          github-token: ${{ secrets.MANAGE_TOKEN }}
+          github-token: ${{ steps.app-token.outputs.token }}

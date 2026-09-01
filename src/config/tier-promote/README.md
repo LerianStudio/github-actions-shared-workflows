@@ -16,7 +16,7 @@ Promotes one already-resolved stable commit into **one** tier branch of this rep
 | `source-sha` | Yes | — | Full 40-char commit the tag resolved to, pinned by the caller for the whole train |
 | `config` | No | `config/tier-promotion.yml` | Flow config, read for this tier's `auto_merge_pr_fallback` |
 | `dry-run` | No | `false` | Report the intended change without writing |
-| `github-token` | Yes | — | Needs `contents:write` and `pull-requests:write`. Typically `secrets.MANAGE_TOKEN` |
+| `github-token` | Yes | — | Needs `contents:write` and `pull-requests:write`. Typically a GitHub App installation token — see [Token](#token) |
 
 ## Outputs
 
@@ -50,6 +50,12 @@ jobs:
         with:
           ref: ${{ github.workflow_sha }}
 
+      - uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        id: app-token
+        with:
+          client-id: ${{ secrets.LERIAN_STUDIO_MIDAZ_PUSH_BOT_APP_ID }}
+          private-key: ${{ secrets.LERIAN_STUDIO_MIDAZ_PUSH_BOT_PRIVATE_KEY }}
+
       - name: Import GPG key
         uses: crazy-max/ghaction-import-gpg@2dc316deee8e90f13e1a351ab510b4d5bc0c82cd # v7
         with:
@@ -69,7 +75,7 @@ jobs:
           tag: v1.2.3
           source-sha: ${{ needs.resolve.outputs.sha }}
           dry-run: false
-          github-token: ${{ secrets.MANAGE_TOKEN }}
+          github-token: ${{ steps.app-token.outputs.token }}
 
       - name: Notify
         if: steps.promote.outputs.has-promotion == 'true'
@@ -101,12 +107,26 @@ permissions:
   contents: read
 ```
 
-The token passed as `github-token` (typically `secrets.MANAGE_TOKEN`) needs, on this repository:
+The token passed as `github-token` needs, on this repository:
 
 | Scope | Why |
 |---|---|
 | `contents: write` | Push the promotion commit to the tier branch |
 | `pull-requests: write` | Open or reuse the fallback PR when the direct push is rejected |
+
+### Token
+
+Use a **GitHub App installation token**, not a PAT. An App identity can be granted ruleset bypass on its own, which is what allows `refs/heads/tier-*` to require a pull request from everyone else while the promotion still pushes directly. Granting that exemption to a team of humans instead would defeat the requirement.
+
+It also cannot be `GITHUB_TOKEN`: a pull request opened by it does not trigger workflows, so the fallback PR would carry no checks.
+
+```yaml
+- uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+  id: app-token
+  with:
+    client-id: ${{ secrets.LERIAN_STUDIO_MIDAZ_PUSH_BOT_APP_ID }}
+    private-key: ${{ secrets.LERIAN_STUDIO_MIDAZ_PUSH_BOT_PRIVATE_KEY }}
+```
 
 ## How it promotes
 

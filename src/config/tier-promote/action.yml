@@ -26,7 +26,7 @@ inputs:
     required: false
     default: "false"
   github-token:
-    description: Token with `contents:write` and `pull-requests:write` on this repo. Typically `secrets.MANAGE_TOKEN`.
+    description: Token with `contents:write` and `pull-requests:write` on this repo. Typically a GitHub App installation token, so ruleset bypass on `refs/heads/tier-*` can be granted to that identity alone.
     required: true
 
 outputs:
