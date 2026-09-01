@@ -71,7 +71,7 @@ on:
 
 jobs:
   preview:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/js-alpha-preview.yml@v1.x.x
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/js-alpha-preview.yml@tier-1
     with:
       excluded_products: core
     secrets: inherit

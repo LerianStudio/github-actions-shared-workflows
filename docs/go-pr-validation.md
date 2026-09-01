@@ -148,7 +148,7 @@ permissions:
 jobs:
   validate:
     # Testing: @develop or @feat/<branch> · Production: pinned @vX.Y.Z
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/go-pr-validation.yml@v1
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/go-pr-validation.yml@tier-1
     with:
       go_version: "1.26.4"
       golangci_lint_version: "v2.12.2"

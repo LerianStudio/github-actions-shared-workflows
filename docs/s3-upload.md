@@ -44,7 +44,7 @@ Uploads files matching a glob pattern to an S3 bucket, organized by environment 
 ```yaml
 jobs:
   upload:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/s3-upload.yml@v1.0.0
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/s3-upload.yml@tier-1
     with:
       s3_bucket: "lerian-casdoor-init-data"
       file_pattern: "init/casdoor/init_data*.json"
@@ -57,7 +57,7 @@ jobs:
 ```yaml
 jobs:
   upload:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/s3-upload.yml@v1.0.0
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/s3-upload.yml@tier-1
     with:
       s3_bucket: "lerian-migration-files"
       file_pattern: "init/casdoor-migrations/migrations/*.sql"
@@ -86,7 +86,7 @@ jobs:
 ```yaml
 jobs:
   upload:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/s3-upload.yml@v1.0.0
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/s3-upload.yml@tier-1
     with:
       s3_bucket: "lerian-casdoor-init-data"
       file_pattern: "init/casdoor/init_data*.json"
@@ -101,7 +101,7 @@ jobs:
 ```yaml
 jobs:
   upload:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/s3-upload.yml@v1.0.0
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/s3-upload.yml@tier-1
     with:
       s3_bucket: "lerian-migration-files"
       file_pattern: "init/casdoor-migrations/migrations/*.sql"

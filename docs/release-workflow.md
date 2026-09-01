@@ -26,7 +26,7 @@ on:
 
 jobs:
   release:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/release.yml@v1.0.0
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/release.yml@tier-1
     secrets: inherit
 ```
 
@@ -36,7 +36,7 @@ jobs:
 
 ```yaml
 release:
-  uses: LerianStudio/github-actions-shared-workflows/.github/workflows/release.yml@v1.0.0
+  uses: LerianStudio/github-actions-shared-workflows/.github/workflows/release.yml@tier-1
   with:
     runner_type: "blacksmith-4vcpu-ubuntu-2404"
     semantic_version: "23.0.8"
@@ -73,7 +73,7 @@ jobs:
 
   release:
     needs: tests
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/release.yml@v1.0.0
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/release.yml@tier-1
     secrets: inherit
 ```
 
@@ -464,7 +464,7 @@ on:
 
 jobs:
   release:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/release.yml@v1.0.0
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/release.yml@tier-1
     secrets: inherit
 ```
 
@@ -485,7 +485,7 @@ jobs:
 
   release:
     needs: test
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/release.yml@v1.0.0
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/release.yml@tier-1
     secrets: inherit
 
   build:
@@ -508,7 +508,7 @@ on:
 
 jobs:
   release:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/release.yml@v1.0.0
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/release.yml@tier-1
     secrets: inherit
 ```
 

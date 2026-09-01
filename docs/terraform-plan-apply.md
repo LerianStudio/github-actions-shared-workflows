@@ -74,7 +74,7 @@ permissions:
 
 jobs:
   boundary-policy:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/terraform-plan-apply.yml@v1.58.0
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/terraform-plan-apply.yml@tier-1
     with:
       aws_region: us-east-2
       environment: audit

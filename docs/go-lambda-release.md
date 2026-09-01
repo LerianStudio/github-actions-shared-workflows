@@ -62,7 +62,7 @@ on:
     tags: ["v*"]
 jobs:
   release:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/go-lambda-release.yml@v1.0.0
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/go-lambda-release.yml@tier-1
     with:
       main_package: ./cmd/authorizer
       artifact_name: authorizer.zip
@@ -98,7 +98,7 @@ jobs:
 ```yaml
 jobs:
   release:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/go-lambda-release.yml@v1.0.0
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/go-lambda-release.yml@tier-1
     with:
       main_package: ./cmd/authorizer
       artifact_name: authorizer.zip
