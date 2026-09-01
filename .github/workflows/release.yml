@@ -195,7 +195,17 @@ jobs:
     if: needs.prepare.outputs.has_changes == 'true' && needs.prepare.outputs.should_skip != 'true'
     runs-on: ${{ inputs.publish_runner_type || vars.GENERAL_RUNNERS || inputs.runner_type }}
     environment:
-      name: create_release
+      # `beta` on develop, `stable` on main. The environments live in the
+      # CALLER's repository, so every consumer gets its own pair, and its own
+      # branch policies if it configures them — nothing here is created or
+      # protected centrally.
+      #
+      # Choosing the name by expression is safe specifically because the
+      # environment's deployment branch policy is the enforcement: even if this
+      # expression resolved wrongly, GitHub refuses a deployment from a ref the
+      # environment does not allow, and that restriction is not bypassable by
+      # administrators. The expression states intent; the policy imposes it.
+      name: ${{ github.ref_name == 'main' && 'stable' || 'beta' }}
     name: Release ${{ matrix.app.name }}
     strategy:
       max-parallel: 1
@@ -489,7 +499,9 @@ jobs:
       (needs.update_major_tag.result == 'success' || needs.update_major_tag.result == 'skipped')
     runs-on: ${{ vars.GENERAL_RUNNERS || inputs.runner_type }}
     environment:
-      name: create_release
+      # `beta` on develop, `stable` on main — see the note on the first
+      # environment block in this file.
+      name: ${{ github.ref_name == 'main' && 'stable' || 'beta' }}
     steps:
       - name: Create GitHub App Token
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
@@ -532,7 +544,9 @@ jobs:
       (needs.generate_changelog.result == 'success' || needs.generate_changelog.result == 'skipped')
     runs-on: ${{ inputs.runner_type }}
     environment:
-      name: create_release
+      # `beta` on develop, `stable` on main — see the note on the first
+      # environment block in this file.
+      name: ${{ github.ref_name == 'main' && 'stable' || 'beta' }}
     permissions:
       contents: write
       pull-requests: write
@@ -580,7 +594,9 @@ jobs:
     if: inputs.enable_major_tag && needs.publish_release_status.outputs.release_published == 'true'
     runs-on: ${{ vars.GENERAL_RUNNERS || inputs.runner_type }}
     environment:
-      name: create_release
+      # `beta` on develop, `stable` on main — see the note on the first
+      # environment block in this file.
+      name: ${{ github.ref_name == 'main' && 'stable' || 'beta' }}
     permissions:
       contents: write
     steps:

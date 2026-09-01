@@ -191,6 +191,25 @@ Commits to `main` branch create production releases:
 - Pre-release: No
 - Use case: Production deployment
 
+### Deployment Environments
+
+The release jobs run under a GitHub Environment named after the channel:
+
+| Ref | Environment |
+|---|---|
+| `main` | `stable` |
+| anything else (`develop`, `release-candidate`, …) | `beta` |
+
+Two things about this are easy to get wrong.
+
+**The environments belong to your repository, not to this one.** A reusable workflow's jobs run in the caller's context, so `environment: stable` resolves against *your* repo. GitHub creates both on first use, with **no protection rules and no branch policy** — they start as deployment history and nothing more. If you want them to mean something, configure them in your repo: a deployment branch policy (`main` for `stable`, `develop` for `beta`), environment secrets scoped per channel, or required reviewers to gate cutting a stable release.
+
+Worth knowing if you add reviewers later: *Allow administrators to bypass configured protection rules* is checked by default and lets an admin skip the approval. The deployment branch policy is **not** bypassable, by anyone — which is why it, and not the environment name, is what actually enforces where a release may run from.
+
+**`release-candidate` lands in `beta`.** The split is two-way, so an RC release enters an environment named `beta`. Nothing breaks — the name is just imprecise. If your repo needs RC isolated (its own secrets or its own policy), open an issue rather than working around it locally.
+
+Repositories released by an earlier version of this workflow will still have an orphaned `create_release` environment holding the old history. It is inert and safe to delete once you no longer need that history.
+
 ## Configuration
 
 The workflow uses `.releaserc.yml` for all branches (no separate hotfix configuration).

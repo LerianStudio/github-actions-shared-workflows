@@ -190,6 +190,10 @@ Commits to `main` branch create production releases:
 - Pre-release: No
 - Use case: Production deployment
 
+### Deployment Environments
+
+`publish_release` runs under `stable` on `main` and `beta` on any other ref. The environments are created in **your** repository on first use, with no protection rules and no branch policy — see [Deployment Environments in `release-workflow.md`](release-workflow.md#deployment-environments) for what to configure and why the branch policy, not the environment name, is what enforces anything.
+
 ## Jobs
 
 ### prepare

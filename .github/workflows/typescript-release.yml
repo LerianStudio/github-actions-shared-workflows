@@ -106,7 +106,17 @@ jobs:
     env:
       GH_PACKAGES_TOKEN: ${{ secrets.GH_PAT_FOR_PACKAGES }}
     environment:
-      name: create_release
+      # `beta` on develop, `stable` on main. The environments live in the
+      # CALLER's repository, so every consumer gets its own pair, and its own
+      # branch policies if it configures them — nothing here is created or
+      # protected centrally.
+      #
+      # Choosing the name by expression is safe specifically because the
+      # environment's deployment branch policy is the enforcement: even if this
+      # expression resolved wrongly, GitHub refuses a deployment from a ref the
+      # environment does not allow, and that restriction is not bypassable by
+      # administrators. The expression states intent; the policy imposes it.
+      name: ${{ github.ref_name == 'main' && 'stable' || 'beta' }}
     name: Release ${{ matrix.app.name }}
     strategy:
       max-parallel: 1
