@@ -52,9 +52,14 @@ inputs:
     required: false
     default: ".releaserc.yml .github/*"
   curl-timeout:
-    description: Timeout for the webhook POST in seconds (LLM inference can take 60-120s, longer for large/complex diffs). Must stay in lockstep with ungoliant-controller's NEMOCLAW_TIMEOUT_SECONDS and its ingress proxy timeouts.
+    description: >-
+      Timeout for the webhook POST in seconds. This is the OUTERMOST budget in
+      the chain, so it must be LARGER than every hop it fronts — not equal to
+      them. Ordering today: bridge 780s < controller NEMOCLAW_TIMEOUT_SECONDS
+      900s < NPM edge and k8s ingress 960s <= this. See "Timeout budget" in
+      nemoclaw-platform/docs/integrations/ungoliant-controller.md.
     required: false
-    default: "900"
+    default: "960"
   dry-run:
     description: Resolve and preview the payload without firing the webhook
     required: false
