@@ -105,6 +105,21 @@ jobs:
       - name: Run pr-commit-signatures behavioural tests
         run: python3 src/validate/pr-commit-signatures/test.py
 
+  # ----------------- Lerian Lib Version Advisory Tests -----------------
+  lerian-lib-version-tests:
+    name: Lerian Lib Version Advisory Tests
+    runs-on: ${{ vars.GENERAL_RUNNERS || 'blacksmith-4vcpu-ubuntu-2404' }}
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+        with:
+          persist-credentials: false
+
+      - name: Run lerian-lib-version advisory behavioural tests
+        run: python3 src/validate/lerian-lib-version/test.py
+
   # ----------------- Ungoliant Release Diff Tests -----------------
   ungoliant-release-diff-tests:
     name: Ungoliant Release Diff Tests

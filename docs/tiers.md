@@ -113,4 +113,4 @@ The consequence is concrete: a tier controls *which orchestration* you run, not 
 
 - [`tier-promotion.md`](tier-promotion.md) — the controller, the gates, rollback
 - [`../config/tier-promotion.yml`](../config/tier-promotion.yml) — the flow declaration
-- [`version-propagation.md`](version-propagation.md) — the pin-rewrite model tiers replace, still running for repositories that pin a version
+- [`version-propagation.md`](version-propagation.md) — the pin-rewrite model tiers replaced; now disabled, kept as the rollback path

@@ -12,7 +12,7 @@ Umbrella reusable workflow for Go service repositories. A caller references this
 3. **Change gate** — detects whether the PR touches anything beyond docs/meta (`src/config/non-doc-changes`); documentation-only PRs skip the heavy pipelines.
 4. **Go analysis** — lint, tests, coverage and build (delegates to `go-pr-analysis.yml`), opt-in via `run_go_analysis`.
 5. **Security scan** — Trivy, CodeQL, prerelease checks (delegates to `pr-security-scan.yml`), opt-in via `run_security`.
-6. **Lerian lib version check** — fails when a direct Lerian library is behind its latest stable release (delegates to `lerian-lib-version-check.yml`), opt-in via `run_lib_version_check`.
+6. **Lerian lib version check** — fails when a direct Lerian library is behind its latest stable release (delegates to `lerian-lib-version-check.yml`), opt-in via `run_lib_version_check`. Can be made advisory on `hotfix/*` → `main` PRs only — see [Advisory lib version on hotfix PRs](#advisory-lib-version-on-hotfix-prs).
 7. **Permission manifest nudge (RI)** — **non-blocking** reminder that warns via a sticky PR comment when a `lib-auth` repo has no `permissions.yaml` manifest (delegates to `src/validate/permission-manifest-nudge`), opt-in via `run_manifest_nudge`. Never fails and is **not** a required check.
 
 The `go-analysis`, `security` and `lib-version` pipelines each have a `*-gate` aggregator job that exposes a single stable status-check name (`Go Analysis`, `Security`, `Lib Version`) for branch protection, regardless of the internal job names. All three are gated by the change detector, so documentation-only PRs skip them (and the aggregators still report success). If the change detector (`changes`) job itself fails, the aggregators propagate that failure instead of passing — so broken change detection cannot let the required checks go green.
@@ -41,6 +41,7 @@ The `go-analysis`, `security` and `lib-version` pipelines each have a `*-gate` a
 | `lib_version_go_mod_path` | Path to go.mod for the Lerian lib check | string | `go.mod` |
 | `lib_version_check_indirect` | Also check transitive (indirect) Lerian deps | boolean | `false` |
 | `lib_version_comment_on_pr` | Post/update a sticky PR comment with the lib version table | boolean | `true` |
+| `lib_version_non_blocking_for_hotfix_to_main` | Report an outdated Lerian library as advisory instead of blocking on `hotfix/*` → `main` PRs. See [Advisory lib version on hotfix PRs](#advisory-lib-version-on-hotfix-prs) | boolean | `false` |
 | `pr_title_types` | Allowed commit types (pipe-separated) | string | conventional set |
 | `pr_title_scopes` | Allowed scopes (pipe-separated, empty = any) | string | `''` |
 | `require_scope` | Require scope in PR title | boolean | `false` |
@@ -120,6 +121,43 @@ Part of the Access-Manager **Inversão de Responsabilidade (RI)** rollout. The `
 - **Never blocks:** the job runs with `continue-on-error: true`, the composite always exits 0, and there is **no** `*-gate` aggregator for it — so it must **not** be added to branch protection. Disable it entirely with `run_manifest_nudge: false`.
 
 See [`src/validate/permission-manifest-nudge`](../src/validate/permission-manifest-nudge/README.md) for the composite action details.
+
+## Advisory lib version on hotfix PRs
+
+`Lib Version` is a stable, blocking status check. On a `hotfix/*` → `main` pull request that is fine in principle and awkward in practice: bumping a Lerian library to clear the check expands the change past its corrective scope, and the bump may drag compatibility work that has no business riding a hotfix. Turning the check off (`run_lib_version_check: false`) or running the whole umbrella in `dry_run` both cost more than they buy — the first hides the information, the second weakens unrelated validations.
+
+`lib_version_non_blocking_for_hotfix_to_main: true` opts into a narrower exception:
+
+```yaml
+jobs:
+  validation:
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/go-pr-validation.yml@tier-1
+    with:
+      lib_version_non_blocking_for_hotfix_to_main: true
+```
+
+**Matching rule.** The exception applies only when all three hold: the input is `true`, `github.base_ref == 'main'`, and `github.head_ref` starts with `hotfix/`. Outside a `pull_request` event `head_ref` is empty, so nothing matches.
+
+| `lib_version_non_blocking_for_hotfix_to_main` | Head → base | Outdated Lerian lib | `Lib Version` check |
+|---|---|---|---|
+| `false` (default) | `hotfix/x` → `main` | yes | ❌ fails |
+| `false` (default) | any | yes | ❌ fails |
+| `true` | `hotfix/x` → `main` | yes | ✅ passes, reported as advisory |
+| `true` | `hotfix/x` → `main` | no | ✅ passes |
+| `true` | `hotfix/x` → `develop` | yes | ❌ fails |
+| `true` | `develop` → `main` | yes | ❌ fails |
+| `true` | `feat/x` → `main` | yes | ❌ fails |
+
+**What it does not soften.** The exception is applied inside the check itself (`outdated_non_blocking` on `lerian-lib-version-check.yml`), not at the `Lib Version` aggregator — mapping a failed job result to a pass at the gate would also swallow real failures. So on a matching hotfix PR the gate still fails when:
+
+- the change detector (`changes`) job fails;
+- `go.mod` is missing at `lib_version_go_mod_path`;
+- `go.mod` declares no `github.com/LerianStudio/*` dependency at all (company-standards violation);
+- checkout, the runner, or the reusable workflow itself fails.
+
+The check keeps running either way: the report and the sticky PR comment are still posted, headed `⚠️ Lerian Library Version Check — outdated (advisory)` with a note that the bump is still owed on the regular branch flow. The `has_outdated` output stays `true`, so a caller gating on it still sees the real state.
+
+The matrix above is enforced by [`src/validate/lerian-lib-version/test.py`](../src/validate/lerian-lib-version/test.py), which runs the composite's comparison step for real against pinned fixtures and asserts the matching rule against this table — so a change to either side that drifts from the other fails CI.
 
 ## Secrets
 
