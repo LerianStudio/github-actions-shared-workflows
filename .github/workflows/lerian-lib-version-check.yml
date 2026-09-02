@@ -42,9 +42,10 @@ on:
         description: >-
           Report outdated direct Lerian libs as a warning instead of failing. Deliberately narrow:
           it softens ONLY the "behind latest stable" verdict. A missing go.mod, a go.mod with no
-          Lerian libraries at all, and every other error keep failing the job, so an advisory
-          caller cannot turn a workflow-infrastructure failure into a pass. Unlike dry_run, the
-          report is a real one — no dry-run banner.
+          Lerian libraries at all, and every other blocking failure keep failing the job, so an
+          advisory caller cannot turn a workflow-infrastructure failure into a pass. Outcomes that
+          never failed are unchanged (an unresolvable release API stays a warning). Unlike dry_run,
+          the report is a real one — no dry-run banner.
         type: boolean
         default: false
       dry_run:

@@ -14,7 +14,7 @@ Self-controller that propagates a new `LerianStudio/github-actions-shared-workfl
 
 ## How it works
 
-```
+```text
 push to main
         ↓
 self-release.yml

@@ -101,7 +101,7 @@ jobs:
 | `check_indirect` | boolean | `false`                     | Also check transitive (`// indirect`) deps                                                   |
 | `comment_on_pr`  | boolean | `true`                      | Post / update a sticky comment on the PR with the result table                               |
 | `major_bump_grace_days` | string | `''`                | Per-invocation override for the major-bump grace window. Takes precedence over the `LERIAN_LIB_MAJOR_BUMP_GRACE_DAYS` variable; empty uses the variable, then defaults to `3`. |
-| `outdated_non_blocking` | boolean | `false`            | Report outdated direct libs as a warning instead of failing. Softens **only** the "behind latest stable" verdict — a missing `go.mod`, a `go.mod` with no Lerian libraries, and every other error still fail the job. Unlike `dry_run`, the report is a real one (no dry-run banner). |
+| `outdated_non_blocking` | boolean | `false`            | Report outdated direct libs as a warning instead of failing. Softens **only** the "behind latest stable" verdict — a missing `go.mod`, a `go.mod` with no Lerian libraries, and every other blocking failure still fail the job. Outcomes that never failed are unchanged (an unresolvable release API stays `⚠️ Unknown`). Unlike `dry_run`, the report is a real one (no dry-run banner). |
 | `dry_run`        | boolean | `false`                     | Verbose log of all resolved versions; never fails the build                                  |
 
 ## Major-bump grace window

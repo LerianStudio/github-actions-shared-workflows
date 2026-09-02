@@ -131,7 +131,7 @@ See [`src/validate/permission-manifest-nudge`](../src/validate/permission-manife
 ```yaml
 jobs:
   validation:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/go-pr-validation.yml@v1
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/go-pr-validation.yml@tier-1
     with:
       lib_version_non_blocking_for_hotfix_to_main: true
 ```
@@ -155,7 +155,9 @@ jobs:
 - `go.mod` declares no `github.com/LerianStudio/*` dependency at all (company-standards violation);
 - checkout, the runner, or the reusable workflow itself fails.
 
-The check keeps running either way: the report and the sticky PR comment are still posted, headed `⚠️ Lerian Library Version Check — outdated (advisory)` with a note that the bump is still owed on the regular branch flow.
+The check keeps running either way: the report and the sticky PR comment are still posted, headed `⚠️ Lerian Library Version Check — outdated (advisory)` with a note that the bump is still owed on the regular branch flow. The `has_outdated` output stays `true`, so a caller gating on it still sees the real state.
+
+The matrix above is enforced by [`src/validate/lerian-lib-version/test.py`](../src/validate/lerian-lib-version/test.py), which runs the composite's comparison step for real against pinned fixtures and asserts the matching rule against this table — so a change to either side that drifts from the other fails CI.
 
 ## Secrets
 

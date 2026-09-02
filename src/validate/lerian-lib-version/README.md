@@ -25,7 +25,7 @@ A sticky PR comment summarises the result. An optional `.lerianstudiolibignore` 
 | `major-bump-grace-days` | Grace window (in days) for major-version bumps. A major bump is tolerated while the latest release is younger than this many days; minor/patch bumps are enforced immediately. Set to `0` to disable. | No | `3`                        |
 | `comment-on-pr`   | Post or update a sticky comment on the PR with the result table.                                | No       | `true`                     |
 | `comment-token`   | Token used to post/update the sticky PR comment. Falls back to `github-token` when empty. Must be an org-scoped PAT (e.g., `MANAGE_TOKEN`) with pull-requests:write when calling from a nested reusable workflow, because `github.token` in that context is scoped to the shared-workflows repo, not the caller. | No | `""` |
-| `outdated-non-blocking` | Report outdated direct libs as a warning instead of failing. Softens **only** the "behind latest stable" verdict — a missing `go.mod`, a `go.mod` with no Lerian libraries, and every other error still fail the step. Unlike `dry-run`, the report is a real one (no dry-run banner). | No | `false` |
+| `outdated-non-blocking` | Report outdated direct libs as a warning instead of failing. Softens **only** the "behind latest stable" verdict — a missing `go.mod`, a `go.mod` with no Lerian libraries, and every other blocking failure still fail the step. Outcomes that never failed are unchanged (an unresolvable release API stays `⚠️ Unknown`). Unlike `dry-run`, the report is a real one (no dry-run banner). | No | `false` |
 | `dry-run`         | Verbose log of all resolved versions; never fails the build.                                    | No       | `false`                    |
 
 ## Outputs
@@ -126,6 +126,14 @@ permissions:
   contents: read
   pull-requests: write   # to post / update the sticky comment
 ```
+
+## Tests
+
+```bash
+python3 src/validate/lerian-lib-version/test.py
+```
+
+Covers the `outdated-non-blocking` advisory path: the blocking and advisory verdicts, the advisory report markers, and that a missing `go.mod` or a `go.mod` with no Lerian libraries still fails under the exception. The fixtures pin every library through `.lerianstudiolibignore`, which makes the composite skip the releases API — so the suite is hermetic and needs no token or network. Requires bash 4+ (the composite uses associative arrays); the suite skips the executable layer on bash 3.
 
 ## Implementation notes
 

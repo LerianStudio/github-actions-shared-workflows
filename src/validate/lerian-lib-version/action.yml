@@ -38,9 +38,10 @@ inputs:
     description: |
       Report outdated direct Lerian libs as a warning instead of failing. Narrow by design: it
       only softens the "N dependencies are behind latest stable" verdict. A missing go.mod, a
-      go.mod with no Lerian libraries at all, and any other error still fail the step. Use it to
-      keep the check visible on a path where a lib bump is out of scope (e.g. a hotfix), without
-      turning the whole check off.
+      go.mod with no Lerian libraries at all, and every other blocking failure still fail the
+      step. Outcomes that never failed are unchanged — an unresolvable release API is still a
+      warning marked `⚠️ Unknown`. Use it to keep the check visible on a path where a lib bump is
+      out of scope (e.g. a hotfix), without turning the whole check off.
     required: false
     default: "false"
   dry-run:
