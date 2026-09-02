@@ -90,7 +90,7 @@ it is best-effort and never fails the release.
 
 ## Timeout budget
 
-```
+```text
 bridge 780s  <  controller 900s  <  edge/ingress 960s  <  curl-timeout 1020s
 ```
 
