@@ -36,7 +36,7 @@ jobs:
 ```yaml
 jobs:
   cleanup:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/workflow-runs-cleanup.yml@v1.19.0
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/workflow-runs-cleanup.yml@tier-1
     with:
       retention_days: 90
     secrets: inherit

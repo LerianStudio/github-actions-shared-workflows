@@ -51,7 +51,7 @@ permissions:
 jobs:
   release:
     name: Create Release
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/typescript-release.yml@v1.0.0
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/typescript-release.yml@tier-1
     secrets: inherit
 ```
 
@@ -60,7 +60,7 @@ jobs:
 ```yaml
 jobs:
   release:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/typescript-release.yml@v1.0.0
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/typescript-release.yml@tier-1
     with:
       runner_type: "blacksmith-4vcpu-ubuntu-2404"
       node_version: "22"
@@ -72,7 +72,7 @@ jobs:
 ```yaml
 jobs:
   release:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/typescript-release.yml@v1.0.0
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/typescript-release.yml@develop
     with:
       dry_run: true
     secrets: inherit
@@ -85,7 +85,7 @@ This runs semantic-release without creating tags, GitHub releases, or pushing co
 ```yaml
 jobs:
   release:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/typescript-release.yml@v1.0.0
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/typescript-release.yml@tier-1
     with:
       filter_paths: |
         apps/api
@@ -121,7 +121,7 @@ jobs:
 
   release:
     needs: test
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/typescript-release.yml@v1.0.0
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/typescript-release.yml@tier-1
     with:
       runner_type: "blacksmith-4vcpu-ubuntu-2404"
       node_version: "20"
@@ -138,6 +138,7 @@ jobs:
 | `filter_paths` | string | `''` | No | Newline-separated list of path prefixes for monorepo filtering |
 | `path_level` | string | `2` | No | Limits the path to the first N segments (e.g., `2` → `apps/agent`) |
 | `dry_run` | boolean | `false` | No | Run semantic-release in dry-run mode (no tags/releases created) |
+| `environment_name` | string | `''` | No | Overrides the per-channel deployment environment for this run. Empty keeps `stable`/`rc`/`beta` by ref |
 
 ## Secrets
 
@@ -189,6 +190,12 @@ Commits to `main` branch create production releases:
 - Version: `v1.2.3`
 - Pre-release: No
 - Use case: Production deployment
+
+### Deployment Environments
+
+`publish_release` runs under `stable` on `main`, `rc` on `release-candidate`, and `beta` on any other ref — mirroring the branch strategy above. The environments are created in **your** repository on first use, with no protection rules and no branch policy, and you only get the ones your branching actually uses.
+
+See [Deployment Environments in `release-workflow.md`](release-workflow.md#deployment-environments) for what to configure and why the branch policy, not the environment name, is what enforces anything.
 
 ## Jobs
 

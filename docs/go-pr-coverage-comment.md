@@ -25,7 +25,7 @@ on:
 jobs:
   comment:
     if: github.event.workflow_run.event == 'pull_request'
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/go-pr-coverage-comment.yml@v1.0.0
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/go-pr-coverage-comment.yml@tier-1
     with:
       source_run_id: ${{ github.event.workflow_run.id }}
       head_sha: ${{ github.event.workflow_run.head_sha }}

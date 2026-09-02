@@ -172,7 +172,7 @@ permissions:
 jobs:
   validate:
     # Testing: @develop or @feat/<branch> · Production: pinned @vX.Y.Z
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/js-pr-validation.yml@v1
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/js-pr-validation.yml@tier-1
     with:
       app_name_prefix: "lerian-map"
       coverage_threshold: 85
@@ -190,7 +190,7 @@ jobs:
 ```yaml
 jobs:
   validate:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/js-pr-validation.yml@v1
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/js-pr-validation.yml@tier-1
     with:
       enable_docker_scan: false
       coverage_threshold: 80
@@ -203,7 +203,7 @@ jobs:
 ```yaml
 jobs:
   validate:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/js-pr-validation.yml@v1
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/js-pr-validation.yml@tier-1
     with:
       enable_docker_scan: false
       enable_build: false

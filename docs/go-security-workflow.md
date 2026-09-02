@@ -33,7 +33,7 @@ on:
 
 jobs:
   security:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/go-security.yml@v1.0.0
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/go-security.yml@tier-1
 ```
 
 ### Custom Configuration
@@ -44,7 +44,7 @@ on: [push, pull_request]
 
 jobs:
   security:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/go-security.yml@v1.0.0
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/go-security.yml@tier-1
     with:
       go_version: '1.23'
       enable_gosec: true
@@ -64,7 +64,7 @@ on: [push, pull_request]
 
 jobs:
   security:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/go-security.yml@v1.0.0
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/go-security.yml@tier-1
     with:
       # Only run critical scanners
       enable_gosec: true
@@ -135,7 +135,7 @@ Aggregate summary of all security scans.
 ```yaml
 jobs:
   security:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/go-security.yml@v1.0.0
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/go-security.yml@tier-1
 ```
 
 ### Critical Scanners Only
@@ -143,7 +143,7 @@ jobs:
 ```yaml
 jobs:
   security:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/go-security.yml@v1.0.0
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/go-security.yml@tier-1
     with:
       enable_gosec: true
       enable_govulncheck: true
@@ -159,7 +159,7 @@ jobs:
 ```yaml
 jobs:
   security:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/go-security.yml@v1.0.0
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/go-security.yml@tier-1
     with:
       fail_on_security_issues: false
 ```
@@ -177,7 +177,7 @@ on:
 
 jobs:
   security:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/go-security.yml@v1.0.0
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/go-security.yml@tier-1
 ```
 
 ## Tips
