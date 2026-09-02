@@ -42,17 +42,11 @@ jobs:
       enable_major_tag: ${{ github.ref == 'refs/heads/main' }}
     secrets: inherit
 
-  # After every stable release on main, propagate the new `@vX.Y.Z` pin to
-  # every downstream repo declared in `config/version-propagation.yml`.
-  # Idempotent: targets already on the latest tag are skipped at apply time.
-  propagate-version:
-    needs: publish-release
-    if: github.ref == 'refs/heads/main' && needs.publish-release.result == 'success'
-    uses: ./.github/workflows/version-propagation.yml
-    with:
-      new_tag: ""           # auto-resolve from `gh release list` in the workflow
-      dry_run: false
-    secrets: inherit
+  # The `propagate-version` job that rewrote `@vX.Y.Z` pins in each downstream
+  # repository was removed: the tier channels below replaced it, and every entry
+  # in `config/version-propagation.yml` is now `enabled: false`. The reusable
+  # workflow and its matrix are kept as the rollback path — re-add a job calling
+  # `./.github/workflows/version-propagation.yml` to resume.
 
   # After every stable release on main, walk the new tag through the tier
   # branches declared in `config/tier-promotion.yml`: tier-0 immediately, then
@@ -71,10 +65,8 @@ jobs:
   #   re-resolve "latest stable" would race a concurrent release and promote a
   #   different tag than the one this run published.
   #
-  # Runs alongside `propagate-version` rather than replacing it: moving a tier
-  # branch is a no-op for a repository that still pins `@vX.Y.Z`, so both models
-  # coexist while consumer pins migrate. Remove `propagate-version` once every
-  # consumer pins a tier.
+  # This is now the only propagation model: a repository still pinning `@vX.Y.Z`
+  # simply stops receiving automatic bumps and must migrate to a tier channel.
   promote-tiers:
     needs: publish-release
     if: >-
