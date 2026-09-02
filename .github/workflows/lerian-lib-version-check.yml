@@ -7,6 +7,8 @@ name: "Lerian Library Version Check"
 #   - one or more direct LerianStudio deps are behind the latest stable release (no entry in .lerianstudiolibignore).
 #
 # A missing .lerianstudiolibignore file produces a warning, not a failure.
+# `outdated_non_blocking: true` downgrades ONLY the second failure above to a
+# warning; the first one and any infrastructure error still fail the job.
 # Posts a sticky PR comment with the result table.
 
 on:
@@ -36,6 +38,15 @@ on:
         description: 'Grace window (days) for major-version bumps, for this invocation. Takes precedence over the LERIAN_LIB_MAJOR_BUMP_GRACE_DAYS repository variable; when empty the variable is used, falling back to 3. Set to "0" to disable.'
         type: string
         default: ''
+      outdated_non_blocking:
+        description: >-
+          Report outdated direct Lerian libs as a warning instead of failing. Deliberately narrow:
+          it softens ONLY the "behind latest stable" verdict. A missing go.mod, a go.mod with no
+          Lerian libraries at all, and every other error keep failing the job, so an advisory
+          caller cannot turn a workflow-infrastructure failure into a pass. Unlike dry_run, the
+          report is a real one — no dry-run banner.
+        type: boolean
+        default: false
       dry_run:
         description: 'Verbose log of all resolved versions; never fails the build'
         type: boolean
@@ -100,4 +111,5 @@ jobs:
           check-indirect: ${{ inputs.check_indirect && 'true' || 'false' }}
           comment-on-pr: ${{ inputs.comment_on_pr && 'true' || 'false' }}
           major-bump-grace-days: ${{ inputs.major_bump_grace_days || vars.LERIAN_LIB_MAJOR_BUMP_GRACE_DAYS || '3' }}
+          outdated-non-blocking: ${{ inputs.outdated_non_blocking && 'true' || 'false' }}
           dry-run: ${{ inputs.dry_run && 'true' || 'false' }}

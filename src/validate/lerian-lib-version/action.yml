@@ -34,6 +34,15 @@ inputs:
     description: Token used to post the sticky PR comment. Must have pull-requests:write on the caller repo. Defaults to github-token when unset.
     required: false
     default: ""
+  outdated-non-blocking:
+    description: |
+      Report outdated direct Lerian libs as a warning instead of failing. Narrow by design: it
+      only softens the "N dependencies are behind latest stable" verdict. A missing go.mod, a
+      go.mod with no Lerian libraries at all, and any other error still fail the step. Use it to
+      keep the check visible on a path where a lib bump is out of scope (e.g. a hotfix), without
+      turning the whole check off.
+    required: false
+    default: "false"
   dry-run:
     description: Verbose log of all resolved versions; never fails the build.
     required: false
@@ -77,6 +86,7 @@ runs:
         IGNORE_FILE: ${{ inputs.ignore-file }}
         CHECK_INDIRECT: ${{ inputs.check-indirect }}
         GRACE_DAYS: ${{ inputs.major-bump-grace-days }}
+        OUTDATED_NON_BLOCKING: ${{ inputs.outdated-non-blocking }}
         DRY_RUN: ${{ inputs.dry-run }}
         GH_TOKEN: ${{ inputs.github-token }}
       run: |
@@ -439,7 +449,11 @@ runs:
         # ---------- 5. Build markdown report ----------
         # Header reflects the overall outcome at a glance.
         if [[ "${OUTDATED}" -gt 0 ]]; then
-          HEADER="## 🔴 Lerian Library Version Check — action required"
+          if [[ "${OUTDATED_NON_BLOCKING}" == "true" ]]; then
+            HEADER="## ⚠️ Lerian Library Version Check — outdated (advisory)"
+          else
+            HEADER="## 🔴 Lerian Library Version Check — action required"
+          fi
         elif [[ "${GRACE}" -gt 0 || "${SKIPPED}" -gt 0 || "${UNKNOWN}" -gt 0 ]]; then
           HEADER="## ⚠️ Lerian Library Version Check — review needed"
         else
@@ -457,6 +471,9 @@ runs:
           echo
           if [[ "${OUTDATED}" -gt 0 ]]; then
             echo "> Bump the outdated libraries, or add temporary entries to \`${IGNORE_FILE}\`."
+            if [[ "${OUTDATED_NON_BLOCKING}" == "true" ]]; then
+              echo "> ℹ️ **Advisory on this pull request** — the caller marked the outdated result as non-blocking, so this check does not fail. The bump is still owed: land it on the regular branch flow."
+            fi
           fi
           if [[ "${GRACE}" -gt 0 ]]; then
             echo "> 🕒 ${GRACE} major bump(s) are within the grace period. The grace period applies to major bumps only and lasts ${GRACE_DAYS} days — bump them before it expires, or the check will start failing."
@@ -479,9 +496,16 @@ runs:
         } >> "${GITHUB_OUTPUT}"
 
         # Final verdict
+        #
+        # Only THIS branch is softened by outdated-non-blocking. Every earlier
+        # exit above (missing go.mod, no Lerian libraries in go.mod) stays fatal,
+        # so an advisory caller cannot turn an infrastructure or standards
+        # failure into a green check.
         if [[ "${OUTDATED}" -gt 0 ]]; then
           if [[ "${DRY_RUN}" == "true" ]]; then
             log "::warning title=Outdated Lerian libraries detected::${OUTDATED} direct dependency(ies) are behind latest stable. (dry-run, not failing)"
+          elif [[ "${OUTDATED_NON_BLOCKING}" == "true" ]]; then
+            log "::warning title=Outdated Lerian libraries detected::${OUTDATED} direct dependency(ies) are behind latest stable. Reported as advisory (outdated-non-blocking), not failing."
           else
             echo "::error title=Outdated Lerian libraries::${OUTDATED} direct dependency(ies) are behind latest stable. Bump them, or add to ${IGNORE_FILE}."
             exit 1

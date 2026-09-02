@@ -25,6 +25,7 @@ A sticky PR comment summarises the result. An optional `.lerianstudiolibignore` 
 | `major-bump-grace-days` | Grace window (in days) for major-version bumps. A major bump is tolerated while the latest release is younger than this many days; minor/patch bumps are enforced immediately. Set to `0` to disable. | No | `3`                        |
 | `comment-on-pr`   | Post or update a sticky comment on the PR with the result table.                                | No       | `true`                     |
 | `comment-token`   | Token used to post/update the sticky PR comment. Falls back to `github-token` when empty. Must be an org-scoped PAT (e.g., `MANAGE_TOKEN`) with pull-requests:write when calling from a nested reusable workflow, because `github.token` in that context is scoped to the shared-workflows repo, not the caller. | No | `""` |
+| `outdated-non-blocking` | Report outdated direct libs as a warning instead of failing. Softens **only** the "behind latest stable" verdict — a missing `go.mod`, a `go.mod` with no Lerian libraries, and every other error still fail the step. Unlike `dry-run`, the report is a real one (no dry-run banner). | No | `false` |
 | `dry-run`         | Verbose log of all resolved versions; never fails the build.                                    | No       | `false`                    |
 
 ## Outputs
@@ -43,7 +44,9 @@ A sticky PR comment summarises the result. An optional `.lerianstudiolibignore` 
 |----------------------------------------------------------|-----------------------------------------------------------|
 | `go.mod` not found at `go-mod-path`                      | **Fail** with `::error`                                   |
 | No `github.com/LerianStudio/*` deps in `go.mod`          | **Fail** — service must use at least one Lerian library    |
-| One or more direct Lerian libs are outdated (minor/patch, or expired major) | **Fail** unless `dry-run: true`         |
+| One or more direct Lerian libs are outdated (minor/patch, or expired major) | **Fail** unless `dry-run: true` or `outdated-non-blocking: true` |
+| Outdated lib with `outdated-non-blocking: true`          | `::warning` — report headed _advisory_, does not fail       |
+| `go.mod` missing / no Lerian deps, with `outdated-non-blocking: true` | Still **fail** — the input is scoped to the outdated verdict |
 | Major bump with latest release younger than `major-bump-grace-days` | Tolerated — marked `🕒 Grace`, does not fail    |
 | `.lerianstudiolibignore` does not exist                  | `::warning` — proceed normally                             |
 | A lib is matched by an ignore-skip rule                  | Skipped, marked `⏭️ Skipped` in the report                 |
