@@ -79,6 +79,12 @@ jobs:
 
 A ref that does not match `branch_pattern` resolves to no product and the job does nothing, so the workflow is safe to point at a broader trigger than the product branches themselves.
 
+## Syncs do not produce a preview
+
+A push whose head commit is marked as a backmerge is skipped before anything runs. A sync carries no work of its own, so there is nothing to preview — and without the guard the branch is rebuilt every time `develop` moves, which on a repository with seven product branches is seven images per push, each one to store and later prune.
+
+The marker is the same one `release.yml` skips a release on, so a backmerge is inert across both paths.
+
 ## Required permissions
 
 ```yaml
