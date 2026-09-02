@@ -120,7 +120,7 @@ permissions:
 jobs:
   pipeline:
     # Testing: @develop or @feat/<branch> · Production: pinned @vX.Y.Z
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/js-release.yml@v1
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/js-release.yml@tier-1
     with:
       enable_ghcr: true
       enable_gitops_artifacts: true
@@ -136,7 +136,7 @@ Use `force_full_matrix: true` when components must always be released together w
 ```yaml
 jobs:
   pipeline:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/js-release.yml@v1
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/js-release.yml@tier-1
     with:
       enable_ghcr: true
       enable_gitops_artifacts: true
@@ -157,7 +157,7 @@ Self-contained: no real backend required. Playwright spins up its own mock serve
 ```yaml
 jobs:
   pipeline:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/js-release.yml@vX.Y.Z
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/js-release.yml@tier-1
     with:
       enable_ghcr: true
       enable_e2e: true
@@ -172,7 +172,7 @@ Runs against a deployed staging URL injected via `BASE_URL`.
 ```yaml
 jobs:
   pipeline:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/js-release.yml@vX.Y.Z
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/js-release.yml@tier-1
     with:
       enable_ghcr: true
       enable_e2e: true
@@ -202,7 +202,7 @@ s3://lerian-e2e-artifacts/product-console/beta/v1.10.0-beta.5/playwright-report/
 ```yaml
 jobs:
   pipeline:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/js-release.yml@vX.Y.Z
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/js-release.yml@tier-1
     with:
       enable_ghcr: true
       enable_e2e: true
@@ -221,13 +221,13 @@ Before — two workflow files in the caller repo:
 # release.yml
 jobs:
   release:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/typescript-release.yml@v1
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/typescript-release.yml@tier-1
     secrets: inherit
 
 # build.yml
 jobs:
   build:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/typescript-build.yml@v1
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/typescript-build.yml@tier-1
     with:
       enable_ghcr: true
       enable_gitops_artifacts: true
@@ -235,7 +235,7 @@ jobs:
 
   gitops:
     needs: build
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/gitops-update.yml@v1
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/gitops-update.yml@tier-1
     with:
       gitops_repository: "LerianStudio/midaz-firmino-gitops"
       yaml_key_mappings: '{"my-app.tag": ".api.image.tag"}'
@@ -248,7 +248,7 @@ After — one workflow file:
 # release.yml
 jobs:
   pipeline:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/js-release.yml@v1
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/js-release.yml@tier-1
     with:
       enable_ghcr: true
       enable_gitops_artifacts: true
@@ -285,7 +285,7 @@ Compose behaviour with `ungoliant_env_type` (`chaos` default, `fuzzing` supporte
 ```yaml
 jobs:
   pipeline:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/js-release.yml@v1
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/js-release.yml@tier-1
     with:
       enable_ungoliant_release_diff: true
       ungoliant_env_type: chaos

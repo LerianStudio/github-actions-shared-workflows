@@ -41,6 +41,11 @@ on:
         description: 'Run semantic-release in dry-run mode (no tags/releases created)'
         type: boolean
         default: false
+      environment_name:
+        description: 'Overrides the per-channel deployment environment for this run. Empty (default) keeps `stable` on main, `rc` on release-candidate and `beta` on anything else. Scope it with your own expression so the split still applies to other refs.'
+        type: string
+        required: false
+        default: ''
 
 jobs:
   prepare:
@@ -106,7 +111,24 @@ jobs:
     env:
       GH_PACKAGES_TOKEN: ${{ secrets.GH_PAT_FOR_PACKAGES }}
     environment:
-      name: create_release
+      # `stable` on main, `rc` on release-candidate, `beta` on anything else.
+      # The three-way split follows the branch strategy this workflow supports
+      # for its CONSUMERS, not the branches this repository happens to use —
+      # shared-workflows has no release-candidate, and that is irrelevant to the
+      # contract.
+      #
+      # The environments live in the CALLER's repository, so every consumer gets
+      # its own set, and its own branch policies if it configures them. Nothing
+      # here is created or protected centrally. A repository that never pushes to
+      # release-candidate never gets an `rc` environment: GitHub creates one only
+      # when a job referencing it actually runs.
+      #
+      # Choosing the name by expression is safe specifically because the
+      # environment's deployment branch policy is the enforcement: even if this
+      # expression resolved wrongly, GitHub refuses a deployment from a ref the
+      # environment does not allow, and that restriction is not bypassable by
+      # administrators. The expression states intent; the policy imposes it.
+      name: ${{ inputs.environment_name != '' && inputs.environment_name || github.ref == 'refs/heads/main' && 'stable' || github.ref == 'refs/heads/release-candidate' && 'rc' || 'beta' }}
     name: Release ${{ matrix.app.name }}
     strategy:
       max-parallel: 1

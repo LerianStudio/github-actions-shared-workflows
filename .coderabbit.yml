@@ -70,13 +70,13 @@ reviews:
     - path: "src/**/README.md"
       instructions: |
         Composite action README. Verify inputs table matches `action.yml` exactly (name, required, default).
-        Flag any usage example that references `@main` — examples must use `@develop` or `@feat/<branch>` for testing and `@vX.Y.Z` for production.
+        Flag any usage example that references `@main`. Production examples pin a tier channel (`@tier-0`/`@tier-1`/`@tier-2`); testing examples use `@develop` or `@feat/<branch>`. An exact `@vX.Y.Z` is not wrong but opts the caller out of the promotion rings, so do not teach it as the default.
 
     - path: "docs/*.md"
       instructions: |
         Workflow documentation. Filename must exactly match the workflow file (e.g., `go-ci.yml` → `docs/go-ci.md`).
         Flag if inputs table is out of sync with the corresponding workflow changes in this PR.
-        Flag any usage example that references `@main` — examples must use `@develop` or `@feat/<branch>` for testing and `@vX.Y.Z` for production.
+        Flag any usage example that references `@main`. Production examples pin a tier channel (`@tier-0`/`@tier-1`/`@tier-2`); testing examples use `@develop` or `@feat/<branch>`. An exact `@vX.Y.Z` is not wrong but opts the caller out of the promotion rings, so do not teach it as the default.
 
   auto_review:
     # Nothing is reviewed automatically. `Self — PR Validation` posts

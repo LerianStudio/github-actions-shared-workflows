@@ -24,7 +24,7 @@ on:
 
 jobs:
   build:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/build.yml@v1.0.0
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/build.yml@tier-1
     with:
       runner_type: "firmino-lxc-runners"
       enable_dockerhub: true
@@ -44,7 +44,7 @@ on:
 
 jobs:
   build:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/build.yml@v1.0.0
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/build.yml@tier-1
     with:
       runner_type: "firmino-lxc-runners"
       filter_paths: |-
@@ -71,7 +71,7 @@ on:
 
 jobs:
   build:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/build.yml@v1.0.0
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/build.yml@tier-1
     with:
       filter_paths: |-
         components/api
@@ -84,7 +84,7 @@ jobs:
   update_gitops:
     needs: [build]
     if: contains(github.ref, '-beta') || contains(github.ref, '-rc')
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/gitops-update.yml@v1.0.0
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/gitops-update.yml@tier-1
     with:
       gitops_repository: "MyOrg/gitops-repo"
       artifact_pattern: "gitops-tags-myapp-*"
@@ -288,7 +288,7 @@ Only enable `helm_dispatch_on_rc` or `helm_dispatch_on_beta` when there is a del
 # ✅ Correct — production-only dispatch (recommended)
 jobs:
   build:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/build.yml@v1.28.5
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/build.yml@tier-1
     with:
       enable_helm_dispatch: true
       helm_chart: my-chart
@@ -300,7 +300,7 @@ jobs:
 # ⚠️ Opt-in — only when intentional, document why
 jobs:
   build:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/build.yml@v1.28.5
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/build.yml@tier-1
     with:
       enable_helm_dispatch: true
       helm_chart: my-chart
@@ -351,7 +351,7 @@ permissions:
 ```yaml
 jobs:
   build:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/build.yml@v1.0.0
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/build.yml@tier-1
     with:
       enable_cosign_sign: false
     secrets: inherit
@@ -368,7 +368,7 @@ Cosign signing depends on the Sigstore OIDC/Fulcio infrastructure, which can hit
 ```yaml
 jobs:
   build:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/build.yml@v1.28.5
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/build.yml@tier-1
     with:
       enable_cosign_sign: true
       cosign_max_attempts: 5

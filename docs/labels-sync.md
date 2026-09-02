@@ -65,7 +65,7 @@ on:
 
 jobs:
   sync:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/labels-sync.yml@v1.0.0
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/labels-sync.yml@tier-1
     with:
       dry_run: ${{ inputs.dry_run || false }}
     secrets: inherit
@@ -88,7 +88,7 @@ jobs:
 ```yaml
 jobs:
   sync:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/labels-sync.yml@v1.0.0
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/labels-sync.yml@tier-1
     with:
       skip_delete: true
     secrets: inherit
@@ -99,7 +99,7 @@ jobs:
 ```yaml
 jobs:
   sync:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/labels-sync.yml@v1.0.0
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/labels-sync.yml@tier-1
     with:
       config: ".github/custom-labels.yml"
     secrets: inherit

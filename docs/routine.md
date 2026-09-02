@@ -103,7 +103,7 @@ permissions:
 
 jobs:
   routine:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/routine.yml@v1
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/routine.yml@tier-1
     with:
       routine: ${{ inputs.routine || 'all' }}
       dry_run: ${{ inputs.dry_run || false }}
@@ -116,7 +116,7 @@ jobs:
 ```yaml
 jobs:
   routine:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/routine.yml@v1
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/routine.yml@tier-1
     with:
       routine: all
       branch_stale_days: 45
@@ -135,7 +135,7 @@ Use `extra_protected_branches` when you only want to add patterns to the default
 ```yaml
 jobs:
   routine:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/routine.yml@v1
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/routine.yml@tier-1
     with:
       extra_protected_branches: "develop-*,feature-stable"
       merged_branch: ${{ github.head_ref }}
@@ -147,7 +147,7 @@ Use `protected_branches` to fully override the default (not recommended unless y
 ```yaml
 jobs:
   routine:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/routine.yml@v1
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/routine.yml@tier-1
     with:
       protected_branches: "main,trunk,prod-*"
       merged_branch: ${{ github.head_ref }}

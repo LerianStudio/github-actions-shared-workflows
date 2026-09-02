@@ -114,11 +114,20 @@ Pass `secrets: inherit` from the caller.
 
 | Secret | Required | Description |
 |---|---|---|
-| `MANAGE_TOKEN` | Yes | Pushes the promotion and opens the fallback PR. A PAT rather than `GITHUB_TOKEN` on purpose: a PR opened by `GITHUB_TOKEN` does not trigger workflows, which would leave a fallback PR with no checks and therefore unmergeable. |
+| `LERIAN_STUDIO_MIDAZ_PUSH_BOT_APP_ID` | Yes | GitHub App client ID. The App's installation token pushes the promotion and opens the fallback PR |
+| `LERIAN_STUDIO_MIDAZ_PUSH_BOT_PRIVATE_KEY` | Yes | GitHub App private key |
 | `LERIAN_CI_CD_USER_GPG_KEY` | Yes | The `tier-rule` ruleset requires signed commits on `refs/heads/tier-*` |
 | `LERIAN_CI_CD_USER_GPG_KEY_PASSWORD` | Yes | GPG passphrase |
 | `LERIAN_CI_CD_USER_NAME` | Yes | Committer name (Lerian CI/CD identity) |
 | `LERIAN_CI_CD_USER_EMAIL` | Yes | Committer email |
+
+### Why a GitHub App and not a PAT
+
+An App identity can be granted ruleset bypass on its own. That is what makes it possible to require a pull request on `refs/heads/tier-*` for everyone else while the promotion still pushes directly — the alternative was granting that exemption to a team of humans, which is the opposite of what the requirement is for.
+
+It also has to be an App rather than `GITHUB_TOKEN`: a pull request opened by `GITHUB_TOKEN` does not trigger workflows, so the fallback PR would arrive with no checks and be unmergeable in any repository that gates on them.
+
+The signing identity is separate and unchanged: commits are signed by the GPG key imported in the step after, because `tiers-rule` requires signed commits on the tier branches.
 
 ## Config and job chain must agree
 
@@ -170,11 +179,12 @@ Two details there are load-bearing. The `new_release_published` gate: semantic-r
 
 ## Not covered here
 
-- **Self-reference rewriting.** The workflows in `.github/workflows/` carry absolute self-references (`uses: LerianStudio/github-actions-shared-workflows/src/...@v1`), so a consumer pinned to a tier still resolves those composites from `v1`. Rewriting them to the promoting tier is required for a tier to be a self-consistent channel, and is not part of this workflow yet.
+- **Self-reference rewriting.** The workflows in `.github/workflows/` carry absolute self-references (`uses: LerianStudio/github-actions-shared-workflows/src/...@tier-1`), so a consumer pinned to a tier still resolves those composites from `v1`. Rewriting them to the promoting tier is required for a tier to be a self-consistent channel, and is not part of this workflow yet.
 - **Active canary validation.** Dispatching real workflow runs in canary repositories to prove a tier before the next one is promoted.
 
 ## Related
 
+- [`tiers.md`](tiers.md) — the consumer-facing view: what a tier is, how to choose one, what the flow looks like from the outside
 - [`config/tier-promotion.yml`](../config/tier-promotion.yml) — the flow
 - [`src/config/tier-promote`](../src/config/tier-promote/README.md) — the composite that performs one promotion
 - [`version-propagation.md`](version-propagation.md) — the pin-rewrite model that tiers are intended to replace
