@@ -293,7 +293,7 @@ When a job has more than one logical group of steps, separate each group with a 
 
 In reusable workflows (`workflow_call`), `uses: ./path` resolves to the **caller's workspace**, not this repository. This means `./src/...` only works when the caller IS this repo (i.e., `self-*` workflows).
 
-- **Workflows called by external repos** — must use an external ref pinned to a release tag:
+- **Workflows called by external repos** — must use an external ref pinned to a tier channel:
   ```yaml
   uses: LerianStudio/github-actions-shared-workflows/src/notify/discord-release@tier-1  # ✅ pinned
   uses: LerianStudio/github-actions-shared-workflows/src/notify/discord-release@develop # ⚠️ testing only
@@ -402,7 +402,7 @@ uses: some-action/tool@main    # use a specific tag or SHA
 ## Security rules
 
 - **Third-party actions (outside `LerianStudio` org) must be pinned by commit SHA** — tags are mutable and can be force-pushed. Add a `# vX.Y.Z` comment for readability. Dependabot keeps SHA pins updated automatically.
-- `LerianStudio/*` actions use release tags (`@v1.2.3`) — no SHA pinning needed for org-owned actions
+- `LerianStudio/*` actions pin a tier channel (`@tier-0`/`@tier-1`/`@tier-2`) — no SHA pinning needed for org-owned actions. See `docs/tiers.md`
 - Never use `@main` or `@master` for third-party actions
 - Never interpolate untrusted user input directly into `run:` commands
 - Never print secrets via `echo`, env dumps, or step summaries

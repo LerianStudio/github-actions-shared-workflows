@@ -297,7 +297,7 @@ new-tool-category:
     - "patch"
 ```
 
-Never add `LerianStudio/*` actions to dependabot — they are pinned to `@main` intentionally.
+Never add `LerianStudio/*` actions to dependabot — they pin a tier channel (`@tier-0`/`@tier-1`/`@tier-2`), which is a branch ref Dependabot does not rewrite anyway. See `docs/tiers.md`.
 
 ## Reserved names — never use as input names
 
