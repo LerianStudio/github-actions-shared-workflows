@@ -232,8 +232,11 @@ Repositories released by an earlier version of this workflow will still have an 
 Ten repositories were sampled when this split was made — `midaz`, `matcher`, `lerian-map`, `lib-commons`, `lib-streaming`, the two boilerplates and three plugins — and all had zero secrets and zero variables on `create_release`, so for most repositories this is a no-op. Check yours rather than assuming:
 
 ```bash
-gh api repos/LerianStudio/<repo>/environments/create_release/secrets   --jq '.total_count'
-gh api repos/LerianStudio/<repo>/environments/create_release/variables --jq '.total_count'
+# {owner}/{repo} are resolved by gh from the current checkout — this repository
+# is public and the workflow is consumed outside the LerianStudio org, so the
+# check must not name one.
+gh api 'repos/{owner}/{repo}/environments/create_release/secrets'   --jq '.total_count'
+gh api 'repos/{owner}/{repo}/environments/create_release/variables' --jq '.total_count'
 ```
 
 ## Configuration
