@@ -112,6 +112,11 @@ concurrency:
 jobs:
   preview:
     name: Publish preview image
+    # A sync carries no work of its own, so there is nothing to preview. Without
+    # this the branch is rebuilt every time develop moves — seven images per
+    # push on a repo with seven product branches, each one to store and prune.
+    # The marker is the same one release.yml already skips on.
+    if: ${{ !contains(github.event.head_commit.message, '[backmerge]') }}
     runs-on: ${{ vars.GENERAL_RUNNERS || inputs.runner_type }}
     permissions:
       contents: read
