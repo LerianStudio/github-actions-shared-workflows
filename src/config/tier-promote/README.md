@@ -122,6 +122,8 @@ Use a **GitHub App installation token**, not a PAT. An App identity can be grant
 
 It also cannot be `GITHUB_TOKEN`: a pull request opened by it does not trigger workflows, so the fallback PR would carry no checks.
 
+`actions/create-github-app-token` is GitHub's own action for exchanging App credentials for an installation token, and it is what `release.yml` already uses for its changelog and backmerge jobs — so the token flow here is the one already in use in this repository rather than a second way of doing the same thing.
+
 ```yaml
 - uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
   id: app-token
