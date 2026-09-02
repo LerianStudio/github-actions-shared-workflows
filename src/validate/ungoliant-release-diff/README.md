@@ -44,7 +44,7 @@ An application with no registration for the channel is **refused** when the cont
 | `webhook-token`  | Ungoliant webhook token sent as the `X-Ungoliant-Token` header.                 | No       | `""`                                                 |
 | `max-diff-bytes` | Maximum diff size forwarded to the controller (bytes).                          | No       | `262144`                                             |
 | `skip-globs`     | Space-separated glob patterns. When every changed file matches one, the release is CI/meta-only and the controller is never contacted. Empty disables the check. | No | `.releaserc.yml .github/*` |
-| `curl-timeout`   | Timeout for the webhook POST in seconds. This is the **outermost** budget in the chain, so it must be **larger** than every hop it fronts, not equal to them: bridge 780s < controller `NEMOCLAW_TIMEOUT_SECONDS` 900s < NPM edge and k8s ingress 960s ≤ this. See "Timeout budget" in `nemoclaw-platform/docs/integrations/ungoliant-controller.md`. | No | `960` |
+| `curl-timeout`   | Timeout for the webhook POST in seconds. This is the **outermost** budget in the chain, so it must be **strictly larger** than every hop it fronts: bridge 780s < controller `NEMOCLAW_TIMEOUT_SECONDS` 900s < NPM edge and k8s ingress 960s < this 1020s. Equal is a race, not a safeguard — see [Timeout budget](#timeout-budget). | No | `1020` |
 | `dry-run`        | Resolve and preview the payload without firing the webhook.                     | No       | `false`                                              |
 
 ## Outputs
@@ -87,6 +87,18 @@ validated nothing, or was never triggered because the change was CI/meta-only.
 `dry-run: true` skips this comment entirely, along with the webhook call.
 Posting the comment requires the calling job to grant `pull-requests: write`;
 it is best-effort and never fails the release.
+
+## Timeout budget
+
+```
+bridge 780s  <  controller 900s  <  edge/ingress 960s  <  curl-timeout 1020s
+```
+
+Each hop must **strictly** outlast what it fronts, so the innermost one gives up first and the failure is attributable to it. Equality is not lockstep, it is a coin toss: when `curl --max-time` and the budget it fronts expire together, whichever fires first decides whether you get a parseable error or an empty body naming nothing.
+
+That is not hypothetical. A release analysis ran 899s against a 900s `curl --max-time` and the controller logged `context canceled` — the caller hanging up, indistinguishable from a proxy timeout without checking every hop. The `midaz` run [`33638307722`](https://github.com/LerianStudio/midaz/actions/runs/33638307722) hit the same tie and reported `Elapsed: 900s` with an empty status.
+
+`1020` keeps the 60s spacing the rest of the chain already uses. The cost of raising the outermost budget is bounded and one-directional: a genuinely hung run occupies the release job longer, but a larger client timeout cannot fail a request that would otherwise have succeeded.
 
 ## Tests
 

@@ -289,12 +289,15 @@ class VerdictTests(unittest.TestCase):
 
 
 class TimeoutBudgetTests(unittest.TestCase):
-    def test_curl_timeout_default_exceeds_every_hop_it_fronts(self):
-        """960s: bridge 780 < controller NEMOCLAW_TIMEOUT_SECONDS 900 < NPM edge and
-        k8s ingress 960 <= this. Equal is not enough — the client must not give up
-        first, which is exactly what produced an empty status after 900s."""
+    def test_curl_timeout_default_is_strictly_above_every_hop_it_fronts(self):
+        """bridge 780 < controller NEMOCLAW_TIMEOUT_SECONDS 900 < NPM edge and k8s
+        ingress 960 < this. STRICTLY — equal is a race, and losing it is what
+        produced an empty status after 900s. The client must never give up first."""
         block = ACTION.split("curl-timeout:", 1)[1].split("dry-run:", 1)[0]
-        self.assertIn('default: "960"', block)
+        default = int(block.split('default: "', 1)[1].split('"', 1)[0])
+        for hop, budget in (("bridge", 780), ("controller", 900), ("edge/ingress", 960)):
+            with self.subTest(hop=hop):
+                self.assertGreater(default, budget, f"curl-timeout must outlast {hop}")
 
 
 class ChannelInferenceTests(unittest.TestCase):
