@@ -57,7 +57,7 @@ on:
 
 jobs:
   notify:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/release-notification.yml@v1.2.3
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/release-notification.yml@tier-1
     with:
       product_name: "Midaz"
       slack_channel: "lerian-product-release"
@@ -74,7 +74,7 @@ jobs:
 ```yaml
 jobs:
   notify:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/release-notification.yml@v1.2.3
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/release-notification.yml@tier-1
     with:
       product_name: "MyProduct"
       discord_content: "<@&ROLE_ID>"
@@ -89,7 +89,7 @@ jobs:
 ```yaml
 jobs:
   notify:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/release-notification.yml@v1.2.3
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/release-notification.yml@tier-1
     with:
       product_name: "MyProduct"
       slack_channel: "releases"

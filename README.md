@@ -17,7 +17,7 @@ Reusable workflow (.github/workflows/*.yml)   ← orchestrates jobs
 Composite action  (src/<capability>/<name>/)  ← encapsulates steps
 ```
 
-Workflows are called via `workflow_call` and versioned with semantic tags. Pin to a specific tag in production — never use `@main`.
+Workflows are called via `workflow_call`. Consumers pin a **tier channel** — `@tier-0`, `@tier-1` or `@tier-2` — never a version and never `@main`. The tier a repository pins is its declaration of how fast it wants to receive; releases reach it when that tier is promoted. See **[Tier channels](docs/tiers.md)**.
 
 All YAML files in this repository use the `.yml` extension — never `.yaml`.
 
@@ -30,13 +30,13 @@ See the [`docs/`](docs/) directory for the full list, inputs, outputs, and usage
 ```yaml
 jobs:
   security:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/pr-security-scan.yml@v1.2.3
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/pr-security-scan.yml@tier-1
 
   release:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/release.yml@v1.2.3
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/release.yml@tier-1
 
   gitops:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/gitops-update.yml@v1.2.3
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/gitops-update.yml@tier-1
 ```
 
 ## Versioning

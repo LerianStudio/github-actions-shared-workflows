@@ -59,7 +59,7 @@ permissions:
 
 jobs:
   lerian-lib-version-check:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/lerian-lib-version-check.yml@v1.x.x
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/lerian-lib-version-check.yml@tier-1
 ```
 
 ### Custom configuration
@@ -67,7 +67,7 @@ jobs:
 ```yaml
 jobs:
   lerian-lib-version-check:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/lerian-lib-version-check.yml@v1.x.x
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/lerian-lib-version-check.yml@tier-1
     with:
       go_mod_path: services/api/go.mod
       ignore_file: .config/.lerianstudiolibignore
@@ -81,7 +81,7 @@ jobs:
 ```yaml
 jobs:
   lerian-lib-version-check:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/lerian-lib-version-check.yml@v1.x.x
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/lerian-lib-version-check.yml@tier-1
 
   deploy:
     needs: lerian-lib-version-check
@@ -131,7 +131,7 @@ Some Lerian libraries are internal repositories (e.g. `lib-license-go`). The def
 ```yaml
 jobs:
   lerian-lib-version-check:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/lerian-lib-version-check.yml@v1.x.x
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/lerian-lib-version-check.yml@tier-1
     secrets:
       LERIAN_LIB_READ_TOKEN: ${{ secrets.LERIAN_ORG_READ_TOKEN }}
 ```

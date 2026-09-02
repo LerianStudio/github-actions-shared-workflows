@@ -295,18 +295,22 @@ feature/* ──► develop (beta: v1.2.3-beta.N) ──► main (prod: v1.2.3)
 
 Releases are GPG-signed and published as GitHub Releases with the generated `CHANGELOG.md` attached.
 
-**Callers should always pin to a stable tag in production:**
+**Callers pin a tier channel, not a version:**
 
 ```yaml
-# ✅ Recommended — pinned to a stable release
-uses: LerianStudio/github-actions-shared-workflows/.github/workflows/go-ci.yml@v1.4.0
+# ✅ Production — pin the tier that matches how fast the repo should receive
+uses: LerianStudio/github-actions-shared-workflows/.github/workflows/go-ci.yml@tier-1
 
-# ⚠️ Acceptable for testing — always latest beta
+# ⚠️ Testing only — always the latest beta, ungated
 uses: LerianStudio/github-actions-shared-workflows/.github/workflows/go-ci.yml@develop
 
-# ❌ Avoid in production — no version guarantee
+# ❌ Never — no gate, no soak, no rollback story
 uses: LerianStudio/github-actions-shared-workflows/.github/workflows/go-ci.yml@main
 ```
+
+A tier is a branch of this repository that a release is promoted into, one ring at a time. Pinning one means **the pin is never edited again**: a new release reaches the repo when its tier is promoted, not when someone opens a bump PR against it.
+
+Pinning an exact `@vX.Y.Z` still resolves and still works, but it opts the repository out of the rings — it will not receive anything until a human edits that line. See **[Tier channels](docs/tiers.md)** for how to choose a tier and what the promotion flow looks like.
 
 ---
 

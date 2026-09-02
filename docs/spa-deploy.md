@@ -102,5 +102,5 @@ jobs:
 
 ```yaml
 # Production — always pin to a released tag
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/spa-deploy.yml@v1.51.0
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/spa-deploy.yml@tier-1
 ```

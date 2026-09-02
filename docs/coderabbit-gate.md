@@ -196,7 +196,7 @@ jobs:
     permissions:
       contents: read
       pull-requests: write
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/coderabbit-gate.yml@vX.Y.Z
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/coderabbit-gate.yml@tier-1
     with:
       pr_number: ${{ github.event.pull_request.number }}
       checks_passed: ${{ !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') }}
