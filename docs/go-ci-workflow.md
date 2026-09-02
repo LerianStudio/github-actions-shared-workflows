@@ -28,7 +28,7 @@ on:
 
 jobs:
   ci:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/go-ci.yml@v1.0.0
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/go-ci.yml@tier-1
 ```
 
 ### Custom Configuration
@@ -39,7 +39,7 @@ on: [push, pull_request]
 
 jobs:
   ci:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/go-ci.yml@v1.0.0
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/go-ci.yml@tier-1
     with:
       go_versions: '["1.22", "1.23"]'
       operating_systems: '["ubuntu-latest", "macos-latest"]'
@@ -59,7 +59,7 @@ on: [push, pull_request]
 
 jobs:
   ci:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/go-ci.yml@v1.0.0
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/go-ci.yml@tier-1
     with:
       enable_cross_platform_build: true
       build_path: './cmd/myapp'
@@ -125,7 +125,7 @@ Aggregate status check that fails if any required job fails.
 ```yaml
 jobs:
   ci:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/go-ci.yml@v1.0.0
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/go-ci.yml@tier-1
 ```
 
 ### Only Latest Go Version
@@ -133,7 +133,7 @@ jobs:
 ```yaml
 jobs:
   ci:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/go-ci.yml@v1.0.0
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/go-ci.yml@tier-1
     with:
       go_versions: '["1.23"]'
       operating_systems: '["ubuntu-latest"]'
@@ -144,7 +144,7 @@ jobs:
 ```yaml
 jobs:
   ci:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/go-ci.yml@v1.0.0
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/go-ci.yml@tier-1
     with:
       check_docs: false
 ```

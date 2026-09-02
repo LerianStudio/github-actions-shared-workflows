@@ -142,7 +142,7 @@ permissions:
 jobs:
   pipeline:
     # Testing: @develop or @feat/<branch> · Production: pinned @vX.Y.Z
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/go-release.yml@v1
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/go-release.yml@tier-1
     with:
       enable_changelog: ${{ github.ref == 'refs/heads/main' }}
       enable_ghcr: true
@@ -219,7 +219,7 @@ Compose behaviour with `ungoliant_env_type` (`chaos` default, `fuzzing` supporte
 ```yaml
 jobs:
   pipeline:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/go-release.yml@v1
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/go-release.yml@tier-1
     with:
       enable_ungoliant_release_diff: true
       ungoliant_env_type: chaos
@@ -265,7 +265,7 @@ Extra builds run on tag push (beta/rc, and stable when `build_on_release` is off
 ```yaml
 jobs:
   pipeline:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/go-release.yml@v1
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/go-release.yml@tier-1
     with:
       enable_gitops_artifacts: true
       s3_uploads: |

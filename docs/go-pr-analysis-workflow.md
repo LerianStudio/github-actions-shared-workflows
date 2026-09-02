@@ -29,7 +29,7 @@ on:
 
 jobs:
   analysis:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/go-pr-analysis.yml@v1.0.0
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/go-pr-analysis.yml@tier-1
     secrets: inherit
 ```
 
@@ -43,7 +43,7 @@ on:
 
 jobs:
   analysis:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/go-pr-analysis.yml@v1.0.0
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/go-pr-analysis.yml@tier-1
     with:
       filter_paths: '["apps/api", "apps/worker", "apps/gateway"]'
     secrets: inherit
@@ -59,7 +59,7 @@ on:
 
 jobs:
   analysis:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/go-pr-analysis.yml@v1.0.0
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/go-pr-analysis.yml@tier-1
     with:
       filter_paths: '["apps/control-plane", "apps/agent", "apps/lambda-authorizer"]'
       path_level: 2
@@ -82,7 +82,7 @@ jobs:
 ```yaml
 jobs:
   analysis:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/go-pr-analysis.yml@v1.0.0
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/go-pr-analysis.yml@tier-1
     with:
       filter_paths: '["src/services"]'
       enable_security: false
@@ -125,7 +125,7 @@ jobs:
 ```yaml
 jobs:
   analysis:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/go-pr-analysis.yml@v1.0.0
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/go-pr-analysis.yml@tier-1
     with:
       filter_paths: '["components/api"]'
       go_private_modules: "github.com/MyOrg/*"

@@ -51,7 +51,7 @@ on:
 
 jobs:
   cleanup:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/branch-cleanup.yml@v1.0.0
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/branch-cleanup.yml@tier-1
     with:
       stale_days: 30
       dry_run: ${{ inputs.dry_run || false }}
@@ -71,7 +71,7 @@ on:
 jobs:
   cleanup:
     if: ${{ github.event.pull_request.merged }}
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/branch-cleanup.yml@v1.0.0
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/branch-cleanup.yml@tier-1
     with:
       merged_branch: ${{ github.head_ref }}
     secrets: inherit
@@ -96,7 +96,7 @@ on:
 jobs:
   stale:
     if: ${{ github.event_name != 'pull_request' }}
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/branch-cleanup.yml@v1.0.0
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/branch-cleanup.yml@tier-1
     with:
       stale_days: 30
       dry_run: ${{ inputs.dry_run || false }}
@@ -104,7 +104,7 @@ jobs:
 
   merged:
     if: ${{ github.event_name == 'pull_request' && github.event.pull_request.merged }}
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/branch-cleanup.yml@v1.0.0
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/branch-cleanup.yml@tier-1
     with:
       merged_branch: ${{ github.head_ref }}
     secrets: inherit

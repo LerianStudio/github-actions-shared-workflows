@@ -64,7 +64,7 @@ e2e:
   permissions:
     id-token: write
     contents: read
-  uses: LerianStudio/github-actions-shared-workflows/.github/workflows/end-to-end-tests.yml@vX.Y.Z
+  uses: LerianStudio/github-actions-shared-workflows/.github/workflows/end-to-end-tests.yml@tier-1
   with:
     modules: "midaz-ledger,midaz-crm"
     tenancy: st
@@ -83,7 +83,7 @@ successful `update_gitops` on a tag push, scoped to the component(s) that built:
 ```yaml
 jobs:
   pipeline:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/go-release.yml@vX.Y.Z
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/go-release.yml@tier-1
     with:
       enable_e2e_tests: true
       e2e_modules: "midaz-ledger,midaz-crm"

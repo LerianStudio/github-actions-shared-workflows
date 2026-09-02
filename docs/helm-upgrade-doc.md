@@ -43,7 +43,7 @@ on:
 
 jobs:
   upgrade-doc:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/helm-upgrade-doc.yml@v1
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/helm-upgrade-doc.yml@tier-1
     secrets: inherit
 ```
 
@@ -52,7 +52,7 @@ jobs:
 ```yaml
 jobs:
   upgrade-doc:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/helm-upgrade-doc.yml@v1
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/helm-upgrade-doc.yml@tier-1
     with:
       charts_root: helm-charts
       docs_subdir: upgrade-guides
@@ -64,7 +64,7 @@ jobs:
 ```yaml
 jobs:
   upgrade-doc:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/helm-upgrade-doc.yml@v1
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/helm-upgrade-doc.yml@tier-1
     with:
       dry_run: true
     secrets: inherit
@@ -75,7 +75,7 @@ jobs:
 ```yaml
 jobs:
   upgrade-doc:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/helm-upgrade-doc.yml@v1
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/helm-upgrade-doc.yml@tier-1
     with:
       openai_model: anthropic/claude-opus-4
     secrets: inherit

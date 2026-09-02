@@ -31,7 +31,7 @@ Reusable workflow for updating GitOps repository with new image tags across mult
 update_gitops:
   needs: build_backend
   if: needs.build_backend.result == 'success'
-  uses: LerianStudio/github-actions-shared-workflows/.github/workflows/gitops-update.yml@v1.0.0
+  uses: LerianStudio/github-actions-shared-workflows/.github/workflows/gitops-update.yml@tier-1
   with:
     yaml_key_mappings: '{"backend.tag": ".auth.image.tag"}'
   secrets: inherit
@@ -59,7 +59,7 @@ Useful when you need to ship a hotfix to Firmino and Clotilde but skip Anacleto 
 update_gitops:
   needs: build_backend
   if: needs.build_backend.result == 'success'
-  uses: LerianStudio/github-actions-shared-workflows/.github/workflows/gitops-update.yml@v1.0.0
+  uses: LerianStudio/github-actions-shared-workflows/.github/workflows/gitops-update.yml@tier-1
   with:
     deploy_in_anacleto: false
     yaml_key_mappings: '{"backend.tag": ".auth.image.tag"}'
@@ -76,7 +76,7 @@ For apps managed via kustomize manifests (no helm chart, no env split), set `git
 update_gitops:
   needs: build
   if: needs.build.result == 'success'
-  uses: LerianStudio/github-actions-shared-workflows/.github/workflows/gitops-update.yml@v1.0.0
+  uses: LerianStudio/github-actions-shared-workflows/.github/workflows/gitops-update.yml@tier-1
   with:
     gitops_repository: LerianStudio/midaz-firmino-gitops
     gitops_layout: kustomize
@@ -100,7 +100,7 @@ When a single release publishes several images into the same `kustomization.yaml
 update_gitops:
   needs: build
   if: needs.build.result == 'success'
-  uses: LerianStudio/github-actions-shared-workflows/.github/workflows/gitops-update.yml@v1.0.0
+  uses: LerianStudio/github-actions-shared-workflows/.github/workflows/gitops-update.yml@tier-1
   with:
     gitops_repository: LerianStudio/midaz-firmino-gitops
     gitops_layout: kustomize
@@ -127,7 +127,7 @@ Notes:
 update_gitops:
   needs: build
   if: needs.build.result == 'success'
-  uses: LerianStudio/github-actions-shared-workflows/.github/workflows/gitops-update.yml@v1.0.0
+  uses: LerianStudio/github-actions-shared-workflows/.github/workflows/gitops-update.yml@tier-1
   with:
     app_name: "midaz"
     artifact_pattern: "gitops-tags-midaz-*"
@@ -473,7 +473,7 @@ This prevents unnecessary errors when an app hasn't been created in ArgoCD yet f
 **Before (single server):**
 ```yaml
 update_gitops:
-  uses: LerianStudio/github-actions-shared-workflows/.github/workflows/gitops-update.yml@v1.0.0
+  uses: LerianStudio/github-actions-shared-workflows/.github/workflows/gitops-update.yml@tier-1
   with:
     gitops_server: 'firmino'
     gitops_file_dev: gitops/environments/firmino/helmfile/applications/dev/my-app/values.yaml
@@ -486,7 +486,7 @@ update_gitops:
 **After (multi-server):**
 ```yaml
 update_gitops:
-  uses: LerianStudio/github-actions-shared-workflows/.github/workflows/gitops-update.yml@v1.0.0
+  uses: LerianStudio/github-actions-shared-workflows/.github/workflows/gitops-update.yml@tier-1
   with:
     app_name: 'my-app'
     deploy_in_firmino: true
