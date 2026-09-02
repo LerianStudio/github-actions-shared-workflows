@@ -125,6 +125,11 @@ on:
         required: false
         type: boolean
         default: false
+      environment_name:
+        description: 'Overrides the per-channel deployment environment for this run. Empty (default) keeps `stable` on main, `rc` on release-candidate and `beta` on anything else. Pass a value only when a ref needs its own environment, scoping it with a condition in the caller so the channel split still applies to every other ref (see docs/release-workflow.md, Deployment Environments). The environment lives in your repository; if it has a deployment branch policy that does not allow this ref, the job fails, which is the intended behaviour.'
+        required: false
+        type: string
+        default: ''
 permissions:
   contents: read
 
@@ -195,7 +200,35 @@ jobs:
     if: needs.prepare.outputs.has_changes == 'true' && needs.prepare.outputs.should_skip != 'true'
     runs-on: ${{ inputs.publish_runner_type || vars.GENERAL_RUNNERS || inputs.runner_type }}
     environment:
-      name: create_release
+      # `stable` on main, `rc` on release-candidate, `beta` on anything else.
+      # The three-way split follows the branch strategy this workflow supports
+      # for its CONSUMERS, not the branches this repository happens to use —
+      # shared-workflows has no release-candidate, and that is irrelevant to the
+      # contract.
+      #
+      # The environments live in the CALLER's repository, so every consumer gets
+      # its own set, and its own branch policies if it configures them. Nothing
+      # here is created or protected centrally. A repository that never pushes to
+      # release-candidate never gets an `rc` environment: GitHub creates one only
+      # when a job referencing it actually runs.
+      #
+      # `environment_name` overrides the whole calculation when the caller needs a
+      # ref to have its own environment. It is a single input rather than a
+      # ref-to-environment map on purpose: a run is on exactly one ref, so the
+      # caller scopes the override with its own expression and keeps the channel
+      # split for everything else.
+      #
+      # Choosing the name by expression is backed by the environment's own
+      # deployment branch policy: if this expression resolved wrongly, GitHub
+      # refuses a deployment from a ref the environment does not allow. The
+      # expression states intent; the policy is what imposes it.
+      #
+      # Whether an administrator can override that policy is not something to
+      # assume either way — the environment's "Allow administrators to bypass
+      # configured protection rules" checkbox is on by default, and a caller
+      # that needs the branch restriction to apply to everyone should turn it
+      # off rather than rely on the default.
+      name: ${{ inputs.environment_name != '' && inputs.environment_name || github.ref == 'refs/heads/main' && 'stable' || github.ref == 'refs/heads/release-candidate' && 'rc' || 'beta' }}
     name: Release ${{ matrix.app.name }}
     strategy:
       max-parallel: 1
@@ -489,7 +522,9 @@ jobs:
       (needs.update_major_tag.result == 'success' || needs.update_major_tag.result == 'skipped')
     runs-on: ${{ vars.GENERAL_RUNNERS || inputs.runner_type }}
     environment:
-      name: create_release
+      # `stable` / `rc` / `beta` by ref — see the note on the first environment
+      # block in this file.
+      name: ${{ inputs.environment_name != '' && inputs.environment_name || github.ref == 'refs/heads/main' && 'stable' || github.ref == 'refs/heads/release-candidate' && 'rc' || 'beta' }}
     steps:
       - name: Create GitHub App Token
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
@@ -532,7 +567,9 @@ jobs:
       (needs.generate_changelog.result == 'success' || needs.generate_changelog.result == 'skipped')
     runs-on: ${{ inputs.runner_type }}
     environment:
-      name: create_release
+      # `stable` / `rc` / `beta` by ref — see the note on the first environment
+      # block in this file.
+      name: ${{ inputs.environment_name != '' && inputs.environment_name || github.ref == 'refs/heads/main' && 'stable' || github.ref == 'refs/heads/release-candidate' && 'rc' || 'beta' }}
     permissions:
       contents: write
       pull-requests: write
@@ -580,7 +617,9 @@ jobs:
     if: inputs.enable_major_tag && needs.publish_release_status.outputs.release_published == 'true'
     runs-on: ${{ vars.GENERAL_RUNNERS || inputs.runner_type }}
     environment:
-      name: create_release
+      # `stable` / `rc` / `beta` by ref — see the note on the first environment
+      # block in this file.
+      name: ${{ inputs.environment_name != '' && inputs.environment_name || github.ref == 'refs/heads/main' && 'stable' || github.ref == 'refs/heads/release-candidate' && 'rc' || 'beta' }}
     permissions:
       contents: write
     steps:

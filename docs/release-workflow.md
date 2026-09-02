@@ -94,6 +94,7 @@ jobs:
 | `enable_release_announcement` | boolean | `true` | Announce the published release to the repository Slack channel after a successful release |
 | `announcement_product_name` | string | `''` | Product name displayed in the announcement. Defaults to the repository name |
 | `announcement_slack_channel` | string | `''` | Slack channel that receives the announcement. Defaults to the `RELEASE_SLACK_CHANNEL` repository variable; the announcement is skipped when both are empty |
+| `environment_name` | string | `''` | Overrides the per-channel deployment environment for this run. Empty keeps `stable`/`rc`/`beta` by ref — see [Deployment Environments](#deployment-environments) |
 
 ## Release Announcement
 
@@ -190,6 +191,53 @@ Commits to `main` branch create production releases:
 - Version: `v1.2.3`
 - Pre-release: No
 - Use case: Production deployment
+
+### Deployment Environments
+
+The release jobs run under a GitHub Environment named after the channel, mirroring the branch strategy above:
+
+| Ref | Environment | Release |
+|---|---|---|
+| `main` | `stable` | `v1.2.3` |
+| `release-candidate` | `rc` | `v1.2.3-rc.1` |
+| anything else (`develop`, …) | `beta` | `v1.2.3-beta.1` |
+
+**Adding one of your own.** If a ref needs an environment outside those three, pass `environment_name`. It overrides the calculation for that run, so scope it with your own expression and the split keeps applying everywhere else:
+
+```yaml
+jobs:
+  release:
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/release.yml@tier-1
+    with:
+      environment_name: ${{ github.ref_name == 'sandbox' && 'sandbox' || '' }}
+    secrets: inherit
+```
+
+It is one input rather than a ref-to-environment map because a run is on exactly one ref — the caller already knows which, and expressing it as a condition is both shorter and more flexible than any mapping this workflow could offer. If the environment you name has a branch policy that does not allow the ref, the job fails; that is the policy doing its job, not a bug.
+
+**The environments belong to your repository, not to this one.** A reusable workflow's jobs run in the caller's context, so `environment: stable` resolves against *your* repo. GitHub creates each on first use, with **no protection rules and no branch policy** — they start as deployment history and nothing more.
+
+A consequence worth knowing: you only get the environments your branching actually uses. A repository that never pushes to `release-candidate` never gets an `rc` environment, because GitHub creates one only when a job referencing it runs.
+
+**Configuring them is your repo's job.** If you want the environments to mean something rather than just record history, add a deployment branch policy (`main` for `stable`, `release-candidate` for `rc`, `develop` for `beta`), environment secrets scoped per channel, or required reviewers to gate cutting a stable release.
+
+**Turn off administrator bypass if the restriction has to hold.** *Allow administrators to bypass configured protection rules* is checked by default. It clearly covers required reviewers and the wait timer; whether it also covers the deployment branch policy is not something to bet on either way, so if the branch restriction must apply to everyone, uncheck it rather than relying on the default.
+
+What the policy does buy, regardless: it is the environment — not the expression that picked its name — that decides whether a ref may deploy. That is why the branch policy, and not the naming, is what actually enforces where a release runs from.
+
+Repositories released by an earlier version of this workflow will still have an orphaned `create_release` environment holding the old history, from when a single environment served every branch. It is inert and safe to delete once you no longer need that history.
+
+**If you scoped secrets or variables to `create_release`, move them first.** The release jobs no longer run under that environment, so anything reachable only from it becomes unavailable and the publish, changelog, backmerge or major-tag step fails. Copy them to the channel environments that need them (`stable`, `rc`, `beta`), or to repository scope if every channel should see them, before this change reaches your repository.
+
+Ten repositories were sampled when this split was made — `midaz`, `matcher`, `lerian-map`, `lib-commons`, `lib-streaming`, the two boilerplates and three plugins — and all had zero secrets and zero variables on `create_release`, so for most repositories this is a no-op. Check yours rather than assuming:
+
+```bash
+# {owner}/{repo} are resolved by gh from the current checkout — this repository
+# is public and the workflow is consumed outside the LerianStudio org, so the
+# check must not name one.
+gh api 'repos/{owner}/{repo}/environments/create_release/secrets'   --jq '.total_count'
+gh api 'repos/{owner}/{repo}/environments/create_release/variables' --jq '.total_count'
+```
 
 ## Configuration
 
