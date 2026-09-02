@@ -179,11 +179,12 @@ Two details there are load-bearing. The `new_release_published` gate: semantic-r
 
 ## Not covered here
 
-- **Self-reference rewriting.** The workflows in `.github/workflows/` carry absolute self-references (`uses: LerianStudio/github-actions-shared-workflows/src/...@v1`), so a consumer pinned to a tier still resolves those composites from `v1`. Rewriting them to the promoting tier is required for a tier to be a self-consistent channel, and is not part of this workflow yet.
+- **Self-reference rewriting.** The workflows in `.github/workflows/` carry absolute self-references (`uses: LerianStudio/github-actions-shared-workflows/src/...@tier-1`), so a consumer pinned to a tier still resolves those composites from `v1`. Rewriting them to the promoting tier is required for a tier to be a self-consistent channel, and is not part of this workflow yet.
 - **Active canary validation.** Dispatching real workflow runs in canary repositories to prove a tier before the next one is promoted.
 
 ## Related
 
+- [`tiers.md`](tiers.md) — the consumer-facing view: what a tier is, how to choose one, what the flow looks like from the outside
 - [`config/tier-promotion.yml`](../config/tier-promotion.yml) — the flow
 - [`src/config/tier-promote`](../src/config/tier-promote/README.md) — the composite that performs one promotion
 - [`version-propagation.md`](version-propagation.md) — the pin-rewrite model that tiers are intended to replace

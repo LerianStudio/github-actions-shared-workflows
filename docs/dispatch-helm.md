@@ -96,7 +96,7 @@ env:
 
 jobs:
   dispatch-helm:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/dispatch-helm.yml@v1.54.0
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/dispatch-helm.yml@tier-1
     with:
       helm_repository: LerianStudio/helm
       chart: my-app
@@ -113,7 +113,7 @@ Advanced — explicit components:
 ```yaml
 jobs:
   dispatch-helm:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/dispatch-helm.yml@v1.54.0
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/dispatch-helm.yml@tier-1
     with:
       helm_repository: LerianStudio/helm
       chart: my-app
@@ -128,7 +128,7 @@ Most callers reach this workflow through [`build.yml`](../.github/workflows/buil
 ```yaml
 jobs:
   build:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/build.yml@v1.54.0
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/build.yml@tier-1
     with:
       enable_helm_dispatch: true
       helm_chart: my-app

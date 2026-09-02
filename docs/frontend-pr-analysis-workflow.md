@@ -28,7 +28,7 @@ on:
 
 jobs:
   analysis:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/frontend-pr-analysis.yml@v1.0.0
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/frontend-pr-analysis.yml@tier-1
     secrets: inherit
 ```
 
@@ -42,7 +42,7 @@ on:
 
 jobs:
   analysis:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/frontend-pr-analysis.yml@v1.0.0
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/frontend-pr-analysis.yml@tier-1
     with:
       filter_paths: '["apps/web", "apps/console", "packages/ui"]'
     secrets: inherit
@@ -58,7 +58,7 @@ on:
 
 jobs:
   analysis:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/frontend-pr-analysis.yml@v1.0.0
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/frontend-pr-analysis.yml@tier-1
     with:
       filter_paths: '["apps/web", "apps/admin", "packages/shared"]'
       path_level: 2
@@ -83,7 +83,7 @@ jobs:
 ```yaml
 jobs:
   analysis:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/frontend-pr-analysis.yml@v1.0.0
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/frontend-pr-analysis.yml@tier-1
     with:
       filter_paths: '["src"]'
       enable_typecheck: false
@@ -98,7 +98,7 @@ jobs:
 ```yaml
 jobs:
   analysis:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/frontend-pr-analysis.yml@v1.0.0
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/frontend-pr-analysis.yml@tier-1
     with:
       package_manager: "yarn"
       node_version: "20"
@@ -110,7 +110,7 @@ jobs:
 ```yaml
 jobs:
   analysis:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/frontend-pr-analysis.yml@v1.0.0
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/frontend-pr-analysis.yml@tier-1
     with:
       app_name_prefix: "product-console"
       enable_i18n_check: true
@@ -133,7 +133,7 @@ with:
 ```yaml
 jobs:
   analysis:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/frontend-pr-analysis.yml@v1.0.0
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/frontend-pr-analysis.yml@tier-1
     with:
       package_manager: "pnpm"
       node_version: "22"

@@ -41,7 +41,7 @@ permissions:
 
 jobs:
   build:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/typescript-build.yml@v1.0.0
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/typescript-build.yml@tier-1
     secrets: inherit
 ```
 
@@ -50,7 +50,7 @@ jobs:
 ```yaml
 jobs:
   build:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/typescript-build.yml@v1.0.0
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/typescript-build.yml@tier-1
     with:
       runner_type: firmino-lxc-runners
       components_json: |
@@ -66,7 +66,7 @@ jobs:
 ```yaml
 jobs:
   build:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/typescript-build.yml@v1.0.0
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/typescript-build.yml@tier-1
     with:
       components_json: '[{"name":"my-app","working_dir":".","dockerfile":"docker-app.Dockerfile"}]'
       enable_helm_dispatch: true
@@ -81,7 +81,7 @@ jobs:
 ```yaml
 jobs:
   build:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/typescript-build.yml@v1.0.0
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/typescript-build.yml@tier-1
     with:
       build_secrets: |
         custom_token=${{ secrets.CUSTOM_TOKEN }}
@@ -95,7 +95,7 @@ The `npmrc` secret is always injected automatically. `build_secrets` adds extra 
 ```yaml
 jobs:
   build:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/typescript-build.yml@v1.0.0
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/typescript-build.yml@develop
     with:
       dry_run: true
       components_json: '[{"name":"my-app","working_dir":".","dockerfile":"Dockerfile"}]'
@@ -109,7 +109,7 @@ Builds the Docker image without pushing. Useful for validating Dockerfiles and b
 ```yaml
 jobs:
   build:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/typescript-build.yml@v1.0.0
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/typescript-build.yml@tier-1
     with:
       filter_paths: |
         apps/api
@@ -221,7 +221,7 @@ permissions:
 ```yaml
 jobs:
   build:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/typescript-build.yml@v1.0.0
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/typescript-build.yml@tier-1
     with:
       enable_cosign_sign: false
     secrets: inherit

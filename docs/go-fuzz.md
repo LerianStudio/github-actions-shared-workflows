@@ -36,7 +36,7 @@ permissions:
 
 jobs:
   fuzz:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/go-fuzz.yml@v1.12.0
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/go-fuzz.yml@tier-1
     with:
       go_version: '1.25'
 ```
@@ -57,7 +57,7 @@ jobs:
 ```yaml
 jobs:
   fuzz:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/go-fuzz.yml@v1.12.0
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/go-fuzz.yml@tier-1
     with:
       go_version: '1.25'
       fuzz_command: 'go test -fuzz=. -fuzztime=30s ./...'

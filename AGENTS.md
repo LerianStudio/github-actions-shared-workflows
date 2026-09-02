@@ -40,10 +40,10 @@ Full rules:
 
 In reusable workflows (`workflow_call`), `uses: ./path` resolves to the **caller's workspace**, not this repository. This means `./src/...` only works when the caller IS this repo (i.e., `self-*` workflows).
 
-- **Workflows called by external repos** — use an external ref pinned to a release tag:
+- **Workflows called by external repos** — use an external ref pinned to a tier channel:
 
   ```yaml
-  uses: LerianStudio/github-actions-shared-workflows/src/notify/discord-release@v1.2.3  # ✅ pinned
+  uses: LerianStudio/github-actions-shared-workflows/src/notify/discord-release@tier-1  # ✅ tier channel
   uses: LerianStudio/github-actions-shared-workflows/src/notify/discord-release@develop # ⚠️ testing only
   uses: ./src/notify/discord-release  # ❌ resolves to caller's workspace
   ```
@@ -77,11 +77,11 @@ Callers use these outputs to gate dependent jobs:
 ```yaml
 jobs:
   build:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/build.yml@v1.2.3
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/build.yml@tier-1
   deploy:
     needs: build
     if: needs.build.outputs.has_builds == 'true'
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/deploy.yml@v1.2.3
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/deploy.yml@tier-1
 ```
 
 ### dry_run
@@ -160,9 +160,9 @@ Before modifying any existing file, follow the refactoring protocol in `.cursor/
   ```yaml
   uses: actions/checkout@abc123def456 # v6        # ✅ third-party pinned by SHA
   uses: crazy-max/ghaction-import-gpg@2dc316d # v7 # ✅ third-party pinned by SHA
-  uses: LerianStudio/github-actions-shared-workflows/src/notify/discord-release@v1.2.3 # ✅ org-owned pinned by tag
+  uses: LerianStudio/github-actions-shared-workflows/src/notify/discord-release@tier-1 # ✅ org-owned pinned by tier channel
   ```
-- `LerianStudio/*` actions use release tags (`@v1.2.3`) or branches (`@develop` for testing) — no SHA pinning needed for org-owned actions
+- `LerianStudio/*` actions pin a **tier channel** (`@tier-0` / `@tier-1` / `@tier-2`), or `@develop` for testing — no SHA pinning needed for org-owned actions. A tier is a branch promoted ring by ring, so the pin is set once and never edited; see [`docs/tiers.md`](docs/tiers.md). An exact `@vX.Y.Z` still works but opts the repository out of the rings
 - Never use `@main` or `@master` for third-party actions
 - Never hardcode tokens, org names, or internal URLs — use `inputs` or `secrets`
 - Never print secrets via `echo`, `run` output, or step summaries

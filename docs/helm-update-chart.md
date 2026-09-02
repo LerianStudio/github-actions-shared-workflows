@@ -95,7 +95,7 @@ on:
 
 jobs:
   update:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/helm-update-chart.yml@v1.54.0
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/helm-update-chart.yml@tier-1
     with:
       payload: ${{ inputs.payload }}
       base_branch: develop

@@ -106,7 +106,7 @@ on:
 
 jobs:
   cleanup:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/ghcr-alpha-cleanup.yml@v1.x.x
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/ghcr-alpha-cleanup.yml@tier-1
     with:
       image_names: alpha/product-console
       image_tags: >-
@@ -131,7 +131,7 @@ Once a product branch is merged, its previews are dead weight. `cut_off: 1s` wit
 ```yaml
 jobs:
   purge:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/ghcr-alpha-cleanup.yml@v1.x.x
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/ghcr-alpha-cleanup.yml@tier-1
     with:
       image_names: alpha/product-console
       image_tags: 'midaz-alpha.*'
