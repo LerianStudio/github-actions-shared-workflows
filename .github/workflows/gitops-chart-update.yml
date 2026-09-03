@@ -70,7 +70,32 @@ jobs:
           private-key: ${{ secrets.LERIAN_STUDIO_MIDAZ_PUSH_BOT_PRIVATE_KEY }}
           owner: ${{ github.repository_owner }}
 
+      # gitops_repository is caller-controlled, and the checked-out content is
+      # later fed to `helmfile lint/template`, which runs Go templating and can
+      # execute release hooks. Without this gate a caller could point the job at
+      # a repository they control and get code execution in a job that holds the
+      # App token and the CI GPG key. Same allowlist as gitops-update.yml.
+      - name: Validate gitops_repository against allowlist
+        shell: bash
+        env:
+          GITOPS_REPOSITORY: ${{ env.GITOPS_REPO }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$GITOPS_REPOSITORY" ]]; then
+            echo "::error::gitops_repository is empty. Set the input or the GITOPS_REPOSITORY org-level variable."
+            exit 1
+          fi
+          if [[ ! "$GITOPS_REPOSITORY" =~ ^LerianStudio/[A-Za-z0-9._-]+-gitops$ ]]; then
+            echo "::error::gitops_repository '$GITOPS_REPOSITORY' is not allowed. Must match ^LerianStudio/<name>-gitops$ (e.g. LerianStudio/lerian-internal-gitops)."
+            exit 1
+          fi
+          echo "gitops_repository validated: $GITOPS_REPOSITORY"
+
       - name: Checkout GitOps repository
+        # codeql[actions/untrusted-checkout] -- env.GITOPS_REPO is constrained by
+        # the allowlist above to ^LerianStudio/<name>-gitops$, never
+        # PR/fork-controlled; this workflow is workflow_call-only and has no
+        # pull_request_target trigger.
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
         with:
           repository: ${{ env.GITOPS_REPO }}
@@ -78,12 +103,22 @@ jobs:
           path: gitops
           fetch-depth: 0
 
+      # Unlike the matrix checkout in gitops-update.yml, this one IS executed:
+      # the job runs python from shared-workflows/scripts/. The justification is
+      # therefore different — pushing a ref to this repository already requires
+      # write access here, which is the same access needed to edit this very
+      # workflow, so the input grants no escalation. Credentials are not
+      # persisted so the checkout token cannot leak into later git operations.
       - name: Checkout shared-workflows (matrix + scripts)
+        # codeql[actions/untrusted-checkout] -- repository is hardcoded to this
+        # same LerianStudio repo; ref is a maintainer-controlled input, not
+        # PR/fork-controlled (workflow_call-only, no pull_request_target).
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
         with:
           repository: LerianStudio/github-actions-shared-workflows
           ref: ${{ inputs.deployment_matrix_ref }}
           path: shared-workflows
+          persist-credentials: false
 
       - name: Set up tooling
         run: |
