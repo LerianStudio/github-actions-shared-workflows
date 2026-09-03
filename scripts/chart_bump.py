@@ -74,6 +74,36 @@ def resolve_targets(matrix: dict, app: str, envs: list[str]) -> list[tuple[str, 
     return targets
 
 
+LEVELS = {"major": 3, "minor": 2, "patch": 1, "none": 0}
+
+SEMVER = re.compile(r"^v?(\d+)\.(\d+)\.(\d+)(?:[-+](.*))?$")
+
+
+def parse_version(value: str):
+    """(major, minor, patch, is_stable) or None when it is not semver."""
+    match = SEMVER.match(str(value))
+    if not match:
+        return None
+    major, minor, patch, suffix = match.groups()
+    return (int(major), int(minor), int(patch), suffix is None)
+
+
+def transition_level(previous: str, target: str) -> str:
+    """Classify one from -> to transition."""
+    a, b = parse_version(previous), parse_version(target)
+    if not a or not b:
+        # A pin that is not semver cannot be proven safe, so treat it as the most
+        # restrictive case rather than silently routing it as a patch.
+        return "major"
+    if a[0] != b[0]:
+        return "major"
+    if a[1] != b[1]:
+        return "minor"
+    if a[2] != b[2] or a[3] != b[3]:
+        return "patch"
+    return "none"
+
+
 def bump_file(path: Path, chart_ref: str, version: str, dry_run: bool) -> str | None:
     """Update every release matching chart_ref. Returns the previous version.
 
@@ -166,13 +196,31 @@ def main() -> int:
             # repository) or it was already on the target version.
             untouched.append(relative)
             continue
-        changed.append({"file": relative, "from": previous, "to": args.version})
+        changed.append(
+            {
+                "file": relative,
+                "from": previous,
+                "to": args.version,
+                "level": transition_level(previous, args.version),
+            }
+        )
+
+    # The most restrictive transition across every environment decides routing.
+    # Environments drift apart — fetcher sits at 3.1.0 in dev-st and
+    # 2.2.0-beta.2 in prd-st — so reading the level off a single entry can route
+    # a major jump into production as a patch.
+    level = max(
+        (row["level"] for row in changed),
+        key=lambda name: LEVELS[name],
+        default="none",
+    )
 
     print(
         json.dumps(
             {
                 "channel": channel,
                 "envs": envs,
+                "level": level,
                 "changed": changed,
                 "untouched": untouched,
                 "absent": absent,
