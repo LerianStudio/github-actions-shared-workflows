@@ -1,0 +1,300 @@
+name: GitOps Chart Update
+description: Pins a newly released Helm chart version into the GitOps repository, gated by render and orphan-key checks.
+
+inputs:
+  chart-name:
+    description: Chart name, also the key used in the deployment matrix (e.g. `midaz`)
+    required: true
+  chart-version:
+    description: The version just published (e.g. `9.1.0`, `3.2.0-beta.1`)
+    required: true
+  chart-ref:
+    description: Full OCI reference. Only releases on this exact chart are touched, which is what stops an `alpha/` pin being overwritten with the stable line
+    required: true
+  gitops-repository:
+    description: Target GitOps repository in `owner/name` form. Validated against the LerianStudio GitOps allowlist
+    required: true
+  gitops-token:
+    description: Token with write access to the GitOps repository
+    required: true
+  gpg-private-key:
+    description: CI GPG private key. The GitOps repository ruleset requires signed commits
+    required: true
+  gpg-passphrase:
+    description: Passphrase for the CI GPG private key
+    required: true
+  git-user-name:
+    description: Committer name matching the CI GPG identity
+    required: true
+  git-user-email:
+    description: Committer email matching the CI GPG identity
+    required: true
+  deployment-matrix-ref:
+    description: Ref of this repository to read `config/deployment-matrix.yml` from
+    required: false
+    default: 'main'
+  migrations-path:
+    description: Migration directory inside the chart package. Empty disables the step
+    required: false
+    default: 'migrations'
+  target-envs:
+    description: Space-separated env list overriding the channel-derived one (e.g. `dev stg`)
+    required: false
+    default: ''
+  fail-on-orphan:
+    description: Fail when an environment values file holds a key the chart dropped
+    required: false
+    default: 'true'
+  dry-run:
+    description: Resolve, migrate and gate, then stop. No commit, push or pull request
+    required: false
+    default: 'false'
+
+outputs:
+  has-changes:
+    description: "String boolean: `true` when at least one pinned version changed"
+    value: ${{ steps.bump.outputs.has-changes }}
+  level:
+    description: Most restrictive transition across every environment touched (`major`, `minor`, `patch`, `none`)
+    value: ${{ steps.bump.outputs.level }}
+  route:
+    description: How the change was delivered (`commit`, `pr`, `none`)
+    value: ${{ steps.route.outputs.route }}
+
+runs:
+  using: composite
+  steps:
+    # ----------------- Guardrails -----------------
+    # gitops-repository reaches `helmfile lint/template`, which runs Go
+    # templating and can execute release hooks. Without this gate a caller could
+    # point the run at a repository they control and get code execution in a job
+    # holding the GitOps token and the CI GPG key.
+    - name: Validate the GitOps repository against the allowlist
+      shell: bash
+      env:
+        GITOPS_REPOSITORY: ${{ inputs.gitops-repository }}
+      run: |
+        set -euo pipefail
+        if [[ ! "$GITOPS_REPOSITORY" =~ ^LerianStudio/[A-Za-z0-9._-]+-gitops$ ]]; then
+          echo "::error::gitops-repository '$GITOPS_REPOSITORY' is not allowed. Must match ^LerianStudio/<name>-gitops$."
+          exit 1
+        fi
+
+    # ----------------- Checkout -----------------
+    # persist-credentials: false because helmfile can execute release hooks
+    # against this checkout; the token would otherwise sit in .git/config. It is
+    # handed to git only at push time.
+    - name: Checkout the GitOps repository
+      # codeql[actions/untrusted-checkout] -- constrained by the allowlist above
+      # to ^LerianStudio/<name>-gitops$, never PR/fork-controlled.
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+      with:
+        repository: ${{ inputs.gitops-repository }}
+        token: ${{ inputs.gitops-token }}
+        path: gitops
+        fetch-depth: 0
+        persist-credentials: false
+
+    # Data only: parsed as YAML, never executed.
+    - name: Checkout the deployment matrix
+      # codeql[actions/untrusted-checkout] -- repository is hardcoded to this
+      # same LerianStudio repo and the ref only selects a config file.
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+      with:
+        repository: LerianStudio/github-actions-shared-workflows
+        ref: ${{ inputs.deployment-matrix-ref }}
+        path: matrix
+        sparse-checkout: |
+          config/deployment-matrix.yml
+        sparse-checkout-cone-mode: false
+        persist-credentials: false
+
+    # ----------------- Tooling -----------------
+    - name: Set up helmfile and the python dependencies
+      shell: bash
+      run: |
+        set -euo pipefail
+        pip install --quiet ruamel.yaml pyyaml
+        curl -sSL https://github.com/helmfile/helmfile/releases/download/v1.1.7/helmfile_1.1.7_linux_amd64.tar.gz \
+          | sudo tar -xz -C /usr/local/bin helmfile
+
+    # migrations/<version>.yaml and values.yaml travel inside the chart package,
+    # so there is no need to clone the chart repository.
+    - name: Pull the chart
+      id: chart
+      shell: bash
+      env:
+        REGISTRY_TOKEN: ${{ inputs.gitops-token }}
+        CHART_REF: ${{ inputs.chart-ref }}
+        CHART_VERSION: ${{ inputs.chart-version }}
+      run: |
+        set -euo pipefail
+        printf '%s' "$REGISTRY_TOKEN" | helm registry login ghcr.io -u x-access-token --password-stdin
+        mkdir -p chart
+        helm pull "$CHART_REF" --version "$CHART_VERSION" --untar --untardir chart
+        echo "dir=$(find chart -maxdepth 1 -mindepth 1 -type d | head -1)" >> "$GITHUB_OUTPUT"
+
+    # ----------------- Bump & Migrate -----------------
+    - name: Bump the pinned version
+      id: bump
+      shell: bash
+      env:
+        CHART_NAME: ${{ inputs.chart-name }}
+        CHART_REF: ${{ inputs.chart-ref }}
+        CHART_VERSION: ${{ inputs.chart-version }}
+        TARGET_ENVS: ${{ inputs.target-envs }}
+        DRY_RUN: ${{ inputs.dry-run }}
+      run: |
+        set -euo pipefail
+        # No --dry-run even on a dry run: this checkout is throwaway and nothing
+        # is pushed. If the scripts did not write, the gates below would validate
+        # the OLD helmfile and UNMIGRATED values — a green dry run proving nothing.
+        python "${GITHUB_ACTION_PATH}/chart_bump.py" \
+          --matrix matrix/config/deployment-matrix.yml \
+          --gitops-root gitops \
+          --app "$CHART_NAME" \
+          --chart-ref "$CHART_REF" \
+          --version "$CHART_VERSION" \
+          --envs "$TARGET_ENVS" > bump.json
+        count=$(jq '.changed | length' bump.json)
+        {
+          echo "count=$count"
+          echo "level=$(jq -r '.level' bump.json)"
+          [ "$count" = "0" ] && echo "has-changes=false" || echo "has-changes=true"
+        } >> "$GITHUB_OUTPUT"
+        jq -r '.changed[].file' bump.json | sed 's|/helmfile.yaml$|/values.yaml|' > values-files.txt
+        if [ "$DRY_RUN" = "true" ]; then
+          echo "::notice::DRY RUN — resolved plan follows, nothing will be delivered"
+          jq . bump.json
+          jq -r '.untouched[]?' bump.json | while read -r f; do
+            echo "::notice::$f is pinned to another channel and was left alone"
+          done
+        fi
+
+    - name: Apply the chart migration
+      if: steps.bump.outputs.count != '0' && inputs.migrations-path != ''
+      shell: bash
+      env:
+        CHART_DIR: ${{ steps.chart.outputs.dir }}
+        MIGRATIONS_PATH: ${{ inputs.migrations-path }}
+        CHART_VERSION: ${{ inputs.chart-version }}
+        DRY_RUN: ${{ inputs.dry-run }}
+      run: |
+        set -euo pipefail
+        migration="${CHART_DIR}/${MIGRATIONS_PATH}/${CHART_VERSION}.yaml"
+        if [[ ! -f "$migration" ]]; then
+          [ "$DRY_RUN" = "true" ] && echo "::notice::no $migration — plain bump, no migration declared"
+          exit 0
+        fi
+        mapfile -t files < values-files.txt
+        python "${GITHUB_ACTION_PATH}/apply_chart_migration.py" --migration "$migration" --values "${files[@]}"
+
+    # ----------------- Gates -----------------
+    - name: Render every changed helmfile
+      if: steps.bump.outputs.count != '0'
+      shell: bash
+      run: |
+        set -euo pipefail
+        jq -r '.changed[].file' bump.json | while read -r helmfile_path; do
+          ( cd gitops && helmfile --file "$helmfile_path" lint )
+          ( cd gitops && helmfile --file "$helmfile_path" template > /dev/null )
+        done
+
+    - name: Detect orphan keys
+      if: steps.bump.outputs.count != '0'
+      shell: bash
+      env:
+        CHART_DIR: ${{ steps.chart.outputs.dir }}
+        FAIL_ON_ORPHAN: ${{ inputs.fail-on-orphan }}
+      run: |
+        set -euo pipefail
+        mapfile -t files < <(sed 's|^|gitops/|' values-files.txt)
+        strict=()
+        [ "$FAIL_ON_ORPHAN" = "true" ] && strict+=(--fail-on-orphan)
+        python "${GITHUB_ACTION_PATH}/detect_orphan_values.py" \
+          --chart-values "${CHART_DIR}/values.yaml" \
+          --env-values "${files[@]}" "${strict[@]}"
+
+    # ----------------- Delivery -----------------
+    # semver x environment: patch commits directly anywhere, minor commits
+    # directly only in dev, major always opens a pull request. One bump spans
+    # several environments, so the most restrictive cell wins.
+    - name: Decide between a direct commit and a pull request
+      id: route
+      if: steps.bump.outputs.count != '0'
+      shell: bash
+      env:
+        LEVEL: ${{ steps.bump.outputs.level }}
+        DRY_RUN: ${{ inputs.dry-run }}
+      run: |
+        set -euo pipefail
+        # The suffix is optional: env_suffixes defaults to [""] and
+        # suffix_excludes_envs already yields bare envs, so a plain /dev/ path
+        # must still read as a dev target.
+        beyond_dev="false"
+        if jq -r '.changed[].file' bump.json | grep -qvE '/(chaos|fuzzing/)?dev(-[a-z]+)?/'; then
+          beyond_dev="true"
+        fi
+        route="commit"
+        [[ "$LEVEL" == "major" ]] && route="pr"
+        [[ "$LEVEL" == "minor" && "$beyond_dev" == "true" ]] && route="pr"
+        echo "route=$route" >> "$GITHUB_OUTPUT"
+        if [ "$DRY_RUN" = "true" ]; then
+          echo "::notice::DRY RUN — level=$LEVEL beyond-dev=$beyond_dev would route to $route"
+        fi
+
+    - name: Import the CI GPG key
+      if: steps.bump.outputs.count != '0' && inputs.dry-run != 'true'
+      uses: crazy-max/ghaction-import-gpg@2dc316deee8e90f13e1a351ab510b4d5bc0c82cd # v7
+      with:
+        gpg_private_key: ${{ inputs.gpg-private-key }}
+        passphrase: ${{ inputs.gpg-passphrase }}
+        git_committer_name: ${{ inputs.git-user-name }}
+        git_committer_email: ${{ inputs.git-user-email }}
+        git_config_global: true
+        git_user_signingkey: true
+        git_commit_gpgsign: true
+        workdir: gitops
+
+    - name: Deliver
+      if: steps.bump.outputs.count != '0' && inputs.dry-run != 'true'
+      shell: bash
+      working-directory: gitops
+      env:
+        GH_TOKEN: ${{ inputs.gitops-token }}
+        GITOPS_TOKEN: ${{ inputs.gitops-token }}
+        GITOPS_REPOSITORY: ${{ inputs.gitops-repository }}
+        CHART_NAME: ${{ inputs.chart-name }}
+        CHART_VERSION: ${{ inputs.chart-version }}
+        LEVEL: ${{ steps.bump.outputs.level }}
+        ROUTE: ${{ steps.route.outputs.route }}
+      run: |
+        set -euo pipefail
+        title="chore(chart): bump ${CHART_NAME} to ${CHART_VERSION}"
+        git add -A
+        git remote set-url origin "https://x-access-token:${GITOPS_TOKEN}@github.com/${GITOPS_REPOSITORY}.git"
+        if [ "$ROUTE" = "commit" ]; then
+          git commit -m "$title" -m "${LEVEL} bump. Upgrade notes ship with the chart, under docs/."
+          git push
+          echo "::notice::${title} — committed directly (${LEVEL})"
+          exit 0
+        fi
+        branch="chart/${CHART_NAME}-${CHART_VERSION}"
+        git checkout -b "$branch"
+        git commit -m "$title"
+        git push -u origin "$branch"
+        {
+          echo "## Bump"
+          echo ""
+          echo "\`${CHART_NAME}\` to \`${CHART_VERSION}\` (${LEVEL})"
+          echo ""
+          echo "## Environments"
+          echo ""
+          jq -r '.changed[] | "- `\(.file)`: \(.from) -> \(.to) [\(.level)]"' ../bump.json
+          echo ""
+          echo "## Gates"
+          echo ""
+          echo "Render and orphan-key checks passed before this pull request existed."
+        } > ../pr-body.md
+        gh pr create --base main --title "$title" --body-file ../pr-body.md
+        echo "::notice::${title} — pull request opened (${LEVEL})"

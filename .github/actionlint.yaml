@@ -1,15 +1,12 @@
-# actionlint 1.7.x does not know github.job_workflow_sha, which is a documented
-# context property: "For a job using a reusable workflow, the commit SHA for the
-# reusable workflow file."
+# Blacksmith runners are self-hosted, so actionlint cannot know their labels and
+# reports every literal `runs-on: blacksmith-*` as unknown. The reusable-workflow
+# convention requires the literal (no vars indirection), so the label has to be
+# declared here rather than worked around at each call site.
 #
-# gitops-chart-update.yml relies on it to check out its own executable scripts
-# at the immutable revision that supplied the workflow, instead of a
-# caller-selected ref. There is no substitute — github.workflow_sha is the SHA
-# of the CALLING workflow, which is the wrong side of the trust boundary.
-#
-# Scoped to the one file and the one message on purpose: this must not become a
-# blanket suppression of undefined-property errors.
-paths:
-  .github/workflows/gitops-chart-update.yml:
-    ignore:
-      - 'property "job_workflow_sha" is not defined'
+# This is a declaration of fact, not a suppression: no rule is disabled and any
+# other unknown label is still reported.
+self-hosted-runner:
+  labels:
+    - blacksmith-4vcpu-ubuntu-2404
+    - blacksmith-8vcpu-ubuntu-2404
+    - blacksmith-16vcpu-ubuntu-2404
