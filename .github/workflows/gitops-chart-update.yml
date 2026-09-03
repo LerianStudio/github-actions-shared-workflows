@@ -42,6 +42,14 @@ on:
         description: "Fail when an environment values file holds a key the chart dropped. Recommended on for majors."
         type: boolean
         default: true
+      dry_run:
+        description: "Resolve targets, apply the migration in memory and run both gates, then stop. No GPG import, no commit, no push, no PR. The bump plan is printed either way."
+        type: boolean
+        default: false
+    outputs:
+      has_changes:
+        description: "String boolean: 'true' when at least one pinned version changed."
+        value: ${{ jobs.chart_update.outputs.has_changes }}
 
 permissions:
   contents: read
@@ -49,6 +57,8 @@ permissions:
 jobs:
   chart_update:
     runs-on: ${{ vars.GITOPS_RUNNERS || 'blacksmith-4vcpu-ubuntu-2404' }}
+    outputs:
+      has_changes: ${{ steps.bump.outputs.has_changes }}
     env:
       GITOPS_REPO: ${{ inputs.gitops_repository || vars.GITOPS_REPOSITORY }}
     steps:
@@ -88,49 +98,74 @@ jobs:
       # itself: no need to clone the chart repo or hold auth beyond the registry.
       - name: Pull the chart
         id: chart
+        env:
+          REGISTRY_TOKEN: ${{ steps.app-token.outputs.token }}
+          CHART_REF: ${{ inputs.chart_ref }}
+          CHART_VERSION: ${{ inputs.chart_version }}
         run: |
           set -euo pipefail
-          echo "${{ steps.app-token.outputs.token }}" \
+          printf '%s' "$REGISTRY_TOKEN" \
             | helm registry login ghcr.io -u x-access-token --password-stdin
-          mkdir -p chart && helm pull "${{ inputs.chart_ref }}" \
-            --version "${{ inputs.chart_version }}" --untar --untardir chart
+          mkdir -p chart && helm pull "$CHART_REF" \
+            --version "$CHART_VERSION" --untar --untardir chart
           name=$(find chart -maxdepth 1 -mindepth 1 -type d | head -1)
           echo "dir=$name" >> "$GITHUB_OUTPUT"
           echo "Chart extracted into $name"
 
       - name: Bump the pinned version
         id: bump
+        env:
+          CHART_NAME: ${{ inputs.chart_name }}
+          CHART_REF: ${{ inputs.chart_ref }}
+          CHART_VERSION: ${{ inputs.chart_version }}
+          TARGET_ENVS: ${{ inputs.envs }}
+          DRY_RUN: ${{ inputs.dry_run }}
         run: |
           set -euo pipefail
+          dry=()
+          [ "$DRY_RUN" = "true" ] && dry+=(--dry-run)
           python shared-workflows/scripts/chart_bump.py \
             --matrix shared-workflows/config/deployment-matrix.yml \
             --gitops-root gitops \
-            --app "${{ inputs.chart_name }}" \
-            --chart-ref "${{ inputs.chart_ref }}" \
-            --version "${{ inputs.chart_version }}" \
-            --envs "${{ inputs.envs }}" > bump.json
+            --app "$CHART_NAME" \
+            --chart-ref "$CHART_REF" \
+            --version "$CHART_VERSION" \
+            --envs "$TARGET_ENVS" "${dry[@]}" > bump.json
           cat bump.json
           count=$(jq '.changed | length' bump.json)
           echo "count=$count" >> "$GITHUB_OUTPUT"
+          # has_changes lets a caller gate later jobs without re-deriving it.
+          if [ "$count" = "0" ]; then
+            echo "has_changes=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_changes=true" >> "$GITHUB_OUTPUT"
+          fi
           jq -r '.changed[].file' bump.json | sed 's|/helmfile.yaml$|/values.yaml|' > values-files.txt || true
           # untouched deserves a log line: that is where an environment pinned
           # to another channel shows up.
           jq -r '.untouched[]?' bump.json | while read -r f; do
-            echo "::notice::$f did not match ${{ inputs.chart_ref }} — different channel, left alone."
+            echo "::notice::$f did not match $CHART_REF — different channel, left alone."
           done
 
       - name: Apply the chart migration
         if: steps.bump.outputs.count != '0' && inputs.migrations_path != ''
+        env:
+          CHART_DIR: ${{ steps.chart.outputs.dir }}
+          MIGRATIONS_PATH: ${{ inputs.migrations_path }}
+          CHART_VERSION: ${{ inputs.chart_version }}
+          DRY_RUN: ${{ inputs.dry_run }}
         run: |
           set -euo pipefail
-          migration="${{ steps.chart.outputs.dir }}/${{ inputs.migrations_path }}/${{ inputs.chart_version }}.yaml"
+          migration="${CHART_DIR}/${MIGRATIONS_PATH}/${CHART_VERSION}.yaml"
           if [[ ! -f "$migration" ]]; then
             echo "::notice::No $migration — plain bump, no migration declared."
             exit 0
           fi
           mapfile -t files < values-files.txt
+          dry=()
+          [ "$DRY_RUN" = "true" ] && dry+=(--dry-run)
           python shared-workflows/scripts/apply_chart_migration.py \
-            --migration "$migration" --values "${files[@]}"
+            --migration "$migration" --values "${files[@]}" "${dry[@]}"
 
       - name: Gate — render every changed helmfile
         if: steps.bump.outputs.count != '0'
@@ -145,13 +180,17 @@ jobs:
 
       - name: Gate — orphan keys
         if: steps.bump.outputs.count != '0'
+        env:
+          CHART_DIR: ${{ steps.chart.outputs.dir }}
+          FAIL_ON_ORPHAN: ${{ inputs.fail_on_orphan }}
         run: |
           set -euo pipefail
           mapfile -t files < <(sed 's|^|gitops/|' values-files.txt)
+          strict=()
+          [ "$FAIL_ON_ORPHAN" = "true" ] && strict+=(--fail-on-orphan)
           python shared-workflows/scripts/detect_orphan_values.py \
-            --chart-values "${{ steps.chart.outputs.dir }}/values.yaml" \
-            --env-values "${files[@]}" \
-            ${{ inputs.fail_on_orphan && '--fail-on-orphan' || '' }}
+            --chart-values "${CHART_DIR}/values.yaml" \
+            --env-values "${files[@]}" "${strict[@]}"
 
       - name: Import GPG key
         if: steps.bump.outputs.count != '0'
@@ -173,10 +212,12 @@ jobs:
       - name: Decide direct commit or PR
         id: route
         if: steps.bump.outputs.count != '0'
+        env:
+          CHART_VERSION: ${{ inputs.chart_version }}
         run: |
           set -euo pipefail
           from=$(jq -r '.changed[0].from' bump.json)
-          to="${{ inputs.chart_version }}"
+          to="$CHART_VERSION"
           level="patch"
           [[ "${from%%.*}" != "${to%%.*}" ]] && level="major"
           if [[ "$level" == "patch" ]]; then
@@ -186,9 +227,13 @@ jobs:
           # `a && b` as the last command of a line returns non-zero when `a`
           # fails, and under set -e that would end the step. grep fails in exactly
           # the common case (a bump only in dev), hence the explicit if.
+          # The suffix is optional: env_suffixes defaults to [""] in the matrix
+          # schema, and suffix_excludes_envs already yields bare envs today (the
+          # benedita sandbox). Matching only dev-<suffix> would read a plain
+          # /dev/ path as beyond dev and open a PR for an ordinary dev minor.
           beyond_dev="false"
           if jq -r '.changed[].file' bump.json \
-              | grep -qvE '/(chaos|fuzzing)?/?dev-[a-z]+/'; then
+              | grep -qvE '/(chaos|fuzzing/)?dev(-[a-z]+)?/'; then
             beyond_dev="true"
           fi
 
@@ -198,29 +243,42 @@ jobs:
 
           echo "level=$level" >> "$GITHUB_OUTPUT"
           echo "route=$route" >> "$GITHUB_OUTPUT"
-          echo "::notice::$level, alem de dev=$beyond_dev -> $route"
+          echo "::notice::$level, beyond dev=$beyond_dev -> $route"
 
       - name: Commit directly
-        if: steps.bump.outputs.count != '0' && steps.route.outputs.route == 'commit'
+        if: >-
+          steps.bump.outputs.count != '0' &&
+          steps.route.outputs.route == 'commit' &&
+          !inputs.dry_run
         working-directory: gitops
+        env:
+          CHART_NAME: ${{ inputs.chart_name }}
+          CHART_VERSION: ${{ inputs.chart_version }}
+          LEVEL: ${{ steps.route.outputs.level }}
         run: |
           set -euo pipefail
           git add -A
-          git commit -m "chore(chart): bump ${{ inputs.chart_name }} to ${{ inputs.chart_version }}" \
-            -m "${{ steps.route.outputs.level }} bump. Upgrade notes ship with the chart, under docs/."
+          git commit -m "chore(chart): bump ${CHART_NAME} to ${CHART_VERSION}" \
+            -m "${LEVEL} bump. Upgrade notes ship with the chart, under docs/."
           git push
 
       - name: Open a pull request
-        if: steps.bump.outputs.count != '0' && steps.route.outputs.route == 'pr'
+        if: >-
+          steps.bump.outputs.count != '0' &&
+          steps.route.outputs.route == 'pr' &&
+          !inputs.dry_run
         working-directory: gitops
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          CHART_NAME: ${{ inputs.chart_name }}
+          CHART_VERSION: ${{ inputs.chart_version }}
+          LEVEL: ${{ steps.route.outputs.level }}
         run: |
           set -euo pipefail
-          branch="chart/${{ inputs.chart_name }}-${{ inputs.chart_version }}"
+          branch="chart/${CHART_NAME}-${CHART_VERSION}"
           git checkout -b "$branch"
           git add -A
-          git commit -m "chore(chart): bump ${{ inputs.chart_name }} to ${{ inputs.chart_version }}"
+          git commit -m "chore(chart): bump ${CHART_NAME} to ${CHART_VERSION}"
           git push -u origin "$branch"
 
           # Body assembled line by line: a heredoc here would have to start at
@@ -228,7 +286,7 @@ jobs:
           {
             echo "## Bump"
             echo ""
-            echo "\`${{ inputs.chart_name }}\` to \`${{ inputs.chart_version }}\` (${{ steps.route.outputs.level }})"
+            echo "\`${CHART_NAME}\` to \`${CHART_VERSION}\` (${LEVEL})"
             echo ""
             echo "## Environments"
             echo ""
@@ -240,5 +298,5 @@ jobs:
           } > ../pr-body.md
 
           gh pr create --base main \
-            --title "chore(chart): bump ${{ inputs.chart_name }} to ${{ inputs.chart_version }}" \
+            --title "chore(chart): bump ${CHART_NAME} to ${CHART_VERSION}" \
             --body-file ../pr-body.md

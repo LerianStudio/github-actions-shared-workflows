@@ -81,9 +81,35 @@ def set_node(data, parts: list[str], value) -> None:
     node[parts[-1]] = value
 
 
+REQUIRED_FIELDS = {"rename": ("from", "to"), "remove": ("path",), "require": ("path",)}
+
+
+def validate(operation) -> str | None:
+    """Reject a malformed op before it reaches the mutation helpers.
+
+    Without this, `path: "."` splits to [] and pop_node raises IndexError, and a
+    missing from/to raises KeyError — a raw traceback in the middle of a
+    workflow that writes to a GitOps repository.
+    """
+    if not isinstance(operation, dict):
+        return f"op is not a mapping: {operation!r}"
+    kind = operation.get("op")
+    if kind not in REQUIRED_FIELDS:
+        return f"unknown op: {kind!r}"
+    for field in REQUIRED_FIELDS[kind]:
+        value = operation.get(field)
+        if not isinstance(value, str) or not split_path(value):
+            return f"{kind}: field {field!r} must be a non-empty key path, got {value!r}"
+    return None
+
+
 def apply_ops(values, ops: list[dict]) -> tuple[list[str], list[str]]:
     applied, failures = [], []
     for operation in ops:
+        problem = validate(operation)
+        if problem:
+            failures.append(problem)
+            continue
         kind = operation.get("op")
 
         if kind == "rename":
@@ -110,9 +136,6 @@ def apply_ops(values, ops: list[dict]) -> tuple[list[str], list[str]]:
                 failures.append(
                     f"require {operation['path']}: missing in this environment, no chart default"
                 )
-
-        else:
-            failures.append(f"unknown op: {kind!r}")
 
     return applied, failures
 

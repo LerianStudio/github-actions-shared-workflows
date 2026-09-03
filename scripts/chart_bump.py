@@ -75,11 +75,16 @@ def resolve_targets(matrix: dict, app: str, envs: list[str]) -> list[tuple[str, 
 
 
 def bump_file(path: Path, chart_ref: str, version: str, dry_run: bool) -> str | None:
-    """Update the release matching chart_ref. Returns the previous version."""
+    """Update every release matching chart_ref. Returns the previous version.
+
+    A file may hold more than one release on the same chart. Scanning must not
+    stop at the first one already sitting on the target version, or a sibling
+    release would silently keep its old pin.
+    """
     with path.open() as handle:
         documents = list(yaml.load_all(handle))
 
-    previous = None
+    previous_versions = []
     for document in documents:
         if not isinstance(document, dict):
             continue
@@ -90,16 +95,18 @@ def bump_file(path: Path, chart_ref: str, version: str, dry_run: bool) -> str | 
                 continue
             current = str(release.get("version", ""))
             if current == version:
-                return None
-            previous = current
+                continue
+            previous_versions.append(current)
             release["version"] = version
 
-    if previous is None or dry_run:
-        return previous
+    if not previous_versions:
+        return None
+    if dry_run:
+        return previous_versions[0]
 
     with path.open("w") as handle:
         yaml.dump_all(documents, handle)
-    return previous
+    return previous_versions[0]
 
 
 def main() -> int:
