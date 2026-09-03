@@ -174,7 +174,7 @@ jobs:
 
           if [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
             TAG_TYPE="stable"
-          elif [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+-([0-9A-Za-z-]+) ]]; then
+          elif [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+-([0-9A-Za-z-]+)(\.[0-9A-Za-z-]+)*$ ]]; then
             TAG_TYPE="${BASH_REMATCH[1]}"
           else
             TAG_TYPE="unknown"
@@ -189,7 +189,6 @@ jobs:
           fi
           if [[ -z "$WANTED" ]]; then
             NOTIFY=true
-            echo "RELEASE_NOTIFY_TAG_TYPES not set — announcing every tag type"
           else
             NOTIFY=false
             IFS=',' read -ra TYPES <<< "${WANTED,,}"
@@ -201,11 +200,9 @@ jobs:
             done
           fi
 
-          echo "Release tag  : $RELEASE_TAG"
-          echo "Tag type     : $TAG_TYPE"
-          echo "Allowed types: ${WANTED:-<any>}"
-          echo "Notify       : $NOTIFY"
-
+          # The resolved values are reported by the dry run summary. Only the
+          # suppression is announced on a real run — a filtered release must not
+          # be indistinguishable from a broken webhook.
           if [[ "$NOTIFY" != "true" ]]; then
             echo "::notice::Skipping release notifications — tag type '$TAG_TYPE' is not in RELEASE_NOTIFY_TAG_TYPES ($WANTED)"
           fi
