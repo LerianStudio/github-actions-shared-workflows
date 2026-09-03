@@ -156,6 +156,63 @@ jobs:
           echo "Resolved release tag: $TAG"
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
 
+      # Decides whether this tag is announced at all. Driven exclusively by the
+      # RELEASE_NOTIFY_TAG_TYPES Actions variable — set it once at the org level
+      # and override it per repository when a repo wants a different
+      # granularity. Undefined or empty announces every tag, which is the
+      # historical behavior.
+      - name: Classify release tag
+        id: classify
+        env:
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+          RELEASE_NOTIFY_TAG_TYPES: ${{ vars.RELEASE_NOTIFY_TAG_TYPES }}
+        run: |
+          # v1.2.3 → stable | v1.2.3-beta.4 → beta | v1.2.3-rc.1 → rc
+          # v1.2.3-alpha.1 → alpha (any pre-release identifier becomes its type)
+          VERSION="${RELEASE_TAG#v}"
+          VERSION="${VERSION%%+*}"
+
+          if [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            TAG_TYPE="stable"
+          elif [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+-([0-9A-Za-z-]+)(\.[0-9A-Za-z-]+)*$ ]]; then
+            TAG_TYPE="${BASH_REMATCH[1]}"
+          else
+            TAG_TYPE="unknown"
+          fi
+          TAG_TYPE="${TAG_TYPE,,}"
+
+          WANTED="${RELEASE_NOTIFY_TAG_TYPES//[[:space:]]/}"
+          # A value made only of separators is a misconfiguration, not a
+          # "block everything" instruction — treat it as unset.
+          if [[ -z "${WANTED//,/}" ]]; then
+            WANTED=""
+          fi
+          if [[ -z "$WANTED" ]]; then
+            NOTIFY=true
+          else
+            NOTIFY=false
+            IFS=',' read -ra TYPES <<< "${WANTED,,}"
+            for TYPE in "${TYPES[@]}"; do
+              if [[ -n "$TYPE" && "$TYPE" == "$TAG_TYPE" ]]; then
+                NOTIFY=true
+                break
+              fi
+            done
+          fi
+
+          # The resolved values are reported by the dry run summary. Only the
+          # suppression is announced on a real run — a filtered release must not
+          # be indistinguishable from a broken webhook.
+          if [[ "$NOTIFY" != "true" ]]; then
+            echo "::notice::Skipping release notifications — tag type '$TAG_TYPE' is not in RELEASE_NOTIFY_TAG_TYPES ($WANTED)"
+          fi
+
+          {
+            echo "tag_type=$TAG_TYPE"
+            echo "notify=$NOTIFY"
+            echo "allowed_types=$WANTED"
+          } >> "$GITHUB_OUTPUT"
+
       - name: Dry run summary
         if: ${{ inputs.dry_run }}
         env:
@@ -166,22 +223,27 @@ jobs:
           DISCORD_USERNAME: ${{ inputs.discord_username }}
           DISCORD_CONTENT: ${{ inputs.discord_content }}
           SKIP_BETA_DISCORD: ${{ inputs.skip_beta_discord }}
+          TAG_TYPE: ${{ steps.classify.outputs.tag_type }}
+          ALLOWED_TAG_TYPES: ${{ steps.classify.outputs.allowed_types }}
+          NOTIFY_TAG: ${{ steps.classify.outputs.notify }}
           SLACK_CHANNEL: ${{ inputs.slack_channel }}
           SLACK_COLOR: ${{ inputs.slack_color }}
           SLACK_ICON_EMOJI: ${{ inputs.slack_icon_emoji }}
         run: |
           DISCORD_STATE="not set"
           ENABLE_DISCORD=false
-          if [[ -n "$DISCORD_WEBHOOK_URL" ]]; then
+          if [[ -n "$DISCORD_WEBHOOK_URL" && "$NOTIFY_TAG" == "true" ]]; then
             DISCORD_STATE="configured"
             ENABLE_DISCORD=true
+          elif [[ -n "$DISCORD_WEBHOOK_URL" ]]; then
+            DISCORD_STATE="configured"
           fi
 
           SLACK_STATE="not set"
           ENABLE_SLACK=false
           if [[ -n "$SLACK_WEBHOOK_URL" ]]; then
             SLACK_STATE="configured"
-            if [[ -n "$SLACK_CHANNEL" ]]; then
+            if [[ -n "$SLACK_CHANNEL" && "$NOTIFY_TAG" == "true" ]]; then
               ENABLE_SLACK=true
             fi
           fi
@@ -190,6 +252,9 @@ jobs:
           echo "  runner           : $RESOLVED_RUNNER"
           echo "  product_name     : $PRODUCT_NAME"
           echo "  release_tag      : $RELEASE_TAG"
+          echo "  tag_type         : $TAG_TYPE"
+          echo "  allowed_tag_types: ${ALLOWED_TAG_TYPES:-<any>}"
+          echo "  notify_tag       : $NOTIFY_TAG"
           echo "  discord_webhook  : $DISCORD_STATE"
           echo "  discord_color    : $DISCORD_COLOR"
           echo "  discord_username : $DISCORD_USERNAME"
@@ -203,7 +268,7 @@ jobs:
           echo "  enable_slack     : $ENABLE_SLACK"
 
       - name: Discord notification
-        if: ${{ env.DISCORD_WEBHOOK_URL != '' }}
+        if: ${{ env.DISCORD_WEBHOOK_URL != '' && steps.classify.outputs.notify == 'true' }}
         uses: LerianStudio/github-actions-shared-workflows/src/notify/discord-release@v1
         with:
           webhook-url: ${{ secrets.DISCORD_WEBHOOK_URL }}
@@ -215,7 +280,7 @@ jobs:
           dry-run: ${{ inputs.dry_run }}
 
       - name: Slack notification
-        if: ${{ env.SLACK_WEBHOOK_URL != '' && inputs.slack_channel != '' }}
+        if: ${{ env.SLACK_WEBHOOK_URL != '' && inputs.slack_channel != '' && steps.classify.outputs.notify == 'true' }}
         uses: LerianStudio/github-actions-shared-workflows/src/notify/slack-release@v1
         with:
           webhook-url: ${{ secrets.SLACK_WEBHOOK_URL }}
