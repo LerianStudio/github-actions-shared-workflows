@@ -1,0 +1,243 @@
+name: "GitOps Chart Update"
+
+# Contraparte do gitops-update.yml para a VERSAO DO CHART. O gitops-update
+# cuida da tag de imagem em values.yaml; este cuida do `version` do release em
+# helmfile.yaml. Os dois leem a mesma config/deployment-matrix.yml, entao a
+# topologia (clusters, contextos, sufixos de env) tem uma fonte de verdade so'.
+#
+# Chamado pelo release do repo de chart, uma vez por chart publicado.
+
+on:
+  workflow_call:
+    inputs:
+      chart_name:
+        description: 'Nome do chart, e tambem a chave usada na deployment-matrix (ex. midaz).'
+        type: string
+        required: true
+      chart_version:
+        description: 'Versao recem-publicada (ex. 9.1.0, 3.2.0-beta.1).'
+        type: string
+        required: true
+      chart_ref:
+        description: "Referencia OCI completa. So' releases com ESTE chart exato sao tocados — e' o que impede um pin em alpha/ de ser sobrescrito com a linha estavel."
+        type: string
+        required: true
+      migrations_path:
+        description: 'Diretorio de migracao dentro do chart. Vazio desativa a etapa.'
+        type: string
+        default: 'migrations'
+      gitops_repository:
+        description: 'Repo gitops (org/repo). Vazio usa a variavel de org GITOPS_REPOSITORY.'
+        type: string
+        default: ''
+      deployment_matrix_ref:
+        description: 'Ref do shared-workflows de onde ler a deployment matrix.'
+        type: string
+        default: 'main'
+      envs:
+        description: 'Sobrescreve a lista de envs derivada do canal. Espacos como separador (ex. "dev stg").'
+        type: string
+        default: ''
+      fail_on_orphan:
+        description: 'Falha quando o values do ambiente tem chave que sumiu do chart. Recomendado ligado em major.'
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+jobs:
+  chart_update:
+    runs-on: ${{ vars.GITOPS_RUNNERS || 'blacksmith-4vcpu-ubuntu-2404' }}
+    env:
+      GITOPS_REPO: ${{ inputs.gitops_repository || vars.GITOPS_REPOSITORY }}
+    steps:
+      - name: Generate GitHub App Token
+        id: app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          client-id: ${{ secrets.LERIAN_STUDIO_MIDAZ_PUSH_BOT_APP_ID }}
+          private-key: ${{ secrets.LERIAN_STUDIO_MIDAZ_PUSH_BOT_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+
+      - name: Checkout GitOps repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+        with:
+          repository: ${{ env.GITOPS_REPO }}
+          token: ${{ steps.app-token.outputs.token }}
+          path: gitops
+          fetch-depth: 0
+
+      - name: Checkout shared-workflows (matrix + scripts)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+        with:
+          repository: LerianStudio/github-actions-shared-workflows
+          ref: ${{ inputs.deployment_matrix_ref }}
+          path: shared-workflows
+
+      - name: Set up tooling
+        run: |
+          set -euo pipefail
+          pip install ruamel.yaml pyyaml
+          curl -sSL https://github.com/helmfile/helmfile/releases/download/v1.1.7/helmfile_1.1.7_linux_amd64.tar.gz \
+            | sudo tar -xz -C /usr/local/bin helmfile
+          helm version --short
+          helmfile --version
+
+      # migrations/<versao>.yaml e values.yaml vem do proprio pacote do chart:
+      # nao precisa clonar o repo de chart nem de auth extra alem do registry.
+      - name: Pull the chart
+        id: chart
+        run: |
+          set -euo pipefail
+          echo "${{ steps.app-token.outputs.token }}" \
+            | helm registry login ghcr.io -u x-access-token --password-stdin
+          mkdir -p chart && helm pull "${{ inputs.chart_ref }}" \
+            --version "${{ inputs.chart_version }}" --untar --untardir chart
+          name=$(find chart -maxdepth 1 -mindepth 1 -type d | head -1)
+          echo "dir=$name" >> "$GITHUB_OUTPUT"
+          echo "Chart extraido em $name"
+
+      - name: Bump the pinned version
+        id: bump
+        run: |
+          set -euo pipefail
+          python shared-workflows/scripts/chart_bump.py \
+            --matrix shared-workflows/config/deployment-matrix.yml \
+            --gitops-root gitops \
+            --app "${{ inputs.chart_name }}" \
+            --chart-ref "${{ inputs.chart_ref }}" \
+            --version "${{ inputs.chart_version }}" \
+            --envs "${{ inputs.envs }}" > bump.json
+          cat bump.json
+          count=$(jq '.changed | length' bump.json)
+          echo "count=$count" >> "$GITHUB_OUTPUT"
+          jq -r '.changed[].file' bump.json | sed 's|/helmfile.yaml$|/values.yaml|' > values-files.txt || true
+          # untouched merece log: e' onde mora o ambiente pinado noutro canal.
+          jq -r '.untouched[]?' bump.json | while read -r f; do
+            echo "::notice::$f nao casou com ${{ inputs.chart_ref }} — outro canal, nao tocado."
+          done
+
+      - name: Apply the chart migration
+        if: steps.bump.outputs.count != '0' && inputs.migrations_path != ''
+        run: |
+          set -euo pipefail
+          migration="${{ steps.chart.outputs.dir }}/${{ inputs.migrations_path }}/${{ inputs.chart_version }}.yaml"
+          if [[ ! -f "$migration" ]]; then
+            echo "::notice::Sem $migration — bump puro, sem migracao declarada."
+            exit 0
+          fi
+          mapfile -t files < values-files.txt
+          python shared-workflows/scripts/apply_chart_migration.py \
+            --migration "$migration" --values "${files[@]}"
+
+      - name: Gate — render every changed helmfile
+        if: steps.bump.outputs.count != '0'
+        run: |
+          set -euo pipefail
+          jq -r '.changed[].file' bump.json | while read -r helmfile_path; do
+            echo "::group::$helmfile_path"
+            ( cd gitops && helmfile --file "$helmfile_path" lint )
+            ( cd gitops && helmfile --file "$helmfile_path" template > /dev/null )
+            echo "::endgroup::"
+          done
+
+      - name: Gate — orphan keys
+        if: steps.bump.outputs.count != '0'
+        run: |
+          set -euo pipefail
+          mapfile -t files < <(sed 's|^|gitops/|' values-files.txt)
+          python shared-workflows/scripts/detect_orphan_values.py \
+            --chart-values "${{ steps.chart.outputs.dir }}/values.yaml" \
+            --env-values "${files[@]}" \
+            ${{ inputs.fail_on_orphan && '--fail-on-orphan' || '' }}
+
+      - name: Import GPG key
+        if: steps.bump.outputs.count != '0'
+        uses: crazy-max/ghaction-import-gpg@2dc316deee8e90f13e1a351ab510b4d5bc0c82cd # v7
+        with:
+          gpg_private_key: ${{ secrets.LERIAN_CI_CD_USER_GPG_KEY }}
+          passphrase: ${{ secrets.LERIAN_CI_CD_USER_GPG_KEY_PASSWORD }}
+          git_committer_name: ${{ secrets.LERIAN_CI_CD_USER_NAME }}
+          git_committer_email: ${{ secrets.LERIAN_CI_CD_USER_EMAIL }}
+          git_config_global: true
+          git_user_signingkey: true
+          git_commit_gpgsign: true
+          workdir: gitops
+
+      # Cruzamento semver x ambiente. patch entra direto em qualquer ambiente;
+      # minor entra direto so' em dev; major sempre abre PR. Um PR do Renovate
+      # cobre varios ambientes de uma vez, entao vale a celula mais restritiva
+      # entre os ambientes tocados.
+      - name: Decide direct commit or PR
+        id: route
+        if: steps.bump.outputs.count != '0'
+        run: |
+          set -euo pipefail
+          from=$(jq -r '.changed[0].from' bump.json)
+          to="${{ inputs.chart_version }}"
+          level=patch
+          [[ "${from%%.*}" != "${to%%.*}" ]] && level=major
+          if [[ "$level" == "patch" ]]; then
+            f_minor=$(cut -d. -f2 <<< "$from"); t_minor=$(cut -d. -f2 <<< "$to")
+            [[ "$f_minor" != "$t_minor" ]] && level=minor
+          fi
+          # `a && b` como ultimo comando da linha devolve != 0 quando `a` falha,
+          # e com set -e isso encerraria o step. O grep falha justamente no caso
+          # comum (bump so' em dev), entao o || true e' obrigatorio.
+          beyond_dev=false
+          if jq -r '.changed[].file' bump.json \
+              | grep -qvE '/(chaos|fuzzing)?/?dev-[a-z]+/'; then
+            beyond_dev=true
+          fi
+
+          route=commit
+          [[ "$level" == "major" ]] && route=pr
+          [[ "$level" == "minor" && "$beyond_dev" == "true" ]] && route=pr
+
+          echo "level=$level" >> "$GITHUB_OUTPUT"
+          echo "route=$route" >> "$GITHUB_OUTPUT"
+          echo "::notice::$level, alem de dev=$beyond_dev -> $route"
+
+      - name: Commit directly
+        if: steps.bump.outputs.count != '0' && steps.route.outputs.route == 'commit'
+        working-directory: gitops
+        run: |
+          set -euo pipefail
+          git add -A
+          git commit -m "chore(chart): bump ${{ inputs.chart_name }} to ${{ inputs.chart_version }}" \
+            -m "Canal ${{ steps.route.outputs.level }}. Notas de upgrade no chart, em docs/."
+          git push
+
+      - name: Open a pull request
+        if: steps.bump.outputs.count != '0' && steps.route.outputs.route == 'pr'
+        working-directory: gitops
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          set -euo pipefail
+          branch="chart/${{ inputs.chart_name }}-${{ inputs.chart_version }}"
+          git checkout -b "$branch"
+          git add -A
+          git commit -m "chore(chart): bump ${{ inputs.chart_name }} to ${{ inputs.chart_version }}"
+          git push -u origin "$branch"
+
+          # Corpo montado linha a linha: um heredoc aqui teria de comecar na
+          # coluna 0 e quebraria o escalar de bloco do YAML.
+          {
+            echo "## Bump"
+            echo ""
+            echo "\`${{ inputs.chart_name }}\` para \`${{ inputs.chart_version }}\` (${{ steps.route.outputs.level }})"
+            echo ""
+            echo "## Ambientes"
+            echo ""
+            jq -r '.changed[] | "- `\(.file)`: \(.from) -> \(.to)"' ../bump.json
+            echo ""
+            echo "## Gates"
+            echo ""
+            echo "Render e chave orfa passaram antes deste PR existir."
+          } > ../pr-body.md
+
+          gh pr create --base main \
+            --title "chore(chart): bump ${{ inputs.chart_name }} to ${{ inputs.chart_version }}" \
+            --body-file ../pr-body.md
