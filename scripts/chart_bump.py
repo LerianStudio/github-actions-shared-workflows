@@ -104,12 +104,13 @@ def transition_level(previous: str, target: str) -> str:
     return "none"
 
 
-def bump_file(path: Path, chart_ref: str, version: str, dry_run: bool) -> str | None:
-    """Update every release matching chart_ref. Returns the previous version.
+def bump_file(path: Path, chart_ref: str, version: str, dry_run: bool) -> list[str]:
+    """Update every release matching chart_ref. Returns each previous version.
 
-    A file may hold more than one release on the same chart. Scanning must not
-    stop at the first one already sitting on the target version, or a sibling
-    release would silently keep its old pin.
+    A file may hold more than one release on the same chart, and they can sit on
+    different pins. Returning only the first would let a 1.1.0 -> 2.10.0 jump be
+    classified by a 2.9.0 -> 2.10.0 sibling, so every transition comes back and
+    the caller keeps the most restrictive one.
     """
     with path.open() as handle:
         documents = list(yaml.load_all(handle))
@@ -129,14 +130,12 @@ def bump_file(path: Path, chart_ref: str, version: str, dry_run: bool) -> str | 
             previous_versions.append(current)
             release["version"] = version
 
-    if not previous_versions:
-        return None
-    if dry_run:
-        return previous_versions[0]
+    if not previous_versions or dry_run:
+        return previous_versions
 
     with path.open("w") as handle:
         yaml.dump_all(documents, handle)
-    return previous_versions[0]
+    return previous_versions
 
 
 def main() -> int:
@@ -190,18 +189,22 @@ def main() -> int:
             absent.append(relative)
             continue
 
-        previous = bump_file(path, args.chart_ref, args.version, args.dry_run)
-        if previous is None:
+        previous_versions = bump_file(path, args.chart_ref, args.version, args.dry_run)
+        if not previous_versions:
             # chart_ref did not match (e.g. the environment sits on an alpha/
             # repository) or it was already on the target version.
             untouched.append(relative)
             continue
+        # Most restrictive transition within this file wins, and `from` reports
+        # the pin that produced it — not whichever release came first.
+        levels = [transition_level(v, args.version) for v in previous_versions]
+        worst = max(levels, key=lambda name: LEVELS[name])
         changed.append(
             {
                 "file": relative,
-                "from": previous,
+                "from": previous_versions[levels.index(worst)],
                 "to": args.version,
-                "level": transition_level(previous, args.version),
+                "level": worst,
             }
         )
 

@@ -91,6 +91,10 @@ jobs:
           fi
           echo "gitops_repository validated: $GITOPS_REPOSITORY"
 
+      # persist-credentials: false because helmfile lint/template runs against
+      # this checkout and can execute release hooks. With the default, the App
+      # token sits in gitops/.git/config and a hook could read it. The token is
+      # handed to git only at push time, below.
       - name: Checkout GitOps repository
         # codeql[actions/untrusted-checkout] -- env.GITOPS_REPO is constrained by
         # the allowlist above to ^LerianStudio/<name>-gitops$, never
@@ -102,22 +106,36 @@ jobs:
           token: ${{ steps.app-token.outputs.token }}
           path: gitops
           fetch-depth: 0
+          persist-credentials: false
 
-      # Unlike the matrix checkout in gitops-update.yml, this one IS executed:
-      # the job runs python from shared-workflows/scripts/. The justification is
-      # therefore different — pushing a ref to this repository already requires
-      # write access here, which is the same access needed to edit this very
-      # workflow, so the input grants no escalation. Credentials are not
-      # persisted so the checkout token cannot leak into later git operations.
-      - name: Checkout shared-workflows (matrix + scripts)
+      # EXECUTABLE code, pinned to the immutable revision that supplied this very
+      # workflow. deployment_matrix_ref is a caller input, so using it here would
+      # let a caller choose which python this job runs. job_workflow_sha is the
+      # commit of the reusable workflow being executed, so the scripts can never
+      # drift from the workflow that calls them.
+      - name: Checkout the scripts at the workflow revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+        with:
+          repository: LerianStudio/github-actions-shared-workflows
+          ref: ${{ github.job_workflow_sha }}
+          path: shared-workflows
+          persist-credentials: false
+
+      # DATA only, and the one place deployment_matrix_ref still applies: a
+      # sparse checkout of the manifest, read as YAML and never executed. Same
+      # shape as the matrix checkout in gitops-update.yml.
+      - name: Checkout the deployment matrix
         # codeql[actions/untrusted-checkout] -- repository is hardcoded to this
-        # same LerianStudio repo; ref is a maintainer-controlled input, not
-        # PR/fork-controlled (workflow_call-only, no pull_request_target).
+        # same LerianStudio repo, the ref only selects a config file that is
+        # parsed as data, and nothing from this path is executed.
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
         with:
           repository: LerianStudio/github-actions-shared-workflows
           ref: ${{ inputs.deployment_matrix_ref }}
-          path: shared-workflows
+          path: matrix
+          sparse-checkout: |
+            config/deployment-matrix.yml
+          sparse-checkout-cone-mode: false
           persist-credentials: false
 
       - name: Set up tooling
@@ -161,7 +179,7 @@ jobs:
           # render validaria o helmfile ANTIGO e o gate de orfas compararia
           # values NAO migrados — um dry run verde provando o estado errado.
           python shared-workflows/scripts/chart_bump.py \
-            --matrix shared-workflows/config/deployment-matrix.yml \
+            --matrix matrix/config/deployment-matrix.yml \
             --gitops-root gitops \
             --app "$CHART_NAME" \
             --chart-ref "$CHART_REF" \
@@ -286,11 +304,14 @@ jobs:
           CHART_NAME: ${{ inputs.chart_name }}
           CHART_VERSION: ${{ inputs.chart_version }}
           LEVEL: ${{ steps.route.outputs.level }}
+          APP_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
           set -euo pipefail
           git add -A
           git commit -m "chore(chart): bump ${CHART_NAME} to ${CHART_VERSION}" \
             -m "${LEVEL} bump. Upgrade notes ship with the chart, under docs/."
+          git remote set-url origin \
+            "https://x-access-token:${APP_TOKEN}@github.com/${GITOPS_REPO}.git"
           git push
 
       - name: Open a pull request
@@ -301,6 +322,7 @@ jobs:
         working-directory: gitops
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          APP_TOKEN: ${{ steps.app-token.outputs.token }}
           CHART_NAME: ${{ inputs.chart_name }}
           CHART_VERSION: ${{ inputs.chart_version }}
           LEVEL: ${{ steps.route.outputs.level }}
@@ -310,6 +332,8 @@ jobs:
           git checkout -b "$branch"
           git add -A
           git commit -m "chore(chart): bump ${CHART_NAME} to ${CHART_VERSION}"
+          git remote set-url origin \
+            "https://x-access-token:${APP_TOKEN}@github.com/${GITOPS_REPO}.git"
           git push -u origin "$branch"
 
           # Body assembled line by line: a heredoc here would have to start at
