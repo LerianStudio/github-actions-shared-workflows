@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
-"""Acusa chave setada no ambiente que nao existe mais no chart.
+"""Flag a key set in an environment that no longer exists in the chart.
 
-A rede que nao depende de ninguem lembrar de nada. O values.schema.json dos
-charts e' permissivo — no midaz sao 106 `additionalProperties: true` contra 2
-`false` — entao o `helm template` aceita chave que o chart nao conhece mais e
-o deploy sobe com o default. Este check nao depende do schema nem de o autor
-do chart ter escrito a migracao.
+The safety net that depends on nobody remembering anything. The charts'
+values.schema.json is permissive — midaz has 106 `additionalProperties: true`
+against 2 `false` — so `helm template` happily accepts a key the chart no longer
+knows and the deploy comes up on the default. This check needs neither the schema
+nor the chart author having written a migration.
 
-Compara as folhas do values.yaml do ambiente com as do values.yaml do chart
-(obtido com `helm show values`). Chave presente no ambiente e ausente no chart
-e' reportada.
+It compares the leaf keys of the environment values.yaml against those of the
+chart values.yaml. Keys present in the environment and absent from the chart are
+reported.
 """
 
 from __future__ import annotations
@@ -21,8 +21,8 @@ from pathlib import Path
 
 import yaml
 
-# Subarvores livres por natureza: o chart nao declara as chaves de dentro, e
-# comparar folha a folha ali so' geraria falso positivo.
+# Free-form subtrees: the chart does not declare the keys inside them, so a
+# leaf-by-leaf comparison there would only produce false positives.
 FREE_FORM = {
     "extraEnv",
     "extraEnvVars",
@@ -65,14 +65,14 @@ def main() -> int:
     parser.add_argument(
         "--fail-on-orphan",
         action="store_true",
-        help="Sai != 0 quando encontra orfa. Sem isto, so' relata.",
+        help="Exit non-zero when an orphan is found. Otherwise only report.",
     )
     args = parser.parse_args()
 
     chart_keys = leaves(load(args.chart_values))
-    # Prefixos validos: uma chave do ambiente e' aceita se ela, ou qualquer
-    # ancestral dela, existe no chart. Cobre o caso de o chart declarar o pai
-    # como mapa vazio e o ambiente preencher.
+    # Valid prefixes: an environment key is accepted when it, or any ancestor of
+    # it, exists in the chart. Covers the chart declaring the parent as an empty
+    # map and the environment filling it in.
     prefixes = {key.rsplit(".", index)[0] for key in chart_keys for index in range(key.count(".") + 1)}
 
     report, orphan_total = [], 0
@@ -88,8 +88,8 @@ def main() -> int:
         report.append({"file": str(env_path), "orphans": orphans})
         for orphan in orphans:
             print(
-                f"::warning file={env_path}::`{orphan}` nao existe no chart novo. "
-                "O chart vai ignorar em silencio e usar o proprio default.",
+                f"::warning file={env_path}::`{orphan}` does not exist in the new chart. "
+                "The chart will ignore it silently and use its own default.",
                 file=sys.stderr,
             )
 

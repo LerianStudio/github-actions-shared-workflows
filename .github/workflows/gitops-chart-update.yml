@@ -1,45 +1,45 @@
 name: "GitOps Chart Update"
 
-# Contraparte do gitops-update.yml para a VERSAO DO CHART. O gitops-update
-# cuida da tag de imagem em values.yaml; este cuida do `version` do release em
-# helmfile.yaml. Os dois leem a mesma config/deployment-matrix.yml, entao a
-# topologia (clusters, contextos, sufixos de env) tem uma fonte de verdade so'.
+# The CHART VERSION counterpart of gitops-update.yml. That one owns the image
+# tag in values.yaml; this one owns the release `version` in helmfile.yaml. Both
+# read the same config/deployment-matrix.yml, so the topology (clusters, env
+# contexts, env suffixes) keeps a single source of truth.
 #
-# Chamado pelo release do repo de chart, uma vez por chart publicado.
+# Called by the chart repository release, once per published chart.
 
 on:
   workflow_call:
     inputs:
       chart_name:
-        description: 'Nome do chart, e tambem a chave usada na deployment-matrix (ex. midaz).'
+        description: "Chart name, also the key used in the deployment matrix (e.g. midaz)."
         type: string
         required: true
       chart_version:
-        description: 'Versao recem-publicada (ex. 9.1.0, 3.2.0-beta.1).'
+        description: "The version just published (e.g. 9.1.0, 3.2.0-beta.1)."
         type: string
         required: true
       chart_ref:
-        description: "Referencia OCI completa. So' releases com ESTE chart exato sao tocados — e' o que impede um pin em alpha/ de ser sobrescrito com a linha estavel."
+        description: "Full OCI reference. Only releases on THIS exact chart are touched, which is what stops an alpha/ pin being overwritten with the stable line."
         type: string
         required: true
       migrations_path:
-        description: 'Diretorio de migracao dentro do chart. Vazio desativa a etapa.'
+        description: "Migration directory inside the chart. Empty disables the step."
         type: string
         default: 'migrations'
       gitops_repository:
-        description: 'Repo gitops (org/repo). Vazio usa a variavel de org GITOPS_REPOSITORY.'
+        description: "GitOps repo (org/repo). Empty uses the GITOPS_REPOSITORY org variable."
         type: string
         default: ''
       deployment_matrix_ref:
-        description: 'Ref do shared-workflows de onde ler a deployment matrix.'
+        description: "shared-workflows ref to read the deployment matrix from."
         type: string
         default: 'main'
       envs:
-        description: 'Sobrescreve a lista de envs derivada do canal. Espacos como separador (ex. "dev stg").'
+        description: "Override the channel-derived env list. Space separated, e.g. dev stg."
         type: string
         default: ''
       fail_on_orphan:
-        description: 'Falha quando o values do ambiente tem chave que sumiu do chart. Recomendado ligado em major.'
+        description: "Fail when an environment values file holds a key the chart dropped. Recommended on for majors."
         type: boolean
         default: true
 
@@ -84,8 +84,8 @@ jobs:
           helm version --short
           helmfile --version
 
-      # migrations/<versao>.yaml e values.yaml vem do proprio pacote do chart:
-      # nao precisa clonar o repo de chart nem de auth extra alem do registry.
+      # migrations/<version>.yaml and values.yaml come from the chart package
+      # itself: no need to clone the chart repo or hold auth beyond the registry.
       - name: Pull the chart
         id: chart
         run: |
@@ -96,7 +96,7 @@ jobs:
             --version "${{ inputs.chart_version }}" --untar --untardir chart
           name=$(find chart -maxdepth 1 -mindepth 1 -type d | head -1)
           echo "dir=$name" >> "$GITHUB_OUTPUT"
-          echo "Chart extraido em $name"
+          echo "Chart extracted into $name"
 
       - name: Bump the pinned version
         id: bump
@@ -113,9 +113,10 @@ jobs:
           count=$(jq '.changed | length' bump.json)
           echo "count=$count" >> "$GITHUB_OUTPUT"
           jq -r '.changed[].file' bump.json | sed 's|/helmfile.yaml$|/values.yaml|' > values-files.txt || true
-          # untouched merece log: e' onde mora o ambiente pinado noutro canal.
+          # untouched deserves a log line: that is where an environment pinned
+          # to another channel shows up.
           jq -r '.untouched[]?' bump.json | while read -r f; do
-            echo "::notice::$f nao casou com ${{ inputs.chart_ref }} — outro canal, nao tocado."
+            echo "::notice::$f did not match ${{ inputs.chart_ref }} — different channel, left alone."
           done
 
       - name: Apply the chart migration
@@ -124,7 +125,7 @@ jobs:
           set -euo pipefail
           migration="${{ steps.chart.outputs.dir }}/${{ inputs.migrations_path }}/${{ inputs.chart_version }}.yaml"
           if [[ ! -f "$migration" ]]; then
-            echo "::notice::Sem $migration — bump puro, sem migracao declarada."
+            echo "::notice::No $migration — plain bump, no migration declared."
             exit 0
           fi
           mapfile -t files < values-files.txt
@@ -165,10 +166,10 @@ jobs:
           git_commit_gpgsign: true
           workdir: gitops
 
-      # Cruzamento semver x ambiente. patch entra direto em qualquer ambiente;
-      # minor entra direto so' em dev; major sempre abre PR. Um PR do Renovate
-      # cobre varios ambientes de uma vez, entao vale a celula mais restritiva
-      # entre os ambientes tocados.
+      # semver x environment matrix. patch commits directly anywhere; minor
+      # commits directly only in dev; major always opens a PR. One bump spans
+      # several environments at once, so the most restrictive cell among the
+      # environments touched is the one that applies.
       - name: Decide direct commit or PR
         id: route
         if: steps.bump.outputs.count != '0'
@@ -176,24 +177,24 @@ jobs:
           set -euo pipefail
           from=$(jq -r '.changed[0].from' bump.json)
           to="${{ inputs.chart_version }}"
-          level=patch
-          [[ "${from%%.*}" != "${to%%.*}" ]] && level=major
+          level="patch"
+          [[ "${from%%.*}" != "${to%%.*}" ]] && level="major"
           if [[ "$level" == "patch" ]]; then
             f_minor=$(cut -d. -f2 <<< "$from"); t_minor=$(cut -d. -f2 <<< "$to")
-            [[ "$f_minor" != "$t_minor" ]] && level=minor
+            [[ "$f_minor" != "$t_minor" ]] && level="minor"
           fi
-          # `a && b` como ultimo comando da linha devolve != 0 quando `a` falha,
-          # e com set -e isso encerraria o step. O grep falha justamente no caso
-          # comum (bump so' em dev), entao o || true e' obrigatorio.
-          beyond_dev=false
+          # `a && b` as the last command of a line returns non-zero when `a`
+          # fails, and under set -e that would end the step. grep fails in exactly
+          # the common case (a bump only in dev), hence the explicit if.
+          beyond_dev="false"
           if jq -r '.changed[].file' bump.json \
               | grep -qvE '/(chaos|fuzzing)?/?dev-[a-z]+/'; then
-            beyond_dev=true
+            beyond_dev="true"
           fi
 
-          route=commit
-          [[ "$level" == "major" ]] && route=pr
-          [[ "$level" == "minor" && "$beyond_dev" == "true" ]] && route=pr
+          route="commit"
+          [[ "$level" == "major" ]] && route="pr"
+          [[ "$level" == "minor" && "$beyond_dev" == "true" ]] && route="pr"
 
           echo "level=$level" >> "$GITHUB_OUTPUT"
           echo "route=$route" >> "$GITHUB_OUTPUT"
@@ -206,7 +207,7 @@ jobs:
           set -euo pipefail
           git add -A
           git commit -m "chore(chart): bump ${{ inputs.chart_name }} to ${{ inputs.chart_version }}" \
-            -m "Canal ${{ steps.route.outputs.level }}. Notas de upgrade no chart, em docs/."
+            -m "${{ steps.route.outputs.level }} bump. Upgrade notes ship with the chart, under docs/."
           git push
 
       - name: Open a pull request
@@ -222,20 +223,20 @@ jobs:
           git commit -m "chore(chart): bump ${{ inputs.chart_name }} to ${{ inputs.chart_version }}"
           git push -u origin "$branch"
 
-          # Corpo montado linha a linha: um heredoc aqui teria de comecar na
-          # coluna 0 e quebraria o escalar de bloco do YAML.
+          # Body assembled line by line: a heredoc here would have to start at
+          # column 0 and would break the YAML block scalar.
           {
             echo "## Bump"
             echo ""
-            echo "\`${{ inputs.chart_name }}\` para \`${{ inputs.chart_version }}\` (${{ steps.route.outputs.level }})"
+            echo "\`${{ inputs.chart_name }}\` to \`${{ inputs.chart_version }}\` (${{ steps.route.outputs.level }})"
             echo ""
-            echo "## Ambientes"
+            echo "## Environments"
             echo ""
             jq -r '.changed[] | "- `\(.file)`: \(.from) -> \(.to)"' ../bump.json
             echo ""
             echo "## Gates"
             echo ""
-            echo "Render e chave orfa passaram antes deste PR existir."
+            echo "Render and orphan-key gates passed before this PR existed."
           } > ../pr-body.md
 
           gh pr create --base main \

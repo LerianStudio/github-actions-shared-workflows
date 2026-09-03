@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
-"""Resolve onde um chart esta' implantado e atualiza o pin nos helmfiles.
+"""Resolve where a chart is deployed and update its pin in the helmfiles.
 
-Contraparte do gitops-update.yml para CHART (nao para tag de imagem). Le a
-mesma config/deployment-matrix.yml, entao a topologia — quais clusters, quais
-contextos, quais sufixos de env — tem uma fonte de verdade so'.
+The chart-version counterpart of gitops-update.yml, which owns image tags. Both
+read the same config/deployment-matrix.yml, so the topology — which clusters,
+which contexts, which env suffixes — has a single source of truth.
 
-Diferenca central em relacao ao caminho de imagem: edita `version` no
-helmfile.yaml, e so' no release cujo `chart` bate EXATAMENTE com --chart-ref.
-Isso e' o que impede um pin em oci://.../alpha/midaz-helm de ser sobrescrito
-com a versao da linha estavel, que e' outro repositorio OCI.
+The key difference from the image path: this edits `version` in helmfile.yaml,
+and only on the release whose `chart` matches --chart-ref EXACTLY. That is what
+stops an environment pinned to oci://.../alpha/midaz-helm from being overwritten
+with a stable-line version, which lives in a different OCI repository.
 """
 
 from __future__ import annotations
@@ -21,13 +21,13 @@ from pathlib import Path
 
 from ruamel.yaml import YAML
 
-# Canal derivado do sufixo da versao, igual ao gitops-update.yml faz com a tag.
+# Channel derived from the version suffix, the same way gitops-update.yml reads a tag.
 CHANNEL_ENVS = {"beta": ["dev"], "rc": ["stg"], "stable": ["prd"]}
 
 yaml = YAML()
 yaml.preserve_quotes = True
-# Helmfiles usam listas indentadas; sem isto o ruamel reescreve o arquivo
-# inteiro com outro estilo e o diff fica ilegivel.
+# Helmfiles use indented sequences; without this ruamel rewrites the whole file
+# in a different style and the diff becomes unreadable.
 yaml.indent(mapping=2, sequence=4, offset=2)
 
 
@@ -37,8 +37,8 @@ def channel_of(version: str) -> str:
     if "-rc." in version:
         return "rc"
     if "-" in version:
-        # alpha e outros prereleases nao promovem sozinhos: so' o ambiente que
-        # ja' esta' naquele canal recebe, e isso e' decidido pelo chart-ref.
+        # alpha and other prereleases do not promote on their own: only the
+        # environment already on that channel gets it, decided by chart-ref.
         return "beta"
     return "stable"
 
@@ -49,7 +49,7 @@ def load_matrix(path: Path) -> dict:
 
 
 def resolve_targets(matrix: dict, app: str, envs: list[str]) -> list[tuple[str, str]]:
-    """Devolve (cluster, helmfile_env) para cada destino do app."""
+    """Return (cluster, helmfile_env) for every target of the app."""
     targets = []
     for cluster, config in (matrix.get("clusters") or {}).items():
         if app not in (config.get("apps") or []):
@@ -57,8 +57,8 @@ def resolve_targets(matrix: dict, app: str, envs: list[str]) -> list[tuple[str, 
 
         override = (config.get("app_helmfile_env") or {}).get(app)
         if override:
-            # Override aponta um diretorio fixo (ex. cross/): sufixo nao se
-            # aplica e o app entra uma vez so'.
+            # The override points at a fixed directory (e.g. cross/): suffixes
+            # do not apply and the app is deployed exactly once.
             targets.append((cluster, override))
             continue
 
@@ -75,7 +75,7 @@ def resolve_targets(matrix: dict, app: str, envs: list[str]) -> list[tuple[str, 
 
 
 def bump_file(path: Path, chart_ref: str, version: str, dry_run: bool) -> str | None:
-    """Atualiza o release que casa com chart_ref. Devolve a versao anterior."""
+    """Update the release matching chart_ref. Returns the previous version."""
     with path.open() as handle:
         documents = list(yaml.load_all(handle))
 
@@ -112,13 +112,13 @@ def main() -> int:
     parser.add_argument(
         "--envs",
         default="",
-        help="Lista de envs separada por espaco. Vazio = derivada do canal da versao.",
+        help="Space-separated env list. Empty means derive it from the version channel.",
     )
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
 
     if not re.match(r"^\d+\.\d+\.\d+", args.version):
-        print(f"::error::Versao nao-semver: {args.version}", file=sys.stderr)
+        print(f"::error::Not a semver version: {args.version}", file=sys.stderr)
         return 1
 
     channel = channel_of(args.version)
@@ -127,8 +127,8 @@ def main() -> int:
     matrix = load_matrix(args.matrix)
     if args.app not in ((matrix.get("apps") or {}).get("registry") or []):
         print(
-            f"::warning::'{args.app}' nao esta' no registry da deployment-matrix. "
-            "Nada a fazer — adicione o app la' se ele deveria ser implantado.",
+            f"::warning::'{args.app}' is not in the deployment-matrix registry. "
+            "Nothing to do — add the app there if it should be deployed.",
             file=sys.stderr,
         )
         print(json.dumps({"channel": channel, "envs": envs, "changed": [], "absent": []}))
@@ -148,15 +148,15 @@ def main() -> int:
         )
         relative = str(path.relative_to(args.gitops_root))
         if not path.is_file():
-            # Ausencia e' normal: a matriz descreve a expansao maxima e nem todo
-            # cluster tem todo env. Nao e' erro.
+            # Absence is normal: the matrix describes the maximum expansion and
+            # not every cluster has every env. Not an error.
             absent.append(relative)
             continue
 
         previous = bump_file(path, args.chart_ref, args.version, args.dry_run)
         if previous is None:
-            # chart_ref nao casou (ex. o ambiente esta' num repositorio alpha/)
-            # ou ja' estava na versao alvo.
+            # chart_ref did not match (e.g. the environment sits on an alpha/
+            # repository) or it was already on the target version.
             untouched.append(relative)
             continue
         changed.append({"file": relative, "from": previous, "to": args.version})

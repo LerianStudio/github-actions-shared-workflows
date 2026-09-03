@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
-"""Aplica a migracao declarada pelo chart sobre o values.yaml do ambiente.
+"""Apply the chart-declared migration to an environment values.yaml.
 
-Um bump de chart raramente e' so' o numero. Quando o chart renomeia ou remove
-uma chave, o values.yaml do ambiente continua setando a chave velha, o chart
-ignora em silencio e o deploy sobe com o DEFAULT do chart. Nada fica vermelho.
-Como e' nesse values.yaml que mora o pin de imagem escrito pelo dispatch, o
-efeito pratico e' perder o pin sem nenhum sinal.
+A chart bump is rarely just the number. When a chart renames or removes a key,
+the environment values.yaml keeps setting the old one, the chart ignores it
+silently, and the deploy comes up on the chart DEFAULT. Nothing turns red.
+Since that same values.yaml holds the image pin written by the dispatch, the
+practical effect is losing the pin with no warning at all.
 
-Quem sabe o mapeamento e' quem quebrou: o autor do chart. Por isso a migracao
-e' declarada no proprio chart, em migrations/<versao>.yaml:
+Whoever broke it knows the mapping: the chart author. So the migration ships
+with the chart, in migrations/<version>.yaml:
 
     version: 9.0.0
     ops:
@@ -16,8 +16,8 @@ e' declarada no proprio chart, em migrations/<versao>.yaml:
       - { op: remove, path: .tracer }
       - { op: require, path: .midaz.database.host }
 
-rename/remove sao aplicados. require nao altera nada: falha o bump se o
-ambiente nao tiver a chave, porque o chart novo nao sobe sem ela.
+rename and remove are applied. require changes nothing: it fails the bump when
+the environment lacks the key, because the new chart will not come up without it.
 """
 
 from __future__ import annotations
@@ -59,11 +59,11 @@ def pop_node(data, parts: list[str]):
 
 
 def prune_empty(data, parts: list[str]) -> None:
-    """Remove os mapas vazios que sobram acima de uma chave retirada.
+    """Drop the empty maps left above a key that was taken out.
 
-    Sem isto, `rename .ledger.image.tag` deixa `ledger: {image: {}}` no arquivo
-    — sujeira no diff, e o detector de orfas acusa `ledger.image` como chave que
-    o chart nao conhece, um falso positivo criado pela propria migracao.
+    Without this, `rename .ledger.image.tag` leaves `ledger: {image: {}}` behind
+    — noise in the diff, and the orphan detector then flags `ledger.image` as a
+    key the chart does not know: a false positive created by the migration itself.
     """
     for depth in range(len(parts) - 1, 0, -1):
         parent, found = get_node(data, parts[:depth])
@@ -90,8 +90,8 @@ def apply_ops(values, ops: list[dict]) -> tuple[list[str], list[str]]:
             source, target = split_path(operation["from"]), split_path(operation["to"])
             value, found = pop_node(values, source)
             if not found:
-                # Nao e' erro: o ambiente pode nunca ter setado a chave antiga e
-                # estar rodando no default do chart.
+                # Not an error: the environment may never have set the old key
+                # and simply run on the chart default.
                 continue
             prune_empty(values, source)
             set_node(values, target, value)
@@ -108,11 +108,11 @@ def apply_ops(values, ops: list[dict]) -> tuple[list[str], list[str]]:
             _, found = get_node(values, split_path(operation["path"]))
             if not found:
                 failures.append(
-                    f"require {operation['path']}: ausente neste ambiente e sem default no chart"
+                    f"require {operation['path']}: missing in this environment, no chart default"
                 )
 
         else:
-            failures.append(f"op desconhecida: {kind!r}")
+            failures.append(f"unknown op: {kind!r}")
 
     return applied, failures
 
@@ -125,7 +125,7 @@ def main() -> int:
     args = parser.parse_args()
 
     if not args.migration.is_file():
-        # Sem arquivo de migracao o bump e' puro. Caso normal para patch/minor.
+        # No migration file means a plain bump. Normal for patch and minor.
         print(json.dumps({"migration": None, "results": []}))
         return 0
 
