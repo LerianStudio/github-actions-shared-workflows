@@ -76,16 +76,25 @@ def resolve_targets(matrix: dict, app: str, envs: list[str]) -> list[tuple[str, 
 
 LEVELS = {"major": 3, "minor": 2, "patch": 1, "none": 0}
 
-SEMVER = re.compile(r"^v?(\d+)\.(\d+)\.(\d+)(?:[-+](.*))?$")
+# The grammar from semver.org, with an optional leading `v` because some charts
+# publish that way (cert-manager ships v1.21.1). A looser `\d+\.\d+\.\d+` accepts
+# `1.2.3-`, `1.2.3+` and `01.2.3`, and those would be written verbatim into every
+# matching release.
+SEMVER = re.compile(
+    r"^v?(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)"
+    r"(?:-((?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*)"
+    r"(?:\.(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?"
+    r"(?:\+([0-9a-zA-Z-]+(?:\.[0-9a-zA-Z-]+)*))?$"
+)
 
 
 def parse_version(value: str):
     """(major, minor, patch, is_stable) or None when it is not semver."""
-    match = SEMVER.match(str(value))
+    match = SEMVER.fullmatch(str(value))
     if not match:
         return None
-    major, minor, patch, suffix = match.groups()
-    return (int(major), int(minor), int(patch), suffix is None)
+    major, minor, patch, prerelease, _build = match.groups()
+    return (int(major), int(minor), int(patch), prerelease is None)
 
 
 def transition_level(previous: str, target: str) -> str:
