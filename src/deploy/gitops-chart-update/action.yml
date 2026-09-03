@@ -59,7 +59,9 @@ outputs:
     value: ${{ steps.bump.outputs.level }}
   route:
     description: How the change was delivered (`commit`, `pr`, `none`)
-    value: ${{ steps.route.outputs.route }}
+    # The route step is skipped on a no-op, and a skipped step's output is the
+    # empty string, not the documented `none`.
+    value: ${{ steps.route.outputs.route || 'none' }}
 
 runs:
   using: composite
@@ -110,13 +112,17 @@ runs:
         persist-credentials: false
 
     # ----------------- Tooling -----------------
-    - name: Set up helmfile and the python dependencies
+    # The maintained action instead of curl piped into sudo tar: the archive was
+    # installed with no checksum or signature, so a replaced asset would have
+    # executed as root the moment the render gate invoked helmfile.
+    - name: Set up helmfile
+      uses: helmfile/helmfile-action@1f44bcb43e5fb17ecb2685d8b6081ec5f6aa5fcf # v2.4.7
+      with:
+        helmfile-args: --version
+
+    - name: Install the python dependencies
       shell: bash
-      run: |
-        set -euo pipefail
-        pip install --quiet ruamel.yaml pyyaml
-        curl -sSL https://github.com/helmfile/helmfile/releases/download/v1.1.7/helmfile_1.1.7_linux_amd64.tar.gz \
-          | sudo tar -xz -C /usr/local/bin helmfile
+      run: pip install --quiet ruamel.yaml pyyaml
 
     # migrations/<version>.yaml and values.yaml travel inside the chart package,
     # so there is no need to clone the chart repository.

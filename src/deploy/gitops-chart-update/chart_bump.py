@@ -153,7 +153,9 @@ def main() -> int:
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
 
-    if not re.match(r"^\d+\.\d+\.\d+", args.version):
+    # fullmatch, not match: a prefix check accepts "1.2.3invalid" and the CLI
+    # would then write that string into every matching release.
+    if not SEMVER.fullmatch(args.version):
         print(f"::error::Not a semver version: {args.version}", file=sys.stderr)
         return 1
 

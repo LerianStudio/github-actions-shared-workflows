@@ -76,7 +76,7 @@ ops:
 
 ```yaml
 - name: Update the pinned chart version
-  uses: LerianStudio/github-actions-shared-workflows/src/deploy/gitops-chart-update@v1.2.3
+  uses: LerianStudio/github-actions-shared-workflows/src/deploy/gitops-chart-update@tier-2
   with:
     chart-name: midaz
     chart-version: 9.1.0
@@ -94,13 +94,23 @@ ops:
 ```yaml
 jobs:
   notify-gitops:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/gitops-chart-update.yml@v1.2.3
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/gitops-chart-update.yml@tier-2
     with:
       chart_name: midaz
       chart_version: 9.1.0
       chart_ref: oci://ghcr.io/lerianstudio/midaz-helm
     secrets: inherit
 ```
+
+## Third-party actions
+
+| Action | Why |
+|---|---|
+| `actions/checkout` | The canonical checkout. Used twice with different trust settings: the GitOps repository with a write token and `persist-credentials: false`, and the deployment matrix as a sparse, read-only checkout |
+| `helmfile/helmfile-action` | The maintained installer from the helmfile project. Chosen over downloading the release archive because a piped `curl | sudo tar` installs an unverified binary that then executes as part of the render gate |
+| `crazy-max/ghaction-import-gpg` | Already the org standard for signing commits in `gitops-update.yml` and the chart release pipeline. The target repository ruleset requires signed commits, and this handles the passphrase-protected CI key |
+
+All three are pinned by commit SHA with the version in a trailing comment, as third-party actions require.
 
 ## Required permissions
 

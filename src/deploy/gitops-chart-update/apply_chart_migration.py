@@ -154,7 +154,25 @@ def main() -> int:
 
     with args.migration.open() as handle:
         migration = YAML(typ="safe").load(handle) or {}
+
+    # A YAML document is not necessarily a mapping. A list root reaches .get()
+    # and raises AttributeError, printing a traceback instead of the structured
+    # error the caller can act on.
+    if not isinstance(migration, dict):
+        print(
+            f"::error file={args.migration}::migration root must be a mapping, "
+            f"got {type(migration).__name__}",
+            file=sys.stderr,
+        )
+        return 1
     ops = migration.get("ops") or []
+    if not isinstance(ops, list):
+        print(
+            f"::error file={args.migration}::`ops` must be a list, "
+            f"got {type(ops).__name__}",
+            file=sys.stderr,
+        )
+        return 1
 
     results, failed = [], False
     for values_path in args.values:

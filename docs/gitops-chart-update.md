@@ -59,10 +59,10 @@ Full behaviour — routing table, gates, chart migrations, inputs and outputs �
 ## Usage
 
 ```yaml
-# Production — pinned
+# Production — tier channel
 jobs:
   notify-gitops:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/gitops-chart-update.yml@v1.2.3
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/gitops-chart-update.yml@tier-2
     with:
       chart_name: midaz
       chart_version: 9.1.0
