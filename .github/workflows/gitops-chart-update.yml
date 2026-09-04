@@ -51,9 +51,8 @@ on:
         type: number
         default: 600
     secrets:
-      GITOPS_APP_ID:
-        required: true
-      GITOPS_APP_PRIVATE_KEY:
+      MANAGE_TOKEN:
+        description: "Write access to the GitOps repository; the same secret the image-tag path uses."
         required: true
       LERIAN_CI_CD_USER_GPG_KEY:
         required: true
@@ -88,25 +87,16 @@ jobs:
       level: ${{ steps.update.outputs.level }}
       synced: ${{ steps.update.outputs.synced }}
     steps:
-      # ----------------- Authentication -----------------
-      - name: Generate GitHub App Token
-        id: app-token
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
-        with:
-          client-id: ${{ secrets.GITOPS_APP_ID }}
-          private-key: ${{ secrets.GITOPS_APP_PRIVATE_KEY }}
-          owner: ${{ github.repository_owner }}
-
       # ----------------- Chart Update -----------------
       - name: Update the pinned chart version
         id: update
-        uses: LerianStudio/github-actions-shared-workflows/src/deploy/gitops-chart-update@develop
+        uses: LerianStudio/github-actions-shared-workflows/src/deploy/gitops-chart-update@v1
         with:
           chart-name: ${{ inputs.chart_name }}
           chart-version: ${{ inputs.chart_version }}
           chart-ref: ${{ inputs.chart_ref }}
           gitops-repository: ${{ inputs.gitops_repository || vars.GITOPS_REPOSITORY }}
-          gitops-token: ${{ steps.app-token.outputs.token }}
+          gitops-token: ${{ secrets.MANAGE_TOKEN }}
           gpg-private-key: ${{ secrets.LERIAN_CI_CD_USER_GPG_KEY }}
           gpg-passphrase: ${{ secrets.LERIAN_CI_CD_USER_GPG_KEY_PASSWORD }}
           git-user-name: ${{ secrets.LERIAN_CI_CD_USER_NAME }}
