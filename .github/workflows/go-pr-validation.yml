@@ -112,7 +112,7 @@ on:
       allowed_source_branches:
         description: 'Allowed source branches (pipe-separated, supports * prefix matching)'
         type: string
-        default: 'develop|release-candidate|hotfix/*'
+        default: 'hotfix/*|release-candidate'
       target_branches_for_source_check:
         description: 'Target branches that require source branch validation (pipe-separated)'
         type: string

@@ -100,15 +100,27 @@ jobs:
 
 ### With Source Branch Validation
 
+Source branch validation is **on by default**, and the defaults already encode the standard flow: only `release-candidate` and `hotfix/*` may open a PR into `main`. A caller that wants the standard flow passes nothing:
+
+```yaml
+jobs:
+  validate:
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/pr-validation.yml@tier-1
+    secrets: inherit
+```
+
+Override only to *widen* the rule for a repository whose flow genuinely differs — for example one with no `release-candidate` branch, where `develop` is what reaches `main`:
+
 ```yaml
 jobs:
   validate:
     uses: LerianStudio/github-actions-shared-workflows/.github/workflows/pr-validation.yml@tier-1
     with:
-      enforce_source_branches: true
-      allowed_source_branches: 'develop|release-candidate|hotfix/*'
+      allowed_source_branches: 'develop|hotfix/*'
     secrets: inherit
 ```
+
+Do not restate `enforce_source_branches: true` or `target_branches_for_source_check: 'main'` — both are already the default, and repeating them buries the one line that is an actual decision.
 
 ### Without Slack (repositories with no `SLACK_WEBHOOK_URL`)
 
@@ -156,7 +168,7 @@ jobs:
 | `enable_slack_notification` | boolean | `true` | Send the validation verdict to Slack. Set to `false` in repositories without `SLACK_WEBHOOK_URL` so the job is skipped entirely instead of running just to skip internally |
 | `labeler_config_path` | string | `.github/labeler.yml` | Path to labeler config |
 | `enforce_source_branches` | boolean | `true` | Enforce source branch rules. Auto-skips when the target is neither in `target_branches_for_source_check` nor named in `source_branch_rules` |
-| `allowed_source_branches` | string | `develop\|release-candidate\|hotfix/*` | Allowed source branches (pipe-separated, supports `*` wildcard) |
+| `allowed_source_branches` | string | `hotfix/*\|release-candidate` | Allowed source branches (pipe-separated, supports `*` wildcard) |
 | `target_branches_for_source_check` | string | `main` | Target branches that require source branch validation |
 | `source_branch_rules` | string | `''` | Per-target source rules as JSON. A target listed here uses its own patterns and ignores the two inputs above |
 | `require_verified_commits` | boolean | `true` | Block the PR when any of its commits is unsigned or has an unverified signature |
