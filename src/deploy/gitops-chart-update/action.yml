@@ -287,6 +287,13 @@ runs:
           exit 0
         fi
 
+        # A conflicted rebase is still in progress here, and checkout -b refuses
+        # to run against an unmerged index — the fallback would die exactly when
+        # it is most needed. Aborting restores HEAD to the commit made above,
+        # which still carries the bump. Harmless when the rebase never started,
+        # so no guard on which of the two commands failed.
+        git rebase --abort 2>/dev/null || true
+
         echo "::warning::still refused — falling back to a pull request"
         branch="chart/${CHART_NAME}-${CHART_VERSION}"
         git checkout -b "$branch"
