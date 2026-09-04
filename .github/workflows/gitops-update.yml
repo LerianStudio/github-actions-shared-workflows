@@ -614,20 +614,31 @@ jobs:
             fi
           fi
 
-          # Relationship checks for the app being released. Scoped to $APP_NAME
-          # on purpose, unlike the structural check above: a bad entry belonging
-          # to some other app is inert for this run (the lookup is keyed by
-          # app name), so failing this release over it would be collateral
-          # damage. Two ways an entry can be silently ignored:
+          # Relationship checks for the app being released. Two ways an entry
+          # can be silently ignored, both ending with a green release and the
+          # requested env untouched:
           #   - an unknown release type ("beta_typo") never matches RELEASE_TYPE
           #   - an app_helmfile_env override replaces the tag-derived env for
           #     every iteration, so the extra env is visited but written to the
           #     override path instead
-          # Both end with a green release and the requested env untouched.
-          if [[ "$GITOPS_LAYOUT" != "kustomize" && -f "$MANIFEST_FILE" ]]; then
+          #
+          # Deliberately narrower than the structural check above, along two
+          # axes, because failing a release over an entry that this run never
+          # consults is collateral damage:
+          #   - by app: the lookup is keyed by app name, so another app's bad
+          #     entry is inert here
+          #   - by cluster: restricted to RESOLVED_SERVERS, the post-filter
+          #     cluster set, so an entry under a cluster that does not host this
+          #     app, or one suppressed via deploy_in_<cluster>=false, is inert too
+          # The structural check stays manifest-wide by contrast: a malformed
+          # file is malformed regardless of who is releasing or where.
+          if [[ "$GITOPS_LAYOUT" != "kustomize" && -f "$MANIFEST_FILE" && -n "$RESOLVED_SERVERS" ]]; then
+            RESOLVED_SERVERS_JSON=$(printf '%s' "$RESOLVED_SERVERS" | tr ' ' '\n' | jq -R . | jq -s -c .)
             if ! yq -o=json '.' "$MANIFEST_FILE" \
-              | jq -e --arg app "$APP_NAME" '
-                  [ (.clusters // {})[]
+              | jq -e --arg app "$APP_NAME" --argjson servers "$RESOLVED_SERVERS_JSON" '
+                  [ (.clusters // {}) | to_entries[]
+                    | select(.key as $k | $servers | index($k))
+                    | .value
                     | select((.app_extra_envs // {}) | has($app))
                     | { types: (.app_extra_envs[$app] | keys),
                         override: ((.app_helmfile_env // {}) | has($app)) } ]
@@ -635,7 +646,7 @@ jobs:
                       (.types | all(. == "beta" or . == "rc" or . == "stable" or . == "sandbox"))
                       and (.override | not)
                     )' >/dev/null 2>&1; then
-              echo "::error::Invalid app_extra_envs for '${APP_NAME}' in ${MANIFEST_FILE}. Release types must be one of beta|rc|stable|sandbox, and the app must not also have an app_helmfile_env override on the same cluster (the override would suppress the extra envs)."
+              echo "::error::Invalid app_extra_envs for '${APP_NAME}' in ${MANIFEST_FILE}, on one of the target clusters (${RESOLVED_SERVERS}). Release types must be one of beta|rc|stable|sandbox, and the app must not also have an app_helmfile_env override on the same cluster (the override would suppress the extra envs)."
               exit 1
             fi
           fi

@@ -378,7 +378,9 @@ The runtime check is not redundant: `deployment_matrix_ref` lets a caller read t
 The runtime check has two parts, with deliberately different scopes:
 
 - **Structural**, manifest-wide — types at each level, non-empty leaf lists, and the env-name rules above. A structural break means the manifest is broken, so it fails regardless of which app is releasing.
-- **Relational**, scoped to the app being released — the release types must be known, and the app must not also carry an `app_helmfile_env` override on the same cluster. Both of those would otherwise be silently ignored: an unknown release type such as `beta_typo` never matches, and the helmfile override replaces the tag-derived env for every iteration, so the extra env gets written to the override path instead. Scoping matters here because a bad entry belonging to a *different* app is inert for this run — the lookup is keyed by app name — so failing the release over it would be collateral damage. The lint still flags it at PR time.
+- **Relational**, scoped to the app being released **and** to the resolved cluster set — the release types must be known, and the app must not also carry an `app_helmfile_env` override on the same cluster. Both would otherwise be silently ignored: an unknown release type such as `beta_typo` never matches, and the helmfile override replaces the tag-derived env for every iteration, so the extra env gets written to the override path instead.
+
+  The double scoping is deliberate. An entry is inert for a given run when it belongs to another app (the lookup is keyed by app name) or to a cluster this run does not target — one that does not host the app, or one suppressed via `deploy_in_<cluster>: false`. Aborting a release over an entry it never consults would be collateral damage, so the check only looks at clusters that survived force-off filtering. The lint still flags those entries at PR time, where nothing is at stake.
 
 **Resolution on a beta tag** for `midaz` on benedita, with the manifest above:
 
