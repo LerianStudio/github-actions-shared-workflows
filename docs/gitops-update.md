@@ -295,13 +295,13 @@ Some clusters host **multiple parallel variants per environment** as sibling nam
 ```
 environments/benedita/helmfile/applications/
 ├── dev-st/midaz/values.yaml
-├── dev-mt/midaz/values.yaml
 ├── stg-st/midaz/values.yaml
-├── stg-mt/midaz/values.yaml
+├── stg-mt/midaz/values.yaml       # the only -mt variant that exists
 ├── prd-st/midaz/values.yaml
-├── prd-mt/midaz/values.yaml
 └── sandbox/midaz/values.yaml      # shared, no suffix
 ```
+
+Note the variants are **not** symmetric across environments: on Benedita the `-mt` variant exists only for `stg`. There is no `dev-mt` or `prd-mt` (see the cluster block in [`config/deployment-matrix.yml`](../config/deployment-matrix.yml)). Suffix expansion is mechanical and does not know that, so it still produces `dev-mt` and `prd-mt`; those iterations find no values file and are skipped with a warning, per [File Existence Validation](#file-existence-validation). That asymmetry is what [`app_extra_envs`](#per-app-env-exceptions-app_extra_envs) exists to work around.
 
 Declare the suffixes on the cluster block:
 
