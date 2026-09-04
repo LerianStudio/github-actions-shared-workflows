@@ -26,7 +26,7 @@ on:
       ignore_globs:
         description: 'Space-separated glob patterns treated as docs/meta; when only these change on a branch push, the release is skipped.'
         type: string
-        default: '*.md docs/* .github/* LICENSE* .gitignore'
+        default: '*.md docs/* .github/* LICENSE* .gitignore .coderabbit.yml .coderabbit.yaml'
 
       # ----------------- Release (release.yml) -----------------
       semantic_version:

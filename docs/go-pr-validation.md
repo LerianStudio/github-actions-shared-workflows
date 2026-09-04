@@ -37,7 +37,7 @@ The `go-analysis`, `security` and `lib-version` pipelines each have a `*-gate` a
 | `run_security` | Run the security scan pipeline | boolean | `true` |
 | `run_lib_version_check` | Run the Lerian library version check | boolean | `true` |
 | `run_manifest_nudge` | Run the **non-blocking** Access-Manager RI nudge: warns via a sticky PR comment when a `lib-auth` repo has no `permissions.yaml`. Never fails or blocks the PR. | boolean | `true` |
-| `ignore_globs` | Space-separated globs treated as docs/meta for the change gate | string | `*.md docs/* .github/* LICENSE* .gitignore` |
+| `ignore_globs` | Space-separated globs treated as docs/meta for the change gate | string | `*.md docs/* .github/* LICENSE* .gitignore .coderabbit.yml .coderabbit.yaml` |
 | `lib_version_go_mod_path` | Path to go.mod for the Lerian lib check | string | `go.mod` |
 | `lib_version_check_indirect` | Also check transitive (indirect) Lerian deps | boolean | `false` |
 | `lib_version_comment_on_pr` | Post/update a sticky PR comment with the lib version table | boolean | `true` |
