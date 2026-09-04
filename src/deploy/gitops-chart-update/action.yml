@@ -49,8 +49,27 @@ inputs:
     description: Resolve, migrate and gate, then stop. No commit, push or pull request
     required: false
     default: 'false'
+  enable-argocd-sync:
+    description: Sync the affected ArgoCD applications after a direct commit and wait for them to report healthy. Set to false to write to git and let ArgoCD reconcile on its own schedule
+    required: false
+    default: 'true'
+  argocd-url:
+    description: ArgoCD server. Required when enable-argocd-sync is true
+    required: false
+    default: ''
+  argocd-token:
+    description: ArgoCD auth token. Required when enable-argocd-sync is true
+    required: false
+    default: ''
+  argocd-sync-timeout:
+    description: Seconds to wait for each application to become healthy
+    required: false
+    default: '600'
 
 outputs:
+  synced:
+    description: "String boolean: `true` when every affected ArgoCD application reported healthy. `false` when the sync was disabled, skipped or failed"
+    value: ${{ steps.sync.outputs.synced || 'false' }}
   has-changes:
     description: "String boolean: `true` when at least one pinned version changed"
     value: ${{ steps.bump.outputs.has-changes }}
@@ -303,4 +322,69 @@ runs:
           echo "Render and orphan-key checks passed before this pull request existed."
         } > ../pr-body.md
         gh pr create --base main --title "$title" --body-file ../pr-body.md
+
+    # ----------------- Reconcile -----------------
+    # Writing to git is not the same as the change being live. Without this the
+    # run reports success while the cluster may sit half-updated — which is how
+    # an argo-workflows bump stayed in CrashLoopBackOff behind a green pipeline.
+    #
+    # Only after a direct commit: the pull request path has applied nothing yet.
+    - name: Sync the affected ArgoCD applications
+      id: sync
+      if: >-
+        steps.bump.outputs.count != '0' &&
+        steps.route.outputs.route == 'commit' &&
+        inputs.dry-run != 'true' &&
+        inputs.enable-argocd-sync == 'true'
+      shell: bash
+      env:
+        ARGOCD_URL: ${{ inputs.argocd-url }}
+        ARGOCD_TOKEN: ${{ inputs.argocd-token }}
+        SYNC_TIMEOUT: ${{ inputs.argocd-sync-timeout }}
+      run: |
+        set -euo pipefail
+
+        if [ -z "$ARGOCD_URL" ] || [ -z "$ARGOCD_TOKEN" ]; then
+          echo "::error::enable-argocd-sync is true but argocd-url or argocd-token is empty."
+          exit 1
+        fi
+
+        # Checksum-verified rather than a bare download: this binary runs moments
+        # later holding a token that can sync production.
+        curl -sSL -o /tmp/argocd \
+          https://github.com/argoproj/argo-cd/releases/download/v3.0.6/argocd-linux-amd64
+        echo "ae3257671dd0b7a787b21a70db43c3c869adec5dd520c90b419871a5ca1a8fc9  /tmp/argocd" \
+          | sha256sum --check --status
+        chmod +x /tmp/argocd
+
+        argo() { /tmp/argocd "$@" --server "$ARGOCD_URL" --auth-token "$ARGOCD_TOKEN" --grpc-web; }
+
+        # environments/<cluster>/helmfile/applications/<env>/<app>/helmfile.yaml
+        # becomes <cluster>-<app>-<env>, flattening the context separator so that
+        # chaos/dev-st gives anacleto-midaz-chaos-dev-st.
+        failed=0
+        while read -r file; do
+          cluster=$(echo "$file" | cut -d/ -f2)
+          rest=${file#environments/*/helmfile/applications/}
+          app=$(basename "$(dirname "$rest")")
+          env_path=$(dirname "$(dirname "$rest")")
+          name="${cluster}-${app}-${env_path//\//-}"
+
+          echo "::group::argocd $name"
+          if argo app sync "$name" --timeout "$SYNC_TIMEOUT" \
+             && argo app wait "$name" --health --timeout "$SYNC_TIMEOUT"; then
+            echo "::notice::$name is healthy"
+          else
+            echo "::error::$name did not reach a healthy state within ${SYNC_TIMEOUT}s"
+            failed=1
+          fi
+          echo "::endgroup::"
+        done < <(jq -r '.changed[].file' bump.json)
+
+        if [ "$failed" != "0" ]; then
+          echo "synced=false" >> "$GITHUB_OUTPUT"
+          echo "::error::The commit is already on main. Roll back or fix forward by hand — this step does not revert on its own, because a transient ArgoCD failure must not undo a good change."
+          exit 1
+        fi
+        echo "synced=true" >> "$GITHUB_OUTPUT"
         echo "::notice::${title} — pull request opened (${LEVEL})"

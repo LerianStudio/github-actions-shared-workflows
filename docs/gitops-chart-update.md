@@ -40,6 +40,8 @@ Full behaviour â€” routing table, gates, chart migrations, inputs and outputs â€
 | `envs` | Override the channel-derived env list | no | `''` |
 | `fail_on_orphan` | Fail on a key the chart dropped | no | `true` |
 | `dry_run` | Resolve and gate without delivering | no | `false` |
+| `enable_argocd_sync` | Sync the affected applications and wait for healthy after a direct commit | no | `true` |
+| `argocd_sync_timeout` | Seconds to wait for each application to become healthy | no | `600` |
 
 ## Outputs
 
@@ -55,6 +57,7 @@ Full behaviour â€” routing table, gates, chart migrations, inputs and outputs â€
 | `GITOPS_APP_ID` / `GITOPS_APP_PRIVATE_KEY` | GitHub App that writes to the GitOps repository |
 | `LERIAN_CI_CD_USER_GPG_KEY` / `_PASSWORD` | Commit signing; the target ruleset requires signed commits |
 | `LERIAN_CI_CD_USER_NAME` / `_EMAIL` | Committer identity matching the GPG key |
+| `ARGOCD_TOKEN` | Only read when `enable_argocd_sync` is true; the server comes from the `ARGOCD_URL` variable |
 
 ## Usage
 

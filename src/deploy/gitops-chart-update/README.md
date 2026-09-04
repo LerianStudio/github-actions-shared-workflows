@@ -29,6 +29,10 @@ Only releases whose `chart:` matches `chart-ref` **exactly** are touched. That i
 | `target-envs` | Space-separated env list overriding the channel-derived one | no | `''` |
 | `fail-on-orphan` | Fail when an environment sets a key the chart dropped | no | `true` |
 | `dry-run` | Resolve, migrate and gate, then stop | no | `false` |
+| `enable-argocd-sync` | Sync the affected applications and wait for healthy after a direct commit | no | `true` |
+| `argocd-url` | ArgoCD server; required when the sync is enabled | no | `''` |
+| `argocd-token` | ArgoCD auth token; required when the sync is enabled | no | `''` |
+| `argocd-sync-timeout` | Seconds to wait for each application to become healthy | no | `600` |
 
 ## Outputs
 
@@ -37,6 +41,19 @@ Only releases whose `chart:` matches `chart-ref` **exactly** are touched. That i
 | `has-changes` | `true` when at least one pinned version changed |
 | `level` | Most restrictive transition across every environment touched |
 | `route` | How the change was delivered: `commit`, `pr` or `none` |
+| `synced` | `true` when every affected ArgoCD application reported healthy |
+
+## Reconciliation
+
+Writing to git is not the same as the change being live. After a **direct commit** the composite syncs each affected ArgoCD application and waits for it to report healthy; a run that cannot reach that state fails instead of reporting success over a half-updated cluster.
+
+The application name is derived from the changed path — `environments/<cluster>/helmfile/applications/<env>/<app>/` becomes `<cluster>-<app>-<env>`, with the context separator flattened, so `chaos/dev-st` gives `anacleto-midaz-chaos-dev-st`.
+
+It does not run on the pull-request route, because nothing has been applied yet, and it does not run on a dry run.
+
+**Turning it off.** `enable-argocd-sync: false` writes to git and lets ArgoCD reconcile on its own schedule. Reasonable when the target application has automated sync with a short interval, or when the caller wants the pipeline to finish without waiting on cluster health.
+
+**No automatic rollback.** A failed sync leaves the commit on `main` and fails loudly with the application name. Reverting automatically would undo a good change whenever the ArgoCD API is briefly unavailable, so the choice between rolling back and fixing forward stays with a person.
 
 ## Routing
 
