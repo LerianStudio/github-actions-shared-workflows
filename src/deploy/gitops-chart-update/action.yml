@@ -34,7 +34,7 @@ inputs:
     required: false
     default: 'main'
   target-envs:
-    description: Space-separated env list overriding the channel-derived one (e.g. `dev stg`)
+    description: Space-separated env list. Empty means every environment
     required: false
     default: ''
   fail-on-orphan:
@@ -73,10 +73,10 @@ outputs:
     description: Most restrictive transition across every environment touched (`major`, `minor`, `patch`, `none`)
     value: ${{ steps.bump.outputs.level }}
   route:
-    description: How the change was delivered (`commit`, `pr`, `none`)
-    # The route step is skipped on a no-op, and a skipped step's output is the
-    # empty string, not the documented `none`.
-    value: ${{ steps.route.outputs.route || 'none' }}
+    description: How the change was actually delivered — `commit` normally, `pr` when the push was refused and the fallback ran, `none` on a no-op or dry run
+    # Deliver is skipped on a no-op and on a dry run, and a skipped step's output
+    # is the empty string rather than the documented `none`.
+    value: ${{ steps.deliver.outputs.route || 'none' }}
 
 runs:
   using: composite
@@ -231,26 +231,6 @@ runs:
           --env-values "${files[@]}" "${strict[@]}"
 
     # ----------------- Delivery -----------------
-    # Only a major opens a pull request. patch and minor commit directly, in
-    # every environment the bump touched — a chart release is one change and
-    # reviewing the same minor three times adds nothing. The level is already
-    # the most restrictive transition across all of them, so a minor here means
-    # no environment saw a larger jump.
-    - name: Decide between a direct commit and a pull request
-      id: route
-      if: steps.bump.outputs.count != '0'
-      shell: bash
-      env:
-        LEVEL: ${{ steps.bump.outputs.level }}
-        DRY_RUN: ${{ inputs.dry-run }}
-      run: |
-        set -euo pipefail
-        if [ "$LEVEL" = "major" ]; then route="pr"; else route="commit"; fi
-        echo "route=$route" >> "$GITHUB_OUTPUT"
-        if [ "$DRY_RUN" = "true" ]; then
-          echo "::notice::DRY RUN — level=$LEVEL would route to $route"
-        fi
-
     - name: Import the CI GPG key
       if: steps.bump.outputs.count != '0' && inputs.dry-run != 'true'
       uses: crazy-max/ghaction-import-gpg@2dc316deee8e90f13e1a351ab510b4d5bc0c82cd # v7
@@ -264,7 +244,17 @@ runs:
         git_commit_gpgsign: true
         workdir: gitops
 
+    # Always a direct commit, whatever the level. Every environment is meant to
+    # take the new chart, and holding a major back for review would leave the
+    # internal tier behind the very version it exists to exercise.
+    #
+    # The pull request is a fallback, not a route: it happens only when the push
+    # is refused. A rejection is usually the branch having moved, so a rebase and
+    # one retry comes first; if it is still refused — a ruleset, a required
+    # review — the change becomes a pull request instead of a failed run, so the
+    # work is never silently dropped.
     - name: Deliver
+      id: deliver
       if: steps.bump.outputs.count != '0' && inputs.dry-run != 'true'
       shell: bash
       working-directory: gitops
@@ -275,37 +265,47 @@ runs:
         CHART_NAME: ${{ inputs.chart-name }}
         CHART_VERSION: ${{ inputs.chart-version }}
         LEVEL: ${{ steps.bump.outputs.level }}
-        ROUTE: ${{ steps.route.outputs.route }}
       run: |
         set -euo pipefail
         title="chore(chart): bump ${CHART_NAME} to ${CHART_VERSION}"
+        base=$(git rev-parse --abbrev-ref HEAD)
+
         git add -A
+        git commit -m "$title" -m "${LEVEL} bump. Upgrade notes ship with the chart, under docs/."
         git remote set-url origin "https://x-access-token:${GITOPS_TOKEN}@github.com/${GITOPS_REPOSITORY}.git"
-        if [ "$ROUTE" = "commit" ]; then
-          git commit -m "$title" -m "${LEVEL} bump. Upgrade notes ship with the chart, under docs/."
-          git push
+
+        if git push origin "HEAD:${base}"; then
+          echo "route=commit" >> "$GITHUB_OUTPUT"
           echo "::notice::${title} — committed directly (${LEVEL})"
           exit 0
         fi
+
+        echo "::warning::push rejected, rebasing on ${base} and retrying once"
+        if git pull --rebase origin "$base" && git push origin "HEAD:${base}"; then
+          echo "route=commit" >> "$GITHUB_OUTPUT"
+          echo "::notice::${title} — committed directly after a rebase (${LEVEL})"
+          exit 0
+        fi
+
+        echo "::warning::still refused — falling back to a pull request"
         branch="chart/${CHART_NAME}-${CHART_VERSION}"
         git checkout -b "$branch"
-        git commit -m "$title"
         git push -u origin "$branch"
         {
           echo "## Bump"
           echo ""
           echo "\`${CHART_NAME}\` to \`${CHART_VERSION}\` (${LEVEL})"
           echo ""
+          echo "This is a **fallback**. The direct push to \`${base}\` was refused, so the"
+          echo "change is here instead of being dropped. Both gates already passed."
+          echo ""
           echo "## Environments"
           echo ""
           jq -r '.changed[] | "- `\(.file)`: \(.from) -> \(.to) [\(.level)]"' ../bump.json
-          echo ""
-          echo "## Gates"
-          echo ""
-          echo "Render and orphan-key checks passed before this pull request existed."
         } > ../pr-body.md
-        gh pr create --base main --title "$title" --body-file ../pr-body.md
-        echo "::notice::${title} — pull request opened (${LEVEL})"
+        gh pr create --base "$base" --title "$title" --body-file ../pr-body.md
+        echo "route=pr" >> "$GITHUB_OUTPUT"
+        echo "::notice::${title} — pull request opened as a fallback (${LEVEL})"
 
     # ----------------- Reconcile -----------------
     # Writing to git is not the same as the change being live. Without this the
@@ -317,7 +317,7 @@ runs:
       id: sync
       if: >-
         steps.bump.outputs.count != '0' &&
-        steps.route.outputs.route == 'commit' &&
+        steps.deliver.outputs.route == 'commit' &&
         inputs.dry-run != 'true' &&
         inputs.enable-argocd-sync == 'true'
       shell: bash

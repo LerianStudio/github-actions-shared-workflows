@@ -36,7 +36,7 @@ Full behaviour — routing table, gates, inputs and outputs — is documented in
 | `chart_ref` | Full OCI reference | yes | — |
 | `gitops_repository` | Target repo; empty uses the `GITOPS_REPOSITORY` org variable | no | `''` |
 | `deployment_matrix_ref` | Ref to read the deployment matrix from | no | `main` |
-| `envs` | Override the channel-derived env list | no | `''` |
+| `envs` | Narrow the environment list; empty means every environment | no | `''` |
 | `fail_on_orphan` | Fail on a key the chart dropped | no | `true` |
 | `dry_run` | Resolve and gate without delivering | no | `false` |
 | `enable_argocd_sync` | Sync the affected applications and wait for healthy after a direct commit | no | `true` |

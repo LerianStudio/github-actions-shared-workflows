@@ -21,35 +21,21 @@ from pathlib import Path
 
 from ruamel.yaml import YAML
 
-# Channel derived from the version suffix, the same way gitops-update.yml reads a
-# tag. The defaults differ from that workflow on purpose: the chart repositories
-# release from main only, so every chart tag is stable. Mapping stable to prd
-# alone — the image-tag default — would mean no chart ever reaches dev or stg,
-# and production would receive charts that never ran anywhere else. A stable
-# chart release therefore walks the whole ladder in one go.
+# Every environment, every release. The chart repositories publish from main
+# only, so there is no prerelease channel to promote through and no version that
+# is meant for one tier and not another — every environment is supposed to take
+# the chart that was just cut.
 #
-# beta and rc stay declared and inert. They cost nothing, and if a chart
-# repository ever starts releasing prereleases again the behaviour is already
-# correct instead of quietly sending one to production.
-CHANNEL_ENVS = {"beta": ["dev"], "rc": ["stg"], "stable": ["dev", "stg", "prd"]}
+# This is where the image-tag path and the chart path genuinely differ, rather
+# than the chart path being a lax copy. An image tag is per-channel because the
+# product repositories cut beta, rc and stable separately. A chart tag is not.
+DEFAULT_ENVS = ["dev", "stg", "prd"]
 
 yaml = YAML()
 yaml.preserve_quotes = True
 # Helmfiles use indented sequences; without this ruamel rewrites the whole file
 # in a different style and the diff becomes unreadable.
 yaml.indent(mapping=2, sequence=4, offset=2)
-
-
-def channel_of(version: str) -> str:
-    if "-beta." in version:
-        return "beta"
-    if "-rc." in version:
-        return "rc"
-    if "-" in version:
-        # alpha and other prereleases do not promote on their own: only the
-        # environment already on that channel gets it, decided by chart-ref.
-        return "beta"
-    return "stable"
 
 
 def load_matrix(path: Path) -> dict:
@@ -193,7 +179,7 @@ def main() -> int:
     parser.add_argument(
         "--envs",
         default="",
-        help="Space-separated env list. Empty means derive it from the version channel.",
+        help="Space-separated env list. Empty means every environment.",
     )
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
@@ -204,8 +190,7 @@ def main() -> int:
         print(f"::error::Not a semver version: {args.version}", file=sys.stderr)
         return 1
 
-    channel = channel_of(args.version)
-    envs = args.envs.split() if args.envs else CHANNEL_ENVS[channel]
+    envs = args.envs.split() if args.envs else DEFAULT_ENVS
 
     matrix = load_matrix(args.matrix)
     apps, ignored = resolve_apps(matrix, args.app)
@@ -223,7 +208,6 @@ def main() -> int:
         print(
             json.dumps(
                 {
-                    "channel": channel,
                     "envs": envs,
                     "apps": [],
                     "level": "none",
@@ -297,7 +281,6 @@ def main() -> int:
     print(
         json.dumps(
             {
-                "channel": channel,
                 "envs": envs,
                 "apps": apps,
                 "level": level,

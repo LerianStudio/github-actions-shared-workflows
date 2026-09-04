@@ -31,7 +31,7 @@ on:
         type: string
         default: 'main'
       envs:
-        description: "Override the channel-derived env list. Space separated, e.g. dev stg."
+        description: "Narrow the environment list. Space separated, e.g. dev stg. Empty means every environment."
         type: string
         default: ''
       fail_on_orphan:

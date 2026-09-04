@@ -25,7 +25,7 @@ Only releases whose `chart:` matches `chart-ref` **exactly** are touched. That i
 | `git-user-name` | Committer name matching the CI GPG identity | yes | — |
 | `git-user-email` | Committer email matching the CI GPG identity | yes | — |
 | `deployment-matrix-ref` | Ref to read `config/deployment-matrix.yml` from | no | `main` |
-| `target-envs` | Space-separated env list overriding the channel-derived one | no | `''` |
+| `target-envs` | Space-separated env list; empty means every environment | no | `''` |
 | `fail-on-orphan` | Fail when an environment sets a key the chart dropped | no | `true` |
 | `dry-run` | Resolve and run both gates, then stop | no | `false` |
 | `enable-argocd-sync` | Sync the affected applications and wait for healthy after a direct commit | no | `true` |
@@ -39,7 +39,7 @@ Only releases whose `chart:` matches `chart-ref` **exactly** are touched. That i
 |---|---|
 | `has-changes` | `true` when at least one pinned version changed |
 | `level` | Most restrictive transition across every environment touched |
-| `route` | How the change was delivered: `commit`, `pr` or `none` |
+| `route` | How the change was actually delivered: `commit`, or `pr` when the push was refused and the fallback ran |
 | `synced` | `true` when every affected ArgoCD application reported healthy |
 
 ## Reconciliation
@@ -58,31 +58,27 @@ It does not run on the pull-request route, because nothing has been applied yet,
 
 ### Which environments a release reaches
 
-The channel comes from the version suffix:
+**Every environment, every release.** There is no channel to promote through: the chart repositories publish from `main` only, so no version is meant for one tier and not another.
 
-| Tag | Environments |
-|---|---|
-| `-beta.N` | `dev` |
-| `-rc.N` | `stg` |
-| clean | `dev`, `stg`, `prd` |
+This is where the chart path genuinely differs from the image-tag path rather than being a lax copy of it. An image tag is per-channel because the product repositories cut beta, rc and stable separately. A chart tag is not.
 
-A clean tag walking the whole ladder is deliberate and differs from the image-tag path, where stable means `prd` alone. The chart repositories release from `main` only, so every chart tag is stable; mapping it to `prd` would mean no chart ever reaches `dev` or `stg`, and production would receive charts that had run nowhere else.
+`target-envs` narrows it when a caller needs to, but that is the exception.
 
-`beta` and `rc` stay declared and inert. They cost nothing, and if a chart repository starts releasing prereleases again the behaviour is already right instead of quietly sending one to production.
-
-Anacleto is included automatically. Its `env_contexts` expand `dev` into `chaos/dev-st` and `fuzzing/dev-st`, so a single stable release of `midaz` today resolves six targets: those two plus benedita's `dev-st`, `stg-st`, `stg-mt` and `prd-st`.
+Anacleto is included automatically. Its `env_contexts` expand `dev` into `chaos/dev-st` and `fuzzing/dev-st`, so a single `midaz` release today resolves six targets: those two plus benedita's `dev-st`, `stg-st`, `stg-mt` and `prd-st`.
 
 ### How it is delivered
 
-| Level | Route |
-|---|---|
-| patch | commit |
-| minor | commit |
-| major | **pull request** |
+**A direct commit, whatever the level** — patch, minor and major alike. Holding a major back for review would leave the internal tier behind the very version it exists to exercise, and breaking there is the point.
 
-Only a major waits for a person. A chart release is one change, and reviewing the same minor once per environment adds nothing — the level is already the most restrictive transition across every environment touched, so a `minor` here means no environment saw a larger jump.
+**The pull request is a fallback, not a route.** It happens only when the push is refused:
 
-Environments drift apart, so the level is aggregated rather than read off one entry. `fetcher` currently sits at `3.1.0` in `dev-st` and `2.2.0-beta.2` in `prd-st`: a bump to `3.1.1` is `patch` in seven environments and `major` in production, and the aggregate is what routes.
+1. commit and push to the default branch
+2. refused → rebase on the branch and retry once, which covers the ordinary case of the branch having moved
+3. still refused — a ruleset, a required review — open a pull request instead
+
+So a refusal never silently drops the work; it changes shape. The `route` output reports what actually happened: `commit` normally, `pr` when the fallback ran.
+
+`level` is still computed and still aggregates the most restrictive transition across every environment, but it now only annotates the commit rather than deciding anything. Environments drift: `fetcher` sits at `3.1.0` in `dev-st` and `2.2.0-beta.2` in `prd-st`, so a bump to `3.1.1` is `patch` in seven of them and `major` in production, and the message says `major`.
 
 ## Gates
 
