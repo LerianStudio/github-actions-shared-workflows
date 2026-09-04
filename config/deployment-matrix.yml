@@ -274,6 +274,10 @@ clusters:
     app_extra_envs:
       midaz:
         beta: ["stg-mt"]
+      billing-worker:
+        beta: ["stg-mt"]
+      br-sisbajud:
+        beta: ["stg-mt"]
 
     # app_helmfile_env: per-app override for the helmfile applications sub-directory.
     # Default path: environments/benedita/helmfile/applications/{env}/{app}/values.yaml
