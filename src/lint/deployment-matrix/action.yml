@@ -97,6 +97,58 @@ runs:
 
         registry_set = {a for a in registry if isinstance(a, str)}
 
+        # ── charts ──
+        # Optional: only the charts whose name is not the app name need an
+        # entry. Present entries are validated strictly, because a wrong one
+        # here silently sends a release to the wrong application.
+        charts = data.get('charts')
+        if charts is not None:
+            if not isinstance(charts, dict):
+                err('"charts" must be a mapping of <chart-name> \u2192 chart spec.')
+                charts = {}
+            for chart_name, chart_spec in charts.items():
+                if not isinstance(chart_name, str) or not chart_name.strip():
+                    err(f'Chart name must be a non-empty string (got {chart_name!r}).')
+                    continue
+                if not isinstance(chart_spec, dict):
+                    err(f'charts.{chart_name} must be a mapping.')
+                    continue
+
+                has_apps = 'apps' in chart_spec
+                has_ignored = 'ignored' in chart_spec
+                if has_apps and has_ignored:
+                    err(f'charts.{chart_name} sets both "apps" and "ignored"; they are mutually exclusive.')
+                    continue
+                if not has_apps and not has_ignored:
+                    err(f'charts.{chart_name} must set either "apps" or "ignored".')
+                    continue
+
+                if has_ignored:
+                    reason = chart_spec['ignored']
+                    if not isinstance(reason, str) or not reason.strip():
+                        err(f'charts.{chart_name}.ignored must be a non-empty reason string.')
+                    continue
+
+                chart_apps = chart_spec['apps']
+                if not isinstance(chart_apps, list) or not chart_apps:
+                    err(f'charts.{chart_name}.apps must be a non-empty list of app names.')
+                    continue
+                seen_apps = set()
+                for i, app in enumerate(chart_apps):
+                    if not isinstance(app, str) or not app.strip():
+                        err(f'charts.{chart_name}.apps[{i}] must be a non-empty string.')
+                        continue
+                    if app in seen_apps:
+                        err(f'charts.{chart_name}.apps lists "{app}" more than once.')
+                    seen_apps.add(app)
+                    if app not in registry_set:
+                        err(f'charts.{chart_name}.apps references "{app}", which is not in apps.registry.')
+
+                # An entry that only restates the identity rule is dead weight
+                # and drifts out of date silently.
+                if chart_apps == [chart_name]:
+                    err(f'charts.{chart_name} maps to itself; drop the entry and let identity resolution handle it.')
+
         # ── clusters ──
         clusters = data.get('clusters')
         if not isinstance(clusters, dict):

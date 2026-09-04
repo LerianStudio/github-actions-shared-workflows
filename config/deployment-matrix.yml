@@ -11,6 +11,13 @@
 # Schema:
 #   version                       integer, required, currently 1
 #   apps.registry                 list of every app name allowed to appear in any cluster
+#   charts.<name>                 optional, chart-version path only: maps a published
+#                                 chart to the app(s) it delivers. Only needed when the
+#                                 chart name is not the app name. `apps` (list, all must
+#                                 exist in apps.registry) or `ignored` (reason string),
+#                                 never both. No entry means identity: the chart name is
+#                                 taken as the app name, and a name that is in neither
+#                                 place is an error rather than a silent no-op.
 #   clusters.<name>               cluster block with explicit `apps:` list (no `all_apps`
 #                                 shortcut today — every cluster has its own subset)
 #   clusters.<name>.env_contexts  optional list of context prefixes inserted before the
@@ -117,6 +124,86 @@ apps:
     - finance-hub
     - plugin-br-ted-lerian
     - status-page-lerian
+
+# Chart -> app resolution for the chart-version path (gitops-chart-update).
+#
+# The image-tag path keys off the app name, and for most charts the chart name
+# IS the app name — 31 of the 50 charts published across LerianStudio/helm and
+# LerianStudio/helm-internal resolve that way and need no entry here.
+#
+# The remaining 19 do not, and without this section they fail silently: the
+# resolver finds no app, warns, and exits green while nothing was updated. The
+# br-sfn chart is the clearest case — it drives four applications and matches
+# none of them by name.
+#
+# Resolution order:
+#   1. charts.<name>.apps      -> use that list
+#   2. charts.<name>.ignored   -> deliberate no-op, exit 0 with a notice
+#   3. <name> is in apps.registry -> identity
+#   4. none of the above       -> ERROR. A chart nobody mapped must fail the
+#                                 release, not pass as "nothing to do"
+#
+# `apps` and `ignored` are mutually exclusive. Every name under `apps` must
+# exist in apps.registry.
+charts:
+  # ---------- one chart, several applications ----------
+  br-sfn:
+    apps:
+      - br-sta
+      - br-slc
+      - br-ccs
+      - br-sisbajud
+
+  # ---------- chart name differs from the app name ----------
+  plugin-br-pix-direct-jd:
+    apps:
+      - plugin-br-pix-jd
+
+  # ---------- published, deliberately not delivered by this path ----------
+  # Absence alone cannot express this: it is indistinguishable from a chart
+  # somebody forgot to map, which is exactly the failure this section prevents.
+  jd-mock-api:
+    ignored: managed manually, no CI commit history in the gitops repo
+  plugin-br-payments-fakebtg:
+    ignored: managed manually, no CI commit history in the gitops repo
+  control-plane:
+    ignored: managed manually
+  platform-console:
+    ignored: managed manually
+  otel-collector-lerian:
+    ignored: cluster-wide addon, lives under helmfile/addons, not applications
+  lerian-common:
+    ignored: library chart, consumed as a dependency and never deployed alone
+  lerian-consul:
+    ignored: library chart, consumed as a dependency and never deployed alone
+  canary-rollout:
+    ignored: rollout helper, applied outside the application path
+  vault-lerian:
+    ignored: platform infrastructure, not an application
+  go-boilerplate-ddd-fullstack:
+    ignored: reference template, deployed only from its own repository
+
+  # ---------- internal charts awaiting a decision ----------
+  # Deployed today but absent from apps.registry, so the chart-version path
+  # cannot resolve them. Listed as ignored rather than left out, so the gap is
+  # recorded instead of rediscovered by a silent no-op. Add the app to
+  # apps.registry and drop the entry to bring one of these in.
+  agent:
+    ignored: deployed on anacleto cross, not yet registered as an app
+  cdp:
+    ignored: deployed, not yet registered as an app
+  mock-nuclea:
+    ignored: deployed, not yet registered as an app
+  mock-sta-server:
+    ignored: deployed, not yet registered as an app
+  caradhras-ui:
+    ignored: not registered as an app
+  gestao-acessos-console:
+    ignored: not registered as an app
+  lerian-hq:
+    ignored: not registered as an app
+  operations-center:
+    ignored: not registered as an app
 
 clusters:
   anacleto:
