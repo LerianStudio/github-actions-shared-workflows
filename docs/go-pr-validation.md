@@ -49,7 +49,7 @@ The `go-analysis`, `security` and `lib-version` pipelines each have a `*-gate` a
 | `enable_slack_notification` | Send the validation verdict to Slack. Set to `false` in repos without `SLACK_WEBHOOK_URL` so the job is skipped entirely instead of running just to skip internally | boolean | `true` |
 | `labeler_config_path` | Path to labeler config | string | `.github/labeler.yml` |
 | `enforce_source_branches` | Enforce source branches into protected branches | boolean | `true` |
-| `allowed_source_branches` | Allowed source branches (pipe-separated, `*` prefix) | string | `develop\|release-candidate\|hotfix/*` |
+| `allowed_source_branches` | Allowed source branches (pipe-separated, `*` prefix) | string | `hotfix/*\|release-candidate` |
 | `target_branches_for_source_check` | Target branches requiring source validation | string | `main` |
 | `require_verified_commits` | Block the PR when any commit is unsigned or unverified | boolean | `true` |
 | `go_version` | Go version | string | `1.23` |
