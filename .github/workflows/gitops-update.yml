@@ -506,6 +506,9 @@ jobs:
           # its own environment (beta->dev, rc->stg, stable->prd) so a stable
           # hotfix does not overwrite features still living in dev/stg. Sandbox
           # is appended to stable/production only when update_sandbox=true.
+          # RELEASE_TYPE is the normalized release kind (beta|rc|stable|sandbox),
+          # used as the lookup key for the manifest's per-app app_extra_envs.
+          # ENV_LABEL stays as-is — it is the human-facing commit message label.
           if [[ -n "$FORCE_ENV" ]]; then
             case "$FORCE_ENV" in
               production)
@@ -514,10 +517,11 @@ jobs:
                   ENVIRONMENTS="$ENVIRONMENTS sandbox"
                 fi
                 ENV_LABEL="production"
+                RELEASE_TYPE="stable"
                 ;;
-              staging)     ENVIRONMENTS="$RC_ENVIRONMENTS"; ENV_LABEL="rc/stg" ;;
-              development) ENVIRONMENTS="$BETA_ENVIRONMENTS"; ENV_LABEL="beta/dev" ;;
-              sandbox)     ENVIRONMENTS="sandbox"; ENV_LABEL="sandbox" ;;
+              staging)     ENVIRONMENTS="$RC_ENVIRONMENTS"; ENV_LABEL="rc/stg"; RELEASE_TYPE="rc" ;;
+              development) ENVIRONMENTS="$BETA_ENVIRONMENTS"; ENV_LABEL="beta/dev"; RELEASE_TYPE="beta" ;;
+              sandbox)     ENVIRONMENTS="sandbox"; ENV_LABEL="sandbox"; RELEASE_TYPE="sandbox" ;;
               *)
                 echo "::error::Invalid force_env '$FORCE_ENV' (must be: development, staging, production, sandbox)"
                 exit 1
@@ -526,24 +530,28 @@ jobs:
           elif [[ "$IS_BETA" == "true" ]]; then
             ENVIRONMENTS="$BETA_ENVIRONMENTS"
             ENV_LABEL="beta/dev"
+            RELEASE_TYPE="beta"
           elif [[ "$IS_RC" == "true" ]]; then
             ENVIRONMENTS="$RC_ENVIRONMENTS"
             ENV_LABEL="rc/stg"
+            RELEASE_TYPE="rc"
           elif [[ "$IS_PRODUCTION" == "true" ]]; then
             ENVIRONMENTS="$STABLE_ENVIRONMENTS"
             if [[ "$UPDATE_SANDBOX" == "true" ]]; then
               ENVIRONMENTS="$ENVIRONMENTS sandbox"
             fi
             ENV_LABEL="production"
+            RELEASE_TYPE="stable"
           elif [[ "$IS_SANDBOX" == "true" ]]; then
             ENVIRONMENTS="sandbox"
             ENV_LABEL="sandbox"
+            RELEASE_TYPE="sandbox"
           else
             echo "Unable to detect environment from tag: ${GITHUB_REF}"
             exit 1
           fi
           echo "env_label=$ENV_LABEL" >> "$GITHUB_OUTPUT"
-          echo "Detected tag type: $ENV_LABEL"
+          echo "Detected tag type: $ENV_LABEL (release_type: $RELEASE_TYPE)"
           echo "Default environments (helmfile/tag-based): $ENVIRONMENTS"
 
           # Kustomize layout overrides the env loop based on user input or path placeholders.
@@ -562,6 +570,84 @@ jobs:
               else
                 echo "Kustomize: \${ENV} placeholder present, using tag-based env list"
               fi
+            fi
+          fi
+
+          # Validate app_extra_envs before touching any gitops file.
+          #
+          # This runs in the main shell on purpose: the per-server lookup below
+          # happens inside a command substitution, where a failure would kill
+          # only the subshell and be silently swallowed — leaving the release
+          # green while the requested extra env was never updated, which is the
+          # precise failure the feature exists to prevent. A bad shape is still
+          # valid YAML, so `resolve_clusters` does not catch it either.
+          #
+          # This deliberately mirrors the full contract enforced by
+          # src/lint/deployment-matrix, rather than trusting it: the lint only
+          # ever sees manifests in this repo, and deployment_matrix_ref lets a
+          # caller read the matrix from an unlinted ref. So the structure AND
+          # the env names are checked here — a name with whitespace would split
+          # into two envs in the space-separated env list, and one with ".." or
+          # a leading "/" would push VALUES_FILE outside applications/.
+          if [[ "$GITOPS_LAYOUT" != "kustomize" && -f "$MANIFEST_FILE" ]]; then
+            if ! yq -o=json '.' "$MANIFEST_FILE" \
+              | jq -e '
+                  [ (.clusters // {})[] | .app_extra_envs // {} ]
+                  | all(
+                      type == "object"
+                      and all(.[];
+                        type == "object"
+                        and all(.[];
+                          type == "array"
+                          and length > 0
+                          and all(.[];
+                            type == "string"
+                            and test("^[A-Za-z0-9._/-]+$")
+                            and (startswith("/") | not)
+                            and (split("/") | all(. != "" and . != "." and . != ".."))
+                          )
+                        )
+                      )
+                    )' >/dev/null 2>&1; then
+              echo "::error::Invalid app_extra_envs in ${MANIFEST_FILE}. Expected clusters.<server>.app_extra_envs.<app>.<release_type> to be a non-empty list of relative env names matching [A-Za-z0-9._/-]+ with no '.' or '..' path components."
+              exit 1
+            fi
+          fi
+
+          # Relationship checks for the app being released. Two ways an entry
+          # can be silently ignored, both ending with a green release and the
+          # requested env untouched:
+          #   - an unknown release type ("beta_typo") never matches RELEASE_TYPE
+          #   - an app_helmfile_env override replaces the tag-derived env for
+          #     every iteration, so the extra env is visited but written to the
+          #     override path instead
+          #
+          # Deliberately narrower than the structural check above, along two
+          # axes, because failing a release over an entry that this run never
+          # consults is collateral damage:
+          #   - by app: the lookup is keyed by app name, so another app's bad
+          #     entry is inert here
+          #   - by cluster: restricted to RESOLVED_SERVERS, the post-filter
+          #     cluster set, so an entry under a cluster that does not host this
+          #     app, or one suppressed via deploy_in_<cluster>=false, is inert too
+          # The structural check stays manifest-wide by contrast: a malformed
+          # file is malformed regardless of who is releasing or where.
+          if [[ "$GITOPS_LAYOUT" != "kustomize" && -f "$MANIFEST_FILE" && -n "$RESOLVED_SERVERS" ]]; then
+            RESOLVED_SERVERS_JSON=$(printf '%s' "$RESOLVED_SERVERS" | tr ' ' '\n' | jq -R . | jq -s -c .)
+            if ! yq -o=json '.' "$MANIFEST_FILE" \
+              | jq -e --arg app "$APP_NAME" --argjson servers "$RESOLVED_SERVERS_JSON" '
+                  [ (.clusters // {}) | to_entries[]
+                    | select(.key as $k | $servers | index($k))
+                    | .value
+                    | select((.app_extra_envs // {}) | has($app))
+                    | { types: (.app_extra_envs[$app] | keys),
+                        override: ((.app_helmfile_env // {}) | has($app)) } ]
+                  | all(
+                      (.types | all(. == "beta" or . == "rc" or . == "stable" or . == "sandbox"))
+                      and (.override | not)
+                    )' >/dev/null 2>&1; then
+              echo "::error::Invalid app_extra_envs for '${APP_NAME}' in ${MANIFEST_FILE}, on one of the target clusters (${RESOLVED_SERVERS}). Release types must be one of beta|rc|stable|sandbox, and the app must not also have an app_helmfile_env override on the same cluster (the override would suppress the extra envs)."
+              exit 1
             fi
           fi
 
@@ -619,13 +705,13 @@ jobs:
             return 1
           }
 
-          # Compute the effective env list for a given server by expanding
-          # tag-derived envs against the cluster's env_suffixes and env_contexts,
+          # Expand the tag-derived envs for a given server against the cluster's
+          # env_suffixes and env_contexts,
           # except for envs listed in suffix_excludes_envs which stay bare.
           # When env_contexts is set, each expansion is prefixed: {context}/{env-variant}.
           # Falls back to a single empty-suffix expansion when env_config is empty
           # (e.g. kustomize layout with sentinel env "-", or clusters without the new fields).
-          expand_envs_for_server() {
+          expand_suffixes_for_server() {
             local server="$1"
             local base_envs="$2"
             # Kustomize sentinel env "-" or empty config → return base_envs unchanged.
@@ -663,6 +749,49 @@ jobs:
               else
                 out="${out:+$out }$expanded"
               fi
+            done
+            echo "$out"
+          }
+
+          # Per-app, per-release-type extra envs read from the manifest at
+          # clusters.<server>.app_extra_envs.<app>.<release_type>. These are
+          # literal env names that already carry whatever suffix/context the
+          # cluster uses (e.g. "stg-mt") — they are appended verbatim and never
+          # re-expanded. This is the exception mechanism for apps whose variant
+          # lives in an env the tag-derived list cannot reach: benedita has no
+          # dev-mt, so a beta release must target stg-mt directly.
+          # Ignored for kustomize layouts, which drive their env loop through
+          # kustomize_environments / the ${ENV} placeholder instead.
+          extra_envs_for_server() {
+            local server="$1"
+            if [[ "$GITOPS_LAYOUT" == "kustomize" || ! -f "$MANIFEST_FILE" ]]; then
+              return
+            fi
+            # A missing field is already the empty case (`// []`), so the only
+            # way this query fails is a malformed app_extra_envs shape — and that
+            # is rejected up-front by the validation step above, which is where
+            # it has to happen: this function is always called from inside a
+            # command substitution, so a `set -e` abort here would kill only the
+            # subshell and be swallowed by the caller.
+            yq -o=json '.' "$MANIFEST_FILE" \
+              | jq -r --arg server "$server" --arg app "$APP_NAME" --arg rt "$RELEASE_TYPE" \
+                '.clusters[$server].app_extra_envs[$app][$rt] // [] | .[]' \
+              | tr '\n' ' '
+          }
+
+          # Final env list for a server: suffix/context expansion, then the
+          # per-app extras unioned in. Expansion order is preserved and
+          # duplicates are dropped, so an extra env that the tag already
+          # produced (e.g. stg-mt on an rc release) is not processed twice.
+          expand_envs_for_server() {
+            local server="$1"
+            local base_envs="$2"
+            local expanded extras env_name out=""
+            expanded=$(expand_suffixes_for_server "$server" "$base_envs")
+            extras=$(extra_envs_for_server "$server")
+            for env_name in $expanded $extras; do
+              [[ " $out " == *" $env_name "* ]] && continue
+              out="${out:+$out }$env_name"
             done
             echo "$out"
           }

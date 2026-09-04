@@ -41,6 +41,25 @@
 #                                 receive any suffix from `env_suffixes` and stay bare
 #                                 (e.g. ["sandbox"] keeps sandbox as "sandbox", not
 #                                 "sandbox-st" / "sandbox-mt"). Defaults to [].
+#   clusters.<name>.app_extra_envs
+#                                 optional per-app exception: extra envs to update for a
+#                                 given release type, on top of the normal expansion.
+#                                 Shape: app_extra_envs.<app>.<release_type> → list of
+#                                 env names, where release_type ∈ beta | rc | stable |
+#                                 sandbox. The values are LITERAL env names that already
+#                                 carry the cluster's suffix/context (e.g. "stg-mt") —
+#                                 they are appended verbatim, never re-expanded against
+#                                 env_suffixes / env_contexts. Duplicates of an env the
+#                                 tag already produced are dropped.
+#                                 Use it when an app's variant only exists in an env the
+#                                 tag-derived list cannot reach: benedita has no dev-mt,
+#                                 so a beta release would never refresh the multi-tenant
+#                                 variant — `beta: ["stg-mt"]` makes it do so.
+#                                 Mutually exclusive with app_helmfile_env for the same
+#                                 app (the helmfile override wins and would collapse the
+#                                 extras onto the override path); the lint rejects it.
+#                                 Ignored when the caller uses gitops_layout=kustomize.
+#                                 Defaults to {}.
 #
 # Resolution at runtime:
 #   1. Workflow reads this file at the pinned ref of the shared-workflows repo.
@@ -51,8 +70,10 @@
 #      set even if the manifest includes the app.
 #   4. For each resolved cluster, the tag-derived env list (e.g. dev/stg/prd/sandbox
 #      for a production tag) is expanded against `env_suffixes` and `env_contexts`,
-#      except for envs listed in `suffix_excludes_envs` which remain bare. The final
-#      env list is what the workflow uses to build helmfile paths and ArgoCD app names.
+#      except for envs listed in `suffix_excludes_envs` which remain bare.
+#   5. Any `app_extra_envs.<app>.<release_type>` entries for the app are then unioned
+#      into that list verbatim. The final env list is what the workflow uses to build
+#      helmfile paths and ArgoCD app names.
 #
 # Out of scope (managed manually or by other tooling — do NOT add here):
 #   - jd-mock-api, fakebtg, control-plane,
@@ -242,6 +263,21 @@ clusters:
     # Sandbox is shared across variants and stays bare (no suffix).
     env_suffixes: ["-st", "-mt"]
     suffix_excludes_envs: ["sandbox"]
+
+    # app_extra_envs: per-app exception list of extra envs per release type.
+    # Because dev-mt does not exist, a beta release never refreshes the
+    # multi-tenant variant of an app. Listing an app here with
+    # `beta: ["stg-mt"]` makes every beta tag update stg-mt as well, on top of
+    # the normal dev-st / dev-mt expansion. Note this leaves a beta image
+    # running in stg-mt until the next rc overwrites it — stg-mt stops being an
+    # rc-only environment for the apps listed here, so keep the list narrow.
+    app_extra_envs:
+      midaz:
+        beta: ["stg-mt"]
+      billing-worker:
+        beta: ["stg-mt"]
+      br-sisbajud:
+        beta: ["stg-mt"]
 
     # app_helmfile_env: per-app override for the helmfile applications sub-directory.
     # Default path: environments/benedita/helmfile/applications/{env}/{app}/values.yaml

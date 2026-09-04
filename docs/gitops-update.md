@@ -12,6 +12,7 @@ Reusable workflow for updating GitOps repository with new image tags across mult
 - **Manifest-driven topology**: Cluster membership per app is declared in [`config/deployment-matrix.yml`](../config/deployment-matrix.yml) — no caller-side configuration required to add a cluster to an existing app
 - **Multi-cluster deployment**: Deploy to Anacleto and Benedita with dynamic path generation
 - **Per-cluster env variants**: `env_suffixes` and `env_contexts` support multi-tenant (`-st`/`-mt`) and context-based (`chaos/`, `fuzzing/`) layouts
+- **Per-app env exceptions**: `app_extra_envs` adds extra envs for a specific app and release type (e.g. a beta also refreshing `stg-mt`), without changing the defaults for every other app
 - **Force-off overrides**: `deploy_in_<cluster>` inputs can suppress a cluster declared in the manifest, useful for emergency containment without editing the manifest
 - **Convention-based configuration**: Auto-generates paths, names, and patterns from repository name
 - **Multi-environment support**: dev (beta), stg (rc), prd (production), sandbox
@@ -294,13 +295,13 @@ Some clusters host **multiple parallel variants per environment** as sibling nam
 ```
 environments/benedita/helmfile/applications/
 ├── dev-st/midaz/values.yaml
-├── dev-mt/midaz/values.yaml
 ├── stg-st/midaz/values.yaml
-├── stg-mt/midaz/values.yaml
+├── stg-mt/midaz/values.yaml       # the only -mt variant that exists
 ├── prd-st/midaz/values.yaml
-├── prd-mt/midaz/values.yaml
 └── sandbox/midaz/values.yaml      # shared, no suffix
 ```
+
+Note the variants are **not** symmetric across environments: on Benedita the `-mt` variant exists only for `stg`. There is no `dev-mt` or `prd-mt` (see the cluster block in [`config/deployment-matrix.yml`](../config/deployment-matrix.yml)). Suffix expansion is mechanical and does not know that, so it still produces `dev-mt` and `prd-mt`; those iterations find no values file and are skipped with a warning, per [File Existence Validation](#file-existence-validation). That asymmetry is what [`app_extra_envs`](#per-app-env-exceptions-app_extra_envs) exists to work around.
 
 Declare the suffixes on the cluster block:
 
@@ -333,6 +334,65 @@ Firmino, Clotilde, Anacleto behavior is byte-identical to before: with both fiel
 #### Interaction with `app_helmfile_env`
 
 When an app has an `app_helmfile_env` override (e.g. `forge: cross`), the override path takes precedence and **the suffix expansion is skipped for that app** — it updates once at the override path. The sync target's env is the override value (`cross`), so the ArgoCD app name resolves to `benedita-forge-cross`.
+
+### Per-app env exceptions (`app_extra_envs`)
+
+The suffix expansion above is uniform: every app on the cluster gets the same variants for a given tag type. That breaks down when a variant does not exist in every environment. On Benedita the multi-tenant variant only has `stg-mt` — there is no `dev-mt` — so a **beta release never refreshes the multi-tenant variant of any app**: it targets `dev`, expands to `dev-st` + `dev-mt`, and `dev-mt` is skipped with a *values file not found* warning.
+
+`app_extra_envs` is the per-app exception for exactly this case:
+
+```yaml
+clusters:
+  benedita:
+    env_suffixes: ["-st", "-mt"]
+    suffix_excludes_envs: ["sandbox"]
+    app_extra_envs:
+      midaz:
+        beta: ["stg-mt"]        # every beta tag also updates stg-mt
+    apps: [midaz, fetcher, ...]
+```
+
+| Field | Default | Effect |
+|---|---|---|
+| `app_extra_envs.<app>.<release_type>` | `{}` | List of **literal** env names unioned into the app's expanded env list for that release type. `release_type` ∈ `beta`, `rc`, `stable`, `sandbox`. |
+
+Rules:
+
+- Values are **literal env names** — they already carry the cluster's suffix and context (`stg-mt`, `chaos/dev-mt`). They are appended verbatim and are **never re-expanded** against `env_suffixes` / `env_contexts`.
+- Entries duplicating an env the tag already produced are dropped, so `rc: ["stg-mt"]` on Benedita is a no-op rather than a double update.
+- The field is **per cluster**: `stg-mt` under `benedita` has no effect on `anacleto`, whose envs are context-prefixed.
+- Mutually exclusive with `app_helmfile_env` for the same app — the helmfile override wins in the env loop and would collapse the extras onto the override path. The deployment-matrix lint rejects the combination.
+- Ignored when the caller sets `gitops_layout=kustomize`; those layouts drive the env loop through `kustomize_environments` or the `${ENV}` path placeholder.
+- Env names may only contain letters, digits, `.`, `_`, `-` and `/`, and must not be absolute or contain `.`/`..` components. These values become the values-file path and travel through a space-separated env list, so whitespace would silently split one env into two and `..` would point outside `applications/`. `chaos/dev-mt` stays valid.
+- The workflow validates `app_extra_envs` up-front and **fails the job** if it is invalid, before any GitOps file is touched. A silent skip would leave the release green while the requested env was never updated — the exact failure this feature prevents. Note an invalid entry is still valid YAML, so cluster resolution does not catch it.
+
+The structure and the env names are checked in **two independent places**, on purpose:
+
+| | Enforced by | Covers |
+|---|---|---|
+| PR time | `src/lint/deployment-matrix` | Manifests in this repo, every app, with per-field error messages |
+| Run time | `gitops-update.yml`, before the env loop | Any manifest, including one read from an unlinted `deployment_matrix_ref` |
+
+The runtime check is not redundant: `deployment_matrix_ref` lets a caller read the matrix from a ref the lint never saw. It fails the job with a single `::error::` rather than pinpointing the field — use the lint for that.
+
+The runtime check has two parts, with deliberately different scopes:
+
+- **Structural**, manifest-wide — types at each level, non-empty leaf lists, and the env-name rules above. A structural break means the manifest is broken, so it fails regardless of which app is releasing.
+- **Relational**, scoped to the app being released **and** to the resolved cluster set — the release types must be known, and the app must not also carry an `app_helmfile_env` override on the same cluster. Both would otherwise be silently ignored: an unknown release type such as `beta_typo` never matches, and the helmfile override replaces the tag-derived env for every iteration, so the extra env gets written to the override path instead.
+
+  The double scoping is deliberate. An entry is inert for a given run when it belongs to another app (the lookup is keyed by app name) or to a cluster this run does not target — one that does not host the app, or one suppressed via `deploy_in_<cluster>: false`. Aborting a release over an entry it never consults would be collateral damage, so the check only looks at clusters that survived force-off filtering. The lint still flags those entries at PR time, where nothing is at stake.
+
+**Resolution on a beta tag** for `midaz` on benedita, with the manifest above:
+
+1. Tag-type → base env: `dev`
+2. Suffix expansion: `dev-st`, `dev-mt`
+3. Extras for `beta`: `stg-mt`
+4. Final env list: `dev-st dev-mt stg-mt`
+5. Sync targets: `benedita-midaz-dev-st`, `benedita-midaz-dev-mt`, `benedita-midaz-stg-mt`
+
+⚠️ **Operational consequence**: the beta image stays running in `stg-mt` until the next rc release overwrites it. That is the point of the exception, but it means `stg-mt` is no longer an rc-only environment for the listed apps. Keep the list narrow and deliberate.
+
+Apps not listed are unaffected, and a cluster without `app_extra_envs` behaves exactly as before.
 
 ### Adding a new app to a cluster
 
@@ -386,6 +446,8 @@ Where:
 | `v*.*.*-rc.*` | rc/stg | `stg` on selected servers (`rc_environments`) |
 | `v*.*.*` (no suffix) | production | `prd` on selected servers (`stable_environments`), plus `sandbox` when `update_sandbox=true` |
 | `v*.*.*-sandbox.*` | sandbox | `sandbox` on selected servers |
+
+These lists apply to every app. For an exception scoped to a single app — such as a beta that must also refresh `stg-mt` — use [`app_extra_envs`](#per-app-env-exceptions-app_extra_envs) in the deployment matrix instead of widening the input for everyone.
 
 The per-type environment lists are configurable via the `beta_environments`, `rc_environments`, and `stable_environments` inputs. By default each release stays scoped to its own environment, so a stable hotfix merged to `main` updates only `prd` and does not overwrite features still living in dev/stg. To have a stable release also refresh the lower environments (previous behavior), set `stable_environments: "dev stg prd"`.
 
