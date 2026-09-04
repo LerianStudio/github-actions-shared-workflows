@@ -97,6 +97,10 @@ on:
         description: 'Enable automatic labeling based on changed files'
         type: boolean
         default: true
+      enable_slack_notification:
+        description: 'Send the PR validation verdict to Slack. Set to false in repositories without SLACK_WEBHOOK_URL to skip the job entirely instead of running it just to skip internally.'
+        type: boolean
+        default: true
       labeler_config_path:
         description: 'Path to labeler configuration file'
         type: string
@@ -332,6 +336,7 @@ jobs:
       pr_title_scopes: ${{ inputs.pr_title_scopes }}
       require_scope: ${{ inputs.require_scope }}
       enable_auto_labeler: ${{ inputs.enable_auto_labeler }}
+      enable_slack_notification: ${{ inputs.enable_slack_notification }}
       labeler_config_path: ${{ inputs.labeler_config_path }}
       enforce_source_branches: ${{ inputs.enforce_source_branches }}
       allowed_source_branches: ${{ inputs.allowed_source_branches }}
