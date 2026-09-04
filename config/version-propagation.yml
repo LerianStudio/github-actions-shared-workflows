@@ -1,5 +1,13 @@
 # Version Propagation Matrix
 #
+# ⚠️ CURRENTLY DISABLED — every entry below is `enabled: false` and the
+# `propagate-version` job was removed from `self-release.yml`. The tier channel
+# model superseded this one: consumers pin `@tier-0` / `@tier-1` / `@tier-2`
+# once, and a release moves those branches forward (see `config/tier-promotion.yml`
+# and `docs/tiers.md`) instead of rewriting `@vX.Y.Z` pins in each repository.
+# The matrix is kept for traceability and as the rollback path — re-add the job
+# in `self-release.yml` and flip `enabled` back to resume.
+#
 # Source of truth for which downstream repositories receive automatic version
 # bumps when `LerianStudio/github-actions-shared-workflows` publishes a new
 # production release on `main`.
@@ -46,7 +54,11 @@ defaults:
 
 repositories:
   # Trunk-based consumer (no `develop` branch): push the bump directly to main.
+  # Paused: this repository is served by the tier channels now. `.repositories`
+  # must stay a non-empty mapping (resolve-targets.sh fails loudly otherwise),
+  # so the entry stays here rather than being deleted.
   LerianStudio/go-boilerplate-ddd:
+    enabled: false
     target_branch: main
     auto_merge_pr_fallback:
       patch: true

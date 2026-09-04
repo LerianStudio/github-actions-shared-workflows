@@ -969,13 +969,33 @@ jobs:
             TAG="$RELEASE_GIT_TAG"
           fi
 
-          if [[ "$TAG" == *-beta.* ]]; then
-            RELEASE_ENV="beta"; BASE_ENV="dev"
-          elif [[ "$TAG" == *-rc.* ]]; then
-            RELEASE_ENV="rc"; BASE_ENV="stg"
-          else
-            RELEASE_ENV="stable"; BASE_ENV="prd"
-          fi
+          # A BARE SEMVER IS STABLE, AND ONLY A BARE SEMVER.
+          #
+          # This used to be a bare `else` onto stable/prd, so a tag that says nothing
+          # about its channel — `build-1234`, `nightly`, a typo'd prerelease — aimed a
+          # production-channel run. That is the most consequential direction and the
+          # one nobody would want by accident, so an unrecognised tag now fails loudly
+          # instead of being guessed at. The dotless prerelease forms (`-rc1`) are
+          # matched too: semver wants the separator, git tags in the wild do not always
+          # carry it. Build metadata (`+20260812`) carries no precedence per semver and
+          # is accepted as stable.
+          case "$TAG" in
+            *-rc.*|*-rc|*-rc[0-9]*)
+              RELEASE_ENV="rc"; BASE_ENV="stg" ;;
+            *-beta.*|*-beta|*-beta[0-9]*)
+              RELEASE_ENV="beta"; BASE_ENV="dev" ;;
+            # Alphas are validated on the dev surface, which is what beta selects.
+            *-alpha.*|*-alpha|*-alpha[0-9]*)
+              RELEASE_ENV="beta"; BASE_ENV="dev" ;;
+            *)
+              if [[ "$TAG" =~ ^v?(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(\+[0-9A-Za-z.-]+)?$ ]]; then
+                RELEASE_ENV="stable"; BASE_ENV="prd"
+              else
+                echo "::error title=Cannot tell which release channel this tag belongs to::Tag '$TAG' carries no channel marker (-beta.N, -rc.N, -alpha.N) and is not a bare semver version. Refusing to guess — a wrong guess here aims a production-channel run."
+                exit 1
+              fi
+              ;;
+          esac
           {
             echo "tag=$TAG"
             echo "release_env=$RELEASE_ENV"

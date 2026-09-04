@@ -125,8 +125,14 @@ already use that name.
 | Channel and webhook configured | Announcement is sent for the published tag |
 | No channel (input and `RELEASE_SLACK_CHANNEL` both empty) | Job is skipped |
 | Channel set but no webhook secret | Job runs, notification step is skipped (non-fatal) |
+| Tag type not in `RELEASE_NOTIFY_TAG_TYPES` | Job runs, notification step is skipped (non-fatal) |
 | `dry_run: true` | Payload is printed, nothing is sent |
 | No release published in the run | Job is skipped |
+
+Every published tag is announced by default. To announce only some tag types —
+`stable` only, or `rc,stable` — set the `RELEASE_NOTIFY_TAG_TYPES` variable at the
+organization level and override it per repository as needed. See
+[Tag granularity](release-notification.md#tag-granularity--release_notify_tag_types).
 
 The announced tag comes from `publish_release_status.outputs.release_git_tag`, so monorepo
 runs announce the tag actually published by the last matrix leg instead of the newest

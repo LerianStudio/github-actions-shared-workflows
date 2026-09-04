@@ -72,8 +72,8 @@ Mirrors the [`go-release`](./go-release-workflow.md) umbrella for Go services �
 | `e2e_s3_artifact_path` | Subpath under `s3://lerian-e2e-artifacts/<repo>/<channel>/<tag>/` where the Playwright report is uploaded. Channel (`main`/`beta`/`rc`) is derived from the tag's prerelease identifier. Only used when `AWS_E2E_ARTIFACTS_ROLE_ARN` is set | string | `playwright-report` |
 | `enable_ungoliant_release_diff` | Fire the Ungoliant release-diff webhook on tag push after a successful gitops-update (see [Ungoliant release diff](#ungoliant-release-diff)) | boolean | `false` |
 | `ungoliant_app` | App slug sent to the controller; when empty falls back to `app_name_prefix`, then the repo name | string | `''` |
-| `ungoliant_env_type` | Ungoliant environment/testing type — `chaos` \| `fuzzing` | string | `chaos` |
-| `ungoliant_tenancy` | Ungoliant tenancy — `st` (single-tenant) \| `mt` (multi-tenant) | string | `st` |
+| `ungoliant_env_type` | **Deprecated no-op** — the app's registration decides the surface | string | `chaos` |
+| `ungoliant_tenancy` | **Deprecated no-op** — the app's registration decides the surface | string | `st` |
 | `ungoliant_controller_url` | Ungoliant controller base URL (reachable over Tailscale) | string | `https://ungoliant-controller.anacleto.lerian.net` |
 | `ungoliant_runner_type` | Runner for the Ungoliant release-diff job (needs Tailscale reach to the controller) | string | `eveo-anacleto-lxc-runners` |
 
@@ -278,9 +278,11 @@ The controller is reachable only over Tailscale, so the job runs on the `eveo-an
 
 - **app** — `ungoliant_app`, else `app_name_prefix`, else the repo name.
 - **version** — the pushed tag (`github.ref_name`).
-- **release channel / base env** — derived from the tag, which maps 1:1 to the source branch: `-beta.` → `beta`/`dev` (develop), `-rc.` → `rc`/`stg` (release-candidate), otherwise `stable`/`prd` (main).
+- **release channel** — read from the tag, which maps 1:1 to the source branch: `-rc*` → `rc` (release-candidate), `-beta*`/`-alpha*` → `beta` (develop), a bare semver version → `stable` (main). A tag that carries no channel marker and is not a bare semver (`build-1234`, `nightly`, `v1.2.3.4`) **fails the job** instead of being guessed at — the old fallback sent anything unrecognised to the `stable`/production channel, which is the most consequential direction and the one nobody wants by accident.
 
-Compose behaviour with `ungoliant_env_type` (`chaos` default, `fuzzing` supported) and `ungoliant_tenancy` (`st` default, `mt` supported). Provide `UNGOLIANT_WEBHOOK_TOKEN` via `secrets: inherit` for an authenticated call.
+**Where the release is validated is not a workflow input.** The channel picks the cluster (`beta`→dev, `rc`→stg, `stable`→prd) and the tenancy registered in the console's Applications tab picks the rest. `ungoliant_env_type` and `ungoliant_tenancy` are **deprecated no-ops**: they used to compose a `target_env` that the controller honours *over* its own configuration, and since they default to `chaos`/`st` every release silently overrode its own registration — an app registered for stg ran against dev without a word. They are still accepted so no caller breaks. An app with no registration for the channel is refused, which is the configuration doing its job.
+
+Provide `UNGOLIANT_WEBHOOK_TOKEN` via `secrets: inherit` for an authenticated call.
 
 ```yaml
 jobs:
@@ -288,8 +290,6 @@ jobs:
     uses: LerianStudio/github-actions-shared-workflows/.github/workflows/js-release.yml@tier-1
     with:
       enable_ungoliant_release_diff: true
-      ungoliant_env_type: chaos
-      ungoliant_tenancy: st
     secrets: inherit
 ```
 
