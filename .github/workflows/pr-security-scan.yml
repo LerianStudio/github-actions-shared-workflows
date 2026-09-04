@@ -107,6 +107,10 @@ on:
         description: 'Block dependencies pinned to pre-release versions (-beta, -rc)'
         type: boolean
         default: true
+      enable_slack_notification:
+        description: 'Send the security scan verdict to Slack. Set to false in repositories without SLACK_WEBHOOK_URL to skip the job entirely instead of running it just to skip internally.'
+        type: boolean
+        default: true
       prerelease_block_branches:
         description: 'Comma-separated list of PR target branches where pre-release versions cause a hard failure. On other branches, findings are reported as warnings only.'
         type: string
@@ -356,7 +360,7 @@ jobs:
   notify:
     name: Notify
     needs: [prepare_matrix, security_scan, codeql_scan]
-    if: always() && needs.prepare_matrix.outputs.matrix != '[]'
+    if: always() && inputs.enable_slack_notification && needs.prepare_matrix.outputs.matrix != '[]'
     runs-on: ${{ vars.GENERAL_RUNNERS || inputs.runner_type }}
     steps:
       - name: Slack Notification

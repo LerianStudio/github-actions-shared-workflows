@@ -113,6 +113,10 @@ on:
         description: 'Enable arbitrary caller-owned checks beyond the named gates above (runs each target in custom_checks). Mirrors the same input in frontend-pr-analysis.yml.'
         type: boolean
         default: false
+      enable_slack_notification:
+        description: 'Send the analysis verdict to Slack. Set to false in repositories without SLACK_WEBHOOK_URL to skip the job entirely instead of running it just to skip internally.'
+        type: boolean
+        default: true
       custom_checks:
         description: 'Newline-separated Makefile targets to run as additional checks (e.g. repo-specific static guards). Each runs independently via `make <target>`; a non-zero exit on any of them fails the job. Use for gates the named jobs do not cover, so a repo does not need its own parallel workflow file.'
         type: string
@@ -1147,7 +1151,7 @@ jobs:
   notify:
     name: Notify
     needs: [detect-changes, lint, security, tests, build, integration-tests, custom-checks, test-determinism]
-    if: always() && needs.detect-changes.outputs.has_changes == 'true'
+    if: always() && inputs.enable_slack_notification && needs.detect-changes.outputs.has_changes == 'true'
     uses: ./.github/workflows/slack-notify.yml
     with:
       status: ${{ (needs.lint.result == 'failure' || needs.security.result == 'failure' || needs.tests.result == 'failure' || needs.build.result == 'failure' || needs.integration-tests.result == 'failure' || needs.custom-checks.result == 'failure' || needs.test-determinism.result == 'failure') && 'failure' || 'success' }}

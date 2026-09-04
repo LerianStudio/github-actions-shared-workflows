@@ -195,7 +195,7 @@ Commits to `main` branch create production releases:
 
 `publish_release` runs under `stable` on `main`, `rc` on `release-candidate`, and `beta` on any other ref — mirroring the branch strategy above. The environments are created in **your** repository on first use, with no protection rules and no branch policy, and you only get the ones your branching actually uses.
 
-See [Deployment Environments in `release-workflow.md`](release-workflow.md#deployment-environments) for what to configure and why the branch policy, not the environment name, is what enforces anything.
+See [Deployment Environments in `release.md`](release.md#deployment-environments) for what to configure and why the branch policy, not the environment name, is what enforces anything.
 
 ## Jobs
 
@@ -213,7 +213,7 @@ GitHub level, so nothing starts at all. `[backmerge]` is deliberately not a toke
 GitHub recognises: the run starts and every check reports — which keeps a backmerge
 pull request mergeable without a bypass, and lets anything chained to the push
 fire — while this workflow skips only the release. The expression is kept identical
-to the one in [`release.yml`](release-workflow.md).
+to the one in [`release.yml`](release.md).
 
 ### publish_release
 
@@ -348,9 +348,9 @@ No version bump, but included in changelog.
 
 ## Related Workflows
 
-- [Release Workflow](release-workflow.md) - Generic release workflow (Go/other languages)
-- [Go Release](go-release-workflow.md) - Go service release umbrella (semantic-release + Docker + GitOps)
-- [TypeScript CI](typescript-ci-workflow.md) - TypeScript continuous integration
+- [Release Workflow](release.md) - Generic release workflow (Go/other languages)
+- [Go Release](go-release.md) - Go service release umbrella (semantic-release + Docker + GitOps)
+- `typescript-ci.yml` - TypeScript continuous integration (no doc yet)
 
 ---
 

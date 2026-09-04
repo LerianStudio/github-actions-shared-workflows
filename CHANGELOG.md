@@ -1,5 +1,29 @@
 # Github-actions-shared-workflows Changelog
 
+## [1.65.0](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.65.0)
+
+Features:
+- Split the release environment into `beta` and `stable` channels, allowing for a three-way environment split. The release environment can now be overridden by the caller. (@bedatty)
+- Allow the caller to name its own deployment environment. (@bedatty)
+- Push tier promotions using a GitHub App token. (@bedatty)
+
+Fixes:
+- Correct the release process to match the environment on the full ref, preventing overclaiming. (@bedatty)
+- Address the interpolation issue in an input description for the release process. (@bedatty)
+- Ensure the App installation token for tier promotion is scoped to two permissions. (@bedatty)
+- Resolve the transition from `develop` to `main` in the release process. (@bedatty)
+
+Improvements:
+- Replace tag pins with tier channels and provide an explanation of the rings. (@bedatty)
+- Complete the tier-channel update in the cursor rules documentation. (@bedatty)
+- Update the normative sources that were missed in the previous sweep. (@bedatty)
+- Explain the choice of using `create-github-app-token` for tier promotion. (@bedatty)
+- Resolve the repository from the checkout in the migration check documentation. (@bedatty)
+
+[Compare changes](https://github.com/LerianStudio/github-actions-shared-workflows/compare/v1.64.0...v1.65.0)
+
+---
+
 ## [1.64.0](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.64.0)
 
 Features:
