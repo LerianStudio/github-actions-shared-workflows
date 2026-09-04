@@ -573,18 +573,43 @@ jobs:
             fi
           fi
 
-          # Validate the app_extra_envs shape before touching any gitops file.
+          # Validate app_extra_envs before touching any gitops file.
+          #
           # This runs in the main shell on purpose: the per-server lookup below
           # happens inside a command substitution, where a failure would kill
           # only the subshell and be silently swallowed — leaving the release
           # green while the requested extra env was never updated, which is the
           # precise failure the feature exists to prevent. A bad shape is still
           # valid YAML, so `resolve_clusters` does not catch it either.
+          #
+          # This deliberately mirrors the full contract enforced by
+          # src/lint/deployment-matrix, rather than trusting it: the lint only
+          # ever sees manifests in this repo, and deployment_matrix_ref lets a
+          # caller read the matrix from an unlinted ref. So the structure AND
+          # the env names are checked here — a name with whitespace would split
+          # into two envs in the space-separated env list, and one with ".." or
+          # a leading "/" would push VALUES_FILE outside applications/.
           if [[ "$GITOPS_LAYOUT" != "kustomize" && -f "$MANIFEST_FILE" ]]; then
             if ! yq -o=json '.' "$MANIFEST_FILE" \
-              | jq -e '[ (.clusters // {})[] | (.app_extra_envs // {}) | to_entries[] | .value | to_entries[] | .value ]
-                       | all(type == "array" and all(.[]; type == "string"))' >/dev/null 2>&1; then
-              echo "::error::Malformed app_extra_envs in ${MANIFEST_FILE}. Expected clusters.<server>.app_extra_envs.<app>.<release_type> to be a list of strings."
+              | jq -e '
+                  [ (.clusters // {})[] | .app_extra_envs // {} ]
+                  | all(
+                      type == "object"
+                      and all(.[];
+                        type == "object"
+                        and all(.[];
+                          type == "array"
+                          and length > 0
+                          and all(.[];
+                            type == "string"
+                            and test("^[A-Za-z0-9._/-]+$")
+                            and (startswith("/") | not)
+                            and (split("/") | all(. != "" and . != "." and . != ".."))
+                          )
+                        )
+                      )
+                    )' >/dev/null 2>&1; then
+              echo "::error::Invalid app_extra_envs in ${MANIFEST_FILE}. Expected clusters.<server>.app_extra_envs.<app>.<release_type> to be a non-empty list of relative env names matching [A-Za-z0-9._/-]+ with no '.' or '..' path components."
               exit 1
             fi
           fi

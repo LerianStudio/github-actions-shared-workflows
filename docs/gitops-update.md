@@ -363,8 +363,17 @@ Rules:
 - The field is **per cluster**: `stg-mt` under `benedita` has no effect on `anacleto`, whose envs are context-prefixed.
 - Mutually exclusive with `app_helmfile_env` for the same app — the helmfile override wins in the env loop and would collapse the extras onto the override path. The deployment-matrix lint rejects the combination.
 - Ignored when the caller sets `gitops_layout=kustomize`; those layouts drive the env loop through `kustomize_environments` or the `${ENV}` path placeholder.
-- Env names may only contain letters, digits, `.`, `_`, `-` and `/`, and must not be absolute or contain `.`/`..` components. These values become the values-file path and travel through a space-separated env list, so whitespace would silently split one env into two and `..` would point outside `applications/`. The lint enforces this; `chaos/dev-mt` stays valid.
-- The workflow validates the whole `app_extra_envs` shape up-front and **fails the job** if it is malformed, before any GitOps file is touched. A silent skip would leave the release green while the requested env was never updated — the exact failure this feature prevents. Note a malformed shape is still valid YAML, so cluster resolution does not catch it.
+- Env names may only contain letters, digits, `.`, `_`, `-` and `/`, and must not be absolute or contain `.`/`..` components. These values become the values-file path and travel through a space-separated env list, so whitespace would silently split one env into two and `..` would point outside `applications/`. `chaos/dev-mt` stays valid.
+- The workflow validates `app_extra_envs` up-front and **fails the job** if it is invalid, before any GitOps file is touched. A silent skip would leave the release green while the requested env was never updated — the exact failure this feature prevents. Note an invalid entry is still valid YAML, so cluster resolution does not catch it.
+
+The structure and the env names are checked in **two independent places**, on purpose:
+
+| | Enforced by | Covers |
+|---|---|---|
+| PR time | `src/lint/deployment-matrix` | Manifests in this repo, with per-field error messages |
+| Run time | `gitops-update.yml`, before the env loop | Any manifest, including one read from an unlinted `deployment_matrix_ref` |
+
+The runtime check is not redundant: `deployment_matrix_ref` lets a caller read the matrix from a ref the lint never saw. It fails the job with a single `::error::` rather than pinpointing the field — use the lint for that.
 
 **Resolution on a beta tag** for `midaz` on benedita, with the manifest above:
 
