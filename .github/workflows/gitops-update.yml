@@ -614,6 +614,32 @@ jobs:
             fi
           fi
 
+          # Relationship checks for the app being released. Scoped to $APP_NAME
+          # on purpose, unlike the structural check above: a bad entry belonging
+          # to some other app is inert for this run (the lookup is keyed by
+          # app name), so failing this release over it would be collateral
+          # damage. Two ways an entry can be silently ignored:
+          #   - an unknown release type ("beta_typo") never matches RELEASE_TYPE
+          #   - an app_helmfile_env override replaces the tag-derived env for
+          #     every iteration, so the extra env is visited but written to the
+          #     override path instead
+          # Both end with a green release and the requested env untouched.
+          if [[ "$GITOPS_LAYOUT" != "kustomize" && -f "$MANIFEST_FILE" ]]; then
+            if ! yq -o=json '.' "$MANIFEST_FILE" \
+              | jq -e --arg app "$APP_NAME" '
+                  [ (.clusters // {})[]
+                    | select((.app_extra_envs // {}) | has($app))
+                    | { types: (.app_extra_envs[$app] | keys),
+                        override: ((.app_helmfile_env // {}) | has($app)) } ]
+                  | all(
+                      (.types | all(. == "beta" or . == "rc" or . == "stable" or . == "sandbox"))
+                      and (.override | not)
+                    )' >/dev/null 2>&1; then
+              echo "::error::Invalid app_extra_envs for '${APP_NAME}' in ${MANIFEST_FILE}. Release types must be one of beta|rc|stable|sandbox, and the app must not also have an app_helmfile_env override on the same cluster (the override would suppress the extra envs)."
+              exit 1
+            fi
+          fi
+
           # Servers come from the deployment matrix manifest, filtered by force-off inputs.
           # See step `resolve_clusters` for resolution logic.
           if [[ "$HAS_CLUSTERS" != "true" ]]; then

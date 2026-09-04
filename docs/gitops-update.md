@@ -370,10 +370,15 @@ The structure and the env names are checked in **two independent places**, on pu
 
 | | Enforced by | Covers |
 |---|---|---|
-| PR time | `src/lint/deployment-matrix` | Manifests in this repo, with per-field error messages |
+| PR time | `src/lint/deployment-matrix` | Manifests in this repo, every app, with per-field error messages |
 | Run time | `gitops-update.yml`, before the env loop | Any manifest, including one read from an unlinted `deployment_matrix_ref` |
 
 The runtime check is not redundant: `deployment_matrix_ref` lets a caller read the matrix from a ref the lint never saw. It fails the job with a single `::error::` rather than pinpointing the field — use the lint for that.
+
+The runtime check has two parts, with deliberately different scopes:
+
+- **Structural**, manifest-wide — types at each level, non-empty leaf lists, and the env-name rules above. A structural break means the manifest is broken, so it fails regardless of which app is releasing.
+- **Relational**, scoped to the app being released — the release types must be known, and the app must not also carry an `app_helmfile_env` override on the same cluster. Both of those would otherwise be silently ignored: an unknown release type such as `beta_typo` never matches, and the helmfile override replaces the tag-derived env for every iteration, so the extra env gets written to the override path instead. Scoping matters here because a bad entry belonging to a *different* app is inert for this run — the lookup is keyed by app name — so failing the release over it would be collateral damage. The lint still flags it at PR time.
 
 **Resolution on a beta tag** for `midaz` on benedita, with the manifest above:
 
