@@ -322,6 +322,7 @@ runs:
           echo "Render and orphan-key checks passed before this pull request existed."
         } > ../pr-body.md
         gh pr create --base main --title "$title" --body-file ../pr-body.md
+        echo "::notice::${title} — pull request opened (${LEVEL})"
 
     # ----------------- Reconcile -----------------
     # Writing to git is not the same as the change being live. Without this the
@@ -387,4 +388,3 @@ runs:
           exit 1
         fi
         echo "synced=true" >> "$GITHUB_OUTPUT"
-        echo "::notice::${title} — pull request opened (${LEVEL})"

@@ -202,8 +202,28 @@ def main() -> int:
     apps, ignored = resolve_apps(matrix, args.app)
 
     if ignored:
-        print(f"::notice::'{args.app}' is ignored by the deployment matrix: {ignored}")
-        print(json.dumps({"channel": channel, "envs": envs, "apps": [], "changed": []}))
+        # stderr, because stdout is redirected into bump.json and an annotation
+        # mixed in there breaks the file for jq, which would fail and take the
+        # step down with it, turning a deliberate no-op into a broken run.
+        print(
+            f"::notice::'{args.app}' is ignored by the deployment matrix: {ignored}",
+            file=sys.stderr,
+        )
+        # Same keys as the normal result: the caller reads .level unconditionally,
+        # and a missing key would surface as the string "null".
+        print(
+            json.dumps(
+                {
+                    "channel": channel,
+                    "envs": envs,
+                    "apps": [],
+                    "level": "none",
+                    "changed": [],
+                    "untouched": [],
+                    "absent": [],
+                }
+            )
+        )
         return 0
 
     if apps is None:
