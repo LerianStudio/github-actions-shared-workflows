@@ -10,7 +10,7 @@ Umbrella reusable workflow for JavaScript/TypeScript **service** repositories (d
 - **Branch push** → change gate (`src/config/non-doc-changes`) → semantic release (`release.yml`). Documentation-only pushes skip the release.
 - **Tag push** → container build & push (`typescript-build.yml`) → GitOps update (`gitops-update.yml`), gated on the build actually producing images.
 
-Mirrors the [`go-release`](./go-release-workflow.md) umbrella for Go services — providing the same single-caller DX for Next.js frontends, NestJS backends, and any JS/TS service that ships a Docker image.
+Mirrors the [`go-release`](./go-release.md) umbrella for Go services — providing the same single-caller DX for Next.js frontends, NestJS backends, and any JS/TS service that ships a Docker image.
 
 ### Repository layouts
 
@@ -35,7 +35,7 @@ Mirrors the [`go-release`](./go-release-workflow.md) umbrella for Go services �
 | `filter_paths` | Path prefixes to filter (empty = single-app repo) | string | `''` |
 | `shared_paths` | Path patterns that trigger a release/build for all components | string | `''` |
 | `path_level` | Directory depth level to extract app name | string | `2` |
-| `enable_release_announcement` | Announce the published release to the repository Slack channel (see [release-workflow](release-workflow.md#release-announcement)) | boolean | `true` |
+| `enable_release_announcement` | Announce the published release to the repository Slack channel (see [release-workflow](release.md#release-announcement)) | boolean | `true` |
 | `announcement_product_name` | Product name displayed in the announcement. Empty → repository name | string | `''` |
 | `announcement_slack_channel` | Slack channel for the announcement. Empty → `RELEASE_SLACK_CHANNEL` repository variable; skipped when both are empty | string | `''` |
 | `enable_dockerhub` | Push image to DockerHub | boolean | `false` |
@@ -297,6 +297,6 @@ jobs:
 
 - [release](./release.md) — semantic-release pipeline this umbrella calls on branch push
 - [typescript-build](./typescript-build.md) — container build & push this umbrella calls
-- [gitops-update](./gitops-update-workflow.md) — GitOps update this umbrella calls
-- [go-release](./go-release-workflow.md) — the equivalent umbrella for Go service repositories
+- [gitops-update](./gitops-update.md) — GitOps update this umbrella calls
+- [go-release](./go-release.md) — the equivalent umbrella for Go service repositories
 - [ungoliant-release-diff](../src/validate/ungoliant-release-diff/README.md) — the composite the release-diff job runs

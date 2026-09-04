@@ -363,11 +363,10 @@ The workflow requires these permissions:
 
 ## Related Workflows
 
-- [Go PR Analysis](./go-pr-analysis-workflow.md) - Equivalent workflow for Go projects
-- [Changed Paths](./changed-paths-workflow.md) - Standalone change detection
-- [Build](./build-workflow.md) - Docker image builds
-- [Slack Notify](./slack-notify-workflow.md) - Workflow notifications
-- [PR Security Scan](./pr-security-scan-workflow.md) - Additional security scanning with Trivy
+- [Go PR Analysis](./go-pr-analysis.md) - Equivalent workflow for Go projects
+- [Build](./build.md) - Docker image builds
+- [Slack Notify](./slack-notify.md) - Workflow notifications
+- [PR Security Scan](./pr-security-scan.md) - Additional security scanning with Trivy
 
 ---
 

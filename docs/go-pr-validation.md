@@ -214,7 +214,7 @@ Require the aggregator checks `Go Analysis`, `Security` and `Lib Version` (plus 
 
 ## Related
 
-- [go-pr-analysis](./go-pr-analysis-workflow.md) — the Go analysis pipeline this umbrella calls
-- [pr-security-scan](./pr-security-scan-workflow.md) — the security pipeline this umbrella calls
+- [go-pr-analysis](./go-pr-analysis.md) — the Go analysis pipeline this umbrella calls
+- [pr-security-scan](./pr-security-scan.md) — the security pipeline this umbrella calls
 - [pr-validation](./pr-validation.md) — the PR metadata validation this umbrella calls
-- [go-release](./go-release-workflow.md) — the matching service release umbrella
+- [go-release](./go-release.md) — the matching service release umbrella

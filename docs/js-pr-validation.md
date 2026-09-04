@@ -309,7 +309,7 @@ Require the aggregator checks `Frontend Analysis`, `Security` and `Socket` (plus
 
 ## Related
 
-- [frontend-pr-analysis](./frontend-pr-analysis-workflow.md) — the frontend analysis pipeline this umbrella calls
-- [pr-security-scan](./pr-security-scan-workflow.md) — the security pipeline this umbrella calls
+- [frontend-pr-analysis](./frontend-pr-analysis.md) — the frontend analysis pipeline this umbrella calls
+- [pr-security-scan](./pr-security-scan.md) — the security pipeline this umbrella calls
 - [pr-validation](./pr-validation.md) — the PR metadata validation this umbrella calls
 - [go-pr-validation](./go-pr-validation.md) — the equivalent umbrella for Go repositories

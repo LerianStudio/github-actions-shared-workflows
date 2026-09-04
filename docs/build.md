@@ -435,9 +435,9 @@ cosign verify \
 
 ## Related Workflows
 
-- [GitOps Update](gitops-update-workflow.md) - Update deployments after build
-- [Release](release-workflow.md) - Create releases that trigger builds
-- [Slack Notify](slack-notify-workflow.md) - Notification system
+- [GitOps Update](gitops-update.md) - Update deployments after build
+- [Release](release.md) - Create releases that trigger builds
+- [Slack Notify](slack-notify.md) - Notification system
 
 ---
 

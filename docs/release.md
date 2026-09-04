@@ -597,6 +597,6 @@ Add custom plugins in `.releaserc`:
 
 ## Related Workflows
 
-- [GitOps Update](gitops-update-workflow.md) - Update deployments after release
-- [PR Security Scan](pr-security-scan-workflow.md) - Security checks before release
-- [API Dog E2E Tests](api-dog-e2e-tests-workflow.md) - E2E tests after release
+- [GitOps Update](gitops-update.md) - Update deployments after release
+- [PR Security Scan](pr-security-scan.md) - Security checks before release
+- [API Dog E2E Tests](api-dog-e2e-tests.md) - E2E tests after release
