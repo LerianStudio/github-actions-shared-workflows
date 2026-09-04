@@ -35,7 +35,7 @@ runs:
         MANIFEST: ${{ inputs.manifest-file }}
       run: |
         python3 - <<'PYEOF'
-        import os, sys, yaml
+        import os, re, sys, yaml
 
         path = os.environ.get('MANIFEST', '')
         violations = 0
@@ -308,6 +308,23 @@ runs:
                             for i, e in enumerate(envs):
                                 if not isinstance(e, str) or not e.strip():
                                     err(f'clusters.{cluster_name}.app_extra_envs["{app}"]["{release_type}"][{i}] must be a non-empty string.')
+                                    continue
+                                # These values become HELMFILE_ENV and land in the
+                                # values-file path, and the workflow carries its env
+                                # list as a space-separated string. So a value with
+                                # whitespace would silently split into two envs, and
+                                # one with ".." or a leading "/" would point outside
+                                # the applications/ directory. Restrict to the
+                                # characters real env names use — which still allows
+                                # context paths like "chaos/dev-mt".
+                                if not re.fullmatch(r'[A-Za-z0-9._/-]+', e):
+                                    err(f'clusters.{cluster_name}.app_extra_envs["{app}"]["{release_type}"][{i}] "{e}" may only contain letters, digits, ".", "_", "-" and "/" (no whitespace or shell metacharacters).')
+                                    continue
+                                if e.startswith('/'):
+                                    err(f'clusters.{cluster_name}.app_extra_envs["{app}"]["{release_type}"][{i}] "{e}" must be a relative env name, not an absolute path.')
+                                    continue
+                                if any(part in ('', '.', '..') for part in e.split('/')):
+                                    err(f'clusters.{cluster_name}.app_extra_envs["{app}"]["{release_type}"][{i}] "{e}" must not contain empty, "." or ".." path components.')
                                     continue
                                 if e in seen_extra:
                                     err(f'Duplicate env "{e}" in clusters.{cluster_name}.app_extra_envs["{app}"]["{release_type}"].')

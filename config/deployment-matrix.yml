@@ -269,11 +269,11 @@ clusters:
     # multi-tenant variant of an app. Listing an app here with
     # `beta: ["stg-mt"]` makes every beta tag update stg-mt as well, on top of
     # the normal dev-st / dev-mt expansion. Note this leaves a beta image
-    # running in stg-mt until the next rc overwrites it — intentional for the
-    # apps listed, so keep the list narrow.
-    # app_extra_envs:
-    #   <app>:
-    #     beta: ["stg-mt"]
+    # running in stg-mt until the next rc overwrites it — stg-mt stops being an
+    # rc-only environment for the apps listed here, so keep the list narrow.
+    app_extra_envs:
+      midaz:
+        beta: ["stg-mt"]
 
     # app_helmfile_env: per-app override for the helmfile applications sub-directory.
     # Default path: environments/benedita/helmfile/applications/{env}/{app}/values.yaml

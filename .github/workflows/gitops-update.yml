@@ -573,6 +573,22 @@ jobs:
             fi
           fi
 
+          # Validate the app_extra_envs shape before touching any gitops file.
+          # This runs in the main shell on purpose: the per-server lookup below
+          # happens inside a command substitution, where a failure would kill
+          # only the subshell and be silently swallowed — leaving the release
+          # green while the requested extra env was never updated, which is the
+          # precise failure the feature exists to prevent. A bad shape is still
+          # valid YAML, so `resolve_clusters` does not catch it either.
+          if [[ "$GITOPS_LAYOUT" != "kustomize" && -f "$MANIFEST_FILE" ]]; then
+            if ! yq -o=json '.' "$MANIFEST_FILE" \
+              | jq -e '[ (.clusters // {})[] | (.app_extra_envs // {}) | to_entries[] | .value | to_entries[] | .value ]
+                       | all(type == "array" and all(.[]; type == "string"))' >/dev/null 2>&1; then
+              echo "::error::Malformed app_extra_envs in ${MANIFEST_FILE}. Expected clusters.<server>.app_extra_envs.<app>.<release_type> to be a list of strings."
+              exit 1
+            fi
+          fi
+
           # Servers come from the deployment matrix manifest, filtered by force-off inputs.
           # See step `resolve_clusters` for resolution logic.
           if [[ "$HAS_CLUSTERS" != "true" ]]; then
@@ -689,10 +705,16 @@ jobs:
             if [[ "$GITOPS_LAYOUT" == "kustomize" || ! -f "$MANIFEST_FILE" ]]; then
               return
             fi
+            # A missing field is already the empty case (`// []`), so the only
+            # way this query fails is a malformed app_extra_envs shape — and that
+            # is rejected up-front by the validation step above, which is where
+            # it has to happen: this function is always called from inside a
+            # command substitution, so a `set -e` abort here would kill only the
+            # subshell and be swallowed by the caller.
             yq -o=json '.' "$MANIFEST_FILE" \
               | jq -r --arg server "$server" --arg app "$APP_NAME" --arg rt "$RELEASE_TYPE" \
-                '.clusters[$server].app_extra_envs[$app][$rt] // [] | .[]' 2>/dev/null \
-              | tr '\n' ' ' || true
+                '.clusters[$server].app_extra_envs[$app][$rt] // [] | .[]' \
+              | tr '\n' ' '
           }
 
           # Final env list for a server: suffix/context expansion, then the
