@@ -173,8 +173,6 @@ charts:
     ignored: rollout helper, applied outside the application path
   vault-lerian:
     ignored: platform infrastructure, not an application
-  go-boilerplate-ddd-fullstack:
-    ignored: reference template, deployed only from its own repository
 
   # ---------- internal charts awaiting a decision ----------
   # Deployed today but absent from apps.registry, so the chart-version path
