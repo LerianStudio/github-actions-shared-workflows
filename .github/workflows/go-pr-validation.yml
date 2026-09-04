@@ -373,6 +373,7 @@ jobs:
     if: inputs.run_go_analysis && needs.changes.outputs.code == 'true'
     uses: ./.github/workflows/go-pr-analysis.yml
     with:
+      enable_slack_notification: ${{ inputs.enable_slack_notification }}
       runner_type: ${{ inputs.runner_type }}
       lint_runner_type: ${{ inputs.lint_runner_type }}
       test_runner_type: ${{ inputs.test_runner_type }}
@@ -423,6 +424,7 @@ jobs:
     if: inputs.run_security && needs.changes.outputs.code == 'true'
     uses: ./.github/workflows/pr-security-scan.yml
     with:
+      enable_slack_notification: ${{ inputs.enable_slack_notification }}
       runner_type: ${{ inputs.runner_type }}
       security_scan_runner_type: ${{ inputs.security_scan_runner_type }}
       ignore_file: ${{ inputs.ignore_file }}
