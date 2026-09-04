@@ -57,13 +57,31 @@ It does not run on the pull-request route, because nothing has been applied yet,
 
 ## Routing
 
-The channel comes from the version suffix (`-beta.` → dev, `-rc.` → stg, clean → prd). Delivery then follows semver × environment, and because one bump spans several environments at once, the most restrictive cell wins:
+### Which environments a release reaches
 
-| | dev | beyond dev |
-|---|---|---|
-| patch | commit | commit |
-| minor | commit | **pull request** |
-| major | **pull request** | **pull request** |
+The channel comes from the version suffix:
+
+| Tag | Environments |
+|---|---|
+| `-beta.N` | `dev` |
+| `-rc.N` | `stg` |
+| clean | `dev`, `stg`, `prd` |
+
+A clean tag walking the whole ladder is deliberate and differs from the image-tag path, where stable means `prd` alone. The chart repositories release from `main` only, so every chart tag is stable; mapping it to `prd` would mean no chart ever reaches `dev` or `stg`, and production would receive charts that had run nowhere else.
+
+`beta` and `rc` stay declared and inert. They cost nothing, and if a chart repository starts releasing prereleases again the behaviour is already right instead of quietly sending one to production.
+
+Anacleto is included automatically. Its `env_contexts` expand `dev` into `chaos/dev-st` and `fuzzing/dev-st`, so a single stable release of `midaz` today resolves six targets: those two plus benedita's `dev-st`, `stg-st`, `stg-mt` and `prd-st`.
+
+### How it is delivered
+
+| Level | Route |
+|---|---|
+| patch | commit |
+| minor | commit |
+| major | **pull request** |
+
+Only a major waits for a person. A chart release is one change, and reviewing the same minor once per environment adds nothing — the level is already the most restrictive transition across every environment touched, so a `minor` here means no environment saw a larger jump.
 
 Environments drift apart, so the level is aggregated rather than read off one entry. `fetcher` currently sits at `3.1.0` in `dev-st` and `2.2.0-beta.2` in `prd-st`: a bump to `3.1.1` is `patch` in seven environments and `major` in production, and the aggregate is what routes.
 

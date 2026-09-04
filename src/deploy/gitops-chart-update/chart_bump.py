@@ -21,8 +21,17 @@ from pathlib import Path
 
 from ruamel.yaml import YAML
 
-# Channel derived from the version suffix, the same way gitops-update.yml reads a tag.
-CHANNEL_ENVS = {"beta": ["dev"], "rc": ["stg"], "stable": ["prd"]}
+# Channel derived from the version suffix, the same way gitops-update.yml reads a
+# tag. The defaults differ from that workflow on purpose: the chart repositories
+# release from main only, so every chart tag is stable. Mapping stable to prd
+# alone — the image-tag default — would mean no chart ever reaches dev or stg,
+# and production would receive charts that never ran anywhere else. A stable
+# chart release therefore walks the whole ladder in one go.
+#
+# beta and rc stay declared and inert. They cost nothing, and if a chart
+# repository ever starts releasing prereleases again the behaviour is already
+# correct instead of quietly sending one to production.
+CHANNEL_ENVS = {"beta": ["dev"], "rc": ["stg"], "stable": ["dev", "stg", "prd"]}
 
 yaml = YAML()
 yaml.preserve_quotes = True

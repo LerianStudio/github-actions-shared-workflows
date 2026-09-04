@@ -241,9 +241,11 @@ runs:
           --env-values "${files[@]}" "${strict[@]}"
 
     # ----------------- Delivery -----------------
-    # semver x environment: patch commits directly anywhere, minor commits
-    # directly only in dev, major always opens a pull request. One bump spans
-    # several environments, so the most restrictive cell wins.
+    # Only a major opens a pull request. patch and minor commit directly, in
+    # every environment the bump touched — a chart release is one change and
+    # reviewing the same minor three times adds nothing. The level is already
+    # the most restrictive transition across all of them, so a minor here means
+    # no environment saw a larger jump.
     - name: Decide between a direct commit and a pull request
       id: route
       if: steps.bump.outputs.count != '0'
@@ -253,19 +255,10 @@ runs:
         DRY_RUN: ${{ inputs.dry-run }}
       run: |
         set -euo pipefail
-        # The suffix is optional: env_suffixes defaults to [""] and
-        # suffix_excludes_envs already yields bare envs, so a plain /dev/ path
-        # must still read as a dev target.
-        beyond_dev="false"
-        if jq -r '.changed[].file' bump.json | grep -qvE '/(chaos|fuzzing/)?dev(-[a-z]+)?/'; then
-          beyond_dev="true"
-        fi
-        route="commit"
-        [[ "$LEVEL" == "major" ]] && route="pr"
-        [[ "$LEVEL" == "minor" && "$beyond_dev" == "true" ]] && route="pr"
+        if [ "$LEVEL" = "major" ]; then route="pr"; else route="commit"; fi
         echo "route=$route" >> "$GITHUB_OUTPUT"
         if [ "$DRY_RUN" = "true" ]; then
-          echo "::notice::DRY RUN — level=$LEVEL beyond-dev=$beyond_dev would route to $route"
+          echo "::notice::DRY RUN — level=$LEVEL would route to $route"
         fi
 
     - name: Import the CI GPG key
