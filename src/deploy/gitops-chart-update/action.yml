@@ -1,0 +1,380 @@
+name: GitOps Chart Update
+description: Pins a newly released Helm chart version into the GitOps repository, gated by render and orphan-key checks.
+
+inputs:
+  chart-name:
+    description: Chart name, also the key used in the deployment matrix (e.g. `midaz`)
+    required: true
+  chart-version:
+    description: The version just published (e.g. `9.1.0`, `3.2.0-beta.1`)
+    required: true
+  chart-ref:
+    description: Full OCI reference. Only releases on this exact chart are touched, which is what stops an `alpha/` pin being overwritten with the stable line
+    required: true
+  gitops-repository:
+    description: Target GitOps repository in `owner/name` form. Validated against the LerianStudio GitOps allowlist
+    required: true
+  gitops-token:
+    description: Token with write access to the GitOps repository
+    required: true
+  gpg-private-key:
+    description: CI GPG private key. The GitOps repository ruleset requires signed commits
+    required: true
+  gpg-passphrase:
+    description: Passphrase for the CI GPG private key
+    required: true
+  git-user-name:
+    description: Committer name matching the CI GPG identity
+    required: true
+  git-user-email:
+    description: Committer email matching the CI GPG identity
+    required: true
+  deployment-matrix-ref:
+    description: Ref of this repository to read `config/deployment-matrix.yml` from
+    required: false
+    default: 'main'
+  target-envs:
+    description: Space-separated env list. Empty means every environment
+    required: false
+    default: ''
+  fail-on-orphan:
+    description: Fail when an environment values file holds a key the chart dropped
+    required: false
+    default: 'true'
+  dry-run:
+    description: Resolve and run both gates, then stop. No commit, push or pull request
+    required: false
+    default: 'false'
+  enable-argocd-sync:
+    description: Sync the affected ArgoCD applications after a direct commit and wait for them to report healthy. Set to false to write to git and let ArgoCD reconcile on its own schedule
+    required: false
+    default: 'true'
+  argocd-url:
+    description: ArgoCD server. Required when enable-argocd-sync is true
+    required: false
+    default: ''
+  argocd-token:
+    description: ArgoCD auth token. Required when enable-argocd-sync is true
+    required: false
+    default: ''
+  argocd-sync-timeout:
+    description: Seconds to wait for each application to become healthy
+    required: false
+    default: '600'
+
+outputs:
+  synced:
+    description: "String boolean: `true` when every affected ArgoCD application reported healthy. `false` when the sync was disabled, skipped or failed"
+    value: ${{ steps.sync.outputs.synced || 'false' }}
+  has-changes:
+    description: "String boolean: `true` when at least one pinned version changed"
+    value: ${{ steps.bump.outputs.has-changes }}
+  level:
+    description: Most restrictive transition across every environment touched (`major`, `minor`, `patch`, `none`)
+    value: ${{ steps.bump.outputs.level }}
+  route:
+    description: How the change was actually delivered — `commit` normally, `pr` when the push was refused and the fallback ran, `none` on a no-op or dry run
+    # Deliver is skipped on a no-op and on a dry run, and a skipped step's output
+    # is the empty string rather than the documented `none`.
+    value: ${{ steps.deliver.outputs.route || 'none' }}
+
+runs:
+  using: composite
+  steps:
+    # ----------------- Guardrails -----------------
+    # gitops-repository reaches `helmfile lint/template`, which runs Go
+    # templating and can execute release hooks. Without this gate a caller could
+    # point the run at a repository they control and get code execution in a job
+    # holding the GitOps token and the CI GPG key.
+    - name: Validate the GitOps repository against the allowlist
+      shell: bash
+      env:
+        GITOPS_REPOSITORY: ${{ inputs.gitops-repository }}
+      run: |
+        set -euo pipefail
+        if [[ ! "$GITOPS_REPOSITORY" =~ ^LerianStudio/[A-Za-z0-9._-]+-gitops$ ]]; then
+          echo "::error::gitops-repository '$GITOPS_REPOSITORY' is not allowed. Must match ^LerianStudio/<name>-gitops$."
+          exit 1
+        fi
+
+    # ----------------- Checkout -----------------
+    # persist-credentials: false because helmfile can execute release hooks
+    # against this checkout; the token would otherwise sit in .git/config. It is
+    # handed to git only at push time.
+    - name: Checkout the GitOps repository
+      # codeql[actions/untrusted-checkout] -- constrained by the allowlist above
+      # to ^LerianStudio/<name>-gitops$, never PR/fork-controlled.
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+      with:
+        repository: ${{ inputs.gitops-repository }}
+        token: ${{ inputs.gitops-token }}
+        path: gitops
+        fetch-depth: 0
+        persist-credentials: false
+
+    # Data only: parsed as YAML, never executed.
+    - name: Checkout the deployment matrix
+      # codeql[actions/untrusted-checkout] -- repository is hardcoded to this
+      # same LerianStudio repo and the ref only selects a config file.
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+      with:
+        repository: LerianStudio/github-actions-shared-workflows
+        ref: ${{ inputs.deployment-matrix-ref }}
+        path: matrix
+        sparse-checkout: |
+          config/deployment-matrix.yml
+        sparse-checkout-cone-mode: false
+        persist-credentials: false
+
+    # ----------------- Tooling -----------------
+    # The maintained action instead of curl piped into sudo tar: the archive was
+    # installed with no checksum or signature, so a replaced asset would have
+    # executed as root the moment the render gate invoked helmfile.
+    - name: Set up helmfile
+      uses: helmfile/helmfile-action@1f44bcb43e5fb17ecb2685d8b6081ec5f6aa5fcf # v2.4.7
+      with:
+        helmfile-args: --version
+
+    - name: Install the python dependencies
+      shell: bash
+      run: pip install --quiet ruamel.yaml pyyaml
+
+    # The chart's own values.yaml is what the orphan gate compares against, and
+    # it travels inside the package — no need to clone the chart repository.
+    - name: Pull the chart
+      id: chart
+      shell: bash
+      env:
+        REGISTRY_TOKEN: ${{ inputs.gitops-token }}
+        CHART_REF: ${{ inputs.chart-ref }}
+        CHART_VERSION: ${{ inputs.chart-version }}
+      run: |
+        set -euo pipefail
+        printf '%s' "$REGISTRY_TOKEN" | helm registry login ghcr.io -u x-access-token --password-stdin
+        mkdir -p chart
+        helm pull "$CHART_REF" --version "$CHART_VERSION" --untar --untardir chart
+        echo "dir=$(find chart -maxdepth 1 -mindepth 1 -type d | head -1)" >> "$GITHUB_OUTPUT"
+
+    # ----------------- Bump -----------------
+    - name: Bump the pinned version
+      id: bump
+      shell: bash
+      env:
+        CHART_NAME: ${{ inputs.chart-name }}
+        CHART_REF: ${{ inputs.chart-ref }}
+        CHART_VERSION: ${{ inputs.chart-version }}
+        TARGET_ENVS: ${{ inputs.target-envs }}
+        DRY_RUN: ${{ inputs.dry-run }}
+      run: |
+        set -euo pipefail
+        # No --dry-run even on a dry run: this checkout is throwaway and nothing
+        # is pushed. If the script did not write, the gates below would validate the
+        # OLD helmfile — a green dry run proving nothing.
+        python "${GITHUB_ACTION_PATH}/chart_bump.py" \
+          --matrix matrix/config/deployment-matrix.yml \
+          --gitops-root gitops \
+          --app "$CHART_NAME" \
+          --chart-ref "$CHART_REF" \
+          --version "$CHART_VERSION" \
+          --envs "$TARGET_ENVS" > bump.json
+        count=$(jq '.changed | length' bump.json)
+        {
+          echo "count=$count"
+          echo "level=$(jq -r '.level' bump.json)"
+          [ "$count" = "0" ] && echo "has-changes=false" || echo "has-changes=true"
+        } >> "$GITHUB_OUTPUT"
+        jq -r '.changed[].file' bump.json | sed 's|/helmfile.yaml$|/values.yaml|' > values-files.txt
+        if [ "$DRY_RUN" = "true" ]; then
+          echo "::notice::DRY RUN — resolved plan follows, nothing will be delivered"
+          jq . bump.json
+          jq -r '.untouched[]?' bump.json | while read -r f; do
+            echo "::notice::$f is pinned to another channel and was left alone"
+          done
+        fi
+
+    # ----------------- Gates -----------------
+    # These detect and stop. They deliberately do not repair.
+    #
+    # An earlier version applied chart-declared migrations, rewriting values to
+    # match a renamed or removed key. That was removed on purpose: this repository
+    # is the internal tier, and its job is to surface what an upgrade demands
+    # before the same chart reaches an external client. Auto-repairing here
+    # would hide the very signal the tier exists to produce, and the work would
+    # simply reappear downstream with nobody warned.
+    #
+    # So a chart that adds a required key, renames one, or drops one breaks the
+    # bump. Someone reads the failure, updates the values by hand, and now knows
+    # exactly what the upgrade note for external consumers has to say.
+    - name: Render every changed helmfile
+      if: steps.bump.outputs.count != '0'
+      shell: bash
+      run: |
+        set -euo pipefail
+        jq -r '.changed[].file' bump.json | while read -r helmfile_path; do
+          ( cd gitops && helmfile --file "$helmfile_path" lint )
+          ( cd gitops && helmfile --file "$helmfile_path" template > /dev/null )
+        done
+
+    - name: Detect orphan keys
+      if: steps.bump.outputs.count != '0'
+      shell: bash
+      env:
+        CHART_DIR: ${{ steps.chart.outputs.dir }}
+        FAIL_ON_ORPHAN: ${{ inputs.fail-on-orphan }}
+      run: |
+        set -euo pipefail
+        mapfile -t files < <(sed 's|^|gitops/|' values-files.txt)
+        strict=()
+        [ "$FAIL_ON_ORPHAN" = "true" ] && strict+=(--fail-on-orphan)
+        python "${GITHUB_ACTION_PATH}/detect_orphan_values.py" \
+          --chart-values "${CHART_DIR}/values.yaml" \
+          --env-values "${files[@]}" "${strict[@]}"
+
+    # ----------------- Delivery -----------------
+    - name: Import the CI GPG key
+      if: steps.bump.outputs.count != '0' && inputs.dry-run != 'true'
+      uses: crazy-max/ghaction-import-gpg@2dc316deee8e90f13e1a351ab510b4d5bc0c82cd # v7
+      with:
+        gpg_private_key: ${{ inputs.gpg-private-key }}
+        passphrase: ${{ inputs.gpg-passphrase }}
+        git_committer_name: ${{ inputs.git-user-name }}
+        git_committer_email: ${{ inputs.git-user-email }}
+        git_config_global: true
+        git_user_signingkey: true
+        git_commit_gpgsign: true
+        workdir: gitops
+
+    # Always a direct commit, whatever the level. Every environment is meant to
+    # take the new chart, and holding a major back for review would leave the
+    # internal tier behind the very version it exists to exercise.
+    #
+    # The pull request is a fallback, not a route: it happens only when the push
+    # is refused. A rejection is usually the branch having moved, so a rebase and
+    # one retry comes first; if it is still refused — a ruleset, a required
+    # review — the change becomes a pull request instead of a failed run, so the
+    # work is never silently dropped.
+    - name: Deliver
+      id: deliver
+      if: steps.bump.outputs.count != '0' && inputs.dry-run != 'true'
+      shell: bash
+      working-directory: gitops
+      env:
+        GH_TOKEN: ${{ inputs.gitops-token }}
+        GITOPS_TOKEN: ${{ inputs.gitops-token }}
+        GITOPS_REPOSITORY: ${{ inputs.gitops-repository }}
+        CHART_NAME: ${{ inputs.chart-name }}
+        CHART_VERSION: ${{ inputs.chart-version }}
+        LEVEL: ${{ steps.bump.outputs.level }}
+      run: |
+        set -euo pipefail
+        title="chore(chart): bump ${CHART_NAME} to ${CHART_VERSION}"
+        base=$(git rev-parse --abbrev-ref HEAD)
+
+        git add -A
+        git commit -m "$title" -m "${LEVEL} bump. Upgrade notes ship with the chart, under docs/."
+        git remote set-url origin "https://x-access-token:${GITOPS_TOKEN}@github.com/${GITOPS_REPOSITORY}.git"
+
+        if git push origin "HEAD:${base}"; then
+          echo "route=commit" >> "$GITHUB_OUTPUT"
+          echo "::notice::${title} — committed directly (${LEVEL})"
+          exit 0
+        fi
+
+        echo "::warning::push rejected, rebasing on ${base} and retrying once"
+        if git pull --rebase origin "$base" && git push origin "HEAD:${base}"; then
+          echo "route=commit" >> "$GITHUB_OUTPUT"
+          echo "::notice::${title} — committed directly after a rebase (${LEVEL})"
+          exit 0
+        fi
+
+        # A conflicted rebase is still in progress here, and checkout -b refuses
+        # to run against an unmerged index — the fallback would die exactly when
+        # it is most needed. Aborting restores HEAD to the commit made above,
+        # which still carries the bump. Harmless when the rebase never started,
+        # so no guard on which of the two commands failed.
+        git rebase --abort 2>/dev/null || true
+
+        echo "::warning::still refused — falling back to a pull request"
+        branch="chart/${CHART_NAME}-${CHART_VERSION}"
+        git checkout -b "$branch"
+        git push -u origin "$branch"
+        {
+          echo "## Bump"
+          echo ""
+          echo "\`${CHART_NAME}\` to \`${CHART_VERSION}\` (${LEVEL})"
+          echo ""
+          echo "This is a **fallback**. The direct push to \`${base}\` was refused, so the"
+          echo "change is here instead of being dropped. Both gates already passed."
+          echo ""
+          echo "## Environments"
+          echo ""
+          jq -r '.changed[] | "- `\(.file)`: \(.from) -> \(.to) [\(.level)]"' ../bump.json
+        } > ../pr-body.md
+        gh pr create --base "$base" --title "$title" --body-file ../pr-body.md
+        echo "route=pr" >> "$GITHUB_OUTPUT"
+        echo "::notice::${title} — pull request opened as a fallback (${LEVEL})"
+
+    # ----------------- Reconcile -----------------
+    # Writing to git is not the same as the change being live. Without this the
+    # run reports success while the cluster may sit half-updated — which is how
+    # an argo-workflows bump stayed in CrashLoopBackOff behind a green pipeline.
+    #
+    # Only after a direct commit: the pull request path has applied nothing yet.
+    - name: Sync the affected ArgoCD applications
+      id: sync
+      if: >-
+        steps.bump.outputs.count != '0' &&
+        steps.deliver.outputs.route == 'commit' &&
+        inputs.dry-run != 'true' &&
+        inputs.enable-argocd-sync == 'true'
+      shell: bash
+      env:
+        ARGOCD_URL: ${{ inputs.argocd-url }}
+        ARGOCD_TOKEN: ${{ inputs.argocd-token }}
+        SYNC_TIMEOUT: ${{ inputs.argocd-sync-timeout }}
+      run: |
+        set -euo pipefail
+
+        if [ -z "$ARGOCD_URL" ] || [ -z "$ARGOCD_TOKEN" ]; then
+          echo "::error::enable-argocd-sync is true but argocd-url or argocd-token is empty."
+          exit 1
+        fi
+
+        # Checksum-verified rather than a bare download: this binary runs moments
+        # later holding a token that can sync production.
+        curl -sSL -o /tmp/argocd \
+          https://github.com/argoproj/argo-cd/releases/download/v3.0.6/argocd-linux-amd64
+        echo "ae3257671dd0b7a787b21a70db43c3c869adec5dd520c90b419871a5ca1a8fc9  /tmp/argocd" \
+          | sha256sum --check --status
+        chmod +x /tmp/argocd
+
+        argo() { /tmp/argocd "$@" --server "$ARGOCD_URL" --auth-token "$ARGOCD_TOKEN" --grpc-web; }
+
+        # environments/<cluster>/helmfile/applications/<env>/<app>/helmfile.yaml
+        # becomes <cluster>-<app>-<env>, flattening the context separator so that
+        # chaos/dev-st gives anacleto-midaz-chaos-dev-st.
+        failed=0
+        while read -r file; do
+          cluster=$(echo "$file" | cut -d/ -f2)
+          rest=${file#environments/*/helmfile/applications/}
+          app=$(basename "$(dirname "$rest")")
+          env_path=$(dirname "$(dirname "$rest")")
+          name="${cluster}-${app}-${env_path//\//-}"
+
+          echo "::group::argocd $name"
+          if argo app sync "$name" --timeout "$SYNC_TIMEOUT" \
+             && argo app wait "$name" --health --timeout "$SYNC_TIMEOUT"; then
+            echo "::notice::$name is healthy"
+          else
+            echo "::error::$name did not reach a healthy state within ${SYNC_TIMEOUT}s"
+            failed=1
+          fi
+          echo "::endgroup::"
+        done < <(jq -r '.changed[].file' bump.json)
+
+        if [ "$failed" != "0" ]; then
+          echo "synced=false" >> "$GITHUB_OUTPUT"
+          echo "::error::The commit is already on main. Roll back or fix forward by hand — this step does not revert on its own, because a transient ArgoCD failure must not undo a good change."
+          exit 1
+        fi
+        echo "synced=true" >> "$GITHUB_OUTPUT"
