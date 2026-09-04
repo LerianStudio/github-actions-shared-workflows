@@ -110,6 +110,27 @@ jobs:
     secrets: inherit
 ```
 
+### Without Slack (repositories with no `SLACK_WEBHOOK_URL`)
+
+```yaml
+jobs:
+  validate:
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/pr-validation.yml@tier-1
+    with:
+      enable_slack_notification: false
+    secrets: inherit
+```
+
+Omitting the secret is not enough on its own: the `notify` job still runs, consumes a
+runner and shows up as `validate / Notify / Send Notification` in the PR check list, only
+to skip internally. Setting `enable_slack_notification: false` skips the job outright, so
+the inert check disappears. `dry_run: true` also disables it, but takes comments and labels
+down with it — use this input when Slack is the only thing you want off.
+
+The same input exists on `go-pr-validation.yml`, `js-pr-validation.yml`,
+`pr-security-scan.yml`, `go-pr-analysis.yml` and `frontend-pr-analysis.yml`, with the same
+name and the same `true` default.
+
 ### Dry Run (preview without side effects)
 
 ```yaml
@@ -132,6 +153,7 @@ jobs:
 | `pr_title_scopes` | string | `''` | Allowed scopes (newline-separated, empty = any) |
 | `require_scope` | boolean | `false` | Require scope in PR title |
 | `enable_auto_labeler` | boolean | `true` | Enable automatic labeling |
+| `enable_slack_notification` | boolean | `true` | Send the validation verdict to Slack. Set to `false` in repositories without `SLACK_WEBHOOK_URL` so the job is skipped entirely instead of running just to skip internally |
 | `labeler_config_path` | string | `.github/labeler.yml` | Path to labeler config |
 | `enforce_source_branches` | boolean | `true` | Enforce source branch rules. Auto-skips when the target is neither in `target_branches_for_source_check` nor named in `source_branch_rules` |
 | `allowed_source_branches` | string | `develop\|release-candidate\|hotfix/*` | Allowed source branches (pipe-separated, supports `*` wildcard) |

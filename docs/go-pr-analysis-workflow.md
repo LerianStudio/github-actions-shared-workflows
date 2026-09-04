@@ -119,6 +119,7 @@ jobs:
 | `enable_test_determinism` | Enable test determinism check (runs tests multiple times with shuffle) | No | `false` |
 | `test_determinism_runs` | Number of times to run tests for determinism check | No | `3` |
 | `system_packages` | Space-separated list of apt packages to install before running Go commands (e.g., `"libxml2-dev pkg-config"`). Required for CGO repositories that depend on native system libraries. Installed in all Go jobs (lint, security, tests, build, integration-tests, test-determinism). | No | `''` |
+| `enable_slack_notification` | Send the analysis verdict to Slack. Set to `false` in repositories without `SLACK_WEBHOOK_URL` so the job is skipped entirely instead of running just to skip internally | No | `true` |
 
 ### With Private Go Modules
 

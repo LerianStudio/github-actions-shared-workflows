@@ -46,6 +46,7 @@ The `go-analysis`, `security` and `lib-version` pipelines each have a `*-gate` a
 | `pr_title_scopes` | Allowed scopes (pipe-separated, empty = any) | string | `''` |
 | `require_scope` | Require scope in PR title | boolean | `false` |
 | `enable_auto_labeler` | Auto-label by changed files | boolean | `true` |
+| `enable_slack_notification` | Send the validation verdict to Slack. Set to `false` in repos without `SLACK_WEBHOOK_URL` so the job is skipped entirely instead of running just to skip internally | boolean | `true` |
 | `labeler_config_path` | Path to labeler config | string | `.github/labeler.yml` |
 | `enforce_source_branches` | Enforce source branches into protected branches | boolean | `true` |
 | `allowed_source_branches` | Allowed source branches (pipe-separated, `*` prefix) | string | `develop\|release-candidate\|hotfix/*` |

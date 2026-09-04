@@ -202,6 +202,7 @@ The detection regex can be overridden centrally through the optional **organizat
 | `codeql_fail_on_findings` | boolean | `true` | Fail the workflow when CodeQL detects security issues |
 | `codeql_upload_sarif` | boolean | `false` | Upload CodeQL SARIF results to the GitHub Security tab. Requires Code Security (GHAS) enabled on the repo |
 | `enable_prerelease_check` | boolean | `true` | Block dependencies pinned to pre-release versions (`-beta`, `-rc`) |
+| `enable_slack_notification` | boolean | `true` | Send the scan verdict to Slack. Set to `false` in repositories without `SLACK_WEBHOOK_URL` so the job is skipped entirely instead of running just to skip internally |
 | `prerelease_block_branches` | string | `release-candidate,main` | Comma-separated PR target branches where pre-release versions cause a hard failure. On other branches, findings are reported as warnings only |
 | `ignore_file` | string | `''` | Path to Trivy ignore file (e.g., `.trivyignore.yaml`) for path-scoped suppression of secrets and vulnerabilities. Passed through to `trivy-fs-scan` via `--ignorefile`. Supports Trivy's structured YAML format with `paths:` constraints |
 | `trivy_skip_dirs` | string | `''` | Comma-separated directories to skip in the Trivy filesystem scan (appended to the default skip list: `.git`, `node_modules`, `dist`, `build`, `.next`, `coverage`, `vendor`). Useful for excluding sub-modules from the root scan (e.g. `tools/mock-sta-server`) |
