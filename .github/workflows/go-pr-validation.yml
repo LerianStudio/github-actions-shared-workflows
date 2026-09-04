@@ -163,6 +163,10 @@ on:
         description: 'Newline-separated component path prefixes for monorepo per-component analysis and security scanning. Empty = single-app root run. When set for the security scan, leave dockerfile_path empty so each component Dockerfile is discovered.'
         type: string
         default: ''
+      security_filter_paths:
+        description: 'Optional security-only component path prefixes. Empty reuses filter_paths. Use this when Go analysis runs once at the repository root but Docker images must be scanned per component.'
+        type: string
+        default: ''
       path_level:
         description: 'Directory depth level to extract the component name from filter_paths'
         type: number
@@ -286,6 +290,10 @@ on:
       # ----------------- Shared -----------------
       shared_paths:
         description: 'Newline-separated path patterns that trigger analysis/security for all components.'
+        type: string
+        default: ''
+      security_shared_paths:
+        description: 'Optional security-only shared path patterns. Empty reuses shared_paths.'
         type: string
         default: ''
 
@@ -433,9 +441,9 @@ jobs:
       build_context_from_working_dir: ${{ inputs.build_context_from_working_dir }}
       enable_codeql: ${{ inputs.enable_codeql }}
       codeql_languages: ${{ inputs.codeql_languages }}
-      filter_paths: ${{ inputs.filter_paths }}
+      filter_paths: ${{ inputs.security_filter_paths || inputs.filter_paths }}
       path_level: ${{ format('{0}', inputs.path_level) }}
-      shared_paths: ${{ inputs.shared_paths }}
+      shared_paths: ${{ inputs.security_shared_paths || inputs.shared_paths }}
       monorepo_type: ${{ inputs.monorepo_type }}
       frontend_folder: ${{ inputs.frontend_folder }}
       trivy_skip_dirs: ${{ inputs.trivy_skip_dirs }}

@@ -79,6 +79,8 @@ The `go-analysis`, `security` and `lib-version` pipelines each have a `*-gate` a
 | `frontend_folder` | Sub-folder treated as an independent scan component in type2 repos (e.g. `"tools/mock-sta-server"`). Ignored when `monorepo_type` is `"type1"`. | string | `'frontend'` |
 | `trivy_skip_dirs` | Comma-separated directories to skip in every Trivy filesystem scan (appended to the built-in skip list). Useful for excluding sub-modules from the root scan (e.g. `"tools/mock-sta-server"`). | string | `''` |
 | `shared_paths` | Path patterns that trigger analysis/security for all components | string | `''` |
+| `security_filter_paths` | Optional security-only component prefixes. Empty reuses `filter_paths`; set it when analysis runs at root while Docker scans remain per component | string | `''` |
+| `security_shared_paths` | Optional security-only shared paths. Empty reuses `shared_paths` | string | `''` |
 | `enable_coderabbit_gate` | Ask CodeRabbit for a review once this validation passes. Needs only `auto_review.enabled: false` in the repo — see [coderabbit-gate](coderabbit-gate.md) | boolean | `true` |
 | `coderabbit_review_base_branches` | Comma-separated exact base branch names whose PRs get a review. Empty removes this dimension | string | `develop` |
 | `coderabbit_review_head_patterns` | Comma-separated globs matched against the head branch; a match is reviewed regardless of base | string | `hotfix/*` |
