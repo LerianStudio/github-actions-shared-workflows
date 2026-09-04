@@ -30,7 +30,7 @@ on:
       ignore_globs:
         description: 'Space-separated glob patterns treated as docs/meta; when only these change on a branch push, the release is skipped.'
         type: string
-        default: '*.md docs/* .github/* LICENSE* .gitignore'
+        default: '*.md docs/* .github/* LICENSE* .gitignore .coderabbit.yml .coderabbit.yaml'
 
       # ----------------- Release (release.yml) -----------------
       semantic_version:
@@ -353,7 +353,7 @@ on:
       ungoliant_skip_globs:
         description: 'Space-separated glob patterns. When every changed file matches one, Ungoliant is never contacted. Default skips CI/workflow-only releases.'
         type: string
-        default: '.releaserc.yml .github/*'
+        default: '.releaserc.yml .github/* .coderabbit.yml .coderabbit.yaml'
 
       # ----------------- Shared -----------------
       shared_paths:

@@ -29,7 +29,7 @@ A third layout needs `release_single_app: true`: **one semantic-release tag for 
 | `build_runner_type` | Optional runner override for the Build jobs only (forwarded to build.yml; prepare/notify stay on `runner_type`); empty falls back to `vars.GENERAL_RUNNERS`, then `runner_type` | string | `''` |
 | `release_runner_type` | Optional runner override for the Release (publish) jobs only (forwarded to release.yml as `publish_runner_type`); empty falls back to `vars.GENERAL_RUNNERS`, then `runner_type` | string | `''` |
 | `dry_run` | Preview mode for **permission-manifest publishing only** — forwarded to `permission-manifest-publish`, which logs the target key + `aws s3 cp` command without calling AWS. The other release jobs (release/build/gitops) have no full-workflow preview yet. | boolean | `false` |
-| `ignore_globs` | Space-separated globs treated as docs/meta for the branch-push gate | string | `*.md docs/* .github/* LICENSE* .gitignore` |
+| `ignore_globs` | Space-separated globs treated as docs/meta for the branch-push gate | string | `*.md docs/* .github/* LICENSE* .gitignore .coderabbit.yml .coderabbit.yaml` |
 | `semantic_version` | semantic-release version | string | `23.0.8` |
 | `enable_changelog` | Generate CHANGELOG.md via GPT after a successful release | boolean | `false` |
 | `enable_major_tag` | Force-update the floating major tag (e.g. `v1`) | boolean | `false` |
@@ -94,7 +94,7 @@ A third layout needs `release_single_app: true`: **one semantic-release tag for 
 | `ungoliant_tenancy` | **Deprecated no-op** — the app's registration decides the surface | string | `st` |
 | `ungoliant_controller_url` | Ungoliant controller base URL (reachable over Tailscale) | string | `https://ungoliant-controller.anacleto.lerian.net` |
 | `ungoliant_runner_type` | Runner for the Ungoliant release-diff job (needs Tailscale reach to the controller) | string | `eveo-anacleto-lxc-runners` |
-| `ungoliant_skip_globs` | Space-separated glob patterns; when every changed file in the release diff matches one, the controller is never contacted | string | `.releaserc.yml .github/*` |
+| `ungoliant_skip_globs` | Space-separated glob patterns; when every changed file in the release diff matches one, the controller is never contacted | string | `.releaserc.yml .github/* .coderabbit.yml .coderabbit.yaml` |
 | `shared_paths` | Path patterns that trigger a release/build for all components | string | `''` |
 | `filter_paths` | Path prefixes to filter (empty = single-app repo) | string | `''` |
 | `release_single_app` | Force single-app mode for the release job even when `filter_paths` is set (one version tag, many images) | boolean | `false` |
@@ -216,7 +216,7 @@ The controller is reachable only over Tailscale, so the job runs on the `eveo-an
 
 Provide `UNGOLIANT_WEBHOOK_TOKEN` via `secrets: inherit` for an authenticated call; when unset the webhook is sent unauthenticated.
 
-**CI-only releases skip Ungoliant entirely.** `ungoliant_skip_globs` (default `.releaserc.yml .github/*`) is checked against every file in the `previous...version` diff before anything else runs: when every changed file matches one of these patterns, the controller is never contacted — no health check, no diff fetch, no webhook call. This is what keeps a release that only bumps a workflow version or tweaks `.releaserc.yml` from firing a full chaos/fuzz analysis. Set it to `''` to disable the check and always contact the controller.
+**CI-only releases skip Ungoliant entirely.** `ungoliant_skip_globs` (default `.releaserc.yml .github/* .coderabbit.yml .coderabbit.yaml`) is checked against every file in the `previous...version` diff before anything else runs: when every changed file matches one of these patterns, the controller is never contacted — no health check, no diff fetch, no webhook call. This is what keeps a release that only bumps a workflow version or tweaks `.releaserc.yml` from firing a full chaos/fuzz analysis. Set it to `''` to disable the check and always contact the controller.
 
 ```yaml
 jobs:
@@ -224,7 +224,7 @@ jobs:
     uses: LerianStudio/github-actions-shared-workflows/.github/workflows/go-release.yml@tier-1
     with:
       enable_ungoliant_release_diff: true
-      # ungoliant_skip_globs: '.releaserc.yml .github/*'  # default — override only to widen/narrow the skip
+      # ungoliant_skip_globs: '.releaserc.yml .github/* .coderabbit.yml .coderabbit.yaml'  # default — override only to widen/narrow the skip
     secrets: inherit
 ```
 
