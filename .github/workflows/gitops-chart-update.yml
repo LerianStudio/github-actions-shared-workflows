@@ -1,0 +1,121 @@
+name: "GitOps Chart Update"
+
+# The chart-version counterpart of gitops-update.yml. That one owns the image
+# tag in values.yaml; this one owns the release `version` in helmfile.yaml. Both
+# read the same config/deployment-matrix.yml, so cluster topology keeps a single
+# source of truth.
+#
+# Called by the chart repository release, once per published chart.
+
+on:
+  workflow_call:
+    inputs:
+      chart_name:
+        description: "Chart name, also the key used in the deployment matrix (e.g. midaz)."
+        type: string
+        required: true
+      chart_version:
+        description: "The version just published (e.g. 9.1.0, 3.2.0-beta.1)."
+        type: string
+        required: true
+      chart_ref:
+        description: "Full OCI reference. Only releases on this exact chart are touched, which stops an alpha/ pin being overwritten with the stable line."
+        type: string
+        required: true
+      gitops_repository:
+        description: "GitOps repo (org/repo). Empty uses the GITOPS_REPOSITORY org variable."
+        type: string
+        default: ''
+      deployment_matrix_ref:
+        description: "Ref of this repository to read the deployment matrix from."
+        type: string
+        default: 'main'
+      envs:
+        description: "Narrow the environment list. Space separated, e.g. dev stg. Empty means every environment."
+        type: string
+        default: ''
+      fail_on_orphan:
+        description: "Fail when an environment values file holds a key the chart dropped."
+        type: boolean
+        default: true
+      dry_run:
+        description: "Resolve and run both gates, then stop. Nothing is committed, pushed or opened as a pull request."
+        type: boolean
+        default: false
+      enable_argocd_sync:
+        description: "Sync the affected ArgoCD applications after a direct commit and wait for them to report healthy. Set to false to write to git and let ArgoCD reconcile on its own schedule."
+        type: boolean
+        default: true
+      argocd_sync_timeout:
+        description: "Seconds to wait for each application to become healthy."
+        type: number
+        default: 600
+    secrets:
+      GITOPS_APP_ID:
+        required: true
+      GITOPS_APP_PRIVATE_KEY:
+        required: true
+      LERIAN_CI_CD_USER_GPG_KEY:
+        required: true
+      LERIAN_CI_CD_USER_GPG_KEY_PASSWORD:
+        required: true
+      LERIAN_CI_CD_USER_NAME:
+        required: true
+      LERIAN_CI_CD_USER_EMAIL:
+        required: true
+      ARGOCD_TOKEN:
+        description: "Only read when enable_argocd_sync is true."
+        required: false
+    outputs:
+      has_changes:
+        description: "String boolean: 'true' when at least one pinned version changed."
+        value: ${{ jobs.chart_update.outputs.has_changes }}
+      level:
+        description: "Most restrictive transition across every environment touched."
+        value: ${{ jobs.chart_update.outputs.level }}
+      synced:
+        description: "String boolean: 'true' when every affected ArgoCD application reported healthy."
+        value: ${{ jobs.chart_update.outputs.synced }}
+
+permissions:
+  contents: read
+
+jobs:
+  chart_update:
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    outputs:
+      has_changes: ${{ steps.update.outputs.has-changes }}
+      level: ${{ steps.update.outputs.level }}
+      synced: ${{ steps.update.outputs.synced }}
+    steps:
+      # ----------------- Authentication -----------------
+      - name: Generate GitHub App Token
+        id: app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          client-id: ${{ secrets.GITOPS_APP_ID }}
+          private-key: ${{ secrets.GITOPS_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+
+      # ----------------- Chart Update -----------------
+      - name: Update the pinned chart version
+        id: update
+        uses: LerianStudio/github-actions-shared-workflows/src/deploy/gitops-chart-update@develop
+        with:
+          chart-name: ${{ inputs.chart_name }}
+          chart-version: ${{ inputs.chart_version }}
+          chart-ref: ${{ inputs.chart_ref }}
+          gitops-repository: ${{ inputs.gitops_repository || vars.GITOPS_REPOSITORY }}
+          gitops-token: ${{ steps.app-token.outputs.token }}
+          gpg-private-key: ${{ secrets.LERIAN_CI_CD_USER_GPG_KEY }}
+          gpg-passphrase: ${{ secrets.LERIAN_CI_CD_USER_GPG_KEY_PASSWORD }}
+          git-user-name: ${{ secrets.LERIAN_CI_CD_USER_NAME }}
+          git-user-email: ${{ secrets.LERIAN_CI_CD_USER_EMAIL }}
+          deployment-matrix-ref: ${{ inputs.deployment_matrix_ref }}
+          target-envs: ${{ inputs.envs }}
+          fail-on-orphan: ${{ inputs.fail_on_orphan }}
+          dry-run: ${{ inputs.dry_run }}
+          enable-argocd-sync: ${{ inputs.enable_argocd_sync }}
+          argocd-url: ${{ vars.ARGOCD_URL }}
+          argocd-token: ${{ secrets.ARGOCD_TOKEN }}
+          argocd-sync-timeout: ${{ inputs.argocd_sync_timeout }}

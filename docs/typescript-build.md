@@ -239,8 +239,8 @@ cosign verify \
 ## Related Workflows
 
 - [`build.yml`](build.md) — Generic Docker build workflow (Go-oriented defaults)
-- [`typescript-ci.yml`](typescript-ci.md) — TypeScript continuous integration
-- [`typescript-release.yml`](typescript-release-workflow.md) — TypeScript semantic release
+- `typescript-ci.yml` — TypeScript continuous integration (no doc yet)
+- [`typescript-release.yml`](typescript-release.md) — TypeScript semantic release
 - [`src/build/docker-build-ts`](../src/build/docker-build-ts/) — Composite action used by this workflow
 
 ---

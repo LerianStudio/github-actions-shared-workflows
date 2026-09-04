@@ -425,6 +425,6 @@ changelog:
 
 ## Related Workflows
 
-- [Release](release-workflow.md) - Create releases that trigger changelog generation
-- [Build](build-workflow.md) - Build Docker images after release
-- [Slack Notify](slack-notify-workflow.md) - Notification system
+- [Release](release.md) - Create releases that trigger changelog generation
+- [Build](build.md) - Build Docker images after release
+- [Slack Notify](slack-notify.md) - Notification system

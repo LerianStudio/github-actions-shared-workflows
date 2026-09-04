@@ -187,4 +187,4 @@ Two details there are load-bearing. The `new_release_published` gate: semantic-r
 - [`tiers.md`](tiers.md) — the consumer-facing view: what a tier is, how to choose one, what the flow looks like from the outside
 - [`config/tier-promotion.yml`](../config/tier-promotion.yml) — the flow
 - [`src/config/tier-promote`](../src/config/tier-promote/README.md) — the composite that performs one promotion
-- [`version-propagation.md`](version-propagation.md) — the pin-rewrite model that tiers are intended to replace
+- [`version-propagation.md`](version-propagation.md) — the pin-rewrite model tiers replaced; now disabled, kept as the rollback path

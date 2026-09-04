@@ -34,7 +34,7 @@ A third layout needs `release_single_app: true`: **one semantic-release tag for 
 | `enable_changelog` | Generate CHANGELOG.md via GPT after a successful release | boolean | `false` |
 | `enable_major_tag` | Force-update the floating major tag (e.g. `v1`) | boolean | `false` |
 | `stable_releases_only` | Only generate changelogs for stable releases | boolean | `true` |
-| `enable_release_announcement` | Announce the published release to the repository Slack channel (see [release-workflow](release-workflow.md#release-announcement)) | boolean | `true` |
+| `enable_release_announcement` | Announce the published release to the repository Slack channel (see [release-workflow](release.md#release-announcement)) | boolean | `true` |
 | `announcement_product_name` | Product name displayed in the announcement. Empty → repository name | string | `''` |
 | `announcement_slack_channel` | Slack channel for the announcement. Empty → `RELEASE_SLACK_CHANNEL` repository variable; skipped when both are empty | string | `''` |
 | `enable_dockerhub` | Push image to DockerHub | boolean | `true` |
@@ -42,7 +42,7 @@ A third layout needs `release_single_app: true`: **one semantic-release tag for 
 | `enable_gitops_artifacts` | Upload GitOps artifacts for the downstream update | boolean | `false` |
 | `app_name` | Override app/image name (build single-app mode + gitops deploy name). Empty → gitops name derives from `app_name_prefix`, then repo name | string | `''` |
 | `tag_prefix` | Restrict the primary release/build jobs to tags starting with this prefix. Use when the repo also pushes tags for an unrelated component with its own `extra_builds` `tag_prefix`, so the primary jobs ignore that component's tags. Empty = react to every tag (current behavior) | string | `''` |
-| `docker_build_args` | Newline-separated Docker build args. `VERSION` (computed release version) and `BUILD_TIME` (RFC3339 UTC) are always appended after these, for the primary build and every `extra_builds` group — see [Build Arguments](build-workflow.md#build-arguments) | string | `''` |
+| `docker_build_args` | Newline-separated Docker build args. `VERSION` (computed release version) and `BUILD_TIME` (RFC3339 UTC) are always appended after these, for the primary build and every `extra_builds` group — see [Build Arguments](build.md#build-arguments) | string | `''` |
 | `enable_cosign_sign` | Sign images with cosign keyless (OIDC) | boolean | `true` |
 | `cosign_max_attempts` | Maximum cosign signing attempts per image reference. Increase to absorb transient OIDC/Fulcio/Rekor rate limits. Forwarded to `build.yml` | string | `'5'` |
 | `cosign_initial_delay` | Initial delay (seconds) between cosign retries. Grows exponentially (×3), capped at `cosign_max_delay`, then jittered. Forwarded to `build.yml` | string | `'5'` |
@@ -90,8 +90,8 @@ A third layout needs `release_single_app: true`: **one semantic-release tag for 
 | `apidog_auto_detect_environment` | Auto-detect the ApiDog environment from the tag (beta → dev, rc → stg); when `false`, uses `APIDOG_ENVIRONMENT_ID` | boolean | `true` |
 | `enable_ungoliant_release_diff` | Fire the Ungoliant release-diff webhook on tag push after a successful gitops-update (see [Ungoliant release diff](#ungoliant-release-diff)) | boolean | `false` |
 | `ungoliant_app` | App slug sent to the controller; when empty falls back to `app_name`, then `app_name_prefix`, then the repo name | string | `''` |
-| `ungoliant_env_type` | Ungoliant environment/testing type — `chaos` \| `fuzzing` | string | `chaos` |
-| `ungoliant_tenancy` | Ungoliant tenancy — `st` (single-tenant) \| `mt` (multi-tenant) | string | `st` |
+| `ungoliant_env_type` | **Deprecated no-op** — the app's registration decides the surface | string | `chaos` |
+| `ungoliant_tenancy` | **Deprecated no-op** — the app's registration decides the surface | string | `st` |
 | `ungoliant_controller_url` | Ungoliant controller base URL (reachable over Tailscale) | string | `https://ungoliant-controller.anacleto.lerian.net` |
 | `ungoliant_runner_type` | Runner for the Ungoliant release-diff job (needs Tailscale reach to the controller) | string | `eveo-anacleto-lxc-runners` |
 | `ungoliant_skip_globs` | Space-separated glob patterns; when every changed file in the release diff matches one, the controller is never contacted | string | `.releaserc.yml .github/*` |
@@ -198,7 +198,7 @@ The job assumes the **`AWS_INIT_DATA_ROLE_ARN`** secret (scoped to the `lerian-c
 
 ## ApiDog E2E tests
 
-Set `enable_apidog_e2e: true` to run [api-dog-e2e-tests](./api-dog-e2e-tests-workflow.md) on tag push after a successful `update_gitops`. The job is skipped on branch pushes and when the gitops update did not succeed.
+Set `enable_apidog_e2e: true` to run [api-dog-e2e-tests](./api-dog-e2e-tests.md) on tag push after a successful `update_gitops`. The job is skipped on branch pushes and when the gitops update did not succeed.
 
 Because the underlying workflow expects fixed secret names (`test_scenario_id`, `apidog_access_token`, …), the ApiDog secrets **cannot** be passed via `secrets: inherit` — map them explicitly to the `APIDOG_*` secrets this workflow declares. With `apidog_auto_detect_environment: true` (default), the tag type selects the environment (`-beta.` → `APIDOG_DEV_ENVIRONMENT_ID`, `-rc.` → `APIDOG_STG_ENVIRONMENT_ID`); the underlying workflow errors on tags that are neither beta nor rc, so enable it only for repos that tag pre-release. For manual mode set `apidog_auto_detect_environment: false` and provide `APIDOG_ENVIRONMENT_ID`.
 
@@ -210,9 +210,11 @@ The controller is reachable only over Tailscale, so the job runs on the `eveo-an
 
 - **app** — `ungoliant_app`, else `app_name`, else `app_name_prefix`, else the repo name.
 - **version** — the pushed tag (`github.ref_name`).
-- **release channel / base env** — derived from the tag, which maps 1:1 to the source branch: `-beta.` → `beta`/`dev` (develop), `-rc.` → `rc`/`stg` (release-candidate), otherwise `stable`/`prd` (main).
+- **release channel** — read from the tag, which maps 1:1 to the source branch: `-rc*` → `rc` (release-candidate), `-beta*`/`-alpha*` → `beta` (develop), a bare semver version → `stable` (main). A tag that carries no channel marker and is not a bare semver (`build-1234`, `nightly`, `v1.2.3.4`) **fails the job** instead of being guessed at — the old fallback sent anything unrecognised to the `stable`/production channel, which is the most consequential direction and the one nobody wants by accident.
 
-Compose behaviour with `ungoliant_env_type` (`chaos` default, `fuzzing` supported) and `ungoliant_tenancy` (`st` default, `mt` supported). Provide `UNGOLIANT_WEBHOOK_TOKEN` via `secrets: inherit` for an authenticated call; when unset the webhook is sent unauthenticated.
+**Where the release is validated is not a workflow input.** The channel picks the cluster (`beta`→dev, `rc`→stg, `stable`→prd) and the tenancy registered in the console's Applications tab picks the rest. `ungoliant_env_type` and `ungoliant_tenancy` are **deprecated no-ops**: they used to compose a `target_env` that the controller honours *over* its own configuration, and since they default to `chaos`/`st` every release silently overrode its own registration — an app registered for stg ran against dev without a word. They are still accepted so no caller breaks. An app with no registration for the channel is refused, which is the configuration doing its job.
+
+Provide `UNGOLIANT_WEBHOOK_TOKEN` via `secrets: inherit` for an authenticated call; when unset the webhook is sent unauthenticated.
 
 **CI-only releases skip Ungoliant entirely.** `ungoliant_skip_globs` (default `.releaserc.yml .github/*`) is checked against every file in the `previous...version` diff before anything else runs: when every changed file matches one of these patterns, the controller is never contacted — no health check, no diff fetch, no webhook call. This is what keeps a release that only bumps a workflow version or tweaks `.releaserc.yml` from firing a full chaos/fuzz analysis. Set it to `''` to disable the check and always contact the controller.
 
@@ -222,8 +224,6 @@ jobs:
     uses: LerianStudio/github-actions-shared-workflows/.github/workflows/go-release.yml@tier-1
     with:
       enable_ungoliant_release_diff: true
-      ungoliant_env_type: chaos
-      ungoliant_tenancy: st
       # ungoliant_skip_globs: '.releaserc.yml .github/*'  # default — override only to widen/narrow the skip
     secrets: inherit
 ```
@@ -330,10 +330,10 @@ The single caller job must grant the union of what the internal jobs need: `id-t
 
 ## Related
 
-- [release](./release-workflow.md) — semantic-release pipeline this umbrella calls
-- [build](./build-workflow.md) — container build & push this umbrella calls
-- [gitops-update](./gitops-update-workflow.md) — GitOps update this umbrella calls
+- [release](./release.md) — semantic-release pipeline this umbrella calls
+- [build](./build.md) — container build & push this umbrella calls
+- [gitops-update](./gitops-update.md) — GitOps update this umbrella calls
 - [s3-upload](./s3-upload.md) — standalone S3 upload reusable workflow (the umbrella performs the equivalent upload inline via `s3_uploads`)
-- [api-dog-e2e-tests](./api-dog-e2e-tests-workflow.md) — optional post-gitops E2E tests this umbrella calls
+- [api-dog-e2e-tests](./api-dog-e2e-tests.md) — optional post-gitops E2E tests this umbrella calls
 - [ungoliant-release-diff](../src/validate/ungoliant-release-diff/README.md) — the composite the optional release-diff job runs
 - [go-pr-validation](./go-pr-validation.md) — the matching PR validation umbrella

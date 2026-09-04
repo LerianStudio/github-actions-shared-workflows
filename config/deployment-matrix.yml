@@ -6,11 +6,18 @@
 # Cluster-centric layout — mirrors how clusters are operated (lifecycle,
 # capacity, incident response). To answer "what runs on cluster X?", read
 # the cluster block. To answer "where does app X deploy?", run the helper
-# script described in docs/gitops-update-workflow.md (or grep across blocks).
+# script described in docs/gitops-update.md (or grep across blocks).
 #
 # Schema:
 #   version                       integer, required, currently 1
 #   apps.registry                 list of every app name allowed to appear in any cluster
+#   charts.<name>                 optional, chart-version path only: maps a published
+#                                 chart to the app(s) it delivers. Only needed when the
+#                                 chart name is not the app name. `apps` (list, all must
+#                                 exist in apps.registry) or `ignored` (reason string),
+#                                 never both. No entry means identity: the chart name is
+#                                 taken as the app name, and a name that is in neither
+#                                 place is an error rather than a silent no-op.
 #   clusters.<name>               cluster block with explicit `apps:` list (no `all_apps`
 #                                 shortcut today — every cluster has its own subset)
 #   clusters.<name>.env_contexts  optional list of context prefixes inserted before the
@@ -34,6 +41,25 @@
 #                                 receive any suffix from `env_suffixes` and stay bare
 #                                 (e.g. ["sandbox"] keeps sandbox as "sandbox", not
 #                                 "sandbox-st" / "sandbox-mt"). Defaults to [].
+#   clusters.<name>.app_extra_envs
+#                                 optional per-app exception: extra envs to update for a
+#                                 given release type, on top of the normal expansion.
+#                                 Shape: app_extra_envs.<app>.<release_type> → list of
+#                                 env names, where release_type ∈ beta | rc | stable |
+#                                 sandbox. The values are LITERAL env names that already
+#                                 carry the cluster's suffix/context (e.g. "stg-mt") —
+#                                 they are appended verbatim, never re-expanded against
+#                                 env_suffixes / env_contexts. Duplicates of an env the
+#                                 tag already produced are dropped.
+#                                 Use it when an app's variant only exists in an env the
+#                                 tag-derived list cannot reach: benedita has no dev-mt,
+#                                 so a beta release would never refresh the multi-tenant
+#                                 variant — `beta: ["stg-mt"]` makes it do so.
+#                                 Mutually exclusive with app_helmfile_env for the same
+#                                 app (the helmfile override wins and would collapse the
+#                                 extras onto the override path); the lint rejects it.
+#                                 Ignored when the caller uses gitops_layout=kustomize.
+#                                 Defaults to {}.
 #
 # Resolution at runtime:
 #   1. Workflow reads this file at the pinned ref of the shared-workflows repo.
@@ -44,8 +70,10 @@
 #      set even if the manifest includes the app.
 #   4. For each resolved cluster, the tag-derived env list (e.g. dev/stg/prd/sandbox
 #      for a production tag) is expanded against `env_suffixes` and `env_contexts`,
-#      except for envs listed in `suffix_excludes_envs` which remain bare. The final
-#      env list is what the workflow uses to build helmfile paths and ArgoCD app names.
+#      except for envs listed in `suffix_excludes_envs` which remain bare.
+#   5. Any `app_extra_envs.<app>.<release_type>` entries for the app are then unioned
+#      into that list verbatim. The final env list is what the workflow uses to build
+#      helmfile paths and ArgoCD app names.
 #
 # Out of scope (managed manually or by other tooling — do NOT add here):
 #   - jd-mock-api, fakebtg, control-plane,
@@ -88,6 +116,7 @@ apps:
     - br-slc
     - br-ccs
     - br-sisbajud
+    - br-sfn
     - br-consignado-gw
     - streaming-hub
 
@@ -117,6 +146,76 @@ apps:
     - finance-hub
     - plugin-br-ted-lerian
     - status-page-lerian
+
+# Chart -> app resolution for the chart-version path (gitops-chart-update).
+#
+# The image-tag path keys off the app name, and for most charts the chart name
+# IS the app name — 31 of the 50 charts published across LerianStudio/helm and
+# LerianStudio/helm-internal resolve that way and need no entry here.
+#
+# The rest do not, and without this section they fail silently: the resolver
+# finds no app, warns, and exits green while nothing was updated.
+# plugin-br-pix-direct-jd is the clearest case — the chart delivers the
+# plugin-br-pix-jd application and matches nothing by its own name.
+#
+# Resolution order:
+#   1. charts.<name>.apps      -> use that list
+#   2. charts.<name>.ignored   -> deliberate no-op, exit 0 with a notice
+#   3. <name> is in apps.registry -> identity
+#   4. none of the above       -> ERROR. A chart nobody mapped must fail the
+#                                 release, not pass as "nothing to do"
+#
+# `apps` and `ignored` are mutually exclusive. Every name under `apps` must
+# exist in apps.registry.
+charts:
+  # ---------- chart name differs from the app name ----------
+  plugin-br-pix-direct-jd:
+    apps:
+      - plugin-br-pix-jd
+
+  # ---------- published, deliberately not delivered by this path ----------
+  # Absence alone cannot express this: it is indistinguishable from a chart
+  # somebody forgot to map, which is exactly the failure this section prevents.
+  jd-mock-api:
+    ignored: managed manually, no CI commit history in the gitops repo
+  plugin-br-payments-fakebtg:
+    ignored: managed manually, no CI commit history in the gitops repo
+  control-plane:
+    ignored: managed manually
+  platform-console:
+    ignored: managed manually
+  otel-collector-lerian:
+    ignored: cluster-wide addon, lives under helmfile/addons, not applications
+  lerian-common:
+    ignored: library chart, consumed as a dependency and never deployed alone
+  lerian-consul:
+    ignored: library chart, consumed as a dependency and never deployed alone
+  canary-rollout:
+    ignored: rollout helper, applied outside the application path
+  vault-lerian:
+    ignored: platform infrastructure, not an application
+
+  # ---------- internal charts awaiting a decision ----------
+  # Deployed today but absent from apps.registry, so the chart-version path
+  # cannot resolve them. Listed as ignored rather than left out, so the gap is
+  # recorded instead of rediscovered by a silent no-op. Add the app to
+  # apps.registry and drop the entry to bring one of these in.
+  agent:
+    ignored: deployed on anacleto cross, not yet registered as an app
+  cdp:
+    ignored: deployed, not yet registered as an app
+  mock-nuclea:
+    ignored: deployed, not yet registered as an app
+  mock-sta-server:
+    ignored: deployed, not yet registered as an app
+  caradhras-ui:
+    ignored: not registered as an app
+  gestao-acessos-console:
+    ignored: not registered as an app
+  lerian-hq:
+    ignored: not registered as an app
+  operations-center:
+    ignored: not registered as an app
 
 clusters:
   anacleto:
@@ -155,6 +254,21 @@ clusters:
     # Sandbox is shared across variants and stays bare (no suffix).
     env_suffixes: ["-st", "-mt"]
     suffix_excludes_envs: ["sandbox"]
+
+    # app_extra_envs: per-app exception list of extra envs per release type.
+    # Because dev-mt does not exist, a beta release never refreshes the
+    # multi-tenant variant of an app. Listing an app here with
+    # `beta: ["stg-mt"]` makes every beta tag update stg-mt as well, on top of
+    # the normal dev-st / dev-mt expansion. Note this leaves a beta image
+    # running in stg-mt until the next rc overwrites it — stg-mt stops being an
+    # rc-only environment for the apps listed here, so keep the list narrow.
+    app_extra_envs:
+      midaz:
+        beta: ["stg-mt"]
+      billing-worker:
+        beta: ["stg-mt"]
+      br-sisbajud:
+        beta: ["stg-mt"]
 
     # app_helmfile_env: per-app override for the helmfile applications sub-directory.
     # Default path: environments/benedita/helmfile/applications/{env}/{app}/values.yaml
@@ -201,6 +315,7 @@ clusters:
       - br-slc
       - br-ccs
       - br-sisbajud
+      - br-sfn
       - br-consignado-gw
       - mock-btg-server
       - backoffice-console

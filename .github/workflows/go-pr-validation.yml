@@ -97,6 +97,10 @@ on:
         description: 'Enable automatic labeling based on changed files'
         type: boolean
         default: true
+      enable_slack_notification:
+        description: 'Send the PR validation verdict to Slack. Set to false in repositories without SLACK_WEBHOOK_URL to skip the job entirely instead of running it just to skip internally.'
+        type: boolean
+        default: true
       labeler_config_path:
         description: 'Path to labeler configuration file'
         type: string
@@ -157,6 +161,10 @@ on:
         default: ''
       filter_paths:
         description: 'Newline-separated component path prefixes for monorepo per-component analysis and security scanning. Empty = single-app root run. When set for the security scan, leave dockerfile_path empty so each component Dockerfile is discovered.'
+        type: string
+        default: ''
+      security_filter_paths:
+        description: 'Optional security-only component path prefixes. Empty reuses filter_paths. Use this when Go analysis runs once at the repository root but Docker images must be scanned per component.'
         type: string
         default: ''
       path_level:
@@ -266,10 +274,26 @@ on:
         description: 'Post/update a sticky PR comment with the Lerian lib version table'
         type: boolean
         default: true
+      lib_version_non_blocking_for_hotfix_to_main:
+        description: >-
+          Make an outdated Lerian library advisory instead of blocking on a `hotfix/*` -> `main`
+          pull request, where bumping a library would push the change past its corrective scope.
+          The check still runs and still posts its report/comment; only the "behind latest stable"
+          verdict stops failing, so the stable `Lib Version` status check goes green and branch
+          protection needs no conditional. Every other source/target combination keeps the current
+          blocking behavior. Deliberately does NOT soften anything else: a missing go.mod, a go.mod
+          with no Lerian libraries, a change-detection failure or any other infrastructure failure
+          still fails the gate.
+        type: boolean
+        default: false
 
       # ----------------- Shared -----------------
       shared_paths:
         description: 'Newline-separated path patterns that trigger analysis/security for all components.'
+        type: string
+        default: ''
+      security_shared_paths:
+        description: 'Optional security-only shared path patterns. Empty reuses shared_paths.'
         type: string
         default: ''
 
@@ -320,6 +344,7 @@ jobs:
       pr_title_scopes: ${{ inputs.pr_title_scopes }}
       require_scope: ${{ inputs.require_scope }}
       enable_auto_labeler: ${{ inputs.enable_auto_labeler }}
+      enable_slack_notification: ${{ inputs.enable_slack_notification }}
       labeler_config_path: ${{ inputs.labeler_config_path }}
       enforce_source_branches: ${{ inputs.enforce_source_branches }}
       allowed_source_branches: ${{ inputs.allowed_source_branches }}
@@ -356,6 +381,7 @@ jobs:
     if: inputs.run_go_analysis && needs.changes.outputs.code == 'true'
     uses: ./.github/workflows/go-pr-analysis.yml
     with:
+      enable_slack_notification: ${{ inputs.enable_slack_notification }}
       runner_type: ${{ inputs.runner_type }}
       lint_runner_type: ${{ inputs.lint_runner_type }}
       test_runner_type: ${{ inputs.test_runner_type }}
@@ -406,6 +432,7 @@ jobs:
     if: inputs.run_security && needs.changes.outputs.code == 'true'
     uses: ./.github/workflows/pr-security-scan.yml
     with:
+      enable_slack_notification: ${{ inputs.enable_slack_notification }}
       runner_type: ${{ inputs.runner_type }}
       security_scan_runner_type: ${{ inputs.security_scan_runner_type }}
       ignore_file: ${{ inputs.ignore_file }}
@@ -414,9 +441,9 @@ jobs:
       build_context_from_working_dir: ${{ inputs.build_context_from_working_dir }}
       enable_codeql: ${{ inputs.enable_codeql }}
       codeql_languages: ${{ inputs.codeql_languages }}
-      filter_paths: ${{ inputs.filter_paths }}
+      filter_paths: ${{ inputs.security_filter_paths || inputs.filter_paths }}
       path_level: ${{ format('{0}', inputs.path_level) }}
-      shared_paths: ${{ inputs.shared_paths }}
+      shared_paths: ${{ inputs.security_shared_paths || inputs.shared_paths }}
       monorepo_type: ${{ inputs.monorepo_type }}
       frontend_folder: ${{ inputs.frontend_folder }}
       trivy_skip_dirs: ${{ inputs.trivy_skip_dirs }}
@@ -445,6 +472,12 @@ jobs:
       go_mod_path: ${{ inputs.lib_version_go_mod_path }}
       check_indirect: ${{ inputs.lib_version_check_indirect }}
       comment_on_pr: ${{ inputs.lib_version_comment_on_pr }}
+      # Advisory only on the exact `hotfix/* -> main` path, and only when the caller opted in.
+      # `github.head_ref` is empty outside pull_request, so the match is false there.
+      # Softening happens inside the check itself (see lerian-lib-version-check.yml), NOT in the
+      # gate below: mapping a failed result to a pass at the gate would also swallow checkout
+      # errors and change-detection failures, which must stay blocking.
+      outdated_non_blocking: ${{ inputs.lib_version_non_blocking_for_hotfix_to_main && github.base_ref == 'main' && startsWith(github.head_ref, 'hotfix/') }}
       dry_run: ${{ inputs.dry_run }}
     secrets: inherit
 
