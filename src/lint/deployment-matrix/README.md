@@ -14,11 +14,15 @@ Checks performed:
 - `apps.registry` is a list of non-empty strings
 - `clusters` is a mapping of `<cluster-name>` → cluster spec
 - Each `clusters.<name>.apps` is a list of non-empty strings
+- Optional cluster fields are well-formed when present: `env_suffixes`, `suffix_excludes_envs`, `env_contexts`, `app_helmfile_env`, `app_extra_envs`
+- `app_extra_envs.<app>.<release_type>` uses a known release type (`beta`, `rc`, `stable`, `sandbox`) and a non-empty list of env names
 
 **Integrity**
 - Every app listed in any `clusters.<name>.apps` is declared in `apps.registry` (typo gate)
 - No duplicates inside `apps.registry`
 - No duplicates inside any `clusters.<name>.apps`
+- `app_helmfile_env` and `app_extra_envs` reference apps that are actually listed in that cluster's `apps`
+- No app appears in both `app_helmfile_env` and `app_extra_envs` on the same cluster — the helmfile override wins in the workflow's env loop, so the extra envs would silently do nothing
 
 **Hygiene (warnings, not errors)**
 - Apps in `apps.registry` not referenced by any cluster are flagged — likely pre-onboarding entries, but worth reviewing to avoid dead registrations

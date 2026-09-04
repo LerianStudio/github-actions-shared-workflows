@@ -1,0 +1,12 @@
+# Blacksmith runners are self-hosted, so actionlint cannot know their labels and
+# reports every literal `runs-on: blacksmith-*` as unknown. The reusable-workflow
+# convention requires the literal (no vars indirection), so the label has to be
+# declared here rather than worked around at each call site.
+#
+# This is a declaration of fact, not a suppression: no rule is disabled and any
+# other unknown label is still reported.
+self-hosted-runner:
+  labels:
+    - blacksmith-4vcpu-ubuntu-2404
+    - blacksmith-8vcpu-ubuntu-2404
+    - blacksmith-16vcpu-ubuntu-2404

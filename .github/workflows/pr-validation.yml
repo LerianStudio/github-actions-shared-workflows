@@ -58,6 +58,10 @@ on:
         description: 'Enable automatic labeling based on changed files'
         type: boolean
         default: true
+      enable_slack_notification:
+        description: 'Send the PR validation verdict to Slack. Set to false in repositories without SLACK_WEBHOOK_URL to skip the job entirely instead of running it just to skip internally.'
+        type: boolean
+        default: true
       labeler_config_path:
         description: 'Path to labeler configuration file'
         type: string
@@ -474,7 +478,7 @@ jobs:
   notify:
     name: Notify
     needs: [breaking-change-guard, blocking-checks, advisory-checks, pr-checks-summary]
-    if: always() && github.event_name == 'pull_request' && github.event.pull_request.draft != true && !inputs.dry_run
+    if: always() && inputs.enable_slack_notification && github.event_name == 'pull_request' && github.event.pull_request.draft != true && !inputs.dry_run
     uses: LerianStudio/github-actions-shared-workflows/.github/workflows/slack-notify.yml@v1.28.12
     with:
       status: ${{ (needs.breaking-change-guard.result != 'success' || needs.breaking-change-guard.outputs.result != 'success' || needs.blocking-checks.result != 'success' || needs.blocking-checks.outputs.source-branch-result == 'failure' || needs.blocking-checks.outputs.title-result == 'failure' || needs.blocking-checks.outputs.description-result == 'failure' || needs.blocking-checks.outputs.commit-signatures-result == 'failure') && 'failure' || 'success' }}

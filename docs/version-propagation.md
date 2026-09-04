@@ -7,14 +7,19 @@
 
 Self-controller that propagates a new `LerianStudio/github-actions-shared-workflows` release to every downstream repository declared in [`config/version-propagation.yml`](../config/version-propagation.yml).
 
+> **⚠️ Disabled — superseded by the tier channels.**
+> The `propagate-version` job was removed from `self-release.yml` and every entry in the matrix is `enabled: false`, so nothing propagates today. Consumers pin a tier channel (`@tier-0` / `@tier-1` / `@tier-2`) once and a release moves those branches forward — see [`tiers.md`](tiers.md) and [`tier-promotion.md`](tier-promotion.md). Rewriting `@vX.Y.Z` pins repo by repo is no longer the model.
+>
+> The workflow, the composite and the matrix are kept as the rollback path: re-add a job calling `./.github/workflows/version-propagation.yml` in `self-release.yml` and flip `enabled` back on the targets you want. The rest of this document describes that (currently dormant) behavior.
+
 ## How it works
 
-```
+```text
 push to main
         ↓
 self-release.yml
    ├── publish-release (calls release.yml — semantic-release publishes vX.Y.Z)
-   └── propagate-version (if previous succeeded on main)
+   └── propagate-version (removed — see the note above)
               ↓
        version-propagation.yml      ← reusable workflow, sets up GPG signing
               ↓
@@ -42,7 +47,7 @@ The `target_branch` default is `develop` (gitflow-friendly: the bump flows throu
 
 ## Triggers
 
-The propagation runs automatically as a follow-up job to every release published on `main`. There is currently no `workflow_dispatch` — to re-run for a specific tag, use GitHub Actions UI "Re-run jobs" on the `self-release` run that produced the tag.
+**Nothing triggers this today** — the follow-up job on `self-release.yml` was removed. While it existed, the propagation ran automatically after every release published on `main`; there is no `workflow_dispatch`, so re-running meant using GitHub Actions UI "Re-run jobs" on the `self-release` run that produced the tag. To exercise the workflow now, use the [manual test](#manual-test-one-off-on-a-feature-branch) below.
 
 ## Required secrets (org-level, via `secrets: inherit`)
 

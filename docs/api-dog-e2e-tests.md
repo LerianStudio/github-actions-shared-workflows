@@ -350,5 +350,5 @@ jobs:
 
 ## Related Workflows
 
-- [GitOps Update](gitops-update-workflow.md) - Update GitOps repository before running tests
-- [PR Security Scan](pr-security-scan-workflow.md) - Security scanning for pull requests
+- [GitOps Update](gitops-update.md) - Update GitOps repository before running tests
+- [PR Security Scan](pr-security-scan.md) - Security scanning for pull requests

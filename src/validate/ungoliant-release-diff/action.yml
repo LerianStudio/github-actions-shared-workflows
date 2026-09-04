@@ -16,18 +16,34 @@ inputs:
     description: Release channel — beta | rc | stable
     required: false
     default: "beta"
+  # DEPRECATED — the three inputs below compose a target_env that is NO LONGER SENT.
+  # Where a release is validated comes from the application's registration in the
+  # console's Applications tab: the channel picks the cluster (beta→dev, rc→stg,
+  # stable→prd) and the registered tenancy picks the rest. They are kept so existing
+  # callers keep working, and they only reach the payload under send-target-env: true.
   env-type:
-    description: Environment/testing type — chaos | fuzzing. Empty produces a legacy target env.
+    description: 'DEPRECATED (no-op unless send-target-env is true): environment/testing type — chaos | fuzzing.'
     required: false
     default: "chaos"
   tenancy:
-    description: Tenancy — st (single-tenant) | mt (multi-tenant)
+    description: 'DEPRECATED (no-op unless send-target-env is true): tenancy — st (single-tenant) | mt (multi-tenant).'
     required: false
     default: "st"
   base-env:
-    description: Base environment — dev | stg | prd
+    description: 'DEPRECATED (no-op unless send-target-env is true): base environment — dev | stg | prd.'
     required: false
     default: "dev"
+  send-target-env:
+    description: >-
+      Send the composed target_env in the payload, overriding the application's
+      registration. The controller honours a target_env OVER its configuration — a
+      transitional path for callers that predate the Applications tab — so leaving this
+      false is what makes a release test the configuration rather than the argument.
+      With it true, an application registered for stg runs against dev without a word.
+      An application with no registration for the channel is refused when the controller
+      has UNGOLIANT_REQUIRE_REGISTRATION on; that refusal is the configuration working.
+    required: false
+    default: "false"
   controller-url:
     description: Ungoliant controller base URL (reachable over Tailscale)
     required: false
@@ -52,9 +68,16 @@ inputs:
     required: false
     default: ".releaserc.yml .github/*"
   curl-timeout:
-    description: Timeout for the webhook POST in seconds (LLM inference can take 60-120s, longer for large/complex diffs). Must stay in lockstep with ungoliant-controller's NEMOCLAW_TIMEOUT_SECONDS and its ingress proxy timeouts.
+    description: >-
+      Timeout for the webhook POST in seconds. This is the OUTERMOST budget in
+      the chain, so it must be STRICTLY LARGER than every hop it fronts — equal
+      is a race, not a safeguard, and losing it is what produces an empty body
+      with no attributable cause. Ordering today, each step strictly below the
+      next: bridge 780s < controller NEMOCLAW_TIMEOUT_SECONDS 900s < NPM edge
+      and k8s ingress 960s < this 1020s. See "Timeout budget" in
+      nemoclaw-platform/docs/integrations/ungoliant-controller.md.
     required: false
-    default: "900"
+    default: "1020"
   dry-run:
     description: Resolve and preview the payload without firing the webhook
     required: false
@@ -74,10 +97,17 @@ outputs:
     description: Risk level reported by the controller
     value: ${{ steps.webhook.outputs.risk_level }}
   target-env:
-    description: Composed target env forwarded to the controller
+    description: Composed target env. Forwarded to the controller only when send-target-env is true; otherwise informational, and the surface comes from the app's registration.
     value: ${{ steps.resolve.outputs.target_env }}
+  will-run:
+    description: Space-separated test types the controller says it will run (populated when status is accepted)
+    value: ${{ steps.webhook.outputs.will_run }}
   outcome:
-    description: High-level outcome — executed (smoke/chaos ran) | skipped (no tests warranted) | skipped_ci_only (diff matched skip-globs; controller was never contacted)
+    description: >-
+      High-level outcome — executed (smoke/chaos ran) | skipped (analysis ran, no tests
+      warranted) | accepted (delivered, no agentic analysis requested for this channel) |
+      no_stages (delivered, but no test type is enabled — the release validates nothing) |
+      skipped_ci_only (diff matched skip-globs; controller was never contacted) | failed
     value: ${{ steps.diff.outputs.ci_only == 'true' && 'skipped_ci_only' || steps.webhook.outputs.outcome }}
   k6:
     description: Number of k6 smoke scenarios selected by the controller
@@ -303,6 +333,20 @@ runs:
         [ "$DIFF_SIZE" -gt 0 ] || { echo "::error::Empty diff — check tags exist in $REPO"; exit 1; }
 
     # ----------------- Build Payload -----------------
+    # NO target_env IN THE PAYLOAD BY DEFAULT.
+    #
+    # The registration in the console decides where a release is validated — the channel
+    # picks the cluster (beta→dev, rc→stg, stable→prd) and the registered tenancy picks
+    # the rest. A target_env here OUTRANKS that (it is the transitional path for callers
+    # that predate the Applications tab), so sending one tests the argument rather than
+    # the configuration, and an application registered for stg runs against dev without
+    # a word. This composite used to compose one from three inputs and always send it —
+    # the defaults alone produced `chaos-dev-st`, so every release overrode its own
+    # registration.
+    #
+    # An application with no registration for the channel is REFUSED when the controller
+    # has UNGOLIANT_REQUIRE_REGISTRATION on. That refusal is the configuration doing its
+    # job, and it surfaces here as a failed outcome rather than being papered over.
     - name: Build payload
       if: steps.diff.outputs.ci_only != 'true'
       shell: bash
@@ -314,8 +358,18 @@ runs:
         REVISION: ${{ steps.diff.outputs.revision }}
         PREV_SHA: ${{ steps.diff.outputs.prev_sha }}
         TARGET_ENV: ${{ steps.resolve.outputs.target_env }}
+        SEND_TARGET_ENV: ${{ inputs.send-target-env }}
       run: |
         set -euo pipefail
+
+        SEND_ENV=""
+        if [ "$SEND_TARGET_ENV" = "true" ]; then
+          SEND_ENV="$TARGET_ENV"
+          echo "::warning title=target_env overrides the registration::Sending target_env=${TARGET_ENV}. This outranks ${APP}'s registration in the Applications tab — the release is validated where this argument says, not where the app is registered."
+        else
+          echo "Surface: decided by ${APP}'s registration for channel ${ENV} (no target_env sent)"
+        fi
+
         jq -n \
           --rawfile diff diff.txt \
           --arg app "$APP" \
@@ -324,7 +378,7 @@ runs:
           --arg version "$VERSION" \
           --arg revision "$REVISION" \
           --arg previous "$PREV_SHA" \
-          --arg target_env "$TARGET_ENV" \
+          --arg target_env "$SEND_ENV" \
           '{app: $app, env: $env, repository: $repo, version: $version, revision: $revision, previous: $previous, diff: $diff}
            + (if $target_env == "" then {} else {target_env: $target_env} end)' > payload.json
 
@@ -389,11 +443,17 @@ runs:
         VERSION: ${{ inputs.version }}
         ENV: ${{ inputs.env }}
         TARGET_ENV: ${{ steps.resolve.outputs.target_env }}
+        SEND_TARGET_ENV: ${{ inputs.send-target-env }}
       run: |
         set -euo pipefail
 
         echo "Sending release-diff webhook (timeout ${CURL_TIMEOUT}s)..."
-        echo "  app=$APP  version=$VERSION  env=$ENV  target_env=$TARGET_ENV"
+        echo "  app=$APP  version=$VERSION  channel=$ENV"
+        if [ "$SEND_TARGET_ENV" = "true" ]; then
+          echo "  surface: target_env=$TARGET_ENV (overrides the registration)"
+        else
+          echo "  surface: decided by this app's registration in the Applications tab"
+        fi
         [ -n "$WEBHOOK_TOKEN" ] || echo "::warning::UNGOLIANT_WEBHOOK_TOKEN not set — sending unauthenticated"
 
         # The payload is streamed via --data-binary @- to avoid the per-argument
@@ -417,20 +477,41 @@ runs:
         RISK="$(printf '%s' "$RESPONSE" | jq -r '.risk_level // "?"' 2>/dev/null || echo "?")"
         K6_COUNT="$(printf '%s' "$RESPONSE" | jq -r '.k6 // 0' 2>/dev/null || echo 0)"
         CHAOS_COUNT="$(printf '%s' "$RESPONSE" | jq -r '.chaos // 0' 2>/dev/null || echo 0)"
+        WILL_RUN="$(printf '%s' "$RESPONSE" | jq -r '(.will_run // []) | join(" ")' 2>/dev/null || echo "")"
+        SKIPPED_STAGES="$(printf '%s' "$RESPONSE" | jq -r '.skipped // ""' 2>/dev/null || echo "")"
 
-        # A completed analysis that selected neither smoke nor chaos is a
-        # deliberate skip: the controller judged the diff low-risk / provably
-        # trivial (doc-only or CI/linter cosmetics) and ran no tests. Surface
-        # that as a first-class outcome so the release makes the decision clear
-        # instead of it hiding behind a generic "analysis_completed".
+        # NOT EVERY NON-analysis_completed STATUS IS A FAILURE.
+        #
+        # This branch used to be `analysis_completed or bust`, so a channel configured
+        # for the authored suite alone — doing exactly what it was configured to do —
+        # was reported as a broken release. The controller distinguishes three good
+        # outcomes and this mirrors them:
+        #
+        #   analysis_completed   the agentic analysis ran. Zero smoke AND zero chaos is
+        #                        a deliberate skip: the diff was judged low-risk or
+        #                        provably trivial (doc-only, CI/linter cosmetics).
+        #   accepted             delivered, and no agentic analysis was requested for
+        #                        this channel. `will_run` names what does run instead;
+        #                        an authored suite runs detached, under its own run_id.
+        #   no_applicable_stages delivered, but no test type is enabled for this app on
+        #                        this channel — the release validates NOTHING. Loud, but
+        #                        not a failure of this step: it is a configuration gap in
+        #                        the Applications tab, not a broken release.
+        #
+        # Anything else — analysis_failed, a registration refusal, an empty status from
+        # a client-side timeout — stays a failure.
         OUTCOME="failed"
-        if [ "$STATUS" = "analysis_completed" ]; then
-          if [ "$K6_COUNT" = "0" ] && [ "$CHAOS_COUNT" = "0" ]; then
-            OUTCOME="skipped"
-          else
-            OUTCOME="executed"
-          fi
-        fi
+        case "$STATUS" in
+          analysis_completed)
+            if [ "$K6_COUNT" = "0" ] && [ "$CHAOS_COUNT" = "0" ]; then
+              OUTCOME="skipped"
+            else
+              OUTCOME="executed"
+            fi
+            ;;
+          accepted)             OUTCOME="accepted" ;;
+          no_applicable_stages) OUTCOME="no_stages" ;;
+        esac
 
         {
           echo "status=$STATUS"
@@ -439,15 +520,24 @@ runs:
           echo "risk_level=$RISK"
           echo "k6=$K6_COUNT"
           echo "chaos=$CHAOS_COUNT"
+          echo "will_run=$WILL_RUN"
           echo "outcome=$OUTCOME"
         } >> "$GITHUB_OUTPUT"
 
-        if [ "$OUTCOME" = "skipped" ]; then
-          SUMMARY_TITLE="### Ungoliant release-diff — SKIPPED (no tests warranted)"
-        elif [ "$OUTCOME" = "executed" ]; then
-          SUMMARY_TITLE="### Ungoliant release-diff — EXECUTED (full flow)"
+        case "$OUTCOME" in
+          skipped)   SUMMARY_TITLE="### Ungoliant release-diff — SKIPPED (no tests warranted)" ;;
+          executed)  SUMMARY_TITLE="### Ungoliant release-diff — EXECUTED (full flow)" ;;
+          accepted)  SUMMARY_TITLE="### Ungoliant release-diff — ACCEPTED (no agentic analysis requested)" ;;
+          no_stages) SUMMARY_TITLE="### Ungoliant release-diff — ACCEPTED, BUT NOTHING IS ENABLED" ;;
+          *)         SUMMARY_TITLE="### Ungoliant release-diff — FAILED" ;;
+        esac
+
+        # Where the release was validated: the argument only when it was actually sent,
+        # otherwise the app's registration — which is what decided it.
+        if [ "$SEND_TARGET_ENV" = "true" ]; then
+          SURFACE="\`$TARGET_ENV\` (target_env override)"
         else
-          SUMMARY_TITLE="### Ungoliant release-diff — FAILED"
+          SURFACE="registration for channel \`$ENV\` (Applications tab)"
         fi
 
         {
@@ -458,23 +548,43 @@ runs:
           echo "| outcome | \`$OUTCOME\` |"
           echo "| status | \`$STATUS\` |"
           echo "| run_id | \`$RUN_ID\` |"
-          echo "| schema | \`$SCHEMA\` |"
-          echo "| risk_level | \`$RISK\` |"
-          echo "| target_env | \`$TARGET_ENV\` |"
-          echo "| k6 | \`$K6_COUNT\` |"
-          echo "| chaos | \`$CHAOS_COUNT\` |"
+          echo "| surface | ${SURFACE} |"
+          if [ "$OUTCOME" = "accepted" ] || [ "$OUTCOME" = "no_stages" ]; then
+            echo "| will run | \`${WILL_RUN:-nothing}\` |"
+            [ -n "$SKIPPED_STAGES" ] && echo "| skipped | \`$SKIPPED_STAGES\` |"
+          else
+            echo "| schema | \`$SCHEMA\` |"
+            echo "| risk_level | \`$RISK\` |"
+            echo "| k6 | \`$K6_COUNT\` |"
+            echo "| chaos | \`$CHAOS_COUNT\` |"
+          fi
           echo "| elapsed | \`${ELAPSED}s\` |"
         } >> "$GITHUB_STEP_SUMMARY"
 
-        if [ "$OUTCOME" = "failed" ]; then
-          echo "::error::Ungoliant analysis failed — status: $STATUS (elapsed ${ELAPSED}s)"
-          exit 1
-        fi
-        if [ "$OUTCOME" = "skipped" ]; then
-          echo "::notice::Ungoliant SKIPPED test execution in ${ELAPSED}s — no smoke/chaos warranted (run_id=$RUN_ID, risk=$RISK)"
-        else
-          echo "::notice::Ungoliant EXECUTED full flow in ${ELAPSED}s (run_id=$RUN_ID, schema=$SCHEMA, risk=$RISK, k6=$K6_COUNT, chaos=$CHAOS_COUNT)"
-        fi
+        case "$OUTCOME" in
+          failed)
+            echo "::error::Ungoliant analysis failed — status: ${STATUS:-<empty>} (elapsed ${ELAPSED}s)"
+            if [ -z "$STATUS" ] || [ "$STATUS" = "parse_error" ]; then
+              echo "::error::No parseable response after ${ELAPSED}s. If that equals curl-timeout (${CURL_TIMEOUT}s), the client gave up first — curl-timeout must exceed every hop it fronts."
+            fi
+            exit 1
+            ;;
+          skipped)
+            echo "::notice::Ungoliant SKIPPED test execution in ${ELAPSED}s — no smoke/chaos warranted (run_id=$RUN_ID, risk=$RISK)"
+            ;;
+          accepted)
+            echo "::notice::Ungoliant ACCEPTED the release in ${ELAPSED}s — no agentic analysis requested (run_id=$RUN_ID, will_run=${WILL_RUN:-nothing})"
+            if printf '%s' "$WILL_RUN" | grep -q 'authored-e2e'; then
+              echo "::notice::The authored suite runs as its own detached run — find it in the controller's Runs tab, kind 'authored'"
+            fi
+            ;;
+          no_stages)
+            echo "::warning title=This release validates nothing::Ungoliant accepted ${VERSION}, but no test type is enabled for ${APP} on channel ${ENV}. Turn one on in the Applications tab."
+            ;;
+          *)
+            echo "::notice::Ungoliant EXECUTED full flow in ${ELAPSED}s (run_id=$RUN_ID, schema=$SCHEMA, risk=$RISK, k6=$K6_COUNT, chaos=$CHAOS_COUNT)"
+            ;;
+        esac
 
     # ----------------- Comment on Originating PR -----------------
     # Best-effort: post/update a comment on the PR that produced this release
@@ -484,7 +594,7 @@ runs:
     - name: Comment ungoliant outcome on originating PR
       if: >-
         inputs.dry-run != 'true' &&
-        (steps.webhook.outputs.outcome == 'executed' || steps.webhook.outputs.outcome == 'skipped' || steps.diff.outputs.ci_only == 'true')
+        (steps.webhook.outputs.outcome == 'executed' || steps.webhook.outputs.outcome == 'skipped' || steps.webhook.outputs.outcome == 'accepted' || steps.webhook.outputs.outcome == 'no_stages' || steps.diff.outputs.ci_only == 'true')
       shell: bash
       env:
         GH_TOKEN: ${{ inputs.github-token }}
@@ -504,6 +614,9 @@ runs:
         K6_COUNT: ${{ steps.webhook.outputs.k6 }}
         CHAOS_COUNT: ${{ steps.webhook.outputs.chaos }}
         RUN_ID: ${{ steps.webhook.outputs.run_id }}
+        WILL_RUN: ${{ steps.webhook.outputs.will_run }}
+        ENV: ${{ inputs.env }}
+        SEND_TARGET_ENV: ${{ inputs.send-target-env }}
       run: |
         set -uo pipefail
         API="https://api.github.com/repos/${RUN_REPO}"
@@ -538,6 +651,12 @@ runs:
         elif [ "$OUTCOME" = "skipped" ]; then
           HEADER="## Ungoliant Release Diff — Skipped"
           BLURB="No smoke or chaos tests were run for this release. Ungoliant judged the diff low-risk / provably trivial (doc-only or CI/linter cosmetics), so test execution was skipped."
+        elif [ "$OUTCOME" = "accepted" ]; then
+          HEADER="## Ungoliant Release Diff — Accepted"
+          BLURB="The release was delivered and no agentic analysis was requested for channel \`${ENV}\`. What runs instead is listed below; an authored suite runs detached, under its own run in the controller's Runs tab."
+        elif [ "$OUTCOME" = "no_stages" ]; then
+          HEADER="## Ungoliant Release Diff — Accepted, but nothing is enabled"
+          BLURB="The release was delivered, but **no test type is enabled for \`${APP}\` on channel \`${ENV}\`** — so this release validates nothing. Turn one on in the console's Applications tab. This did not fail the release."
         else
           HEADER="## Ungoliant Release Diff — Executed"
           BLURB="The full chaos/fuzz analysis flow ran for this release."
@@ -555,8 +674,15 @@ runs:
         add "| outcome | \`${OUTCOME}\` |"
         add "| app | \`${APP}\` |"
         add "| version | \`${VERSION}\` |"
-        add "| target_env | \`${TARGET_ENV}\` |"
-        if [ "$OUTCOME" != "skipped_ci_only" ]; then
+        if [ "$SEND_TARGET_ENV" = "true" ]; then
+          add "| surface | \`${TARGET_ENV}\` (target_env override) |"
+        else
+          add "| surface | registration for channel \`${ENV}\` (Applications tab) |"
+        fi
+        if [ "$OUTCOME" = "accepted" ] || [ "$OUTCOME" = "no_stages" ]; then
+          add "| will run | \`${WILL_RUN:-nothing}\` |"
+          add "| run_id | \`${RUN_ID}\` |"
+        elif [ "$OUTCOME" != "skipped_ci_only" ]; then
           add "| risk_level | \`${RISK}\` |"
           add "| k6 smoke scenarios | \`${K6_COUNT}\` |"
           add "| chaos experiments | \`${CHAOS_COUNT}\` |"

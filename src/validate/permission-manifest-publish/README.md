@@ -110,7 +110,7 @@ jobs:
           environment: development   # resolved from the tag
 ```
 
-Most callers get this for free through the [`go-release`](../../../docs/go-release-workflow.md) umbrella (`run_manifest_publish`, default `true`), which handles the checkout, tag→folder derivation and role-assume for you.
+Most callers get this for free through the [`go-release`](../../../docs/go-release.md) umbrella (`run_manifest_publish`, default `true`), which handles the checkout, tag→folder derivation and role-assume for you.
 
 ### Third-party actions
 
@@ -119,7 +119,7 @@ The composite itself uses none — it is pure Bash + the AWS CLI. The two extern
 | Action | Why |
 |--------|-----|
 | `actions/checkout` | Checks the repository out so the `permissions.yaml` manifest is present in the workspace for detection and upload. |
-| `aws-actions/configure-aws-credentials` | Obtains short-lived OIDC credentials for the `aws s3 cp` upload, assuming the bucket-scoped `AWS_INIT_DATA_ROLE_ARN` role — no long-lived keys. In the [`go-release`](../../../docs/go-release-workflow.md) umbrella the credential step is guarded (`if: … dry_run != true && HAS_INIT_DATA_ROLE == 'true'`), so it is skipped on a dry-run and when the role secret is unset; a standalone caller (the minimal snippet above) must add the equivalent guard itself if it wants that skip behaviour. |
+| `aws-actions/configure-aws-credentials` | Obtains short-lived OIDC credentials for the `aws s3 cp` upload, assuming the bucket-scoped `AWS_INIT_DATA_ROLE_ARN` role — no long-lived keys. In the [`go-release`](../../../docs/go-release.md) umbrella the credential step is guarded (`if: … dry_run != true && HAS_INIT_DATA_ROLE == 'true'`), so it is skipped on a dry-run and when the role secret is unset; a standalone caller (the minimal snippet above) must add the equivalent guard itself if it wants that skip behaviour. |
 
 ## Implementation notes
 
