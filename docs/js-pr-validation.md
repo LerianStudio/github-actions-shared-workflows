@@ -34,6 +34,7 @@ The `frontend-analysis`, `security` and `socket` pipelines each have a `*-gate` 
 | `pr_title_scopes` | Allowed scopes (pipe-separated, empty = any) | string | `''` |
 | `require_scope` | Require scope in PR title | boolean | `false` |
 | `enable_auto_labeler` | Auto-label by changed files | boolean | `true` |
+| `enable_slack_notification` | Send the validation verdict to Slack. Set to `false` in repos without `SLACK_WEBHOOK_URL` so the job is skipped entirely instead of running just to skip internally | boolean | `true` |
 | `labeler_config_path` | Path to labeler config | string | `.github/labeler.yml` |
 | `enforce_source_branches` | Enforce source branches into protected branches | boolean | `true` |
 | `allowed_source_branches` | Allowed source branches (pipe-separated, `*` prefix) | string | `develop\|release-candidate\|hotfix/*` |
@@ -308,7 +309,7 @@ Require the aggregator checks `Frontend Analysis`, `Security` and `Socket` (plus
 
 ## Related
 
-- [frontend-pr-analysis](./frontend-pr-analysis-workflow.md) — the frontend analysis pipeline this umbrella calls
-- [pr-security-scan](./pr-security-scan-workflow.md) — the security pipeline this umbrella calls
+- [frontend-pr-analysis](./frontend-pr-analysis.md) — the frontend analysis pipeline this umbrella calls
+- [pr-security-scan](./pr-security-scan.md) — the security pipeline this umbrella calls
 - [pr-validation](./pr-validation.md) — the PR metadata validation this umbrella calls
 - [go-pr-validation](./go-pr-validation.md) — the equivalent umbrella for Go repositories

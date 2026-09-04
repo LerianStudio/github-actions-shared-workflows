@@ -40,3 +40,7 @@ temp/
 
 # Linter binaries fetched ad hoc for local verification
 /typos
+
+# Python bytecode from local script runs
+__pycache__/
+*.pyc

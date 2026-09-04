@@ -198,6 +198,7 @@ Set `enable_socket_firewall: false` to restore the previous behaviour (cached, u
 | `enable_custom_checks` | Enable arbitrary caller-owned checks beyond the named gates above (runs each script in `custom_checks`) | No | `false` |
 | `custom_checks` | Newline-separated npm script names to run as additional checks; each runs independently, a non-zero exit on any fails the job | No | `''` |
 | `custom_checks_needs_browsers` | Install Playwright browsers before running `custom_checks` — only enable if a custom check drives a browser (e.g. a Playwright-based smoke test) | No | `false` |
+| `enable_slack_notification` | Send the analysis verdict to Slack. Set to `false` in repositories without `SLACK_WEBHOOK_URL` so the job is skipped entirely instead of running just to skip internally | No | `true` |
 
 ## Secrets
 
@@ -362,11 +363,10 @@ The workflow requires these permissions:
 
 ## Related Workflows
 
-- [Go PR Analysis](./go-pr-analysis-workflow.md) - Equivalent workflow for Go projects
-- [Changed Paths](./changed-paths-workflow.md) - Standalone change detection
-- [Build](./build-workflow.md) - Docker image builds
-- [Slack Notify](./slack-notify-workflow.md) - Workflow notifications
-- [PR Security Scan](./pr-security-scan-workflow.md) - Additional security scanning with Trivy
+- [Go PR Analysis](./go-pr-analysis.md) - Equivalent workflow for Go projects
+- [Build](./build.md) - Docker image builds
+- [Slack Notify](./slack-notify.md) - Workflow notifications
+- [PR Security Scan](./pr-security-scan.md) - Additional security scanning with Trivy
 
 ---
 
