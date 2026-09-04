@@ -8,7 +8,7 @@ inputs:
   ignore-globs:
     description: 'Space-separated glob patterns treated as documentation/meta. When every changed file matches one of these, the gate returns code=false.'
     required: false
-    default: '*.md docs/* .github/* LICENSE* .gitignore'
+    default: '*.md docs/* .github/* LICENSE* .gitignore .coderabbit.yml .coderabbit.yaml'
 
 outputs:
   code:

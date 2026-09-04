@@ -43,7 +43,7 @@ An application with no registration for the channel is **refused** when the cont
 | `github-token`   | GitHub token used to read tags, compare and diff via the API.                   | Yes      |                                                      |
 | `webhook-token`  | Ungoliant webhook token sent as the `X-Ungoliant-Token` header.                 | No       | `""`                                                 |
 | `max-diff-bytes` | Maximum diff size forwarded to the controller (bytes).                          | No       | `262144`                                             |
-| `skip-globs`     | Space-separated glob patterns. When every changed file matches one, the release is CI/meta-only and the controller is never contacted. Empty disables the check. | No | `.releaserc.yml .github/*` |
+| `skip-globs`     | Space-separated glob patterns. When every changed file matches one, the release is CI/meta-only and the controller is never contacted. Empty disables the check. | No | `.releaserc.yml .github/* .coderabbit.yml .coderabbit.yaml` |
 | `curl-timeout`   | Timeout for the webhook POST in seconds. This is the **outermost** budget in the chain, so it must be **strictly larger** than every hop it fronts: bridge 780s < controller `NEMOCLAW_TIMEOUT_SECONDS` 900s < NPM edge and k8s ingress 960s < this 1020s. Equal is a race, not a safeguard — see [Timeout budget](#timeout-budget). | No | `1020` |
 | `dry-run`        | Resolve and preview the payload without firing the webhook.                     | No       | `false`                                              |
 
