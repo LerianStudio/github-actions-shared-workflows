@@ -6,7 +6,7 @@
 # Cluster-centric layout — mirrors how clusters are operated (lifecycle,
 # capacity, incident response). To answer "what runs on cluster X?", read
 # the cluster block. To answer "where does app X deploy?", run the helper
-# script described in docs/gitops-update-workflow.md (or grep across blocks).
+# script described in docs/gitops-update.md (or grep across blocks).
 #
 # Schema:
 #   version                       integer, required, currently 1

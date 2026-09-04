@@ -166,11 +166,11 @@ This allows workflows to be used in repositories without Slack integration.
 
 The slack-notify workflow is automatically integrated into:
 
-- [Build Workflow](build-workflow.md)
-- [Release Workflow](release-workflow.md)
-- [Go PR Analysis](go-pr-analysis-workflow.md)
+- [Build Workflow](build.md)
+- [Release Workflow](release.md)
+- [Go PR Analysis](go-pr-analysis.md)
 - [PR Validation](pr-validation.md)
-- [PR Security Scan](pr-security-scan-workflow.md)
+- [PR Security Scan](pr-security-scan.md)
 
 ## Best Practices
 
@@ -204,8 +204,8 @@ The slack-notify workflow is automatically integrated into:
 
 ## Related Workflows
 
-- [Build Workflow](build-workflow.md) - Uses slack-notify for build notifications
-- [Release Workflow](release-workflow.md) - Uses slack-notify for release notifications
+- [Build Workflow](build.md) - Uses slack-notify for build notifications
+- [Release Workflow](release.md) - Uses slack-notify for release notifications
 
 ---
 

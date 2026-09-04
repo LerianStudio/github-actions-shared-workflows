@@ -555,6 +555,6 @@ Uploaded to GitHub Security tab via CodeQL when `enable_codeql` is enabled.
 
 ## Related Workflows
 
-- [GitOps Update](gitops-update-workflow.md) - Update deployments after security checks pass
-- [API Dog E2E Tests](api-dog-e2e-tests-workflow.md) - Run E2E tests after security validation
-- [Release Workflow](release-workflow.md) - Create releases after all checks pass
+- [GitOps Update](gitops-update.md) - Update deployments after security checks pass
+- [API Dog E2E Tests](api-dog-e2e-tests.md) - Run E2E tests after security validation
+- [Release Workflow](release.md) - Create releases after all checks pass

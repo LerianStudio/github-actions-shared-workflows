@@ -355,11 +355,10 @@ The workflow requires these permissions:
 
 ## Related Workflows
 
-- [Go CI](./go-ci-workflow.md) - Multi-version/multi-OS CI pipeline
-- [Go Security](./go-security-workflow.md) - Comprehensive security scanning (8 tools)
-- [Changed Paths](./changed-paths-workflow.md) - Standalone change detection
-- [Build](./build-workflow.md) - Docker image builds
-- [Slack Notify](./slack-notify-workflow.md) - Workflow notifications
+- [Go CI](./go-ci.md) - Multi-version/multi-OS CI pipeline
+- [Go Security](./go-security.md) - Comprehensive security scanning (8 tools)
+- [Build](./build.md) - Docker image builds
+- [Slack Notify](./slack-notify.md) - Workflow notifications
 
 ---
 

@@ -7,9 +7,9 @@
 
 Reusable workflow that sends release notifications to Discord and Slack. Resolves the release tag from `release_tag`, then the release event, then the latest release via GitHub CLI, classifies the tag against the optional `RELEASE_NOTIFY_TAG_TYPES` allowlist, and dispatches to channel-specific composite actions.
 
-The [release workflow](release-workflow.md) calls this workflow directly from its
+The [release workflow](release.md) calls this workflow directly from its
 `announce_release` job (Slack only), so most repositories do not need a standalone caller —
-see [Release Announcement](release-workflow.md#release-announcement). A dedicated caller with
+see [Release Announcement](release.md#release-announcement). A dedicated caller with
 `on: release` is still required for Discord.
 
 ## Architecture
@@ -68,7 +68,7 @@ granularity — repository variables take precedence over organization variables
 natively in GitHub. The workflow reads `vars` in the context of the repository
 that triggered the run, so a per-repo value applies without touching the caller
 workflow. This also covers the announcement made by
-[`release.yml`](release-workflow.md#release-announcement), which calls this
+[`release.yml`](release.md#release-announcement), which calls this
 workflow internally.
 
 Two behaviors worth knowing before setting the variable:

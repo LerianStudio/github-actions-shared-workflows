@@ -314,9 +314,9 @@ Every caller must include `ready_for_review` so deferred validation runs on that
 
 ## Related Workflows
 
-- [Go CI](./go-ci-workflow.md) — Continuous integration testing
-- [Go Security](./go-security-workflow.md) — Security scanning
-- [PR Security Scan](./pr-security-scan-workflow.md) — Security scanning for PRs
+- [Go CI](./go-ci.md) — Continuous integration testing
+- [Go Security](./go-security.md) — Security scanning
+- [PR Security Scan](./pr-security-scan.md) — Security scanning for PRs
 
 ---
 

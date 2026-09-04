@@ -5,7 +5,7 @@
   </tr>
 </table>
 
-Reusable workflow that posts/updates the sticky coverage comment on a pull request when [`go-pr-analysis.yml`](go-pr-analysis-workflow.md)'s own inline "Post coverage comment" step couldn't write it — which happens for **fork PRs**: `pull_request` runs triggered from a fork always get a read-only `GITHUB_TOKEN` and no custom secrets, regardless of `permissions:` anywhere in the call chain. GitHub gives no way to elevate that from inside a `pull_request`-triggered `workflow_call` chain.
+Reusable workflow that posts/updates the sticky coverage comment on a pull request when [`go-pr-analysis.yml`](go-pr-analysis.md)'s own inline "Post coverage comment" step couldn't write it — which happens for **fork PRs**: `pull_request` runs triggered from a fork always get a read-only `GITHUB_TOKEN` and no custom secrets, regardless of `permissions:` anywhere in the call chain. GitHub gives no way to elevate that from inside a `pull_request`-triggered `workflow_call` chain.
 
 This workflow never checks out the PR's code — it only downloads the `coverage-report-*` artifacts the analysis run already produced, so a fork PR's untrusted code never runs with a write-scoped token.
 
