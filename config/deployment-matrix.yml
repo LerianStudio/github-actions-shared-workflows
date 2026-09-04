@@ -95,6 +95,7 @@ apps:
     - br-slc
     - br-ccs
     - br-sisbajud
+    - br-sfn
     - br-consignado-gw
     - streaming-hub
 
@@ -131,10 +132,10 @@ apps:
 # IS the app name — 31 of the 50 charts published across LerianStudio/helm and
 # LerianStudio/helm-internal resolve that way and need no entry here.
 #
-# The remaining 19 do not, and without this section they fail silently: the
-# resolver finds no app, warns, and exits green while nothing was updated. The
-# br-sfn chart is the clearest case — it drives four applications and matches
-# none of them by name.
+# The rest do not, and without this section they fail silently: the resolver
+# finds no app, warns, and exits green while nothing was updated.
+# plugin-br-pix-direct-jd is the clearest case — the chart delivers the
+# plugin-br-pix-jd application and matches nothing by its own name.
 #
 # Resolution order:
 #   1. charts.<name>.apps      -> use that list
@@ -146,14 +147,6 @@ apps:
 # `apps` and `ignored` are mutually exclusive. Every name under `apps` must
 # exist in apps.registry.
 charts:
-  # ---------- one chart, several applications ----------
-  br-sfn:
-    apps:
-      - br-sta
-      - br-slc
-      - br-ccs
-      - br-sisbajud
-
   # ---------- chart name differs from the app name ----------
   plugin-br-pix-direct-jd:
     apps:
@@ -288,6 +281,7 @@ clusters:
       - br-slc
       - br-ccs
       - br-sisbajud
+      - br-sfn
       - br-consignado-gw
       - mock-btg-server
       - backoffice-console

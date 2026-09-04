@@ -48,6 +48,33 @@ def load_matrix(path: Path) -> dict:
         return YAML(typ="safe").load(handle)
 
 
+def resolve_apps(matrix: dict, chart: str) -> tuple[list[str] | None, str | None]:
+    """Chart name -> the applications it delivers.
+
+    The chart namespace and the application namespace are not the same. Of the
+    charts published across helm and helm-internal most share a name with their
+    app, but br-sfn drives four applications and matches none of them, and
+    plugin-br-pix-direct-jd delivers plugin-br-pix-jd. Reading the chart name as
+    an app name silently resolved those to nothing.
+
+    Returns (apps, ignored_reason). apps is None when the chart is mapped
+    nowhere, which is an error rather than a quiet no-op: a chart nobody
+    declared must fail the release instead of reporting success having done
+    nothing.
+    """
+    entry = (matrix.get("charts") or {}).get(chart)
+    if isinstance(entry, dict):
+        if entry.get("ignored"):
+            return [], str(entry["ignored"])
+        if entry.get("apps"):
+            return list(entry["apps"]), None
+    if chart in ((matrix.get("apps") or {}).get("registry") or []):
+        # Identity: the common case, which is why the section only lists
+        # exceptions.
+        return [chart], None
+    return None, None
+
+
 def resolve_targets(matrix: dict, app: str, envs: list[str]) -> list[tuple[str, str]]:
     """Return (cluster, helmfile_env) for every target of the app."""
     targets = []
@@ -172,17 +199,26 @@ def main() -> int:
     envs = args.envs.split() if args.envs else CHANNEL_ENVS[channel]
 
     matrix = load_matrix(args.matrix)
-    if args.app not in ((matrix.get("apps") or {}).get("registry") or []):
-        print(
-            f"::warning::'{args.app}' is not in the deployment-matrix registry. "
-            "Nothing to do — add the app there if it should be deployed.",
-            file=sys.stderr,
-        )
-        print(json.dumps({"channel": channel, "envs": envs, "changed": [], "absent": []}))
+    apps, ignored = resolve_apps(matrix, args.app)
+
+    if ignored:
+        print(f"::notice::'{args.app}' is ignored by the deployment matrix: {ignored}")
+        print(json.dumps({"channel": channel, "envs": envs, "apps": [], "changed": []}))
         return 0
 
+    if apps is None:
+        print(
+            f"::error::'{args.app}' is mapped nowhere in the deployment matrix. "
+            "Add it to apps.registry, map it under charts.<name>.apps, or record "
+            "charts.<name>.ignored with a reason.",
+            file=sys.stderr,
+        )
+        return 1
+
     changed, absent, untouched = [], [], []
-    for cluster, helmfile_env in resolve_targets(matrix, args.app, envs):
+    for app, (cluster, helmfile_env) in (
+        (app, target) for app in apps for target in resolve_targets(matrix, app, envs)
+    ):
         path = (
             args.gitops_root
             / "environments"
@@ -190,7 +226,7 @@ def main() -> int:
             / "helmfile"
             / "applications"
             / helmfile_env
-            / args.app
+            / app
             / "helmfile.yaml"
         )
         relative = str(path.relative_to(args.gitops_root))
@@ -234,6 +270,7 @@ def main() -> int:
             {
                 "channel": channel,
                 "envs": envs,
+                "apps": apps,
                 "level": level,
                 "changed": changed,
                 "untouched": untouched,
