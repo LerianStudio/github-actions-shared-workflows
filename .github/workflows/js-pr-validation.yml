@@ -71,7 +71,7 @@ on:
       ignore_globs:
         description: 'Space-separated glob patterns treated as docs/meta; when only these change, the analysis and security pipelines are skipped.'
         type: string
-        default: '*.md docs/* .github/* LICENSE* .gitignore'
+        default: '*.md docs/* .github/* LICENSE* .gitignore .coderabbit.yml .coderabbit.yaml'
 
       # ----------------- PR metadata (pr-validation.yml) -----------------
       pr_title_types:
@@ -116,7 +116,7 @@ on:
       allowed_source_branches:
         description: 'Allowed source branches (pipe-separated, supports * prefix matching)'
         type: string
-        default: 'develop|release-candidate|hotfix/*'
+        default: 'hotfix/*|release-candidate'
       target_branches_for_source_check:
         description: 'Target branches that require source branch validation (pipe-separated)'
         type: string

@@ -53,7 +53,7 @@ Full behaviour — routing table, gates, inputs and outputs — is documented in
 
 | Secret | Purpose |
 |---|---|
-| `GITOPS_APP_ID` / `GITOPS_APP_PRIVATE_KEY` | GitHub App that writes to the GitOps repository |
+| `MANAGE_TOKEN` | Write access to the GitOps repository. The same secret `gitops-update.yml` uses for the image-tag path, so a caller already wired for one path is wired for both |
 | `LERIAN_CI_CD_USER_GPG_KEY` / `_PASSWORD` | Commit signing; the target ruleset requires signed commits |
 | `LERIAN_CI_CD_USER_NAME` / `_EMAIL` | Committer identity matching the GPG key |
 | `ARGOCD_TOKEN` | Only read when `enable_argocd_sync` is true; the server comes from the `ARGOCD_URL` variable |

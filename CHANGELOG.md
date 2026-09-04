@@ -1,5 +1,45 @@
 # Github-actions-shared-workflows Changelog
 
+## [1.66.0](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.66.0)
+
+Features:
+- Developed a reusable workflow for version bumping of charts. (@bedatty)
+- Added support for `app_extra_envs` to handle per-app environment exceptions. (@bedatty)
+- Opted `billing-worker` and `br-sisbajud` into `stg-mt` on beta. (@bedatty)
+- Implemented a mechanism to sync ArgoCD after a direct commit with an opt-out option. (@bedatty)
+- Mapped charts to applications in the deployment matrix. (@bedatty)
+- Gated release notifications by tag type. (@bedatty)
+
+Fixes:
+- Scoped `app_extra_envs` relational checks to resolved clusters. (@bedatty)
+- Rejected silently-ignored `app_extra_envs` entries at runtime. (@bedatty)
+- Enforced the full `app_extra_envs` contract at runtime. (@bedatty)
+- Ensured fast failure on malformed `app_extra_envs` and guarded environment names. (@bedatty)
+- Corrected deployment status of `go-boilerplate-ddd-fullstack` to reflect it as deployed, not a template. (@bedatty)
+- Aborted conflicted rebase before the fallback branch. (@bedatty)
+- Kept ignored paths parseable and notices in their own steps. (@bedatty)
+- Forwarded Slack opt-out to every nested notify job. (@bedatty)
+- Restricted semver grammar to ASCII digits. (@bedatty)
+- Tightened semver grammar and corrected a markdown table. (@bedatty)
+- Pinned executable scripts and stopped persisting the App token. (@bedatty)
+- Gated the caller-controlled gitops repository. (@bedatty)
+- Dropped accidentally committed bytecode. (@bedatty)
+- Satisfied `actionlint`, `shellcheck`, and corrected typos. (@bedatty)
+- Classified only well-formed pre-release tags for release notifications. (@bedatty)
+
+Improvements:
+- Renamed workflow documentation to match their workflow filenames. (@bedatty)
+- Corrected the Benedita variant tree documentation to match reality. (@bedatty)
+- Separated security path filters for validation. (@gandalf-at-lerian)
+- Bumped every environment, keeping the PR only as a fallback. (@bedatty)
+- Allowed stable releases to walk the whole ladder, with only major versions opening a PR. (@bedatty)
+- Rebuilt the chart update to align with repository conventions. (@bedatty)
+- Scoped an `actionlint` ignore for `job_workflow_sha`. (@bedatty)
+
+[Compare changes](https://github.com/LerianStudio/github-actions-shared-workflows/compare/v1.65.0...v1.66.0)
+
+---
+
 ## [1.65.0](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.65.0)
 
 Features:
