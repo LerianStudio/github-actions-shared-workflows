@@ -29,7 +29,7 @@ The `frontend-analysis`, `security` and `socket` pipelines each have a `*-gate` 
 | `run_frontend_analysis` | Run the frontend analysis pipeline | boolean | `true` |
 | `run_security` | Run the security scan pipeline | boolean | `true` |
 | `run_socket` | Run the Socket supply-chain pipeline | boolean | `true` |
-| `ignore_globs` | Space-separated globs treated as docs/meta for the change gate | string | `*.md docs/* .github/* LICENSE* .gitignore` |
+| `ignore_globs` | Space-separated globs treated as docs/meta for the change gate | string | `*.md docs/* .github/* LICENSE* .gitignore .coderabbit.yml .coderabbit.yaml` |
 | `pr_title_types` | Allowed commit types (pipe-separated) | string | `feat\|fix\|docs\|style\|refactor\|perf\|test\|chore\|ci\|build\|revert` |
 | `pr_title_scopes` | Allowed scopes (pipe-separated, empty = any) | string | `''` |
 | `require_scope` | Require scope in PR title | boolean | `false` |
@@ -37,7 +37,7 @@ The `frontend-analysis`, `security` and `socket` pipelines each have a `*-gate` 
 | `enable_slack_notification` | Send the validation verdict to Slack. Set to `false` in repos without `SLACK_WEBHOOK_URL` so the job is skipped entirely instead of running just to skip internally | boolean | `true` |
 | `labeler_config_path` | Path to labeler config | string | `.github/labeler.yml` |
 | `enforce_source_branches` | Enforce source branches into protected branches | boolean | `true` |
-| `allowed_source_branches` | Allowed source branches (pipe-separated, `*` prefix) | string | `develop\|release-candidate\|hotfix/*` |
+| `allowed_source_branches` | Allowed source branches (pipe-separated, `*` prefix) | string | `hotfix/*\|release-candidate` |
 | `target_branches_for_source_check` | Target branches requiring source validation | string | `main` |
 | `source_branch_rules` | Per-target source rules as JSON; overrides the two inputs above for the targets it lists | string | `''` |
 | `require_verified_commits` | Block the PR when any commit is unsigned or unverified | boolean | `true` |

@@ -19,7 +19,7 @@ A changed file "counts" unless it matches one of the `ignore-globs` patterns. If
 | Input | Description | Required | Default |
 |-------|-------------|----------|---------|
 | `github-token` | GitHub token for gh CLI access (read on contents and pull requests) | Yes | |
-| `ignore-globs` | Space-separated glob patterns treated as documentation/meta | No | `*.md docs/* .github/* LICENSE* .gitignore` |
+| `ignore-globs` | Space-separated glob patterns treated as documentation/meta | No | `*.md docs/* .github/* LICENSE* .gitignore .coderabbit.yml .coderabbit.yaml` |
 
 ## Outputs
 
@@ -41,7 +41,7 @@ jobs:
         uses: LerianStudio/github-actions-shared-workflows/src/config/non-doc-changes@v1
         with:
           github-token: ${{ github.token }}
-          ignore-globs: "*.md docs/* .github/* LICENSE* .gitignore"
+          ignore-globs: "*.md docs/* .github/* LICENSE* .gitignore .coderabbit.yml .coderabbit.yaml"
 ```
 
 ## Required permissions

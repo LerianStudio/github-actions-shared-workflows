@@ -14,7 +14,7 @@ On failure, upserts a single PR comment (identified by the `<!-- pr-source-branc
 | Input | Description | Required | Default |
 |-------|-------------|----------|---------|
 | `github-token` | GitHub token with pull-requests write permission | Yes | |
-| `allowed-branches` | Allowed source branches (pipe-separated, supports `*` wildcard) | No | `develop\|release-candidate\|hotfix/*` |
+| `allowed-branches` | Allowed source branches (pipe-separated, supports `*` wildcard) | No | `hotfix/*\|release-candidate` |
 | `target-branches` | Target branches that require validation (pipe-separated) | No | `main` |
 | `branch-rules` | Per-target rules as JSON. A listed target uses its own patterns and is validated even when `target-branches` omits it | No | `''` |
 | `dry-run` | When true, validate without upserting the failure comment | No | `false` |
