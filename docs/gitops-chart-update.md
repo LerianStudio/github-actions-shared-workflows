@@ -25,7 +25,7 @@ src/deploy/gitops-chart-update     ← the steps
 LerianStudio/<name>-gitops
 ```
 
-Full behaviour — routing table, gates, chart migrations, inputs and outputs — is documented in the composite: [`src/deploy/gitops-chart-update/README.md`](../src/deploy/gitops-chart-update/README.md).
+Full behaviour — routing table, gates, inputs and outputs — is documented in the composite: [`src/deploy/gitops-chart-update/README.md`](../src/deploy/gitops-chart-update/README.md).
 
 ## Inputs
 
@@ -36,7 +36,6 @@ Full behaviour — routing table, gates, chart migrations, inputs and outputs �
 | `chart_ref` | Full OCI reference | yes | — |
 | `gitops_repository` | Target repo; empty uses the `GITOPS_REPOSITORY` org variable | no | `''` |
 | `deployment_matrix_ref` | Ref to read the deployment matrix from | no | `main` |
-| `migrations_path` | Migration directory inside the chart package | no | `migrations` |
 | `envs` | Override the channel-derived env list | no | `''` |
 | `fail_on_orphan` | Fail on a key the chart dropped | no | `true` |
 | `dry_run` | Resolve and gate without delivering | no | `false` |
@@ -88,7 +87,7 @@ jobs:
 
 ## Testing a change
 
-`dry_run: true` resolves the targets, applies the migration in memory and runs both gates, then stops before the GPG import, the commit, the push and the pull request. It prints the resolved plan, the environments left alone because they are pinned to another channel, and the route it would have taken.
+`dry_run: true` resolves the targets and runs both gates, then stops before the GPG import, the commit, the push and the pull request. It prints the resolved plan, the environments left alone because they are pinned to another channel, and the route it would have taken.
 
 ```yaml
 uses: LerianStudio/github-actions-shared-workflows/.github/workflows/gitops-chart-update.yml@develop

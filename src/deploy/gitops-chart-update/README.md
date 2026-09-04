@@ -25,10 +25,9 @@ Only releases whose `chart:` matches `chart-ref` **exactly** are touched. That i
 | `git-user-name` | Committer name matching the CI GPG identity | yes | — |
 | `git-user-email` | Committer email matching the CI GPG identity | yes | — |
 | `deployment-matrix-ref` | Ref to read `config/deployment-matrix.yml` from | no | `main` |
-| `migrations-path` | Migration directory inside the chart package; empty disables it | no | `migrations` |
 | `target-envs` | Space-separated env list overriding the channel-derived one | no | `''` |
 | `fail-on-orphan` | Fail when an environment sets a key the chart dropped | no | `true` |
-| `dry-run` | Resolve, migrate and gate, then stop | no | `false` |
+| `dry-run` | Resolve and run both gates, then stop | no | `false` |
 | `enable-argocd-sync` | Sync the affected applications and wait for healthy after a direct commit | no | `true` |
 | `argocd-url` | ArgoCD server; required when the sync is enabled | no | `''` |
 | `argocd-token` | ArgoCD auth token; required when the sync is enabled | no | `''` |
@@ -87,25 +86,21 @@ Environments drift apart, so the level is aggregated rather than read off one en
 
 ## Gates
 
-Both run before anything is delivered, and both run on a dry run too.
+Both run before anything is delivered, and both run on a dry run too. **They detect and stop — they never repair.**
 
 **Render** — `helmfile lint` and `helmfile template` on every changed file, against the mutated tree.
 
 **Orphan keys** — a key set in an environment that no longer exists in the chart. This matters because the charts' `values.schema.json` is permissive (midaz has 106 `additionalProperties: true` against 2 `false`), so `helm template` accepts a key the chart dropped and the deploy silently falls back to the chart default — including for the image pin written by the image-tag path.
 
-## Chart migrations
+### Why breaking is the point
 
-A chart can ship `migrations/<version>.yaml` describing what an upgrade does to consumer values:
+A chart that adds a required key, renames one or drops one **fails the bump**. Nothing is rewritten to make it pass.
 
-```yaml
-version: 9.0.0
-ops:
-  - { op: rename, from: .ledger.image.tag, to: .midaz.ledger.image.tag }
-  - { op: remove, path: .tracer }
-  - { op: require, path: .midaz.database.host }
-```
+That is deliberate. This GitOps repository is the internal tier, and its job is to surface what an upgrade demands before the same chart reaches an external client. Repairing values automatically here would hide exactly the signal the tier exists to produce: the work would not disappear, it would reappear downstream with nobody warned.
 
-`rename` and `remove` are applied to the environment values. `require` changes nothing and fails the run when the key is absent, because the new chart will not come up without it. Whoever broke the interface knows the mapping, so the migration travels with the chart.
+So the failure is the deliverable. Someone reads it, updates the values by hand, and now knows precisely what the upgrade note for external consumers has to say.
+
+An earlier revision of this composite applied chart-declared migrations (`rename`, `remove`, `require`) to make bumps pass unattended. It was removed for the reason above.
 
 ## Usage as a composite step
 

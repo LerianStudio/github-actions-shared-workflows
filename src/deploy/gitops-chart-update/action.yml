@@ -33,10 +33,6 @@ inputs:
     description: Ref of this repository to read `config/deployment-matrix.yml` from
     required: false
     default: 'main'
-  migrations-path:
-    description: Migration directory inside the chart package. Empty disables the step
-    required: false
-    default: 'migrations'
   target-envs:
     description: Space-separated env list overriding the channel-derived one (e.g. `dev stg`)
     required: false
@@ -46,7 +42,7 @@ inputs:
     required: false
     default: 'true'
   dry-run:
-    description: Resolve, migrate and gate, then stop. No commit, push or pull request
+    description: Resolve and run both gates, then stop. No commit, push or pull request
     required: false
     default: 'false'
   enable-argocd-sync:
@@ -143,8 +139,8 @@ runs:
       shell: bash
       run: pip install --quiet ruamel.yaml pyyaml
 
-    # migrations/<version>.yaml and values.yaml travel inside the chart package,
-    # so there is no need to clone the chart repository.
+    # The chart's own values.yaml is what the orphan gate compares against, and
+    # it travels inside the package — no need to clone the chart repository.
     - name: Pull the chart
       id: chart
       shell: bash
@@ -159,7 +155,7 @@ runs:
         helm pull "$CHART_REF" --version "$CHART_VERSION" --untar --untardir chart
         echo "dir=$(find chart -maxdepth 1 -mindepth 1 -type d | head -1)" >> "$GITHUB_OUTPUT"
 
-    # ----------------- Bump & Migrate -----------------
+    # ----------------- Bump -----------------
     - name: Bump the pinned version
       id: bump
       shell: bash
@@ -172,8 +168,8 @@ runs:
       run: |
         set -euo pipefail
         # No --dry-run even on a dry run: this checkout is throwaway and nothing
-        # is pushed. If the scripts did not write, the gates below would validate
-        # the OLD helmfile and UNMIGRATED values — a green dry run proving nothing.
+        # is pushed. If the script did not write, the gates below would validate the
+        # OLD helmfile — a green dry run proving nothing.
         python "${GITHUB_ACTION_PATH}/chart_bump.py" \
           --matrix matrix/config/deployment-matrix.yml \
           --gitops-root gitops \
@@ -196,25 +192,19 @@ runs:
           done
         fi
 
-    - name: Apply the chart migration
-      if: steps.bump.outputs.count != '0' && inputs.migrations-path != ''
-      shell: bash
-      env:
-        CHART_DIR: ${{ steps.chart.outputs.dir }}
-        MIGRATIONS_PATH: ${{ inputs.migrations-path }}
-        CHART_VERSION: ${{ inputs.chart-version }}
-        DRY_RUN: ${{ inputs.dry-run }}
-      run: |
-        set -euo pipefail
-        migration="${CHART_DIR}/${MIGRATIONS_PATH}/${CHART_VERSION}.yaml"
-        if [[ ! -f "$migration" ]]; then
-          [ "$DRY_RUN" = "true" ] && echo "::notice::no $migration — plain bump, no migration declared"
-          exit 0
-        fi
-        mapfile -t files < values-files.txt
-        python "${GITHUB_ACTION_PATH}/apply_chart_migration.py" --migration "$migration" --values "${files[@]}"
-
     # ----------------- Gates -----------------
+    # These detect and stop. They deliberately do not repair.
+    #
+    # An earlier version applied chart-declared migrations, rewriting values to
+    # match a renamed or removed key. That was removed on purpose: this repository
+    # is the internal tier, and its job is to surface what an upgrade demands
+    # before the same chart reaches an external client. Auto-repairing here
+    # would hide the very signal the tier exists to produce, and the work would
+    # simply reappear downstream with nobody warned.
+    #
+    # So a chart that adds a required key, renames one, or drops one breaks the
+    # bump. Someone reads the failure, updates the values by hand, and now knows
+    # exactly what the upgrade note for external consumers has to say.
     - name: Render every changed helmfile
       if: steps.bump.outputs.count != '0'
       shell: bash

@@ -5,7 +5,7 @@ The safety net that depends on nobody remembering anything. The charts'
 values.schema.json is permissive — midaz has 106 `additionalProperties: true`
 against 2 `false` — so `helm template` happily accepts a key the chart no longer
 knows and the deploy comes up on the default. This check needs neither the schema
-nor the chart author having written a migration.
+nor any repair step ahead of it.
 
 It compares the leaf keys of the environment values.yaml against those of the
 chart values.yaml. Keys present in the environment and absent from the chart are
