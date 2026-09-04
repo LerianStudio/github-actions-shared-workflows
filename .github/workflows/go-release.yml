@@ -353,7 +353,7 @@ on:
       ungoliant_skip_globs:
         description: 'Space-separated glob patterns. When every changed file matches one, Ungoliant is never contacted. Default skips CI/workflow-only releases.'
         type: string
-        default: '.releaserc.yml .github/*'
+        default: '.releaserc.yml .github/* .coderabbit.yml .coderabbit.yaml'
 
       # ----------------- Shared -----------------
       shared_paths:

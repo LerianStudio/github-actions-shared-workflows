@@ -66,7 +66,7 @@ inputs:
   skip-globs:
     description: 'Space-separated glob patterns. When every file in the diff matches one of these, the release is CI/meta-only and the controller is never contacted. Empty disables the check.'
     required: false
-    default: ".releaserc.yml .github/*"
+    default: ".releaserc.yml .github/* .coderabbit.yml .coderabbit.yaml"
   curl-timeout:
     description: >-
       Timeout for the webhook POST in seconds. This is the OUTERMOST budget in
