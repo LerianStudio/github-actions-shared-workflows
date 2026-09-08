@@ -47,6 +47,12 @@ Composite action that detects changed files between commits and outputs a matrix
 | `matrix` | JSON array of changed directories (or objects with `name` and `working_dir`) |
 | `has_changes` | `'true'` or `'false'` indicating if changes were detected |
 
+### Deleted directories
+
+A directory that no longer exists in the tree is left out of `matrix`. Deleting a whole component would otherwise put its path there, and a consumer would act on something that is gone — a release job `cd`s into it and fails.
+
+The filter is on the **directory**, not on the diff. Deleting a single file inside a directory that still exists keeps that directory in the matrix: it is a real change to a component that is still there, and it should still build.
+
 ## Usage as composite step
 
 ```yaml

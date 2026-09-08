@@ -305,6 +305,30 @@ runs:
           DIRS=$(echo "$KEPT" | grep -v '^$')
         fi
 
+        # Drop directories that no longer exist in the tree.
+        #
+        # The diff lists deleted files alongside changed ones, so removing a
+        # whole component leaves its directory here and consumers then act on a
+        # path that is gone. LerianStudio/helm hit exactly this when a chart was
+        # deleted: the release job took the directory from the matrix and died
+        # on "could not find charts/<name>: no such file or directory", turning
+        # a clean removal into a red main.
+        #
+        # Deliberately not --diff-filter=d on the diff itself. That would also
+        # discard deletions of individual files *inside* a directory that still
+        # exists, so removing one template from a chart would stop producing a
+        # release for that chart - a loud failure traded for a silent miss.
+        PRESENT=""
+        while read -r DIR; do
+          [[ -z "$DIR" ]] && continue
+          if [[ -d "$DIR" ]]; then
+            PRESENT+="$DIR"$'\n'
+          else
+            echo "Skipping $DIR - deleted in this change."
+          fi
+        done <<< "$DIRS"
+        DIRS=$(printf '%s' "$PRESENT" | grep -v '^$' || true)
+
         # Check if we have any directories
         if [[ -z "$DIRS" ]]; then
           echo "No directories found."
