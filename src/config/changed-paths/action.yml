@@ -318,13 +318,20 @@ runs:
         # discard deletions of individual files *inside* a directory that still
         # exists, so removing one template from a chart would stop producing a
         # release for that chart - a loud failure traded for a silent miss.
+        #
+        # git ls-tree rather than [[ -d ]]: the test has to answer "is this a
+        # directory in what was committed", and only git can. [[ -d ]] follows
+        # symlinks, so a component directory replaced by a symlink pointing
+        # outside the checkout would pass and be handed to a consumer as a
+        # working-directory. Git records that as a blob (mode 120000), never a
+        # tree, so -d rejects it.
         PRESENT=""
         while read -r DIR; do
           [[ -z "$DIR" ]] && continue
-          if [[ -d "$DIR" ]]; then
+          if git ls-tree -d --name-only HEAD -- "$DIR" | grep -q .; then
             PRESENT+="$DIR"$'\n'
           else
-            echo "Skipping $DIR - deleted in this change."
+            echo "Skipping $DIR - not a directory in HEAD (deleted, or not a real tree)."
           fi
         done <<< "$DIRS"
         DIRS=$(printf '%s' "$PRESENT" | grep -v '^$' || true)

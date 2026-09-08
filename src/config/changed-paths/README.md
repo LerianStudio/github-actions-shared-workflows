@@ -53,6 +53,8 @@ A directory that no longer exists in the tree is left out of `matrix`. Deleting 
 
 The filter is on the **directory**, not on the diff. Deleting a single file inside a directory that still exists keeps that directory in the matrix: it is a real change to a component that is still there, and it should still build.
 
+The check asks git (`git ls-tree -d HEAD`), not the filesystem. A shell `-d` test follows symlinks, so a component directory replaced by a symlink pointing outside the checkout would pass it and be handed to a consumer as a `working-directory`. Git records a symlink as a blob, never a tree, so it is rejected.
+
 ## Usage as composite step
 
 ```yaml
