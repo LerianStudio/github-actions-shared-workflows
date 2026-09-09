@@ -285,6 +285,56 @@ class CommitSignatureValidation(unittest.TestCase):
         self.assertTrue(record["failed"])
         self.assertIn("pull_request", record["failedMessage"])
 
+    # (i) A clean run reports no findings and states the verdict was complete.
+    def test_clean_run_has_no_findings_and_is_complete(self):
+        record = run_script([commit(i, True) for i in range(1, 4)])
+        self.assertEqual(record["outputs"]["findings-markdown"], "")
+        self.assertEqual(record["outputs"]["evaluation-complete"], "true")
+
+    # (j) findings-markdown carries every offender as a clickable commit link, so the
+    # detail can be embedded in the PR comment instead of hiding in the job summary.
+    def test_findings_markdown_links_every_offender(self):
+        commits = [
+            commit(1, True),
+            commit(2, False, "unsigned", login="alice"),
+            commit(3, False, "unknown_key", login="bob"),
+        ]
+        findings = run_script(commits)["outputs"]["findings-markdown"]
+        for index, login, reason in ((2, "alice", "unsigned"), (3, "bob", "unknown_key")):
+            sha = f"{index:040x}"
+            # Markdown link: short sha as the label, full commit URL as the target.
+            self.assertIn(f"[`{sha[:7]}`](https://github.com/LerianStudio/example/commit/{sha})", findings)
+            self.assertIn(login, findings)
+            self.assertIn(reason, findings)
+        self.assertIn("2 unsigned or unverified commits", findings)
+        self.assertIn("How to fix", findings)
+
+    # (k) Singular wording when exactly one commit offends.
+    def test_findings_markdown_uses_singular_for_one_offender(self):
+        findings = run_script([commit(1, False, "unsigned")])["outputs"]["findings-markdown"]
+        self.assertIn("1 unsigned or unverified commit**", findings)
+
+    # (l) A comment must stay readable: rows are capped and the overflow is stated,
+    # while the job summary keeps the complete list.
+    def test_findings_markdown_caps_rows_and_says_so(self):
+        commits = [commit(i, False, "unsigned") for i in range(1, 31)]
+        record = run_script(commits)
+        findings = record["outputs"]["findings-markdown"]
+        self.assertEqual(record["outputs"]["unverified-count"], "30")
+        self.assertEqual(findings.count("| [`"), 20)
+        self.assertIn("Showing the first 20 of 30", findings)
+        # The summary is the complete record, so it holds all thirty.
+        self.assertEqual(record["summary"].count("| [`"), 30)
+
+    # (m) On truncation the findings explain the API cap rather than only reporting a
+    # count, and evaluation-complete says the verdict is partial.
+    def test_findings_markdown_explains_truncation(self):
+        record = run_script([commit(i, True) for i in range(1, 320)], declared=319)
+        findings = record["outputs"]["findings-markdown"]
+        self.assertEqual(record["outputs"]["evaluation-complete"], "false")
+        self.assertIn("declares 319 commits", findings)
+        self.assertIn("cap a pull request at 250", findings)
+
 
 if __name__ == "__main__":
     unittest.main()

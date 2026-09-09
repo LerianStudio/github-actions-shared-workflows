@@ -22,6 +22,17 @@ outputs:
       Whether the check failed (true/false). True when any commit is unverified or when the
       verdict could not cover every commit, which unverified-count alone does not express.
     value: ${{ steps.verify.outputs.has-signature-failures }}
+  evaluation-complete:
+    description: >-
+      Whether the verdict covered every commit in the pull request (true/false). False when the
+      Pull Request Commits API cap hid part of the range, which has-signature-failures folds in
+      and therefore cannot express on its own.
+    value: ${{ steps.verify.outputs.evaluation-complete }}
+  findings-markdown:
+    description: >-
+      Rendered Markdown detailing the offending commits, each linked to its commit page, ready to
+      embed in a pull request comment. Empty when there is nothing to report.
+    value: ${{ steps.verify.outputs.findings-markdown }}
 
 runs:
   using: composite
@@ -68,6 +79,8 @@ runs:
           core.setOutput('total-commits', String(commits.length));
           core.setOutput('unverified-count', String(offenders.length));
           core.setOutput('has-signature-failures', String(offenders.length > 0 || truncated));
+          core.setOutput('evaluation-complete', String(!truncated));
+
 
           const remediation = [
             '### How to fix',
@@ -87,6 +100,41 @@ runs:
             '',
             'Docs: https://docs.github.com/en/authentication/managing-commit-signature-verification',
           ].join('\n');
+
+          // Detail for the pull request comment. The step summary lives inside the job, so a
+          // contributor has to know to go looking for it; the offending commits belong where the
+          // verdict is read. Rows are capped because a comment listing hundreds of commits is
+          // unreadable and the summary already carries the full list.
+          const COMMENT_ROW_LIMIT = 20;
+          const findingRow = (o) =>
+            `| [\`${o.short}\`](${o.url}) | ${o.author} | \`${o.reason}\` |`;
+
+          const findings = [];
+          if (offenders.length > 0) {
+            findings.push(
+              `**${offenders.length} unsigned or unverified commit${offenders.length === 1 ? '' : 's'}**`,
+              '',
+              '| Commit | Author | Reason |',
+              '|--------|--------|--------|',
+              ...offenders.slice(0, COMMENT_ROW_LIMIT).map(findingRow),
+            );
+            if (offenders.length > COMMENT_ROW_LIMIT) {
+              findings.push(
+                '',
+                `<sub>Showing the first ${COMMENT_ROW_LIMIT} of ${offenders.length}. The job summary lists every one.</sub>`,
+              );
+            }
+            findings.push('', remediation);
+          }
+          if (truncated) {
+            findings.push(
+              '',
+              `> This pull request declares ${declared} commits and the API returned ${commits.length}.`,
+              '> Both the REST and GraphQL commit APIs cap a pull request at 250 commits, so the',
+              '> verdict above covers the most recent 250 and cannot speak for the rest.',
+            );
+          }
+          core.setOutput('findings-markdown', findings.join('\n'));
 
           const lines = [`## Commit Signature Validation`, ''];
 
