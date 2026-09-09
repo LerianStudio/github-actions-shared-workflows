@@ -180,6 +180,12 @@ runs:
         count=$(jq '.changed | length' bump.json)
         {
           echo "count=$count"
+          # What the sync has to confirm: what we just changed, plus what was
+          # already on the target version. The second half is what lets a run
+          # recover after an earlier attempt wrote the pin and then failed
+          # before it could sync — otherwise a retry finds nothing changed,
+          # skips the sync, and reports success over an unconfirmed cluster.
+          echo "sync-count=$(jq '(.changed | length) + (.current | length)' bump.json)"
           echo "level=$(jq -r '.level' bump.json)"
           [ "$count" = "0" ] && echo "has-changes=false" || echo "has-changes=true"
         } >> "$GITHUB_OUTPUT"
@@ -322,9 +328,13 @@ runs:
     # Only after a direct commit: the pull request path has applied nothing yet.
     - name: Sync the affected ArgoCD applications
       id: sync
+      # Not gated on something having changed. route is empty when there was
+      # nothing to commit, and 'pr' only when the change is still waiting for
+      # review — that is the one case where the cluster should not be synced,
+      # because nothing has been applied.
       if: >-
-        steps.bump.outputs.count != '0' &&
-        steps.deliver.outputs.route == 'commit' &&
+        steps.bump.outputs.sync-count != '0' &&
+        steps.deliver.outputs.route != 'pr' &&
         inputs.dry-run != 'true' &&
         inputs.enable-argocd-sync == 'true'
       shell: bash
@@ -370,7 +380,7 @@ runs:
             failed=1
           fi
           echo "::endgroup::"
-        done < <(jq -r '.changed[].file' bump.json)
+        done < <(jq -r '.changed[].file, .current[]?' bump.json)
 
         if [ "$failed" != "0" ]; then
           echo "synced=false" >> "$GITHUB_OUTPUT"

@@ -19,6 +19,10 @@ on:
         description: 'Optional runner override for the Tests jobs only. Empty = vars.GENERAL_RUNNERS, then runner_type.'
         type: string
         default: ''
+      integration_test_runner_type:
+        description: 'Optional runner override for the Integration Tests jobs only. Empty = vars.GENERAL_RUNNERS, then runner_type.'
+        type: string
+        default: ''
       coverage_runner_type:
         description: 'Optional runner override for the Coverage jobs only. Empty = vars.GENERAL_RUNNERS, then runner_type.'
         type: string
@@ -916,7 +920,7 @@ jobs:
     name: Integration Tests (${{ matrix.app.name }})
     needs: detect-changes
     if: needs.detect-changes.outputs.has_changes == 'true' && inputs.enable_integration_tests
-    runs-on: ${{ vars.GENERAL_RUNNERS || inputs.runner_type }}
+    runs-on: ${{ inputs.integration_test_runner_type || vars.GENERAL_RUNNERS || inputs.runner_type }}
     strategy:
       fail-fast: false
       matrix:
