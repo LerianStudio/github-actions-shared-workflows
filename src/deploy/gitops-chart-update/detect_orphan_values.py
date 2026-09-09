@@ -58,6 +58,34 @@ def load(path: Path):
         return yaml.safe_load(handle) or {}
 
 
+def open_paths(node, prefix: str = "") -> set[str]:
+    """Paths the chart declares as an open extension point.
+
+    An empty map means "fill this in" — the Lerian mask pattern, where a chart
+    declares `global: {datastores: {}}` and the environment supplies the
+    contents. A free-form subtree is the same promise by name.
+
+    Kept apart from the leaf set on purpose. A scalar leaf and an empty map are
+    indistinguishable once flattened, and treating both as extensible would
+    accept `image.tag` against a chart whose `image` is the string `nginx` —
+    a subtree the chart cannot read, which is exactly what this check is for.
+    """
+    found = set()
+    if not isinstance(node, dict):
+        return found
+    for key, value in node.items():
+        path = f"{prefix}.{key}" if prefix else str(key)
+        if key in FREE_FORM:
+            found.add(path)
+            continue
+        if isinstance(value, dict):
+            if value:
+                found |= open_paths(value, path)
+            else:
+                found.add(path)
+    return found
+
+
 def ancestors(key: str) -> set[str]:
     """Every proper ancestor path of a dotted key.
 
@@ -79,22 +107,27 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    chart_keys = leaves(load(args.chart_values))
+    chart_values = load(args.chart_values)
+    chart_keys = leaves(chart_values)
+    chart_open = open_paths(chart_values)
 
     report, orphan_total = [], 0
     for env_path in args.env_values:
         if not env_path.is_file():
             continue
-        # An environment key is accepted when it, or any ancestor of it, is a
-        # leaf in the chart. The ancestor case is what makes the Lerian mask
-        # pattern work: a chart declares `global: {datastores: {}}` as an open
-        # extension point and the environment fills it in, so
+        # An environment key is accepted when the chart names it exactly, or
+        # when it sits under a path the chart left open. The second case is what
+        # makes the Lerian mask pattern work: a chart declares
+        # `global: {datastores: {}}` and the environment fills it in, so
         # global.datastores.postgres.host is legitimate even though the chart
         # never names it.
+        #
+        # Only open paths grant that, never any leaf: `image: nginx` must not
+        # absorb `image.tag`, which the chart cannot read.
         orphans = sorted(
             key
             for key in leaves(load(env_path))
-            if key not in chart_keys and not (ancestors(key) & chart_keys)
+            if key not in chart_keys and not (ancestors(key) & chart_open)
         )
         orphan_total += len(orphans)
         report.append({"file": str(env_path), "orphans": orphans})
