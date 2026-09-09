@@ -22,6 +22,17 @@ outputs:
       Whether the check failed (true/false). True when any commit is unverified or when the
       verdict could not cover every commit, which unverified-count alone does not express.
     value: ${{ steps.verify.outputs.has-signature-failures }}
+  evaluation-complete:
+    description: >-
+      Whether the verdict covered every commit in the pull request (true/false). False when the
+      Pull Request Commits API cap hid part of the range, which has-signature-failures folds in
+      and therefore cannot express on its own.
+    value: ${{ steps.verify.outputs.evaluation-complete }}
+  findings-markdown:
+    description: >-
+      Rendered Markdown detailing the offending commits, each linked to its commit page, ready to
+      embed in a pull request comment. Empty when there is nothing to report.
+    value: ${{ steps.verify.outputs.findings-markdown }}
 
 runs:
   using: composite
@@ -55,19 +66,41 @@ runs:
           const declared = typeof pr.commits === 'number' ? pr.commits : commits.length;
           const truncated = commits.length < declared;
 
+          // A commit that GitHub could not link to an account falls back to the name in the
+          // commit object, which is whatever the pusher set in `git config user.name` — it is
+          // author-controlled text. It reaches a Markdown table inside a comment that reads as
+          // coming from CI, and a log annotation, so collapse it to one line at the source
+          // (a newline forges extra annotation lines) and escape it at every Markdown sink.
+          const oneLine = (value) => String(value ?? '').replace(/\s+/g, ' ').trim() || 'unknown';
+
+          // Markdown table cell: `|` ends the cell, `[`/`]` open a link, `<` opens raw HTML,
+          // backtick opens a code span. Backslash-escape the Markdown actives (escaping the
+          // backslash itself first) and entity-encode the HTML ones.
+          const cell = (value) =>
+            oneLine(value)
+              .replace(/[<>]/g, (ch) => (ch === '<' ? '&lt;' : '&gt;'))
+              .replace(/([\\`|*_[\]])/g, '\\$1');
+
+          // The verification reason is a GitHub enum (unsigned, unknown_key, expired_key, ...),
+          // so anything outside that alphabet is not a value this renders — drop it rather than
+          // escape it, since it sits inside a code span where backslashes do not escape.
+          const enumValue = (value) => oneLine(value).replace(/[^A-Za-z0-9_.-]/g, '') || 'unknown';
+
           const offenders = commits
             .filter(c => c.commit?.verification?.verified !== true)
             .map(c => ({
               sha: c.sha,
               short: c.sha.slice(0, 7),
               url: c.html_url,
-              author: c.author?.login || c.commit?.author?.name || 'unknown',
-              reason: c.commit?.verification?.reason || 'unknown',
+              author: oneLine(c.author?.login || c.commit?.author?.name),
+              reason: enumValue(c.commit?.verification?.reason),
             }));
 
           core.setOutput('total-commits', String(commits.length));
           core.setOutput('unverified-count', String(offenders.length));
           core.setOutput('has-signature-failures', String(offenders.length > 0 || truncated));
+          core.setOutput('evaluation-complete', String(!truncated));
+
 
           const remediation = [
             '### How to fix',
@@ -87,6 +120,41 @@ runs:
             '',
             'Docs: https://docs.github.com/en/authentication/managing-commit-signature-verification',
           ].join('\n');
+
+          // Detail for the pull request comment. The step summary lives inside the job, so a
+          // contributor has to know to go looking for it; the offending commits belong where the
+          // verdict is read. Rows are capped because a comment listing hundreds of commits is
+          // unreadable and the summary already carries the full list.
+          const COMMENT_ROW_LIMIT = 20;
+          const findingRow = (o) =>
+            `| [\`${o.short}\`](${o.url}) | ${cell(o.author)} | \`${o.reason}\` |`;
+
+          const findings = [];
+          if (offenders.length > 0) {
+            findings.push(
+              `**${offenders.length} unsigned or unverified commit${offenders.length === 1 ? '' : 's'}**`,
+              '',
+              '| Commit | Author | Reason |',
+              '|--------|--------|--------|',
+              ...offenders.slice(0, COMMENT_ROW_LIMIT).map(findingRow),
+            );
+            if (offenders.length > COMMENT_ROW_LIMIT) {
+              findings.push(
+                '',
+                `<sub>Showing the first ${COMMENT_ROW_LIMIT} of ${offenders.length}. The job summary lists every one.</sub>`,
+              );
+            }
+            findings.push('', remediation);
+          }
+          if (truncated) {
+            findings.push(
+              '',
+              `> This pull request declares ${declared} commits and the API returned ${commits.length}.`,
+              '> Both the REST and GraphQL commit APIs cap a pull request at 250 commits, so the',
+              '> verdict above covers the most recent 250 and cannot speak for the rest.',
+            );
+          }
+          core.setOutput('findings-markdown', findings.join('\n'));
 
           const lines = [`## Commit Signature Validation`, ''];
 
@@ -111,7 +179,7 @@ runs:
               '',
               '| Commit | Author | Status | Reason |',
               '|--------|--------|--------|--------|',
-              ...offenders.map(o => `| [\`${o.short}\`](${o.url}) | ${o.author} | ❌ unverified | \`${o.reason}\` |`),
+              ...offenders.map(o => `| [\`${o.short}\`](${o.url}) | ${cell(o.author)} | ❌ unverified | \`${o.reason}\` |`),
               '',
               remediation,
             );
