@@ -141,8 +141,15 @@ def transition_level(previous: str, target: str) -> str:
     return "none"
 
 
-def bump_file(path: Path, chart_ref: str, version: str, dry_run: bool) -> list[str]:
-    """Update every release matching chart_ref. Returns each previous version.
+def bump_file(
+    path: Path, chart_ref: str, version: str, dry_run: bool
+) -> tuple[list[str], bool]:
+    """Update every release matching chart_ref.
+
+    Returns (previous versions, whether any release referenced this chart).
+    The second value separates "already on the target version" from "this file
+    is not about this chart at all" — both leave nothing to write, but only the
+    first is a target the caller still has to confirm in the cluster.
 
     A file may hold more than one release on the same chart, and they can sit on
     different pins. Returning only the first would let a 1.1.0 -> 2.10.0 jump be
@@ -153,6 +160,7 @@ def bump_file(path: Path, chart_ref: str, version: str, dry_run: bool) -> list[s
         documents = list(yaml.load_all(handle))
 
     previous_versions = []
+    matched = False
     for document in documents:
         if not isinstance(document, dict):
             continue
@@ -161,6 +169,7 @@ def bump_file(path: Path, chart_ref: str, version: str, dry_run: bool) -> list[s
                 continue
             if release.get("chart") != chart_ref:
                 continue
+            matched = True
             current = str(release.get("version", ""))
             if current == version:
                 continue
@@ -168,11 +177,11 @@ def bump_file(path: Path, chart_ref: str, version: str, dry_run: bool) -> list[s
             release["version"] = version
 
     if not previous_versions or dry_run:
-        return previous_versions
+        return previous_versions, matched
 
     with path.open("w") as handle:
         yaml.dump_all(documents, handle)
-    return previous_versions
+    return previous_versions, matched
 
 
 def main() -> int:
@@ -218,6 +227,7 @@ def main() -> int:
                     "apps": [],
                     "level": "none",
                     "changed": [],
+                    "current": [],
                     "untouched": [],
                     "absent": [],
                 }
@@ -234,7 +244,7 @@ def main() -> int:
         )
         return 1
 
-    changed, absent, untouched = [], [], []
+    changed, absent, untouched, current = [], [], [], []
     for app, (cluster, helmfile_env) in (
         (app, target) for app in apps for target in resolve_targets(matrix, app, envs)
     ):
@@ -255,11 +265,20 @@ def main() -> int:
             absent.append(relative)
             continue
 
-        previous_versions = bump_file(path, args.chart_ref, args.version, args.dry_run)
+        previous_versions, matched = bump_file(
+            path, args.chart_ref, args.version, args.dry_run
+        )
         if not previous_versions:
-            # chart_ref did not match (e.g. the environment sits on an alpha/
-            # repository) or it was already on the target version.
-            untouched.append(relative)
+            if matched:
+                # Already on the target version. Nothing to write, but still a
+                # place this chart runs, so the caller can confirm the cluster
+                # is actually on it — which matters when an earlier attempt
+                # wrote the pin and then failed before the sync.
+                current.append(relative)
+            else:
+                # chart_ref did not match: the environment sits on another OCI
+                # repository, typically an alpha/ channel. Not ours to touch.
+                untouched.append(relative)
             continue
         # Most restrictive transition within this file wins, and `from` reports
         # the pin that produced it — not whichever release came first.
@@ -291,6 +310,7 @@ def main() -> int:
                 "apps": apps,
                 "level": level,
                 "changed": changed,
+                "current": current,
                 "untouched": untouched,
                 "absent": absent,
             },
