@@ -36,6 +36,12 @@ yaml.preserve_quotes = True
 # Helmfiles use indented sequences; without this ruamel rewrites the whole file
 # in a different style and the diff becomes unreadable.
 yaml.indent(mapping=2, sequence=4, offset=2)
+# ruamel folds at 80 columns by default, which rewrites long lines it was never
+# asked to touch. A real bump did exactly that to an AVP secret reference,
+# splitting it across two lines and leaving a trailing space after the colon:
+# valid YAML and the same value, but noise in a diff that should show one
+# version change.
+yaml.width = 4096
 
 
 def load_matrix(path: Path) -> dict:
