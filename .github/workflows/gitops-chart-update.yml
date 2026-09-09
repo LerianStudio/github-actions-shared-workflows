@@ -81,7 +81,12 @@ permissions:
 
 jobs:
   chart_update:
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    # GITOPS_RUNNERS, not the general pool: the ArgoCD this syncs against
+    # resolves to a private address (10.123.10.12) on the on-prem cluster,
+    # which a hosted runner cannot reach — the sync times out after the
+    # commit has already landed. gitops-update.yml resolves its runner the
+    # same way for the same reason.
+    runs-on: ${{ vars.GITOPS_RUNNERS || 'blacksmith-4vcpu-ubuntu-2404' }}
     outputs:
       has_changes: ${{ steps.update.outputs.has-changes }}
       level: ${{ steps.update.outputs.level }}
