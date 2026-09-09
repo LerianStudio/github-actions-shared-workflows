@@ -13,7 +13,9 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 WORKFLOW_PATH = REPO_ROOT / ".github" / "workflows" / "pr-validation.yml"
 SELF_WORKFLOW_PATH = REPO_ROOT / ".github" / "workflows" / "self-pr-validation.yml"
 GO_WORKFLOW_PATH = REPO_ROOT / ".github" / "workflows" / "go-pr-validation.yml"
+GO_ANALYSIS_PATH = REPO_ROOT / ".github" / "workflows" / "go-pr-analysis.yml"
 JS_WORKFLOW_PATH = REPO_ROOT / ".github" / "workflows" / "js-pr-validation.yml"
+FRONTEND_ANALYSIS_PATH = REPO_ROOT / ".github" / "workflows" / "frontend-pr-analysis.yml"
 REPORTER_PATH = REPO_ROOT / "src" / "notify" / "pr-validation-reporter" / "action.yml"
 SUMMARY_PATH = REPO_ROOT / "src" / "validate" / "pr-checks-summary" / "action.yml"
 README_PATH = REPO_ROOT / "src" / "validate" / "breaking-change-guard" / "README.md"
@@ -21,7 +23,9 @@ README_PATH = REPO_ROOT / "src" / "validate" / "breaking-change-guard" / "README
 WORKFLOW = WORKFLOW_PATH.read_text(encoding="utf-8")
 SELF_WORKFLOW = SELF_WORKFLOW_PATH.read_text(encoding="utf-8")
 GO_WORKFLOW = GO_WORKFLOW_PATH.read_text(encoding="utf-8")
+GO_ANALYSIS = GO_ANALYSIS_PATH.read_text(encoding="utf-8")
 JS_WORKFLOW = JS_WORKFLOW_PATH.read_text(encoding="utf-8")
+FRONTEND_ANALYSIS = FRONTEND_ANALYSIS_PATH.read_text(encoding="utf-8")
 REPORTER = REPORTER_PATH.read_text(encoding="utf-8")
 SUMMARY = SUMMARY_PATH.read_text(encoding="utf-8")
 README = README_PATH.read_text(encoding="utf-8")
@@ -619,6 +623,49 @@ class WorkflowStructureTests(unittest.TestCase):
                         for key in input_keys
                     ),
                     input_keys,
+                )
+
+    def test_analysis_workflows_expose_scoped_test_runner_overrides(self):
+        cases = (
+            (
+                "go-integration",
+                GO_WORKFLOW,
+                GO_ANALYSIS,
+                "integration_test_runner_type",
+                "go-analysis",
+                "integration-tests",
+            ),
+            (
+                "frontend-tests",
+                JS_WORKFLOW,
+                FRONTEND_ANALYSIS,
+                "test_runner_type",
+                "frontend-analysis",
+                "tests",
+            ),
+        )
+        for (
+            name,
+            umbrella,
+            analysis,
+            input_name,
+            umbrella_job,
+            analysis_job,
+        ) in cases:
+            with self.subTest(workflow=name):
+                for text in (umbrella, analysis):
+                    inputs = extract_workflow_call_section(text, "inputs")
+                    entry = extract_mapping_entry(inputs, input_name, 6)
+                    self.assertRegex(entry, r"(?m)^        type: string$")
+                    self.assertRegex(entry, r"(?m)^        default: ''$")
+
+                self.assertIn(
+                    f"{input_name}: ${{{{ inputs.{input_name} }}}}",
+                    extract_job(umbrella, umbrella_job),
+                )
+                self.assertIn(
+                    f"runs-on: ${{{{ inputs.{input_name} || vars.GENERAL_RUNNERS || inputs.runner_type }}}}",
+                    extract_job(analysis, analysis_job),
                 )
 
 
