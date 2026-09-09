@@ -66,14 +66,34 @@ runs:
           const declared = typeof pr.commits === 'number' ? pr.commits : commits.length;
           const truncated = commits.length < declared;
 
+          // A commit that GitHub could not link to an account falls back to the name in the
+          // commit object, which is whatever the pusher set in `git config user.name` — it is
+          // author-controlled text. It reaches a Markdown table inside a comment that reads as
+          // coming from CI, and a log annotation, so collapse it to one line at the source
+          // (a newline forges extra annotation lines) and escape it at every Markdown sink.
+          const oneLine = (value) => String(value ?? '').replace(/\s+/g, ' ').trim() || 'unknown';
+
+          // Markdown table cell: `|` ends the cell, `[`/`]` open a link, `<` opens raw HTML,
+          // backtick opens a code span. Backslash-escape the Markdown actives (escaping the
+          // backslash itself first) and entity-encode the HTML ones.
+          const cell = (value) =>
+            oneLine(value)
+              .replace(/[<>]/g, (ch) => (ch === '<' ? '&lt;' : '&gt;'))
+              .replace(/([\\`|*_[\]])/g, '\\$1');
+
+          // The verification reason is a GitHub enum (unsigned, unknown_key, expired_key, ...),
+          // so anything outside that alphabet is not a value this renders — drop it rather than
+          // escape it, since it sits inside a code span where backslashes do not escape.
+          const enumValue = (value) => oneLine(value).replace(/[^A-Za-z0-9_.-]/g, '') || 'unknown';
+
           const offenders = commits
             .filter(c => c.commit?.verification?.verified !== true)
             .map(c => ({
               sha: c.sha,
               short: c.sha.slice(0, 7),
               url: c.html_url,
-              author: c.author?.login || c.commit?.author?.name || 'unknown',
-              reason: c.commit?.verification?.reason || 'unknown',
+              author: oneLine(c.author?.login || c.commit?.author?.name),
+              reason: enumValue(c.commit?.verification?.reason),
             }));
 
           core.setOutput('total-commits', String(commits.length));
@@ -107,7 +127,7 @@ runs:
           // unreadable and the summary already carries the full list.
           const COMMENT_ROW_LIMIT = 20;
           const findingRow = (o) =>
-            `| [\`${o.short}\`](${o.url}) | ${o.author} | \`${o.reason}\` |`;
+            `| [\`${o.short}\`](${o.url}) | ${cell(o.author)} | \`${o.reason}\` |`;
 
           const findings = [];
           if (offenders.length > 0) {
@@ -159,7 +179,7 @@ runs:
               '',
               '| Commit | Author | Status | Reason |',
               '|--------|--------|--------|--------|',
-              ...offenders.map(o => `| [\`${o.short}\`](${o.url}) | ${o.author} | ❌ unverified | \`${o.reason}\` |`),
+              ...offenders.map(o => `| [\`${o.short}\`](${o.url}) | ${cell(o.author)} | ❌ unverified | \`${o.reason}\` |`),
               '',
               remediation,
             );

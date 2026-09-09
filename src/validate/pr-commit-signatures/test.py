@@ -335,6 +335,70 @@ class CommitSignatureValidation(unittest.TestCase):
         self.assertIn("declares 319 commits", findings)
         self.assertIn("cap a pull request at 250", findings)
 
+    # ---- Author names are author-controlled: an unlinked commit falls back to whatever
+    # the pusher set in `git config user.name`, and that reaches a Markdown table inside a
+    # comment that reads as coming from CI. ----
+
+    def _unlinked(self, name):
+        """A commit GitHub could not link to an account, carrying a crafted author name."""
+        c = commit(1, False, "unsigned", login=None)
+        c["commit"]["author"]["name"] = name
+        return c
+
+    # (n) A pipe would end the table cell and let the author forge the remaining columns.
+    def test_author_pipe_cannot_break_the_table(self):
+        record = run_script([self._unlinked("evil | ✅ verified | trusted")])
+        # The comment table is Commit|Author|Reason (4 delimiters); the summary table adds
+        # a Status column (5). Either way the crafted pipes must not add any.
+        for sink, delimiters in (
+            (record["outputs"]["findings-markdown"], 4),
+            (record["summary"], 5),
+        ):
+            row = next(l for l in sink.splitlines() if l.startswith("| [`"))
+            self.assertNotIn("| ✅ verified |", row)
+            self.assertIn("\\|", row)
+            self.assertEqual(row.count("|") - row.count("\\|"), delimiters)
+
+    # (o) A newline would end the row entirely and inject fabricated rows after it.
+    def test_author_newline_cannot_inject_rows(self):
+        record = run_script([self._unlinked("evil\n| forged | row |")])
+        findings = record["outputs"]["findings-markdown"]
+        self.assertNotIn("| forged | row |", findings)
+        self.assertEqual(len([l for l in findings.splitlines() if l.startswith("| [`")]), 1)
+
+    # (p) Link and raw-HTML syntax must not render as a link or a tag.
+    def test_author_link_and_html_are_neutralised(self):
+        record = run_script([self._unlinked("[click](https://evil.test) <img src=x>")])
+        findings = record["outputs"]["findings-markdown"]
+        self.assertNotIn("[click](https://evil.test)", findings)
+        self.assertNotIn("<img", findings)
+        self.assertIn("&lt;img", findings)
+
+    # (q) A backtick would open a code span and swallow the rest of the row.
+    def test_author_backtick_is_escaped(self):
+        findings = run_script([self._unlinked("ev`il")])["outputs"]["findings-markdown"]
+        self.assertIn("ev\\`il", findings)
+
+    # (r) The log annotation is a separate sink: a newline there forges extra ::error lines.
+    def test_author_newline_does_not_forge_annotations(self):
+        record = run_script([self._unlinked("evil\n::error::forged")])
+        self.assertEqual(len(record["errors"]), 1)
+        self.assertNotIn("\n", record["errors"][0])
+
+    # (s) The verification reason is a GitHub enum, so anything outside that alphabet is
+    # dropped rather than escaped — it sits in a code span, where backslashes do not escape.
+    def test_reason_outside_the_enum_alphabet_is_dropped(self):
+        c = commit(1, False, "unsigned", login="dev")
+        c["commit"]["verification"]["reason"] = "unsigned` | `x"
+        findings = run_script([c])["outputs"]["findings-markdown"]
+        self.assertIn("`unsignedx`", findings)
+        self.assertNotIn("unsigned` | `x", findings)
+
+    # (t) An empty or whitespace-only author reads as unknown, never as a blank cell.
+    def test_blank_author_falls_back_to_unknown(self):
+        findings = run_script([self._unlinked("   ")])["outputs"]["findings-markdown"]
+        self.assertIn("| unknown |", findings)
+
 
 if __name__ == "__main__":
     unittest.main()
