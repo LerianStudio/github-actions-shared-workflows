@@ -22,6 +22,10 @@ on:
         description: 'GitHub runner type'
         type: string
         default: 'blacksmith-4vcpu-ubuntu-2404'
+      test_runner_type:
+        description: 'Optional runner override for the Tests jobs only. Empty = vars.GENERAL_RUNNERS, then runner_type.'
+        type: string
+        default: ''
       build_runner_type:
         description: 'Optional runner override for the Build jobs only. Empty = vars.GENERAL_RUNNERS, then runner_type.'
         type: string
@@ -358,7 +362,7 @@ jobs:
     name: Tests (${{ matrix.app.name }})
     needs: detect-changes
     if: needs.detect-changes.outputs.has_changes == 'true' && inputs.enable_tests
-    runs-on: ${{ vars.GENERAL_RUNNERS || inputs.runner_type }}
+    runs-on: ${{ inputs.test_runner_type || vars.GENERAL_RUNNERS || inputs.runner_type }}
     strategy:
       fail-fast: false
       matrix:

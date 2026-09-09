@@ -22,6 +22,10 @@ on:
         description: 'GitHub runner type to use'
         type: string
         default: 'blacksmith-4vcpu-ubuntu-2404'
+      test_runner_type:
+        description: 'Optional runner override for the Frontend analysis Tests jobs only. Empty = vars.GENERAL_RUNNERS, then runner_type.'
+        type: string
+        default: ''
       build_runner_type:
         description: 'Optional runner override for the Frontend analysis Build jobs only. Empty = vars.GENERAL_RUNNERS, then runner_type.'
         type: string
@@ -538,6 +542,7 @@ jobs:
     with:
       enable_slack_notification: ${{ inputs.enable_slack_notification }}
       runner_type: ${{ inputs.runner_type }}
+      test_runner_type: ${{ inputs.test_runner_type }}
       build_runner_type: ${{ inputs.build_runner_type }}
       custom_checks_runner_type: ${{ inputs.custom_checks_runner_type }}
       node_version: ${{ inputs.node_version }}
