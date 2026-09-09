@@ -98,8 +98,12 @@ jobs:
       # only then time out on the sync — reporting failure over a change that
       # had already landed, which is the worst shape this failure can take.
       # Fail here instead, before anything is written.
+      # Not on a dry run: the composite skips both delivery and the sync there,
+      # so nothing is written and nothing is synced. Failing a preview because
+      # the sync runner is absent would block the one mode that exists to be
+      # safe to run anywhere.
       - name: Refuse to sync from a runner that cannot reach ArgoCD
-        if: inputs.enable_argocd_sync && vars.GITOPS_RUNNERS == ''
+        if: inputs.enable_argocd_sync && !inputs.dry_run && vars.GITOPS_RUNNERS == ''
         shell: bash
         run: |
           echo "::error::enable_argocd_sync is on but the GITOPS_RUNNERS variable is unset, so this job is running on the hosted fallback. ArgoCD is reachable only from the self-hosted pool. Set GITOPS_RUNNERS, or pass enable_argocd_sync: false and let ArgoCD reconcile on its own."
