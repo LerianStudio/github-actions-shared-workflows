@@ -1,5 +1,19 @@
 # Github-actions-shared-workflows Changelog
 
+## [1.66.1](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.66.1)
+
+Fixes:
+
+- Merged changes from `develop` to `main` for release. (@bedatty)
+- Updated the CI configuration to treat the CodeRabbit config as meta in the default ignore globs. (@bedatty)
+- Skipped Ungoliant for releases that only include CodeRabbit config changes. (@bedatty)
+- Adjusted GitOps authentication to use `MANAGE_TOKEN` and pinned the composite action to `@v1`. (@bedatty)
+- Removed `develop` from the default source branches for main in PR validation. (@bedatty)
+
+[Compare changes](https://github.com/LerianStudio/github-actions-shared-workflows/compare/v1.66.0...v1.66.1)
+
+---
+
 ## [1.66.0](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.66.0)
 
 Features:
