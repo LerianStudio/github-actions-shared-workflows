@@ -1,5 +1,22 @@
 # Github-actions-shared-workflows Changelog
 
+## [1.67.0](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.67.0)
+
+Features:
+- Add integration and frontend test runners to the workflows. (@fredcamaral)
+- Introduce per-job test runner overrides in the workflows. (@fredcamaral)
+
+Fixes:
+- Allow a failed sync to be retried in the gitops process. (@bedatty)
+
+Improvements:
+- Update the release process to move from `develop` to `main`. (@bedatty)
+- Enhance gitops documentation to describe the current sync behavior. (@bedatty)
+
+[Compare changes](https://github.com/LerianStudio/github-actions-shared-workflows/compare/v1.66.4...v1.67.0)
+
+---
+
 ## [1.66.4](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.66.4)
 
 Fixes:
