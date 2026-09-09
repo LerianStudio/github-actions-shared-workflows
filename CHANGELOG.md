@@ -1,5 +1,20 @@
 # Github-actions-shared-workflows Changelog
 
+## [1.66.2](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.66.2)
+
+Fixes:
+- Merged changes from `develop` to `main` to ensure the latest updates are reflected in the main branch. (@bedatty)
+- Corrected the configuration to exclude deleted directories from the changed-paths matrix. (@bedatty)
+- Updated the configuration to query git instead of the filesystem to verify the existence of directories. (@bedatty)
+
+Improvements:
+- Bumped `actions/upload-artifact` from `7.0.0` to `7.0.1` to incorporate the latest improvements and fixes. (@bedatty)
+- Updated dependencies within the `github-security` group across one directory with four updates to enhance security and performance. (@bedatty)
+
+[Compare changes](https://github.com/LerianStudio/github-actions-shared-workflows/compare/v1.66.1...v1.66.2)
+
+---
+
 ## [1.66.1](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.66.1)
 
 Fixes:
