@@ -1,5 +1,18 @@
 # Github-actions-shared-workflows Changelog
 
+## [1.66.4](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.66.4)
+
+Fixes:
+
+- Ensure the release process correctly transitions from `develop` to `main`. (@bedatty)
+- Allow dry runs to proceed without the `GITOPS_RUNNERS` environment variable. (@bedatty)
+- Prevent writing operations when the runner cannot access ArgoCD, ensuring early failure. (@bedatty)
+- Adjust the runner configuration to properly reach ArgoCD and stop unnecessary reflowing of helmfiles. (@bedatty)
+
+[Compare changes](https://github.com/LerianStudio/github-actions-shared-workflows/compare/v1.66.3...v1.66.4)
+
+---
+
 ## [1.66.3](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.66.3)
 
 Fixes:
