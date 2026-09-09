@@ -33,6 +33,13 @@ inputs:
     description: Result of commit signature validation (success/failure/skipped)
     required: false
     default: "skipped"
+  commit-signatures-detail:
+    description: >-
+      Rendered Markdown listing the offending commits, from the pr-commit-signatures
+      `findings-markdown` output. Embedded under the summary table when the check failed, so the
+      commits are clickable where the verdict is read instead of only inside the job summary.
+    required: false
+    default: ""
   breaking-change-result:
     description: Result of breaking change guard (success/failure/cancelled/skipped)
     required: false
@@ -87,6 +94,7 @@ runs:
         LABEL_RESULT: ${{ inputs.label-result }}
         METADATA_RESULT: ${{ inputs.metadata-result }}
         COMMIT_SIGNATURES_RESULT: ${{ inputs.commit-signatures-result }}
+        COMMIT_SIGNATURES_DETAIL: ${{ inputs.commit-signatures-detail }}
         BREAKING_CHANGE_RESULT: ${{ inputs.breaking-change-result }}
         BLOCKING_CHECKS_RESULT: ${{ inputs.blocking-checks-result }}
       with:
@@ -145,6 +153,17 @@ runs:
           body += `## 🔍 PR Validation Summary\n\n`;
           body += verdictHeader;
           body += table;
+
+          // Detail for the one check whose failure is not self-explanatory from a status
+          // word: which commits, and a link to each. Rendered upstream so this reporter
+          // stays a formatter and does not re-query the API.
+          const signatureDetail = (process.env.COMMIT_SIGNATURES_DETAIL || '').trim();
+          if (signatureDetail && process.env.COMMIT_SIGNATURES_RESULT === 'failure') {
+            body += `<details open>\n<summary><strong>Commit Signatures</strong></summary>\n\n`;
+            body += `${signatureDetail}\n\n`;
+            body += `</details>\n\n`;
+          }
+
           if (blockingFailures.length > 0) {
             body += `> Fix the blocking checks above before merge.\n\n`;
           }

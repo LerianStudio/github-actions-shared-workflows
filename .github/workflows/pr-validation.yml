@@ -209,6 +209,7 @@ jobs:
       title-result: ${{ steps.collect.outputs.title }}
       description-result: ${{ steps.collect.outputs.description }}
       commit-signatures-result: ${{ steps.collect.outputs.commit_signatures }}
+      commit-signatures-detail: ${{ steps.commit-signatures.outputs.findings-markdown }}
 
     steps:
       # The composite auto-skips when target branch is not in target_branches_for_source_check (default: main)
@@ -467,6 +468,7 @@ jobs:
           title-result: ${{ needs.blocking-checks.outputs.title-result || 'skipped' }}
           description-result: ${{ needs.blocking-checks.outputs.description-result || 'skipped' }}
           commit-signatures-result: ${{ needs.blocking-checks.outputs.commit-signatures-result || 'skipped' }}
+          commit-signatures-detail: ${{ needs.blocking-checks.outputs.commit-signatures-detail }}
           size-result: ${{ needs.advisory-checks.outputs.size-result || 'skipped' }}
           label-result: ${{ needs.advisory-checks.outputs.label-result || 'skipped' }}
           metadata-result: ${{ needs.advisory-checks.outputs.metadata-result || 'skipped' }}

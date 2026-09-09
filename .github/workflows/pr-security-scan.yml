@@ -139,14 +139,6 @@ jobs:
     outputs:
       matrix: ${{ steps.changed-paths.outputs.matrix }}
     steps:
-      # ----------------- Setup -----------------
-      - name: Login to Docker Registry
-        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4
-        with:
-          registry: ${{ inputs.docker_registry }}
-          username: ${{ secrets.DOCKER_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_IMAGE_PULL_TOKEN }}
-
       # ----------------- Detect Changes & Build Matrix -----------------
       - name: Get changed paths
         id: changed-paths
@@ -182,7 +174,13 @@ jobs:
 
     steps:
       # ----------------- Setup -----------------
+      # Only the image-scan path reads the registry, via the Docker build below
+      # pulling the Dockerfile's base image. The filesystem scan runs the Trivy
+      # binary, so unguarded this step fails the whole job for a caller with no
+      # pull token, before the first scan runs, and reports the security gate red
+      # over code nothing ever scanned.
       - name: Login to Docker Registry
+        if: inputs.enable_docker_scan
         uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4
         with:
           registry: ${{ inputs.docker_registry }}

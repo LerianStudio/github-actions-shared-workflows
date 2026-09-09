@@ -285,6 +285,120 @@ class CommitSignatureValidation(unittest.TestCase):
         self.assertTrue(record["failed"])
         self.assertIn("pull_request", record["failedMessage"])
 
+    # (i) A clean run reports no findings and states the verdict was complete.
+    def test_clean_run_has_no_findings_and_is_complete(self):
+        record = run_script([commit(i, True) for i in range(1, 4)])
+        self.assertEqual(record["outputs"]["findings-markdown"], "")
+        self.assertEqual(record["outputs"]["evaluation-complete"], "true")
+
+    # (j) findings-markdown carries every offender as a clickable commit link, so the
+    # detail can be embedded in the PR comment instead of hiding in the job summary.
+    def test_findings_markdown_links_every_offender(self):
+        commits = [
+            commit(1, True),
+            commit(2, False, "unsigned", login="alice"),
+            commit(3, False, "unknown_key", login="bob"),
+        ]
+        findings = run_script(commits)["outputs"]["findings-markdown"]
+        for index, login, reason in ((2, "alice", "unsigned"), (3, "bob", "unknown_key")):
+            sha = f"{index:040x}"
+            # Markdown link: short sha as the label, full commit URL as the target.
+            self.assertIn(f"[`{sha[:7]}`](https://github.com/LerianStudio/example/commit/{sha})", findings)
+            self.assertIn(login, findings)
+            self.assertIn(reason, findings)
+        self.assertIn("2 unsigned or unverified commits", findings)
+        self.assertIn("How to fix", findings)
+
+    # (k) Singular wording when exactly one commit offends.
+    def test_findings_markdown_uses_singular_for_one_offender(self):
+        findings = run_script([commit(1, False, "unsigned")])["outputs"]["findings-markdown"]
+        self.assertIn("1 unsigned or unverified commit**", findings)
+
+    # (l) A comment must stay readable: rows are capped and the overflow is stated,
+    # while the job summary keeps the complete list.
+    def test_findings_markdown_caps_rows_and_says_so(self):
+        commits = [commit(i, False, "unsigned") for i in range(1, 31)]
+        record = run_script(commits)
+        findings = record["outputs"]["findings-markdown"]
+        self.assertEqual(record["outputs"]["unverified-count"], "30")
+        self.assertEqual(findings.count("| [`"), 20)
+        self.assertIn("Showing the first 20 of 30", findings)
+        # The summary is the complete record, so it holds all thirty.
+        self.assertEqual(record["summary"].count("| [`"), 30)
+
+    # (m) On truncation the findings explain the API cap rather than only reporting a
+    # count, and evaluation-complete says the verdict is partial.
+    def test_findings_markdown_explains_truncation(self):
+        record = run_script([commit(i, True) for i in range(1, 320)], declared=319)
+        findings = record["outputs"]["findings-markdown"]
+        self.assertEqual(record["outputs"]["evaluation-complete"], "false")
+        self.assertIn("declares 319 commits", findings)
+        self.assertIn("cap a pull request at 250", findings)
+
+    # ---- Author names are author-controlled: an unlinked commit falls back to whatever
+    # the pusher set in `git config user.name`, and that reaches a Markdown table inside a
+    # comment that reads as coming from CI. ----
+
+    def _unlinked(self, name):
+        """A commit GitHub could not link to an account, carrying a crafted author name."""
+        c = commit(1, False, "unsigned", login=None)
+        c["commit"]["author"]["name"] = name
+        return c
+
+    # (n) A pipe would end the table cell and let the author forge the remaining columns.
+    def test_author_pipe_cannot_break_the_table(self):
+        record = run_script([self._unlinked("evil | ✅ verified | trusted")])
+        # The comment table is Commit|Author|Reason (4 delimiters); the summary table adds
+        # a Status column (5). Either way the crafted pipes must not add any.
+        for sink, delimiters in (
+            (record["outputs"]["findings-markdown"], 4),
+            (record["summary"], 5),
+        ):
+            row = next(l for l in sink.splitlines() if l.startswith("| [`"))
+            self.assertNotIn("| ✅ verified |", row)
+            self.assertIn("\\|", row)
+            self.assertEqual(row.count("|") - row.count("\\|"), delimiters)
+
+    # (o) A newline would end the row entirely and inject fabricated rows after it.
+    def test_author_newline_cannot_inject_rows(self):
+        record = run_script([self._unlinked("evil\n| forged | row |")])
+        findings = record["outputs"]["findings-markdown"]
+        self.assertNotIn("| forged | row |", findings)
+        self.assertEqual(len([l for l in findings.splitlines() if l.startswith("| [`")]), 1)
+
+    # (p) Link and raw-HTML syntax must not render as a link or a tag.
+    def test_author_link_and_html_are_neutralised(self):
+        record = run_script([self._unlinked("[click](https://evil.test) <img src=x>")])
+        findings = record["outputs"]["findings-markdown"]
+        self.assertNotIn("[click](https://evil.test)", findings)
+        self.assertNotIn("<img", findings)
+        self.assertIn("&lt;img", findings)
+
+    # (q) A backtick would open a code span and swallow the rest of the row.
+    def test_author_backtick_is_escaped(self):
+        findings = run_script([self._unlinked("ev`il")])["outputs"]["findings-markdown"]
+        self.assertIn("ev\\`il", findings)
+
+    # (r) The log annotation is a separate sink: a newline there forges extra ::error lines.
+    def test_author_newline_does_not_forge_annotations(self):
+        record = run_script([self._unlinked("evil\n::error::forged")])
+        self.assertEqual(len(record["errors"]), 1)
+        self.assertNotIn("\n", record["errors"][0])
+
+    # (s) The verification reason is a GitHub enum, so anything outside that alphabet is
+    # dropped rather than escaped — it sits in a code span, where backslashes do not escape.
+    def test_reason_outside_the_enum_alphabet_is_dropped(self):
+        c = commit(1, False, "unsigned", login="dev")
+        c["commit"]["verification"]["reason"] = "unsigned` | `x"
+        findings = run_script([c])["outputs"]["findings-markdown"]
+        self.assertIn("`unsignedx`", findings)
+        self.assertNotIn("unsigned` | `x", findings)
+
+    # (t) An empty or whitespace-only author reads as unknown, never as a blank cell.
+    def test_blank_author_falls_back_to_unknown(self):
+        findings = run_script([self._unlinked("   ")])["outputs"]["findings-markdown"]
+        self.assertIn("| unknown |", findings)
+
 
 if __name__ == "__main__":
     unittest.main()
