@@ -44,9 +44,19 @@ Only releases whose `chart:` matches `chart-ref` **exactly** are touched. That i
 
 ## Reconciliation
 
-Writing to git is not the same as the change being live. After a **direct commit** the composite syncs each affected ArgoCD application and waits for it to report healthy; a run that cannot reach that state fails instead of reporting success over a half-updated cluster.
+Writing to git is not the same as the change being live. The composite syncs each affected ArgoCD application and waits for it to report healthy; a run that cannot reach that state fails instead of reporting success over a half-updated cluster.
 
-The application name is derived from the changed path — `environments/<cluster>/helmfile/applications/<env>/<app>/` becomes `<cluster>-<app>-<env>`, with the context separator flattened, so `chaos/dev-st` gives `anacleto-midaz-chaos-dev-st`.
+The application name is derived from the environment path — `environments/<cluster>/helmfile/applications/<env>/<app>/` becomes `<cluster>-<app>-<env>`, with the context separator flattened, so `chaos/dev-st` gives `anacleto-midaz-chaos-dev-st`.
+
+### What gets synced, and when
+
+Every environment this chart runs in: the ones this run just changed, **and the ones already pinned to the target version**.
+
+The second half is not redundant. A run that commits and then fails before the sync leaves the pin applied and the cluster unconfirmed — and on a retry nothing changes, so gating the sync on "something changed" would skip it forever and report success. Including the environments already on the target is what makes that recoverable.
+
+One consequence worth knowing: `has-changes` is `false` on such a run, but the sync still happens. The two answer different questions — whether anything was written, and whether there is an environment that should be running this version.
+
+Environments pinned to a different OCI repository — the `alpha/` channels — are not synced. `chart-ref` never matches them, so they are not this chart's targets.
 
 It does not run on the pull-request route, because nothing has been applied yet, and it does not run on a dry run.
 
