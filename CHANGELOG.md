@@ -1,5 +1,22 @@
 # Github-actions-shared-workflows Changelog
 
+## [1.66.3](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.66.3)
+
+Fixes:
+
+- Correct the release process by merging changes from `develop` to `main`. (@bedatty)
+- Implement a gate for Docker login on the image-scan path to enhance security. (@bedatty, @fredcamaral)
+- Allow environment keys under a chart's empty-map masks in GitOps workflows. (@bedatty)
+- Ensure that a scalar is never used as an extension point in GitOps workflows. (@bedatty)
+- Restrict subtree absorption to only open paths, excluding scalar leaves in GitOps workflows. (@bedatty)
+- Display offending commits in the PR comment for better validation. (@bedatty)
+- Escape commit metadata and remove a misrouted input in PR validation workflows. (@bedatty)
+- Realign the `codeql-action` pins onto a single commit for security consistency. (@bedatty)
+
+[Compare changes](https://github.com/LerianStudio/github-actions-shared-workflows/compare/v1.66.2...v1.66.3)
+
+---
+
 ## [1.66.2](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.66.2)
 
 Fixes:
