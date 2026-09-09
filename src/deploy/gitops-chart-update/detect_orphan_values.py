@@ -75,14 +75,21 @@ def open_paths(node, prefix: str = "") -> set[str]:
         return found
     for key, value in node.items():
         path = f"{prefix}.{key}" if prefix else str(key)
+        # A scalar is never an extension point, whatever it is called. This
+        # chart really does ship `boilerplate.env: production` — a plain string
+        # under a name that appears in FREE_FORM — and nothing can be nested
+        # inside it, so `boilerplate.env.FOO` has to stay an orphan.
+        if not isinstance(value, dict):
+            continue
         if key in FREE_FORM:
+            # Declared free-form: the chart never names what goes inside, so
+            # the whole subtree is open whether or not it ships defaults.
             found.add(path)
             continue
-        if isinstance(value, dict):
-            if value:
-                found |= open_paths(value, path)
-            else:
-                found.add(path)
+        if value:
+            found |= open_paths(value, path)
+        else:
+            found.add(path)
     return found
 
 
