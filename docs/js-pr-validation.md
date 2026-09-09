@@ -21,6 +21,7 @@ The `frontend-analysis`, `security` and `socket` pipelines each have a `*-gate` 
 | Input | Description | Type | Default |
 |-------|-------------|------|---------|
 | `runner_type` | GitHub runner type | string | `blacksmith-4vcpu-ubuntu-2404` |
+| `test_runner_type` | Optional runner override for the frontend analysis Tests jobs only; empty falls back to `vars.GENERAL_RUNNERS`, then `runner_type` | string | `''` |
 | `build_runner_type` | Optional runner override for the frontend analysis Build jobs only; empty falls back to `vars.GENERAL_RUNNERS`, then `runner_type` | string | `''` |
 | `custom_checks_runner_type` | Optional runner override for the frontend analysis Custom Checks jobs only; empty falls back to `vars.GENERAL_RUNNERS`, then `runner_type` | string | `''` |
 | `security_scan_runner_type` | Optional runner override for the `security_scan` jobs only; empty falls back to `vars.GENERAL_RUNNERS`, then `runner_type` | string | `''` |
@@ -176,6 +177,7 @@ jobs:
     uses: LerianStudio/github-actions-shared-workflows/.github/workflows/js-pr-validation.yml@tier-1
     with:
       app_name_prefix: "lerian-map"
+      test_runner_type: blacksmith-8vcpu-ubuntu-2404
       coverage_threshold: 85
       pr_title_scopes: |
         components

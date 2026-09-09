@@ -139,6 +139,10 @@ on:
         description: 'Optional runner override for the Go analysis Tests jobs only. Empty = vars.GENERAL_RUNNERS, then runner_type.'
         type: string
         default: ''
+      integration_test_runner_type:
+        description: 'Optional runner override for the Go analysis Integration Tests jobs only. Empty = vars.GENERAL_RUNNERS, then runner_type.'
+        type: string
+        default: ''
       coverage_runner_type:
         description: 'Optional runner override for the Go analysis Coverage jobs only. Empty = vars.GENERAL_RUNNERS, then runner_type.'
         type: string
@@ -385,6 +389,7 @@ jobs:
       runner_type: ${{ inputs.runner_type }}
       lint_runner_type: ${{ inputs.lint_runner_type }}
       test_runner_type: ${{ inputs.test_runner_type }}
+      integration_test_runner_type: ${{ inputs.integration_test_runner_type }}
       coverage_runner_type: ${{ inputs.coverage_runner_type }}
       build_runner_type: ${{ inputs.build_runner_type }}
       go_version: ${{ inputs.go_version }}

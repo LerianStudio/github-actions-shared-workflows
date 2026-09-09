@@ -27,6 +27,7 @@ The `go-analysis`, `security` and `lib-version` pipelines each have a `*-gate` a
 | `gate_runner_type` | Optional runner override for the umbrella utility jobs only (Detect non-doc changes + Go Analysis / Security / Lib Version result gates); empty falls back to `vars.GENERAL_RUNNERS`, then `runner_type` | string | `''` |
 | `lint_runner_type` | Optional runner override for the Go analysis Lint jobs only | string | `''` |
 | `test_runner_type` | Optional runner override for the Go analysis Tests jobs only | string | `''` |
+| `integration_test_runner_type` | Optional runner override for the Go analysis Integration Tests jobs only | string | `''` |
 | `coverage_runner_type` | Optional runner override for the Go analysis Coverage jobs only | string | `''` |
 | `build_runner_type` | Optional runner override for the Go analysis Build jobs only | string | `''` |
 | `security_scan_runner_type` | Optional runner override for the security_scan jobs only | string | `''` |
@@ -193,6 +194,7 @@ jobs:
     with:
       go_version: "1.26.4"
       golangci_lint_version: "v2.12.2"
+      integration_test_runner_type: blacksmith-8vcpu-ubuntu-2404
       coverage_threshold: 79
       fail_on_coverage_threshold: true
       go_private_modules: "github.com/LerianStudio/*"
