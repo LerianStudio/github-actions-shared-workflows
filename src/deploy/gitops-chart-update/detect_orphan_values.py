@@ -58,6 +58,16 @@ def load(path: Path):
         return yaml.safe_load(handle) or {}
 
 
+def ancestors(key: str) -> set[str]:
+    """Every proper ancestor path of a dotted key.
+
+    "global.datastores.postgres.host" gives {"global", "global.datastores",
+    "global.datastores.postgres"}.
+    """
+    parts = key.split(".")
+    return {".".join(parts[:index]) for index in range(1, len(parts))}
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--chart-values", required=True, type=Path)
@@ -70,19 +80,21 @@ def main() -> int:
     args = parser.parse_args()
 
     chart_keys = leaves(load(args.chart_values))
-    # Valid prefixes: an environment key is accepted when it, or any ancestor of
-    # it, exists in the chart. Covers the chart declaring the parent as an empty
-    # map and the environment filling it in.
-    prefixes = {key.rsplit(".", index)[0] for key in chart_keys for index in range(key.count(".") + 1)}
 
     report, orphan_total = [], 0
     for env_path in args.env_values:
         if not env_path.is_file():
             continue
+        # An environment key is accepted when it, or any ancestor of it, is a
+        # leaf in the chart. The ancestor case is what makes the Lerian mask
+        # pattern work: a chart declares `global: {datastores: {}}` as an open
+        # extension point and the environment fills it in, so
+        # global.datastores.postgres.host is legitimate even though the chart
+        # never names it.
         orphans = sorted(
             key
             for key in leaves(load(env_path))
-            if key not in chart_keys and key not in prefixes
+            if key not in chart_keys and not (ancestors(key) & chart_keys)
         )
         orphan_total += len(orphans)
         report.append({"file": str(env_path), "orphans": orphans})
