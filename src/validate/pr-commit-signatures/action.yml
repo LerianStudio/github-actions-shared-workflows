@@ -3,7 +3,7 @@ description: "Fails when any commit in the pull request is unsigned or has an un
 
 inputs:
   github-token:
-    description: GitHub token with pull-requests read permission
+    description: GitHub token with contents read and pull-requests read permission
     required: true
   dry-run:
     description: "When true, report findings without failing the check"
@@ -24,10 +24,15 @@ outputs:
     value: ${{ steps.verify.outputs.has-signature-failures }}
   evaluation-complete:
     description: >-
-      Whether the verdict covered every commit in the pull request (true/false). False when the
-      Pull Request Commits API cap hid part of the range, which has-signature-failures folds in
-      and therefore cannot express on its own.
+      Whether the verdict covered every commit in the pull request (true/false). False only when
+      the commit range could not be resolved, which has-signature-failures folds in and therefore
+      cannot express on its own.
     value: ${{ steps.verify.outputs.evaluation-complete }}
+  commit-source:
+    description: >-
+      Where the evaluated commits came from: `api` (Pull Request Commits API, PRs at or below the
+      250-commit cap) or `range` (SHAs resolved from the git DAG, PRs above the cap).
+    value: ${{ steps.verify.outputs.commit-source }}
   findings-markdown:
     description: >-
       Rendered Markdown detailing the offending commits, each linked to its commit page, ready to
@@ -37,15 +42,62 @@ outputs:
 runs:
   using: composite
   steps:
+    # ----------------- Commit range (only past the API cap) -----------------
+    # The Pull Request Commits API — REST and GraphQL alike — caps a pull request at 250
+    # commits, so a release PR carrying hundreds of commits can never be evaluated through
+    # it. Past the cap, resolve the range straight from the git DAG instead: the commit
+    # objects are all this needs, so the fetch filters trees and blobs out entirely.
+    - name: Resolve the full commit range
+      id: range
+      if: github.event.pull_request.commits > 250
+      # A fetch that cannot resolve the range must not swallow the verdict: the next step
+      # falls back to the API, comes up short of the declared count, and fails closed with
+      # an explanation instead of a bare red check.
+      continue-on-error: true
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+        REPOSITORY: ${{ github.repository }}
+        PR_NUMBER: ${{ github.event.pull_request.number }}
+        BASE_REF: ${{ github.event.pull_request.base.ref }}
+      run: |
+        set -euo pipefail
+
+        work="${RUNNER_TEMP}/pr-commit-signatures"
+        rm -rf "$work"
+        git init -q "$work"
+
+        # Auth via a local http header, the way actions/checkout does it: the token stays
+        # out of the remote URL, so it cannot leak through `git remote -v` or error output.
+        git -C "$work" remote add origin "https://github.com/${REPOSITORY}.git"
+        git -C "$work" config --local \
+          "http.https://github.com/.extraheader" \
+          "AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
+
+        # refs/pull/N/head works for fork pull requests too — the base repository always
+        # carries it, so this never has to reach into the contributor's fork.
+        git -C "$work" fetch -q --no-tags --filter=tree:0 --prune origin \
+          "+refs/pull/${PR_NUMBER}/head:refs/remotes/pr/head" \
+          "+refs/heads/${BASE_REF}:refs/remotes/pr/base"
+
+        merge_base="$(git -C "$work" merge-base refs/remotes/pr/base refs/remotes/pr/head)"
+        git -C "$work" rev-list "${merge_base}..refs/remotes/pr/head" > "${work}/shas.txt"
+
+        echo "sha-file=${work}/shas.txt" >> "$GITHUB_OUTPUT"
+        echo "Resolved $(wc -l < "${work}/shas.txt") commit(s) in ${merge_base}..$(git -C "$work" rev-parse refs/remotes/pr/head)"
+
+    # ----------------- Verification -----------------
     - name: Verify commit signatures
       id: verify
       uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
       env:
         DRY_RUN: ${{ inputs.dry-run }}
+        RANGE_SHA_FILE: ${{ steps.range.outputs.sha-file }}
       with:
         github-token: ${{ inputs.github-token }}
         script: |
           const dryRun = process.env.DRY_RUN === 'true';
+          const rangeShaFile = process.env.RANGE_SHA_FILE || '';
           const pr = context.payload.pull_request;
 
           if (!pr) {
@@ -53,18 +105,97 @@ runs:
             return;
           }
 
-          // github.paginate walks every page, so PRs with more than 100 commits are fully
-          // evaluated. The Pull Request Commits API itself caps at 250 commits; when the PR
-          // exceeds that, the check fails closed rather than reporting a partial verdict.
-          const commits = await github.paginate(github.rest.pulls.listCommits, {
-            owner: context.repo.owner,
-            repo: context.repo.repo,
-            pull_number: pr.number,
-            per_page: 100,
-          });
+          const { owner, repo } = context.repo;
+          const commitUrl = (sha) => `${context.serverUrl}/${owner}/${repo}/commit/${sha}`;
 
-          const declared = typeof pr.commits === 'number' ? pr.commits : commits.length;
-          const truncated = commits.length < declared;
+          // GraphQL has no bulk commit lookup, so each SHA becomes an aliased `object(oid:)`
+          // field. Batches stay well inside the query complexity budget; a 600-commit PR is
+          // a dozen requests instead of one call the API refuses to answer.
+          const OID_BATCH = 50;
+
+          const verifyByOid = async (shas) => {
+            const evaluated = [];
+            for (let start = 0; start < shas.length; start += OID_BATCH) {
+              const batch = shas.slice(start, start + OID_BATCH);
+              const declarations = batch.map((_, i) => `$oid${i}: GitObjectID!`).join(', ');
+              const selections = batch
+                .map(
+                  (_, i) => `c${i}: object(oid: $oid${i}) { ... on Commit {
+                    url
+                    signature { isValid state }
+                    author { name user { login } }
+                  } }`,
+                )
+                .join('\n');
+              const variables = { owner, repo };
+              batch.forEach((sha, i) => { variables[`oid${i}`] = sha; });
+
+              const data = await github.graphql(
+                `query($owner: String!, $repo: String!, ${declarations}) {
+                  repository(owner: $owner, name: $repo) {
+                    ${selections}
+                  }
+                }`,
+                variables,
+              );
+
+              batch.forEach((sha, i) => {
+                const node = data?.repository?.[`c${i}`];
+                const signature = node?.signature;
+                evaluated.push({
+                  sha,
+                  url: node?.url || commitUrl(sha),
+                  // A commit the API cannot resolve is not a pass: it stays unverified with
+                  // no signature state to report.
+                  verified: signature?.isValid === true,
+                  reason: node ? (signature?.state ?? 'unsigned') : 'unknown',
+                  author: node?.author?.user?.login || node?.author?.name,
+                });
+              });
+            }
+            return evaluated;
+          };
+
+          const fromApi = async () => {
+            // github.paginate walks every page, so PRs with more than 100 commits are fully
+            // evaluated up to the API's own 250-commit cap.
+            const commits = await github.paginate(github.rest.pulls.listCommits, {
+              owner,
+              repo,
+              pull_number: pr.number,
+              per_page: 100,
+            });
+            return commits.map(c => ({
+              sha: c.sha,
+              url: c.html_url,
+              verified: c.commit?.verification?.verified === true,
+              reason: c.commit?.verification?.reason ?? 'unknown',
+              author: c.author?.login || c.commit?.author?.name,
+            }));
+          };
+
+          const declared = typeof pr.commits === 'number' ? pr.commits : 0;
+
+          let evaluated;
+          let source;
+          if (rangeShaFile) {
+            // Whatever the range step wrote is git output, but it feeds a GraphQL variable
+            // and a URL, so accept object names and nothing else.
+            const shas = require('fs')
+              .readFileSync(rangeShaFile, 'utf8')
+              .split('\n')
+              .map(line => line.trim())
+              .filter(line => /^[0-9a-f]{40}$/.test(line));
+            evaluated = await verifyByOid(shas);
+            source = 'range';
+          } else {
+            evaluated = await fromApi();
+            source = 'api';
+          }
+
+          // The range is the full set of commits between the merge base and the head by
+          // construction, so only an API-sourced verdict can come up short.
+          const truncated = source === 'api' && evaluated.length < declared;
 
           // A commit that GitHub could not link to an account falls back to the name in the
           // commit object, which is whatever the pusher set in `git config user.name` — it is
@@ -84,22 +215,24 @@ runs:
           // The verification reason is a GitHub enum (unsigned, unknown_key, expired_key, ...),
           // so anything outside that alphabet is not a value this renders — drop it rather than
           // escape it, since it sits inside a code span where backslashes do not escape.
-          const enumValue = (value) => oneLine(value).replace(/[^A-Za-z0-9_.-]/g, '') || 'unknown';
+          const enumValue = (value) =>
+            oneLine(value).toLowerCase().replace(/[^a-z0-9_.-]/g, '') || 'unknown';
 
-          const offenders = commits
-            .filter(c => c.commit?.verification?.verified !== true)
+          const offenders = evaluated
+            .filter(c => !c.verified)
             .map(c => ({
               sha: c.sha,
               short: c.sha.slice(0, 7),
-              url: c.html_url,
-              author: oneLine(c.author?.login || c.commit?.author?.name),
-              reason: enumValue(c.commit?.verification?.reason),
+              url: c.url,
+              author: oneLine(c.author),
+              reason: enumValue(c.reason),
             }));
 
-          core.setOutput('total-commits', String(commits.length));
+          core.setOutput('total-commits', String(evaluated.length));
           core.setOutput('unverified-count', String(offenders.length));
           core.setOutput('has-signature-failures', String(offenders.length > 0 || truncated));
           core.setOutput('evaluation-complete', String(!truncated));
+          core.setOutput('commit-source', source);
 
 
           const remediation = [
@@ -149,9 +282,10 @@ runs:
           if (truncated) {
             findings.push(
               '',
-              `> This pull request declares ${declared} commits and the API returned ${commits.length}.`,
-              '> Both the REST and GraphQL commit APIs cap a pull request at 250 commits, so the',
-              '> verdict above covers the most recent 250 and cannot speak for the rest.',
+              `> This pull request declares ${declared} commits and the API returned ${evaluated.length}.`,
+              '> Both the REST and GraphQL commit APIs cap a pull request at 250 commits, and the',
+              '> commit range could not be resolved from git either, so the verdict above covers',
+              '> the most recent 250 and cannot speak for the rest.',
             );
           }
           core.setOutput('findings-markdown', findings.join('\n'));
@@ -162,13 +296,20 @@ runs:
             lines.push('> **DRY RUN** — findings are reported but the check does not fail', '');
           }
 
-          lines.push(`Commits evaluated: **${commits.length}**`, '');
+          lines.push(`Commits evaluated: **${evaluated.length}**`, '');
+
+          if (source === 'range') {
+            lines.push(
+              `<sub>This pull request exceeds the 250-commit API cap, so the commits were resolved from the git history between the merge base and the head.</sub>`,
+              '',
+            );
+          }
 
           if (truncated) {
             lines.push(
-              `> ⚠️ This pull request declares ${declared} commits but the GitHub API returned only ${commits.length}.`,
-              '> The Pull Request Commits API caps at 250 commits, so the signature verdict cannot cover every commit.',
-              '> Split this pull request into smaller ones so all commits can be validated.',
+              `> ⚠️ This pull request declares ${declared} commits but the GitHub API returned only ${evaluated.length}.`,
+              '> The Pull Request Commits API caps at 250 commits and the full commit range could not be resolved,',
+              '> so the signature verdict cannot cover every commit.',
               '',
             );
           }
@@ -194,13 +335,13 @@ runs:
           }
 
           if (offenders.length === 0 && !truncated) {
-            core.info(`✅ All ${commits.length} commit(s) are verified.`);
+            core.info(`✅ All ${evaluated.length} commit(s) are verified.`);
             return;
           }
 
           const failure = truncated
-            ? `Commit signature validation could not evaluate all ${declared} commits (only ${commits.length} returned by the API); ${offenders.length} of those are unsigned or unverified.`
-            : `${offenders.length} of ${commits.length} commit(s) in this pull request are unsigned or unverified.`;
+            ? `Commit signature validation could not evaluate all ${declared} commits (only ${evaluated.length} returned by the API); ${offenders.length} of those are unsigned or unverified.`
+            : `${offenders.length} of ${evaluated.length} commit(s) in this pull request are unsigned or unverified.`;
 
           if (dryRun) {
             core.notice(`DRY RUN — ${failure}`);

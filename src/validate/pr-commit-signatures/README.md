@@ -9,7 +9,17 @@ Fails the job when any commit in the pull request is unsigned or has an unverifi
 
 The check reads GitHub's own signature verification result (`commit.verification.verified`) for **every** commit in the PR — not only `HEAD` — and reports all offending commits at once in the job summary and as `::error::` annotations, with the short SHA, a link to the commit, the author, and the verification reason.
 
-The composite wraps `actions/github-script` (pinned by SHA) rather than shelling out to `gh`: it needs `github.paginate` over `github.rest.pulls.listCommits` to walk every page of commits, and Octokit's typed response exposes `commit.verification` directly. Because of that pagination, pull requests with more than 100 commits are fully evaluated. The Pull Request Commits API caps at 250 commits: when a PR declares more commits than the API returns, the check **fails closed** and asks for the PR to be split, rather than reporting a partial verdict.
+The composite wraps `actions/github-script` (pinned by SHA) rather than shelling out to `gh`: it needs `github.paginate` over `github.rest.pulls.listCommits` to walk every page of commits, and Octokit's typed response exposes `commit.verification` directly. Because of that pagination, pull requests with more than 100 commits are fully evaluated.
+
+### Past the 250-commit API cap
+
+The Pull Request Commits API — REST and GraphQL alike — caps a pull request at 250 commits, so a release pull request carrying hundreds of commits can never be evaluated through it. When the pull request declares more than 250 commits, the composite resolves the range from the git DAG instead and verifies each commit by object ID:
+
+1. A blobless, treeless fetch (`--filter=tree:0`) of `refs/pull/<n>/head` and the base branch into a scratch clone under `RUNNER_TEMP` — only commit objects, and it works for fork pull requests because the base repository always carries `refs/pull/<n>/head`. No checkout of the caller's workspace is involved.
+2. `git rev-list <merge-base>..<head>` for the exact commit set, the same range GitHub itself reports.
+3. GraphQL aliased `object(oid:)` lookups in batches of 50, reading `signature.isValid` per commit. The SHAs travel as `GitObjectID!` variables, never interpolated into the query.
+
+The verdict then covers **every** commit, and `commit-source` reports `range` instead of `api`. If that range cannot be resolved, the check still **fails closed** rather than reporting a partial verdict.
 
 No commit metadata beyond what is already visible in the repository is emitted, and the token is never printed.
 
@@ -17,7 +27,7 @@ No commit metadata beyond what is already visible in the repository is emitted, 
 
 | Input | Description | Required | Default |
 |-------|-------------|----------|---------|
-| `github-token` | GitHub token with pull-requests read permission | Yes | |
+| `github-token` | GitHub token with contents read and pull-requests read permission | Yes | |
 | `dry-run` | When true, report findings without failing the check | No | `false` |
 
 ## Outputs
@@ -27,6 +37,9 @@ No commit metadata beyond what is already visible in the repository is emitted, 
 | `total-commits` | Number of commits evaluated in the pull request |
 | `unverified-count` | Number of commits that are unsigned or unverified |
 | `has-signature-failures` | `true` when the check failed — any unverified commit, or a verdict that could not cover every commit. A truncated PR can report `unverified-count: 0` and still fail, which is why this output exists. |
+| `evaluation-complete` | `true` when the verdict covered every commit in the pull request. `false` only when the commit range could not be resolved past the API cap. |
+| `commit-source` | `api` for pull requests at or below the 250-commit cap, `range` when the commits were resolved from the git DAG. |
+| `findings-markdown` | Offending commits rendered as Markdown, ready to embed in a pull request comment. Empty when there is nothing to report. |
 
 ## Behavior
 
@@ -34,7 +47,8 @@ No commit metadata beyond what is already visible in the repository is emitted, 
 |-----------|--------|
 | Every commit verified | ✅ success |
 | One or more commits unsigned/unverified | ❌ failure — all offenders listed |
-| PR exceeds the 250-commit API cap | ❌ failure — verdict cannot be complete |
+| PR exceeds the 250-commit API cap | Commits resolved from the git DAG and verified in full |
+| Commit range could not be resolved past the cap | ❌ failure — verdict cannot be complete |
 | `dry-run: true` | Findings reported via `::notice::`, job does not fail |
 
 ## Remediation
@@ -61,7 +75,7 @@ jobs:
   commit-signatures:
     runs-on: blacksmith-4vcpu-ubuntu-2404
     permissions:
-      contents: read
+      contents: read        # required to fetch the commit range past the 250-commit cap
       pull-requests: read
     steps:
       - name: Validate commit signatures
