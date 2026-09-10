@@ -204,6 +204,14 @@ jobs:
           # permissions warning also carries 13 actionable findings, and the two are
           # the same object.
           #
+          # There is exactly one safe way to fold a review, and it is not here:
+          # coderabbit-collapse.yml folds one only when every inline thread that
+          # review opened is resolved, so the findings have been dealt with by
+          # definition. It refuses to touch a review with no thread at all —
+          # precisely the case this note is about. That check needs the review →
+          # threads edge and a `pull_request_review_thread` trigger, neither of which
+          # this job has, so the two stay separate.
+          #
           # Kept non-fatal throughout — losing a review because the tidying failed
           # would be a bad trade.
           collapse() {
