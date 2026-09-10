@@ -135,9 +135,22 @@ runs:
       with:
         helmfile-args: --version
 
+    # Into a virtualenv, not the interpreter. The self-hosted pool this runs on
+    # is Debian, whose Python is externally managed (PEP 668), so a plain
+    # `pip install` is refused outright. `--break-system-packages` would work
+    # and is the wrong tool on a persistent runner: these packages would
+    # accumulate in an interpreter shared with every other job on the machine.
+    #
+    # It lives under RUNNER_TEMP, which the runner clears between jobs, so it
+    # leaves nothing behind on a machine that is not disposable.
     - name: Install the python dependencies
+      id: python
       shell: bash
-      run: pip install --quiet ruamel.yaml pyyaml
+      run: |
+        set -euo pipefail
+        python3 -m venv "${RUNNER_TEMP}/gitops-chart-update-venv"
+        "${RUNNER_TEMP}/gitops-chart-update-venv/bin/pip" install --quiet ruamel.yaml pyyaml
+        echo "bin=${RUNNER_TEMP}/gitops-chart-update-venv/bin/python" >> "$GITHUB_OUTPUT"
 
     # The chart's own values.yaml is what the orphan gate compares against, and
     # it travels inside the package — no need to clone the chart repository.
@@ -165,12 +178,13 @@ runs:
         CHART_VERSION: ${{ inputs.chart-version }}
         TARGET_ENVS: ${{ inputs.target-envs }}
         DRY_RUN: ${{ inputs.dry-run }}
+        PYTHON_BIN: ${{ steps.python.outputs.bin }}
       run: |
         set -euo pipefail
         # No --dry-run even on a dry run: this checkout is throwaway and nothing
         # is pushed. If the script did not write, the gates below would validate the
         # OLD helmfile — a green dry run proving nothing.
-        python "${GITHUB_ACTION_PATH}/chart_bump.py" \
+        "${PYTHON_BIN}" "${GITHUB_ACTION_PATH}/chart_bump.py" \
           --matrix matrix/config/deployment-matrix.yml \
           --gitops-root gitops \
           --app "$CHART_NAME" \
@@ -227,12 +241,13 @@ runs:
       env:
         CHART_DIR: ${{ steps.chart.outputs.dir }}
         FAIL_ON_ORPHAN: ${{ inputs.fail-on-orphan }}
+        PYTHON_BIN: ${{ steps.python.outputs.bin }}
       run: |
         set -euo pipefail
         mapfile -t files < <(sed 's|^|gitops/|' values-files.txt)
         strict=()
         [ "$FAIL_ON_ORPHAN" = "true" ] && strict+=(--fail-on-orphan)
-        python "${GITHUB_ACTION_PATH}/detect_orphan_values.py" \
+        "${PYTHON_BIN}" "${GITHUB_ACTION_PATH}/detect_orphan_values.py" \
           --chart-values "${CHART_DIR}/values.yaml" \
           --env-values "${files[@]}" "${strict[@]}"
 
