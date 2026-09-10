@@ -19,7 +19,11 @@ The Pull Request Commits API — REST and GraphQL alike — caps a pull request 
 2. `git rev-list <merge-base>..<head>` for the exact commit set, the same range GitHub itself reports.
 3. GraphQL aliased `object(oid:)` lookups in batches of 50, reading `signature.isValid` per commit. The SHAs travel as `GitObjectID!` variables, never interpolated into the query.
 
-The verdict then covers **every** commit, and `commit-source` reports `range` instead of `api`. If that range cannot be resolved, the check still **fails closed** rather than reporting a partial verdict.
+The verdict then covers **every** commit, and `commit-source` reports `range` instead of `api`.
+
+A range-sourced verdict is not trusted merely because it came from git. It is rejected — `evaluation-complete: false`, check fails — when the range comes back empty, when every line in it is filtered out, or when it was resolved for a head other than the one the pull request now points at (`refs/pull/<n>/head` moves with every push, so a range resolved mid-push describes a revision nobody is reviewing; the run for the new head is the one that decides). If the range cannot be resolved at all, verification falls back to the API, comes up short of the declared count and still **fails closed** rather than reporting a partial verdict.
+
+The scratch clone's `.git` directory is removed by an `EXIT` trap, including on a failed fetch: a composite cannot register a post step, so the fetch credential would otherwise stay readable by every later step in the job. Only `shas.txt`, which lives outside `.git`, survives the step.
 
 No commit metadata beyond what is already visible in the repository is emitted, and the token is never printed.
 
@@ -37,7 +41,7 @@ No commit metadata beyond what is already visible in the repository is emitted, 
 | `total-commits` | Number of commits evaluated in the pull request |
 | `unverified-count` | Number of commits that are unsigned or unverified |
 | `has-signature-failures` | `true` when the check failed — any unverified commit, or a verdict that could not cover every commit. A truncated PR can report `unverified-count: 0` and still fail, which is why this output exists. |
-| `evaluation-complete` | `true` when the verdict covered every commit in the pull request. `false` only when the commit range could not be resolved past the API cap. |
+| `evaluation-complete` | `true` when the verdict covered every commit in the pull request. `false` when the API came up short of the declared count, or when the resolved range was empty or belonged to a different head. |
 | `commit-source` | `api` for pull requests at or below the 250-commit cap, `range` when the commits were resolved from the git DAG. |
 | `findings-markdown` | Offending commits rendered as Markdown, ready to embed in a pull request comment. Empty when there is nothing to report. |
 
@@ -49,6 +53,7 @@ No commit metadata beyond what is already visible in the repository is emitted, 
 | One or more commits unsigned/unverified | ❌ failure — all offenders listed |
 | PR exceeds the 250-commit API cap | Commits resolved from the git DAG and verified in full |
 | Commit range could not be resolved past the cap | ❌ failure — verdict cannot be complete |
+| Resolved range empty, or resolved for a different head | ❌ failure — verdict cannot be trusted |
 | `dry-run: true` | Findings reported via `::notice::`, job does not fail |
 
 ## Remediation

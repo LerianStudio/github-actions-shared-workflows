@@ -67,6 +67,13 @@ runs:
         rm -rf "$work"
         git init -q "$work"
 
+        # A composite cannot register a post step, so the credential written below would
+        # otherwise outlive this step and stay readable by every later step in the job.
+        # Nothing past the fetch needs the repository — only shas.txt, which lives outside
+        # .git — so drop the whole thing on the way out, including the `set -e` exit after
+        # a failed fetch.
+        trap 'rm -rf "${work:?}/.git"' EXIT
+
         # Auth via a local http header, the way actions/checkout does it: the token stays
         # out of the remote URL, so it cannot leak through `git remote -v` or error output.
         git -C "$work" remote add origin "https://github.com/${REPOSITORY}.git"
@@ -80,11 +87,24 @@ runs:
           "+refs/pull/${PR_NUMBER}/head:refs/remotes/pr/head" \
           "+refs/heads/${BASE_REF}:refs/remotes/pr/base"
 
+        head_sha="$(git -C "$work" rev-parse refs/remotes/pr/head)"
         merge_base="$(git -C "$work" merge-base refs/remotes/pr/base refs/remotes/pr/head)"
-        git -C "$work" rev-list "${merge_base}..refs/remotes/pr/head" > "${work}/shas.txt"
+        git -C "$work" rev-list "${merge_base}..${head_sha}" > "${work}/shas.txt"
 
-        echo "sha-file=${work}/shas.txt" >> "$GITHUB_OUTPUT"
-        echo "Resolved $(wc -l < "${work}/shas.txt") commit(s) in ${merge_base}..$(git -C "$work" rev-parse refs/remotes/pr/head)"
+        count="$(wc -l < "${work}/shas.txt")"
+        if [ "$count" -eq 0 ]; then
+          echo "Resolved no commits in ${merge_base}..${head_sha} — refusing to report a verdict on an empty range" >&2
+          exit 1
+        fi
+
+        # The head is published so verification can bind the range to the pull request it
+        # is judging: refs/pull/N/head moves with every push, so a range resolved for
+        # another head must not pass as a verdict for this one.
+        {
+          echo "sha-file=${work}/shas.txt"
+          echo "head-sha=${head_sha}"
+        } >> "$GITHUB_OUTPUT"
+        echo "Resolved ${count} commit(s) in ${merge_base}..${head_sha}"
 
     # ----------------- Verification -----------------
     - name: Verify commit signatures
@@ -93,11 +113,13 @@ runs:
       env:
         DRY_RUN: ${{ inputs.dry-run }}
         RANGE_SHA_FILE: ${{ steps.range.outputs.sha-file }}
+        RANGE_HEAD_SHA: ${{ steps.range.outputs.head-sha }}
       with:
         github-token: ${{ inputs.github-token }}
         script: |
           const dryRun = process.env.DRY_RUN === 'true';
           const rangeShaFile = process.env.RANGE_SHA_FILE || '';
+          const rangeHeadSha = process.env.RANGE_HEAD_SHA || '';
           const pr = context.payload.pull_request;
 
           if (!pr) {
@@ -193,9 +215,24 @@ runs:
             source = 'api';
           }
 
-          // The range is the full set of commits between the merge base and the head by
-          // construction, so only an API-sourced verdict can come up short.
-          const truncated = source === 'api' && evaluated.length < declared;
+          // Neither source is trusted to be complete on its own.
+          //
+          // The API comes up short whenever the pull request declares more commits than it
+          // will return. The range is the full set between the merge base and the head by
+          // construction, so counting it against `declared` would only re-add the noise
+          // the API path suffers from — but it is complete for *a* head, and that head has
+          // to be the one under review. `refs/pull/N/head` moves with every push, so a
+          // range resolved for an older head is a verdict about code nobody is asking
+          // about. An empty range means the step handed over nothing at all.
+          //
+          // Either way this must not read as a pass: an incomplete verdict is the whole
+          // reason `evaluation-complete` exists next to `unverified-count`.
+          const prHeadSha = pr.head?.sha || '';
+          const staleRange =
+            source === 'range' && rangeHeadSha !== '' && prHeadSha !== '' && rangeHeadSha !== prHeadSha;
+          const emptyRange = source === 'range' && evaluated.length === 0;
+          const incomplete =
+            source === 'api' ? evaluated.length < declared : emptyRange || staleRange;
 
           // A commit that GitHub could not link to an account falls back to the name in the
           // commit object, which is whatever the pusher set in `git config user.name` — it is
@@ -230,8 +267,8 @@ runs:
 
           core.setOutput('total-commits', String(evaluated.length));
           core.setOutput('unverified-count', String(offenders.length));
-          core.setOutput('has-signature-failures', String(offenders.length > 0 || truncated));
-          core.setOutput('evaluation-complete', String(!truncated));
+          core.setOutput('has-signature-failures', String(offenders.length > 0 || incomplete));
+          core.setOutput('evaluation-complete', String(!incomplete));
           core.setOutput('commit-source', source);
 
 
@@ -279,14 +316,35 @@ runs:
             }
             findings.push('', remediation);
           }
-          if (truncated) {
-            findings.push(
-              '',
+          const short = (sha) => String(sha).slice(0, 7);
+
+          // Why the verdict is partial, in the reader's terms — each cause needs its own
+          // remedy, so none of them can share a generic "could not evaluate" line.
+          const incompleteNotice = () => {
+            if (staleRange) {
+              return [
+                `> The commit range was resolved for \`${short(rangeHeadSha)}\`, but this pull request now`,
+                `> points at \`${short(prHeadSha)}\`. A push landed while the check was running, so this`,
+                '> verdict is stale — the run for the new head is the one that decides.',
+              ];
+            }
+            if (emptyRange) {
+              return [
+                `> The commit range resolved from git came back empty while this pull request declares`,
+                `> ${declared} commits, so no signature was checked. The check fails closed rather than`,
+                '> reporting a verdict it never computed.',
+              ];
+            }
+            return [
               `> This pull request declares ${declared} commits and the API returned ${evaluated.length}.`,
               '> Both the REST and GraphQL commit APIs cap a pull request at 250 commits, and the',
               '> commit range could not be resolved from git either, so the verdict above covers',
               '> the most recent 250 and cannot speak for the rest.',
-            );
+            ];
+          };
+
+          if (incomplete) {
+            findings.push('', ...incompleteNotice());
           }
           core.setOutput('findings-markdown', findings.join('\n'));
 
@@ -305,13 +363,8 @@ runs:
             );
           }
 
-          if (truncated) {
-            lines.push(
-              `> ⚠️ This pull request declares ${declared} commits but the GitHub API returned only ${evaluated.length}.`,
-              '> The Pull Request Commits API caps at 250 commits and the full commit range could not be resolved,',
-              '> so the signature verdict cannot cover every commit.',
-              '',
-            );
+          if (incomplete) {
+            lines.push(`> ⚠️ The signature verdict cannot cover every commit.`, ...incompleteNotice(), '');
           }
 
           if (offenders.length > 0) {
@@ -324,7 +377,7 @@ runs:
               '',
               remediation,
             );
-          } else if (!truncated) {
+          } else if (!incomplete) {
             lines.push('✅ Every commit in this pull request carries a verified signature.');
           }
 
@@ -334,14 +387,21 @@ runs:
             core.error(`Commit ${o.short} by ${o.author} is not verified (reason: ${o.reason}) — ${o.url}`);
           }
 
-          if (offenders.length === 0 && !truncated) {
+          if (offenders.length === 0 && !incomplete) {
             core.info(`✅ All ${evaluated.length} commit(s) are verified.`);
             return;
           }
 
-          const failure = truncated
-            ? `Commit signature validation could not evaluate all ${declared} commits (only ${evaluated.length} returned by the API); ${offenders.length} of those are unsigned or unverified.`
-            : `${offenders.length} of ${evaluated.length} commit(s) in this pull request are unsigned or unverified.`;
+          let failure;
+          if (staleRange) {
+            failure = `Commit signature validation resolved the commit range for ${short(rangeHeadSha)} but this pull request points at ${short(prHeadSha)}; the verdict is stale.`;
+          } else if (emptyRange) {
+            failure = `Commit signature validation resolved no commits for a pull request that declares ${declared}; the verdict cannot be trusted.`;
+          } else if (incomplete) {
+            failure = `Commit signature validation could not evaluate all ${declared} commits (only ${evaluated.length} returned by the API); ${offenders.length} of those are unsigned or unverified.`;
+          } else {
+            failure = `${offenders.length} of ${evaluated.length} commit(s) in this pull request are unsigned or unverified.`;
+          }
 
           if (dryRun) {
             core.notice(`DRY RUN — ${failure}`);

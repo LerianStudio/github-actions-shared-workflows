@@ -24,6 +24,10 @@ from pathlib import Path
 ACTION_PATH = Path(__file__).resolve().parent / "action.yml"
 ACTION = ACTION_PATH.read_text(encoding="utf-8")
 
+# The head the pull request points at. The range step resolves refs/pull/N/head, so its
+# result has to agree with this or the verdict belongs to another revision.
+PR_HEAD_SHA = f"{0xfeed:040x}"
+
 STEP_NAME = "Verify commit signatures"
 
 # node in CI; bun is accepted so the suite is runnable on workstations without node.
@@ -80,9 +84,12 @@ const DRY_RUN = __DRY_RUN__;
 const HAS_PR = __HAS_PR__;
 const RANGE_SHA_FILE = __RANGE_SHA_FILE__;
 const RANGE_NODES = __RANGE_NODES__;
+const RANGE_HEAD_SHA = __RANGE_HEAD_SHA__;
+const HEAD_SHA = __HEAD_SHA__;
 
 process.env.DRY_RUN = DRY_RUN;
 process.env.RANGE_SHA_FILE = RANGE_SHA_FILE;
+process.env.RANGE_HEAD_SHA = RANGE_HEAD_SHA;
 
 const record = {
   failed: false,
@@ -115,7 +122,14 @@ const context = {
   runId: 42,
   issue: { number: 7 },
   payload: HAS_PR
-    ? { pull_request: { number: 7, commits: DECLARED, base: { ref: 'main' } } }
+    ? {
+        pull_request: {
+          number: 7,
+          commits: DECLARED,
+          base: { ref: 'main' },
+          head: { sha: HEAD_SHA },
+        },
+      }
     : {},
 };
 
@@ -203,6 +217,8 @@ def run_script(
     has_pr=True,
     range_shas=None,
     range_nodes=None,
+    range_head_sha=None,
+    head_sha=PR_HEAD_SHA,
 ):
     """Run the action script.
 
@@ -228,6 +244,11 @@ def run_script(
             .replace("__HAS_PR__", "true" if has_pr else "false")
             .replace("__RANGE_SHA_FILE__", json.dumps(sha_file))
             .replace("__RANGE_NODES__", json.dumps(range_nodes or {}))
+            .replace(
+                "__RANGE_HEAD_SHA__",
+                json.dumps("" if range_shas is None else (range_head_sha or head_sha)),
+            )
+            .replace("__HEAD_SHA__", json.dumps(head_sha))
             .replace("__SCRIPT__", textwrap.indent(SCRIPT_BODY, "  "))
         )
 
@@ -551,6 +572,61 @@ class CommitSignatureValidation(unittest.TestCase):
         call = record["graphqlCalls"][0]
         self.assertTrue(call["declaresOids"])
         self.assertFalse(call["interpolated"])
+
+    # (z) A range-sourced verdict is not trusted just because it came from git: an empty
+    # range would otherwise report zero offenders and a complete evaluation, passing the
+    # gate for a pull request whose commits were never looked at.
+    def test_empty_range_fails_closed(self):
+        record = run_script([], declared=574, range_shas=[], range_nodes={})
+        self.assertTrue(record["failed"])
+        self.assertEqual(record["outputs"]["total-commits"], "0")
+        self.assertEqual(record["outputs"]["unverified-count"], "0")
+        self.assertEqual(record["outputs"]["has-signature-failures"], "true")
+        self.assertEqual(record["outputs"]["evaluation-complete"], "false")
+        self.assertIn("resolved no commits", record["failedMessage"])
+        self.assertIn("came back empty", record["outputs"]["findings-markdown"])
+        self.assertNotIn("verified signature", record["summary"])
+
+    # (aa) Same when every line in the file is filtered out: usable SHAs, not lines, are
+    # what the verdict rests on.
+    def test_range_of_only_unusable_lines_fails_closed(self):
+        record = run_script(
+            [], declared=574, range_shas=["", "not-a-sha", "HEAD"], range_nodes={}
+        )
+        self.assertTrue(record["failed"])
+        self.assertEqual(record["outputs"]["evaluation-complete"], "false")
+        self.assertEqual(record["graphqlCalls"], [])
+
+    # (bb) refs/pull/N/head moves with every push, so a range resolved for another head is
+    # a verdict about a revision nobody is reviewing -> fail closed, and say which run
+    # decides instead.
+    def test_stale_range_head_fails_closed(self):
+        shas, nodes = self._range(574)
+        record = run_script(
+            [],
+            declared=574,
+            range_shas=shas,
+            range_nodes=nodes,
+            range_head_sha=f"{0xdead:040x}",
+        )
+        self.assertTrue(record["failed"])
+        # Every commit it did look at was verified, so the count alone reads as a pass.
+        self.assertEqual(record["outputs"]["unverified-count"], "0")
+        self.assertEqual(record["outputs"]["evaluation-complete"], "false")
+        self.assertIn("verdict is stale", record["failedMessage"])
+        findings = record["outputs"]["findings-markdown"]
+        self.assertIn(f"{0xdead:040x}"[:7], findings)
+        self.assertIn(PR_HEAD_SHA[:7], findings)
+
+    # (cc) A range that agrees with the pull request head is complete, and the stale-range
+    # guard must not fire on it.
+    def test_matching_range_head_is_complete(self):
+        shas, nodes = self._range(574)
+        record = run_script(
+            [], declared=574, range_shas=shas, range_nodes=nodes, range_head_sha=PR_HEAD_SHA
+        )
+        self.assertFalse(record["failed"], msg=record["failedMessage"])
+        self.assertEqual(record["outputs"]["evaluation-complete"], "true")
 
 
 if __name__ == "__main__":
