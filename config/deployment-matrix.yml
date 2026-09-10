@@ -261,13 +261,47 @@ clusters:
     # `beta: ["stg-mt"]` makes every beta tag update stg-mt as well, on top of
     # the normal dev-st / dev-mt expansion. Note this leaves a beta image
     # running in stg-mt until the next rc overwrites it — stg-mt stops being an
-    # rc-only environment for the apps listed here, so keep the list narrow.
+    # rc-only environment for the apps listed here.
+    #
+    # The list below mirrors every app that has a stg-mt values.yaml in
+    # lerian-internal-gitops (environments/benedita/helmfile/applications/stg-mt).
+    # When an app gains or loses that directory, update this list to match.
     app_extra_envs:
-      midaz:
-        beta: ["stg-mt"]
       billing-worker:
         beta: ["stg-mt"]
+      br-ccs:
+        beta: ["stg-mt"]
       br-sisbajud:
+        beta: ["stg-mt"]
+      br-sta:
+        beta: ["stg-mt"]
+      fetcher:
+        beta: ["stg-mt"]
+      flowker:
+        beta: ["stg-mt"]
+      matcher:
+        beta: ["stg-mt"]
+      midaz:
+        beta: ["stg-mt"]
+      notifications:
+        beta: ["stg-mt"]
+      plugin-access-manager:
+        beta: ["stg-mt"]
+      plugin-br-bank-transfer:
+        beta: ["stg-mt"]
+      plugin-br-payments:
+        beta: ["stg-mt"]
+      plugin-br-pix-jd:
+        beta: ["stg-mt"]
+      plugin-br-pix-lerian:
+        beta: ["stg-mt"]
+      plugin-fees:
+        beta: ["stg-mt"]
+      product-console:
+        beta: ["stg-mt"]
+      reporter:
+        beta: ["stg-mt"]
+      streaming-hub:
         beta: ["stg-mt"]
 
     # app_helmfile_env: per-app override for the helmfile applications sub-directory.
