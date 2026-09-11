@@ -1,0 +1,283 @@
+name: Helm Image Refs
+description: Renders a Helm chart and verifies that every container image it references exists in its registry.
+
+inputs:
+  chart-path:
+    description: Path to the chart directory to render.
+    required: true
+  values-file:
+    description: Values file passed to the render. Ignored when the file does not exist.
+    required: false
+    default: ""
+  release-name:
+    description: Release name used for the render. Only affects templated image references.
+    required: false
+    default: image-refs
+  registry-allowlist:
+    description: >-
+      Comma-separated reference prefixes to check. References outside the list are
+      reported as skipped, which keeps third-party subchart images from spending the
+      registry rate limit. Ignored when include-dependencies is true.
+    required: false
+    default: "ghcr.io/lerianstudio,docker.io/lerianstudio"
+  include-dependencies:
+    description: Check every reference the render produces, including subchart images.
+    required: false
+    default: "false"
+  on-unknown:
+    description: >-
+      What to do when the registry answer is inconclusive (auth failure, rate limit,
+      network error) rather than a clear absent: fail or warn.
+    required: false
+    default: fail
+  dry-run:
+    description: Report every reference and its verdict without failing the step.
+    required: false
+    default: "false"
+
+outputs:
+  images:
+    description: JSON array of the unique image references the chart renders.
+    value: ${{ steps.verify.outputs.images }}
+  missing:
+    description: JSON array of the references confirmed absent from their registry.
+    value: ${{ steps.verify.outputs.missing }}
+  has-missing:
+    description: "'true' when at least one reference is confirmed absent."
+    value: ${{ steps.verify.outputs.has-missing }}
+
+runs:
+  using: composite
+  steps:
+    # ----------------- Render -----------------
+    - name: Setup yq
+      uses: mikefarah/yq@c14f446382944492701b16c1ddb48bb9dbe683e3 # v4
+
+    - name: Render chart
+      id: render
+      shell: bash
+      env:
+        CHART_PATH: ${{ inputs.chart-path }}
+        VALUES_FILE: ${{ inputs.values-file }}
+        RELEASE_NAME: ${{ inputs.release-name }}
+        DRY_RUN: ${{ inputs.dry-run }}
+      run: |
+        set -euo pipefail
+
+        if [ ! -f "${CHART_PATH}/Chart.yaml" ]; then
+          echo "::error::No Chart.yaml under ${CHART_PATH}"
+          exit 1
+        fi
+
+        # A library chart renders nothing and has no images of its own. It still goes
+        # through the verify step, against an empty render: skipping the step outright
+        # would leave every output an empty string instead of [] / [] / false, and a
+        # caller testing has-missing would get neither 'true' nor 'false'.
+        CHART_KIND=$(yq -r '.type // "application"' "${CHART_PATH}/Chart.yaml")
+        if [ "$CHART_KIND" = "library" ]; then
+          echo "::notice::${CHART_PATH} is a library chart, nothing to verify"
+          : > /tmp/helm-image-refs-render.yaml
+          exit 0
+        fi
+
+        # `helm dependency build` resolves oci:// and file:// dependencies on its own
+        # but refuses an https:// one whose repo is not registered, so each
+        # `repository: https://…` in Chart.yaml is added first.
+        DEP_N=0
+        while IFS= read -r repo_url; do
+          [ -z "$repo_url" ] && continue
+          helm repo add "dep${DEP_N}" "$repo_url" >/dev/null 2>&1 || true
+          DEP_N=$((DEP_N + 1))
+        done < <(grep -E 'repository:[[:space:]]*"?https?://' "${CHART_PATH}/Chart.yaml" | grep -Eo 'https?://[^"[:space:]]+' | sort -u)
+        [ "$DEP_N" -gt 0 ] && helm repo update >/dev/null 2>&1
+
+        # Dependency fetches are network-flaky; one retry, and the real error on the
+        # second failure instead of a bare "build failed".
+        if ! DEP_OUT=$(helm dependency build "${CHART_PATH}" 2>&1); then
+          if ! DEP_OUT=$(helm dependency build "${CHART_PATH}" 2>&1); then
+            echo "::error::helm dependency build failed for ${CHART_PATH}: ${DEP_OUT}"
+            exit 1
+          fi
+        fi
+
+        VALUES_ARGS=()
+        if [ -n "$VALUES_FILE" ] && [ -f "$VALUES_FILE" ]; then
+          VALUES_ARGS=(--values "$VALUES_FILE")
+          [ "$DRY_RUN" = "true" ] && echo "::notice::Rendering with ${VALUES_FILE}"
+        elif [ -n "$VALUES_FILE" ]; then
+          echo "::notice::${VALUES_FILE} not found, rendering with chart defaults"
+        fi
+
+        # Hooks are deliberately kept in the render: migration Jobs are hooks, and a
+        # migration image that was never published is exactly the failure this guards.
+        helm template "$RELEASE_NAME" "${CHART_PATH}" "${VALUES_ARGS[@]}" > /tmp/helm-image-refs-render.yaml
+
+    # ----------------- Verify -----------------
+    - name: Verify image references
+      id: verify
+      shell: bash
+      env:
+        CHART_PATH: ${{ inputs.chart-path }}
+        REGISTRY_ALLOWLIST: ${{ inputs.registry-allowlist }}
+        INCLUDE_DEPENDENCIES: ${{ inputs.include-dependencies }}
+        ON_UNKNOWN: ${{ inputs.on-unknown }}
+        DRY_RUN: ${{ inputs.dry-run }}
+      run: |
+        set -euo pipefail
+
+        # A typo here would silently fall through to the permissive branch and turn
+        # the gate off, which is worse than not having it.
+        case "$ON_UNKNOWN" in
+          fail|warn) ;;
+          *) echo "::error::on-unknown must be 'fail' or 'warn', got '${ON_UNKNOWN}'"; exit 1 ;;
+        esac
+
+        # Every kind nests its pod spec differently — a CronJob buries it two levels
+        # deeper than a Deployment — so the container lists are found by recursive
+        # descent rather than by walking a fixed path per kind. Matching the lists
+        # themselves, instead of any map that happens to carry an `image` key, is what
+        # keeps a ConfigMap with a `data.image` entry out of the results.
+        mapfile -t RAW_REFS < <(
+          yq eval-all --no-doc \
+            '[.. | select(tag == "!!map") | (.containers, .initContainers, .ephemeralContainers) | select(tag == "!!seq") | .[] | select(has("image")) | .image] | .[]' \
+            /tmp/helm-image-refs-render.yaml 2>/dev/null | grep -v '^$' | sort -u || true
+        )
+
+        if [ "${#RAW_REFS[@]}" -eq 0 ]; then
+          echo "::notice::${CHART_PATH} renders no image references"
+          echo 'images=[]' >> "$GITHUB_OUTPUT"
+          echo 'missing=[]' >> "$GITHUB_OUTPUT"
+          echo 'has-missing=false' >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
+
+        # Normalizes a reference the way a registry client resolves it, so that
+        # `lerianstudio/product-console:1.12.0` and its fully qualified form are one
+        # entry and match the allowlist the same way. A digest reference keeps its
+        # digest; only a tagless reference gains the implicit `:latest`.
+        normalize() {
+          local ref="$1" host rest
+          host="${ref%%/*}"
+          if [ "$host" = "$ref" ] || { [ "${host#*.}" = "$host" ] && [ "${host#*:}" = "$host" ] && [ "$host" != "localhost" ]; }; then
+            # No registry host component: Docker Hub, with the official-image prefix
+            # when the reference has no namespace either.
+            case "$ref" in
+              */*) ref="docker.io/${ref}" ;;
+              *)   ref="docker.io/library/${ref}" ;;
+            esac
+          fi
+          rest="${ref#*/}"
+          case "$rest" in
+            *@*|*:*) ;;
+            *) ref="${ref}:latest" ;;
+          esac
+          printf '%s' "$ref"
+        }
+
+        # `docker manifest inspect` exits non-zero both for a tag that is not there and
+        # for a lookup that could not be completed, and only the registry's error text
+        # tells the two apart. An unrecognised error stays "unknown" rather than being
+        # guessed as absent — treating a rate limit as a missing image would block a
+        # release for the wrong reason.
+        #
+        # The patterns are the ones .github/workflows/build.yml uses, minus
+        # `pull access denied`. That one means the credential could not see the
+        # repository, which is a verification failure, not evidence of absence. GHCR
+        # answers `manifest unknown` for a missing tag AND for a repository that does
+        # not exist, authenticated or not, so nothing is lost by dropping it — while
+        # keeping it would turn an expired login into "the image does not exist" and
+        # block the release.
+        classify_tag() {
+          local ref="$1" err
+          if err=$(docker manifest inspect "$ref" 2>&1 >/dev/null); then
+            printf 'present'
+          elif printf '%s' "$err" | grep -qiE 'manifest unknown|manifest_unknown|no such manifest|not found|repository does not exist'; then
+            printf 'absent'
+          else
+            printf 'unknown'
+          fi
+        }
+
+        in_allowlist() {
+          local ref="$1" prefix
+          [ "$INCLUDE_DEPENDENCIES" = "true" ] && return 0
+          IFS=',' read -ra PREFIXES <<< "$REGISTRY_ALLOWLIST"
+          for prefix in "${PREFIXES[@]}"; do
+            prefix="$(echo "$prefix" | xargs)"
+            [ -z "$prefix" ] && continue
+            # The prefix must end on a reference boundary, or `ghcr.io/lerianstudio`
+            # would also claim `ghcr.io/lerianstudio-something/image`.
+            case "$ref" in
+              "$prefix"|"$prefix"/*|"$prefix":*|"$prefix"@*) return 0 ;;
+            esac
+          done
+          return 1
+        }
+
+        ALL_REFS=()
+        MISSING_REFS=()
+        UNKNOWN_REFS=()
+        ROWS=""
+
+        for raw in "${RAW_REFS[@]}"; do
+          ref="$(normalize "$raw")"
+          case " ${ALL_REFS[*]-} " in *" $ref "*) continue ;; esac
+          ALL_REFS+=("$ref")
+
+          if ! in_allowlist "$ref"; then
+            ROWS="${ROWS}| \`${ref}\` | skipped (outside allowlist) |"$'\n'
+            [ "$DRY_RUN" = "true" ] && echo "::notice::skipped ${ref}"
+            continue
+          fi
+
+          verdict="$(classify_tag "$ref")"
+          case "$verdict" in
+            present)
+              ROWS="${ROWS}| \`${ref}\` | present |"$'\n'
+              [ "$DRY_RUN" = "true" ] && echo "::notice::present ${ref}"
+              ;;
+            absent)
+              MISSING_REFS+=("$ref")
+              ROWS="${ROWS}| \`${ref}\` | **absent** |"$'\n'
+              echo "::error::${ref} does not exist in its registry"
+              ;;
+            *)
+              UNKNOWN_REFS+=("$ref")
+              ROWS="${ROWS}| \`${ref}\` | unknown |"$'\n'
+              echo "::warning::could not verify ${ref}"
+              ;;
+          esac
+        done
+
+        to_json() {
+          if [ "$#" -eq 0 ]; then printf '[]'; else printf '%s\n' "$@" | jq -R . | jq -sc .; fi
+        }
+
+        {
+          echo "images=$(to_json "${ALL_REFS[@]-}")"
+          echo "missing=$(to_json "${MISSING_REFS[@]-}")"
+          echo "has-missing=$([ "${#MISSING_REFS[@]}" -gt 0 ] && echo true || echo false)"
+        } >> "$GITHUB_OUTPUT"
+
+        {
+          echo "### Image references — \`${CHART_PATH}\`"
+          echo
+          echo "| Reference | Verdict |"
+          echo "| --- | --- |"
+          printf '%s' "$ROWS"
+        } >> "$GITHUB_STEP_SUMMARY"
+
+        if [ "$DRY_RUN" = "true" ]; then
+          echo "::notice::dry-run: ${#MISSING_REFS[@]} absent, ${#UNKNOWN_REFS[@]} unknown, not failing"
+          exit 0
+        fi
+
+        if [ "${#MISSING_REFS[@]}" -gt 0 ]; then
+          echo "::error::${CHART_PATH} references ${#MISSING_REFS[@]} image(s) that do not exist: ${MISSING_REFS[*]}"
+          exit 1
+        fi
+
+        if [ "${#UNKNOWN_REFS[@]}" -gt 0 ] && [ "$ON_UNKNOWN" = "fail" ]; then
+          echo "::error::${CHART_PATH} has ${#UNKNOWN_REFS[@]} unverifiable reference(s): ${UNKNOWN_REFS[*]}"
+          exit 1
+        fi
