@@ -1,0 +1,107 @@
+name: Self — Helm Image Refs
+
+# Manual harness for the `src/validate/helm-image-refs` composite. This repository
+# holds no charts of its own, so the chart under test is checked out from the chart
+# repository named in the inputs.
+#
+# Reusable workflows may not declare `workflow_dispatch`, and the composite has no
+# reusable wrapper — it is consumed as a step by the chart repository's release
+# pipeline. This is where it gets exercised by hand before that pipeline is pointed
+# at a new ref.
+#
+# Security: workflow_dispatch approved — internal test harness, typed inputs only,
+# none of them interpolated into a `run:` block.
+
+on:
+  workflow_dispatch:
+    inputs:
+      chart_ref:
+        description: Ref of the chart repository to check out
+        type: string
+        default: main
+      chart:
+        description: Chart directory name under charts/
+        type: string
+        default: plugin-br-bank-transfer
+      on_unknown:
+        description: What to do when a registry answer is inconclusive
+        type: choice
+        options:
+          - fail
+          - warn
+        default: fail
+      include_dependencies:
+        description: Also verify third-party subchart images
+        type: boolean
+        default: false
+      dry_run:
+        description: Report every reference and its verdict without failing
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: self-helm-image-refs-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ${{ vars.GENERAL_RUNNERS || 'blacksmith-4vcpu-ubuntu-2404' }}
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      # ----------------- Setup -----------------
+      # The repository is fixed rather than an input: a dispatch-supplied repository
+      # would let this job check out and render arbitrary third-party charts, and
+      # `helm dependency build` fetches whatever their Chart.yaml points at. The ref
+      # stays open so a branch can be tested, which is the whole point of the harness.
+      - name: Checkout chart repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+        with:
+          repository: LerianStudio/helm
+          ref: ${{ inputs.chart_ref }}
+          persist-credentials: false
+
+      - name: Checkout this repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+        with:
+          path: .shared-workflows
+          persist-credentials: false
+
+      - name: Setup Helm
+        uses: azure/setup-helm@b9e51907a09c216f16ebe8536097933489208112 # v4.3.0
+
+      # `docker manifest inspect` reads the Docker CLI credential store, which
+      # `helm registry login` does not write to. Without this, every private GHCR
+      # repository answers `pull access denied` and classifies as absent.
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # ----------------- Verify -----------------
+      - name: Verify referenced images exist
+        id: refs
+        uses: ./.shared-workflows/src/validate/helm-image-refs
+        with:
+          chart-path: charts/${{ inputs.chart }}
+          values-file: .github/configs/helm-render-values/${{ inputs.chart }}.yaml
+          include-dependencies: ${{ inputs.include_dependencies }}
+          on-unknown: ${{ inputs.on_unknown }}
+          dry-run: ${{ inputs.dry_run }}
+
+      - name: Report
+        if: always() && steps.refs.conclusion != 'skipped'
+        env:
+          IMAGES: ${{ steps.refs.outputs.images }}
+          MISSING: ${{ steps.refs.outputs.missing }}
+          HAS_MISSING: ${{ steps.refs.outputs.has-missing }}
+        run: |
+          echo "::notice::has-missing=${HAS_MISSING}"
+          echo "images:  ${IMAGES}"
+          echo "missing: ${MISSING}"
