@@ -356,76 +356,6 @@ runs:
     # an argo-workflows bump stayed in CrashLoopBackOff behind a green pipeline.
     #
     # Only after a direct commit: the pull request path has applied nothing yet.
-    # What this run did, on the run page itself. Everything below was already
-    # in the logs or in bump.json; the point is that reading a log to find out
-    # whether a chart reached the environments is not a thing anyone does, so
-    # in practice nobody knew. A green run is not the same as a commit — an
-    # environment pinned to an alpha channel produces a perfectly green no-op.
-    - name: Summarise the run
-      if: always() && steps.bump.conclusion == 'success'
-      shell: bash
-      env:
-        CHART_NAME: ${{ inputs.chart-name }}
-        CHART_VERSION: ${{ inputs.chart-version }}
-        CHART_REF: ${{ inputs.chart-ref }}
-        GITOPS_REPOSITORY: ${{ inputs.gitops-repository }}
-        LEVEL: ${{ steps.bump.outputs.level }}
-        ROUTE: ${{ steps.deliver.outputs.route }}
-        COMMIT_SHA: ${{ steps.deliver.outputs.commit-sha }}
-        PR_URL: ${{ steps.deliver.outputs.pr-url }}
-        SYNCED: ${{ steps.sync.outputs.synced }}
-        DRY_RUN: ${{ inputs.dry-run }}
-      run: |
-        set -euo pipefail
-
-        {
-          echo "## \`${CHART_NAME}\` → \`${CHART_VERSION}\`"
-          echo
-
-          if [ "$DRY_RUN" = "true" ]; then
-            echo "**Dry run** — resolved and gated, nothing written."
-            echo
-          fi
-
-          changed=$(jq -r '.changed | length' bump.json)
-          if [ "$changed" = "0" ]; then
-            # The two ways to arrive here are not the same thing, and telling
-            # them apart is the whole reason this section exists.
-            current=$(jq -r '.current | length' bump.json)
-            if [ "$current" != "0" ]; then
-              echo "Already on this version in every environment — nothing to write."
-            else
-              echo "**No environment takes this chart.** Every candidate is pinned to a"
-              echo "different OCI repository, so this release was not theirs to receive:"
-              echo
-              echo "\`${CHART_REF}\`"
-            fi
-          else
-            echo "| environment | from | to | level |"
-            echo "|---|---|---|---|"
-            jq -r '.changed[] | "| `\(.file)` | `\(.from)` | `\(.to)` | \(.level) |"' bump.json
-          fi
-
-          echo
-          case "$ROUTE" in
-            commit)
-              echo "**Committed** to \`${GITOPS_REPOSITORY}\` — [\`${COMMIT_SHA:0:7}\`](https://github.com/${GITOPS_REPOSITORY}/commit/${COMMIT_SHA})"
-              ;;
-            pr)
-              echo "**Pull request** — the push was refused, so the change is waiting for review: ${PR_URL}"
-              ;;
-          esac
-
-          if [ -n "${SYNCED:-}" ]; then
-            [ "$SYNCED" = "true" ] \
-              && echo "ArgoCD: every affected application reported healthy." \
-              || echo "ArgoCD: the sync did not confirm healthy — see the step above."
-          fi
-
-          untouched=$(jq -r '.untouched | length' bump.json)
-          [ "$untouched" = "0" ] || echo "$untouched environment(s) left alone: pinned to another channel."
-        } >> "$GITHUB_STEP_SUMMARY"
-
     - name: Sync the affected ArgoCD applications
       id: sync
       # Not gated on something having changed. route is empty when there was
@@ -488,3 +418,78 @@ runs:
           exit 1
         fi
         echo "synced=true" >> "$GITHUB_OUTPUT"
+
+    # ----------------- Report -----------------
+    # What this run did, on the run page itself. Everything below was already
+    # in the logs or in bump.json; the point is that reading a log to find out
+    # whether a chart reached the environments is not a thing anyone does, so
+    # in practice nobody knew. A green run is not the same as a commit — an
+    # environment pinned to an alpha channel produces a perfectly green no-op.
+    - name: Summarise the run
+      if: always() && steps.bump.conclusion == 'success'
+      # Cosmetic output must not fail a run whose commit and sync already
+      # succeeded: this is the last step, so a jq or write error here would
+      # turn a good delivery red.
+      continue-on-error: true
+      shell: bash
+      env:
+        CHART_NAME: ${{ inputs.chart-name }}
+        CHART_VERSION: ${{ inputs.chart-version }}
+        CHART_REF: ${{ inputs.chart-ref }}
+        GITOPS_REPOSITORY: ${{ inputs.gitops-repository }}
+        LEVEL: ${{ steps.bump.outputs.level }}
+        ROUTE: ${{ steps.deliver.outputs.route }}
+        COMMIT_SHA: ${{ steps.deliver.outputs.commit-sha }}
+        PR_URL: ${{ steps.deliver.outputs.pr-url }}
+        SYNCED: ${{ steps.sync.outputs.synced }}
+        DRY_RUN: ${{ inputs.dry-run }}
+      run: |
+        set -euo pipefail
+
+        {
+          echo "## \`${CHART_NAME}\` → \`${CHART_VERSION}\`"
+          echo
+
+          if [ "$DRY_RUN" = "true" ]; then
+            echo "**Dry run** — resolved and gated, nothing written."
+            echo
+          fi
+
+          changed=$(jq -r '.changed | length' bump.json)
+          if [ "$changed" = "0" ]; then
+            # The two ways to arrive here are not the same thing, and telling
+            # them apart is the whole reason this section exists.
+            current=$(jq -r '.current | length' bump.json)
+            if [ "$current" != "0" ]; then
+              echo "Already on this version in every environment — nothing to write."
+            else
+              echo "**No environment takes this chart.** Every candidate is pinned to a"
+              echo "different OCI repository, so this release was not theirs to receive:"
+              echo
+              echo "\`${CHART_REF}\`"
+            fi
+          else
+            echo "| environment | from | to | level |"
+            echo "|---|---|---|---|"
+            jq -r '.changed[] | "| `\(.file)` | `\(.from)` | `\(.to)` | \(.level) |"' bump.json
+          fi
+
+          echo
+          case "$ROUTE" in
+            commit)
+              echo "**Committed** to \`${GITOPS_REPOSITORY}\` — [\`${COMMIT_SHA:0:7}\`](https://github.com/${GITOPS_REPOSITORY}/commit/${COMMIT_SHA})"
+              ;;
+            pr)
+              echo "**Pull request** — the push was refused, so the change is waiting for review: ${PR_URL}"
+              ;;
+          esac
+
+          if [ -n "${SYNCED:-}" ]; then
+            [ "$SYNCED" = "true" ] \
+              && echo "ArgoCD: every affected application reported healthy." \
+              || echo "ArgoCD: the sync did not confirm healthy — see the step above."
+          fi
+
+          untouched=$(jq -r '.untouched | length' bump.json)
+          [ "$untouched" = "0" ] || echo "$untouched environment(s) left alone: pinned to another channel."
+        } >> "$GITHUB_STEP_SUMMARY"
