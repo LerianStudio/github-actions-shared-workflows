@@ -21,12 +21,26 @@ on:
 permissions:
   contents: read
 
-# A burst of activity fires this several times over. Only the last run matters —
-# each reads the live state of every thread — so the earlier ones are cancelled
-# rather than racing each other to the same mutation.
+# A burst of activity fires this several times over — a push and a review landing
+# together is enough. They must not race to the same mutation, so they are grouped
+# per pull request and run one at a time.
+#
+# Not `cancel-in-progress: true`: that kills the *running* one, and a cancelled run
+# is reported as a non-success check, leaving the pull request UNSTABLE over tidying
+# that is cosmetic to begin with.
+#
+# This does not remove cancellation, only moves it somewhere harmless. GitHub keeps
+# at most one pending run per group, and a newly queued run cancels the pending one
+# it replaces, so a burst of three or more still cancels the ones in the middle.
+# What is guaranteed is that no in-progress run is killed and the last one queued —
+# the one with the freshest view — survives. Nothing is lost by the cancellation
+# either way: every run reads the live thread state, so a superseded pending run
+# would have found the same work already done. `queue: max` holds up to 100 pending
+# instead, but it is limited to newer Actions generations and is a validation error
+# where unavailable — too much risk for cosmetic tidying.
 concurrency:
   group: coderabbit-collapse-${{ github.event.pull_request.number }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   collapse:

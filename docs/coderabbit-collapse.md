@@ -93,7 +93,13 @@ All three events run from the pull request's own merge ref (`refs/pull/N/merge`)
 
 The alternative to all of this is a scheduled sweep over open pull requests, which would have full coverage at the cost of latency and of running from the default branch only — meaning it could not be tested before merging. That trade was considered and not taken.
 
-A burst of activity fires the workflow several times over. Only the last run matters, since each reads the live state of every thread, so `concurrency` with `cancel-in-progress: true` drops the earlier ones instead of letting them race to the same mutation.
+A burst of activity fires the workflow several times over — a push and a review landing together is enough. Those runs must not race to the same mutation, so `concurrency` groups them per pull request and lets them run one at a time.
+
+`cancel-in-progress: true` was the first instinct and it was wrong in practice: **a cancelled run is reported as a non-success check**, which leaves the pull request `UNSTABLE` over tidying that is cosmetic to begin with.
+
+`false` does not remove cancellation, though — it moves it somewhere harmless, and it is worth being exact about which. GitHub keeps [at most one pending run per concurrency group](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/control-workflow-concurrency): *"any existing `pending` job or workflow in the same concurrency group will be canceled and the new queued job or workflow will take its place."* So a burst of three or more events still cancels the ones in the middle. What the setting does guarantee is that **no in-progress run is killed**, and that the last run queued — the one with the freshest view — is the one that survives.
+
+Nothing is lost by that cancellation: every run reads the live thread state, so a superseded pending run would only have found the work already done. `queue: max` would hold up to 100 pending runs instead and remove cancellation entirely, but it is limited to newer Actions generations and is a workflow validation error where it is not available — too much risk to take on for cosmetic tidying.
 
 ## Usage
 
@@ -114,7 +120,7 @@ permissions:
 
 concurrency:
   group: coderabbit-collapse-${{ github.event.pull_request.number }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   collapse:
