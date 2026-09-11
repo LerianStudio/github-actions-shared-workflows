@@ -30,10 +30,25 @@ concurrency:
 
 jobs:
   collapse:
+    name: Collapse Resolved Reviews
+    runs-on: ${{ vars.GENERAL_RUNNERS || 'blacksmith-4vcpu-ubuntu-2404' }}
     permissions:
       contents: read
       pull-requests: write
-    uses: ./.github/workflows/coderabbit-collapse.yml
-    with:
-      pr_number: ${{ github.event.pull_request.number }}
-    secrets: inherit
+    steps:
+      # The composite is used by path rather than through coderabbit-collapse.yml,
+      # matching how self-pr-validation.yml runs this repository's own composites.
+      # The reusable workflow resolves `LerianStudio/…/src/notify/coderabbit-collapse@v1`,
+      # an absolute ref for the benefit of other repositories — which cannot resolve
+      # at all until this merges and a version carries it. A self entrypoint that
+      # depended on that could never run on the pull request introducing it.
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+        with:
+          persist-credentials: false
+
+      - name: Collapse resolved reviews
+        uses: ./src/notify/coderabbit-collapse
+        with:
+          github-token: ${{ secrets.MANAGE_TOKEN || github.token }}
+          pr-number: ${{ github.event.pull_request.number }}
