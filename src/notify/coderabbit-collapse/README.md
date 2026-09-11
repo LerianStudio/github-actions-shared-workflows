@@ -58,9 +58,12 @@ A failed mutation is a `::warning::`, never a failed job. Tidying is not worth a
 
 | Output | Description |
 |--------|-------------|
+| `has-changes` | `true` when this run changed anything — any review folded or restored. Always `false` under `dry-run`, which changes nothing by definition. |
 | `evaluated` | Number of eligible reviews examined |
-| `collapsed` | Number of reviews minimised in this run |
-| `restored` | Number of reviews unminimised because a thread was reopened |
+| `collapsed` | Number of reviews **actually** minimised in this run. Zero under `dry-run` |
+| `restored` | Number of reviews **actually** unminimised because a thread was reopened. Zero under `dry-run` |
+
+`collapsed` and `restored` count mutations that landed, so a non-zero value is a state change a caller can act on. A dry-run reports what it *would* do in the job summary, never in these counters.
 
 ## Usage as composite step
 
@@ -72,7 +75,7 @@ jobs:
       pull-requests: write
     steps:
       - name: Collapse resolved CodeRabbit reviews
-        uses: LerianStudio/github-actions-shared-workflows/src/notify/coderabbit-collapse@v1.x.x
+        uses: LerianStudio/github-actions-shared-workflows/src/notify/coderabbit-collapse@tier-1
         with:
           github-token: ${{ secrets.MANAGE_TOKEN || github.token }}
           pr-number: ${{ github.event.pull_request.number }}
@@ -99,7 +102,7 @@ permissions:
 
 jobs:
   collapse:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/coderabbit-collapse.yml@v1.x.x
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/coderabbit-collapse.yml@tier-1
     with:
       pr_number: ${{ github.event.pull_request.number }}
     secrets: inherit

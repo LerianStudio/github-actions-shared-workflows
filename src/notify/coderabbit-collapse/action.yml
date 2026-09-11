@@ -20,14 +20,19 @@ inputs:
     default: "false"
 
 outputs:
+  has-changes:
+    description: >-
+      Whether this run changed anything (`true`/`false`) — any review folded or restored.
+      Always `false` under dry-run, which changes nothing by definition.
+    value: ${{ steps.collapse.outputs.has-changes }}
   evaluated:
     description: Number of eligible reviews examined
     value: ${{ steps.collapse.outputs.evaluated }}
   collapsed:
-    description: Number of reviews minimised in this run
+    description: Number of reviews actually minimised in this run. Zero under dry-run
     value: ${{ steps.collapse.outputs.collapsed }}
   restored:
-    description: Number of reviews unminimised in this run because a thread was reopened
+    description: Number of reviews actually unminimised because a thread was reopened. Zero under dry-run
     value: ${{ steps.collapse.outputs.restored }}
 
 runs:
@@ -64,6 +69,7 @@ runs:
             core.setOutput('evaluated', '0');
             core.setOutput('collapsed', '0');
             core.setOutput('restored', '0');
+            core.setOutput('has-changes', 'false');
             return;
           }
 
@@ -123,8 +129,14 @@ runs:
           }
 
           let evaluated = 0;
+          // `collapsed` and `restored` count mutations that actually happened, so a caller
+          // can treat a non-zero value as a state change. Dry-run changes nothing, so it
+          // must not touch them — what it *would* do is counted separately, for the
+          // summary only.
           let collapsed = 0;
           let restored = 0;
+          let plannedCollapse = 0;
+          let plannedRestore = 0;
           const rows = [];
 
           for (const review of reviews) {
@@ -153,7 +165,7 @@ runs:
               }
               if (dryRun) {
                 rows.push([short, `${tally.total} resolved`, 'would fold']);
-                collapsed += 1;
+                plannedCollapse += 1;
                 continue;
               }
               try {
@@ -181,7 +193,7 @@ runs:
             if (review.isMinimized === true && review.minimizedReason === 'resolved') {
               if (dryRun) {
                 rows.push([short, `${tally.unresolved} unresolved`, 'would restore']);
-                restored += 1;
+                plannedRestore += 1;
                 continue;
               }
               try {
@@ -208,6 +220,7 @@ runs:
           core.setOutput('evaluated', String(evaluated));
           core.setOutput('collapsed', String(collapsed));
           core.setOutput('restored', String(restored));
+          core.setOutput('has-changes', String(collapsed + restored > 0));
 
           if (evaluated === 0) {
             core.info('No eligible review with inline threads on this pull request.');
@@ -219,7 +232,9 @@ runs:
             lines.push('> **DRY RUN** — nothing was folded or restored', '');
           }
           lines.push(
-            `Reviews examined: **${evaluated}** · folded: **${collapsed}** · restored: **${restored}**`,
+            dryRun
+              ? `Reviews examined: **${evaluated}** · would fold: **${plannedCollapse}** · would restore: **${plannedRestore}**`
+              : `Reviews examined: **${evaluated}** · folded: **${collapsed}** · restored: **${restored}**`,
             '',
             '| Review | Threads | Action |',
             '|--------|---------|--------|',
@@ -227,4 +242,8 @@ runs:
           );
           await core.summary.addRaw(lines.join('\n')).write();
 
-          core.info(`Examined ${evaluated} review(s): folded ${collapsed}, restored ${restored}.`);
+          core.info(
+            dryRun
+              ? `DRY RUN — examined ${evaluated} review(s): would fold ${plannedCollapse}, would restore ${plannedRestore}.`
+              : `Examined ${evaluated} review(s): folded ${collapsed}, restored ${restored}.`,
+          );

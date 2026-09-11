@@ -121,11 +121,19 @@ jobs:
     permissions:
       contents: read
       pull-requests: write
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/coderabbit-collapse.yml@v1.x.x
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/coderabbit-collapse.yml@tier-1
     with:
       pr_number: ${{ github.event.pull_request.number }}
     secrets: inherit
 ```
+
+## Outputs
+
+| Output | Description |
+|--------|-------------|
+| `has_changes` | `true` when this run changed anything — any review folded or restored. Always `false` under `dry_run`. |
+
+The composite behind it also exposes `evaluated`, `collapsed` and `restored`. The last two count mutations that landed, so a non-zero value is a real state change; a dry-run reports its plan in the job summary, never in those counters.
 
 ## Inputs
 

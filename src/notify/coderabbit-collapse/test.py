@@ -195,9 +195,22 @@ def run_script(reviews, threads, pr_number="7", authors="coderabbitai[bot]",
     with tempfile.TemporaryDirectory() as temp_dir:
         script_path = Path(temp_dir) / "harness.cjs"
         script_path.write_text(harness, encoding="utf-8")
-        result = subprocess.run(
-            [RUNTIME, str(script_path)], text=True, capture_output=True, check=False
-        )
+        try:
+            # Without a deadline, a regression that never settles a promise leaves the
+            # suite hanging until the runner's own timeout, with nothing to read.
+            result = subprocess.run(
+                [RUNTIME, str(script_path)],
+                text=True,
+                capture_output=True,
+                check=False,
+                timeout=30,
+            )
+        except subprocess.TimeoutExpired as expired:
+            raise AssertionError(
+                f"harness did not finish within {expired.timeout}s "
+                f"(reviews={len(reviews)}, threads={len(threads)}, dry_run={dry_run})\n"
+                f"stdout:\n{expired.stdout}\nstderr:\n{expired.stderr}"
+            ) from expired
 
     if result.returncode != 0:
         raise AssertionError(
@@ -294,13 +307,17 @@ class CollapseResolvedReviews(unittest.TestCase):
                 self.assertEqual(record["mutations"], [])
                 self.assertEqual(record["outputs"]["restored"], "0")
 
-    # (j) dry-run reports the decision and mutates nothing.
+    # (j) dry-run reports the decision and mutates nothing. `collapsed` counts mutations
+    # that happened, so a caller reading it as a state change must not be misled by a run
+    # that changed nothing — the plan belongs in the summary, not in the counter.
     def test_dry_run_reports_without_mutating(self):
         record = run_script([review(1)], [thread(1, True)], dry_run="true")
-        self.assertEqual(record["outputs"]["collapsed"], "1")
         self.assertEqual(record["mutations"], [])
+        self.assertEqual(record["outputs"]["collapsed"], "0")
+        self.assertEqual(record["outputs"]["has-changes"], "false")
+        self.assertEqual(record["outputs"]["evaluated"], "1")
         self.assertIn("DRY RUN", record["summary"])
-        self.assertIn("would fold", record["summary"])
+        self.assertIn("would fold: **1**", record["summary"])
 
     def test_dry_run_reports_a_restore_without_mutating(self):
         record = run_script(
@@ -308,9 +325,29 @@ class CollapseResolvedReviews(unittest.TestCase):
             [thread(1, False)],
             dry_run="true",
         )
-        self.assertEqual(record["outputs"]["restored"], "1")
         self.assertEqual(record["mutations"], [])
-        self.assertIn("would restore", record["summary"])
+        self.assertEqual(record["outputs"]["restored"], "0")
+        self.assertEqual(record["outputs"]["has-changes"], "false")
+        self.assertIn("would restore: **1**", record["summary"])
+
+    # (j2) has-changes is the boolean a caller gates downstream work on, and it tracks
+    # mutations that actually landed — not ones that were merely planned or attempted.
+    def test_has_changes_tracks_real_mutations(self):
+        folded = run_script([review(1)], [thread(1, True)])
+        self.assertEqual(folded["outputs"]["has-changes"], "true")
+
+        restored = run_script(
+            [review(1, minimized=True, reason="resolved")], [thread(1, False)]
+        )
+        self.assertEqual(restored["outputs"]["has-changes"], "true")
+
+        for name, record in (
+            ("nothing to do", run_script([review(1)], [thread(1, False)])),
+            ("no eligible review", run_script([review(1)], [])),
+            ("mutation failed", run_script([review(1)], [thread(1, True)], mutations_fail=True)),
+        ):
+            with self.subTest(case=name):
+                self.assertEqual(record["outputs"]["has-changes"], "false")
 
     # (k) REST says `coderabbitai[bot]`, GraphQL says `coderabbitai`. Callers copy
     # whichever they last saw, so both spellings must match the same bot.

@@ -52,6 +52,10 @@ on:
         required: false
         type: string
         default: blacksmith-4vcpu-ubuntu-2404
+    outputs:
+      has_changes:
+        description: Whether this run changed anything (`true`/`false`) — any review folded or restored. Always `false` under dry_run.
+        value: ${{ jobs.collapse.outputs.has_changes }}
     secrets:
       MANAGE_TOKEN:
         description: 'Token with `pull-requests: write` on the target repository. Falls back to `github.token`, which is enough for same-repository pull requests — the default token is read-only on pull requests from forks.'
@@ -70,11 +74,14 @@ jobs:
     runs-on: ${{ vars.GENERAL_RUNNERS || inputs.runner_type }}
     permissions:
       pull-requests: write
+    outputs:
+      has_changes: ${{ steps.collapse.outputs.has-changes }}
     steps:
       # TODO: pin to @v1 once released. The composite does not exist in v1 yet, and
       # a `uses:` pointing at a path that is absent from the tag fails the job
       # outright — there is no silent fallback to fall back to.
       - name: Collapse resolved reviews
+        id: collapse
         uses: LerianStudio/github-actions-shared-workflows/src/notify/coderabbit-collapse@develop
         with:
           github-token: ${{ secrets.MANAGE_TOKEN || github.token }}
