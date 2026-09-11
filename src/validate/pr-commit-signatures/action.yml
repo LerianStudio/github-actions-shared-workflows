@@ -63,6 +63,16 @@ runs:
       run: |
         set -euo pipefail
 
+        # base.ref is interpolated into a refspec below. It arrives through `env:` and is
+        # quoted, so the shell cannot expand it — but an empty or malformed value would
+        # still reach git as a nonsense refspec and fail with an opaque error, and
+        # AGENTS.md asks for branch names to be validated before they are used in a shell
+        # command. This is what that buys: a refusal that names the problem.
+        if ! git check-ref-format --branch "$BASE_REF" >/dev/null 2>&1; then
+          echo "Refusing to resolve the commit range: '${BASE_REF}' is not a valid branch name" >&2
+          exit 1
+        fi
+
         work="${RUNNER_TEMP}/pr-commit-signatures"
         rm -rf "$work"
         git init -q "$work"
