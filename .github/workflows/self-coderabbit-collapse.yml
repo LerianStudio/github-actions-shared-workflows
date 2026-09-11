@@ -25,11 +25,19 @@ permissions:
 # together is enough. They must not race to the same mutation, so they are grouped
 # per pull request and run one at a time.
 #
-# Queued rather than cancelled: a cancelled run is reported as a non-success check
-# and leaves the pull request UNSTABLE, which is a poor trade for tidying that is
-# cosmetic to begin with. Nothing is lost by letting the extra run proceed — each
-# reads the live state of every thread, so a redundant one folds nothing and costs
-# a few seconds.
+# Not `cancel-in-progress: true`: that kills the *running* one, and a cancelled run
+# is reported as a non-success check, leaving the pull request UNSTABLE over tidying
+# that is cosmetic to begin with.
+#
+# This does not remove cancellation, only moves it somewhere harmless. GitHub keeps
+# at most one pending run per group, and a newly queued run cancels the pending one
+# it replaces, so a burst of three or more still cancels the ones in the middle.
+# What is guaranteed is that no in-progress run is killed and the last one queued —
+# the one with the freshest view — survives. Nothing is lost by the cancellation
+# either way: every run reads the live thread state, so a superseded pending run
+# would have found the same work already done. `queue: max` holds up to 100 pending
+# instead, but it is limited to newer Actions generations and is a validation error
+# where unavailable — too much risk for cosmetic tidying.
 concurrency:
   group: coderabbit-collapse-${{ github.event.pull_request.number }}
   cancel-in-progress: false
