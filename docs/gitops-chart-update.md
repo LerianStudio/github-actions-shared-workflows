@@ -5,7 +5,7 @@
   </tr>
 </table>
 
-Pins a newly released Helm chart version into the GitOps repository, gated by render and orphan-key checks.
+Pins a newly released Helm chart version into the GitOps repository, gated by a render check and an orphan-key report.
 
 ## Why it exists
 
@@ -37,7 +37,7 @@ Full behaviour — routing table, gates, inputs and outputs — is documented in
 | `gitops_repository` | Target repo; empty uses the `GITOPS_REPOSITORY` org variable | no | `''` |
 | `deployment_matrix_ref` | Ref to read the deployment matrix from | no | `main` |
 | `envs` | Narrow the environment list; empty means every environment | no | `''` |
-| `fail_on_orphan` | Fail on a key the chart dropped | no | `true` |
+| `fail_on_orphan` | Fail, rather than only report, on a key the chart does not declare | no | `false` |
 | `dry_run` | Resolve and gate without delivering | no | `false` |
 | `enable_argocd_sync` | Sync the affected applications and wait for healthy after a direct commit | no | `true` |
 | `argocd_sync_timeout` | Seconds to wait for each application to become healthy | no | `600` |

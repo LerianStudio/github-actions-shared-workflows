@@ -1,5 +1,28 @@
 # Github-actions-shared-workflows Changelog
 
+## [1.68.0](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.68.0)
+
+Features:
+- Expose Helm dispatch inputs for JavaScript release workflows. (@bedatty, @gandalf-at-lerian)
+- Fold a CodeRabbit review once all its threads are resolved to streamline the notification process. (@bedatty)
+
+Fixes:
+- Evaluate commit signatures beyond the 250-commit API cap to ensure comprehensive validation. (@bedatty)
+- Validate the base branch name before fetching in pull request validation workflows. (@bedatty)
+- Reject untrustworthy commit ranges and remove fetch credentials in pull request validation. (@bedatty)
+- Queue notification collapse runs instead of canceling them to improve workflow reliability. (@bedatty)
+- Skip collapse actions on fork pull requests to prevent unnecessary operations. (@bedatty)
+- Expose a boolean output for notifications and stop counting dry-run as a mutation. (@bedatty)
+- Run self-collapse actions from the composite path to enhance notification management. (@bedatty)
+- Drive collapse actions from events that GitHub actually offers for more accurate notifications. (@bedatty)
+
+Improvements:
+- Clarify documentation on what setting `cancel-in-progress` to false guarantees in notification workflows. (@bedatty)
+
+[Compare changes](https://github.com/LerianStudio/github-actions-shared-workflows/compare/v1.67.1...v1.68.0)
+
+---
+
 ## [1.67.1](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.67.1)
 
 Fixes:
