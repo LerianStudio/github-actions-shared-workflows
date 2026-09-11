@@ -136,6 +136,56 @@ on:
         type: boolean
         default: false
 
+      # ----------------- Helm Dispatch (typescript-build.yml) -----------------
+      enable_helm_dispatch:
+        description: 'Dispatch stable image releases to the Helm repository for chart updates'
+        type: boolean
+        default: false
+      helm_repository:
+        description: 'Helm repository to dispatch to (org/repo format)'
+        type: string
+        default: 'LerianStudio/helm'
+      helm_chart:
+        description: 'Helm chart name to update (required when enable_helm_dispatch is true)'
+        type: string
+        default: ''
+      helm_target_ref:
+        description: 'Target branch in the Helm repository'
+        type: string
+        default: 'main'
+      helm_components_base_path:
+        description: 'Base path for components in the source repository'
+        type: string
+        default: 'components'
+      helm_env_file:
+        description: 'Environment example file name relative to the component path'
+        type: string
+        default: '.env.example'
+      helm_detect_env_changes:
+        description: 'Detect new environment variables for the Helm chart update'
+        type: boolean
+        default: true
+      helm_dispatch_on_rc:
+        description: 'Dispatch Helm updates for release-candidate tags'
+        type: boolean
+        default: false
+      helm_dispatch_on_beta:
+        description: 'Dispatch Helm updates for beta tags'
+        type: boolean
+        default: false
+      helm_values_key_mappings:
+        description: 'JSON mapping of component names to values.yaml keys'
+        type: string
+        default: ''
+      helm_legacy_patch_detection:
+        description: 'Route maintenance-branch releases to the matching legacy Helm chart line'
+        type: boolean
+        default: true
+      helm_legacy_branch_patterns:
+        description: 'Glob patterns for maintenance branches that publish legacy patches'
+        type: string
+        default: 'maintenance/*'
+
       # ----------------- GitOps Update (gitops-update.yml) -----------------
       enable_gitops_update:
         description: 'Run the gitops-update job on tag push'
@@ -351,6 +401,18 @@ jobs:
       filter_paths: ${{ inputs.filter_paths }}
       path_level: ${{ inputs.path_level }}
       force_full_matrix: ${{ inputs.force_full_matrix }}
+      enable_helm_dispatch: ${{ inputs.enable_helm_dispatch }}
+      helm_repository: ${{ inputs.helm_repository }}
+      helm_chart: ${{ inputs.helm_chart }}
+      helm_target_ref: ${{ inputs.helm_target_ref }}
+      helm_components_base_path: ${{ inputs.helm_components_base_path }}
+      helm_env_file: ${{ inputs.helm_env_file }}
+      helm_detect_env_changes: ${{ inputs.helm_detect_env_changes }}
+      helm_dispatch_on_rc: ${{ inputs.helm_dispatch_on_rc }}
+      helm_dispatch_on_beta: ${{ inputs.helm_dispatch_on_beta }}
+      helm_values_key_mappings: ${{ inputs.helm_values_key_mappings }}
+      helm_legacy_patch_detection: ${{ inputs.helm_legacy_patch_detection }}
+      helm_legacy_branch_patterns: ${{ inputs.helm_legacy_branch_patterns }}
     secrets: inherit
 
   # ----------------- E2E Tests (tag push) -----------------
