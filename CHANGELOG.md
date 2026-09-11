@@ -1,5 +1,16 @@
 # Github-actions-shared-workflows Changelog
 
+## [1.67.1](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.67.1)
+
+Fixes:
+
+- Corrected the release process by ensuring changes are properly merged from `develop` to `main`. (@bedatty)
+- Installed Python dependencies into a virtual environment to improve the GitOps workflow. (@bedatty)
+
+[Compare changes](https://github.com/LerianStudio/github-actions-shared-workflows/compare/v1.67.0...v1.67.1)
+
+---
+
 ## [1.67.0](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.67.0)
 
 Features:

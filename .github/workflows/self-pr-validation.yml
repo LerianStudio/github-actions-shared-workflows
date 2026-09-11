@@ -105,6 +105,21 @@ jobs:
       - name: Run pr-commit-signatures behavioural tests
         run: python3 src/validate/pr-commit-signatures/test.py
 
+  # ----------------- CodeRabbit Collapse Tests -----------------
+  coderabbit-collapse-tests:
+    name: CodeRabbit Collapse Tests
+    runs-on: ${{ vars.GENERAL_RUNNERS || 'blacksmith-4vcpu-ubuntu-2404' }}
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+        with:
+          persist-credentials: false
+
+      - name: Run coderabbit-collapse behavioural tests
+        run: python3 src/notify/coderabbit-collapse/test.py
+
   # ----------------- Lerian Lib Version Advisory Tests -----------------
   lerian-lib-version-tests:
     name: Lerian Lib Version Advisory Tests
@@ -399,6 +414,7 @@ jobs:
       - breaking-change-guard-tests
       - permission-manifest-publish-tests
       - pr-commit-signatures-tests
+      - coderabbit-collapse-tests
       - yamllint
       - actionlint
       - pinned-actions

@@ -49,6 +49,18 @@ Mirrors the [`go-release`](./go-release.md) umbrella for Go services — providi
 | `enable_cosign_sign` | Sign images with cosign keyless (OIDC) | boolean | `true` |
 | `dockerhub_org` | DockerHub organization name | string | `lerianstudio` |
 | `force_full_matrix` | Build all `filter_paths` components on every tag regardless of what changed (use for tightly-coupled components that must always share the same image tag) | boolean | `false` |
+| `enable_helm_dispatch` | Dispatch stable image releases to the Helm repository for chart updates | boolean | `false` |
+| `helm_repository` | Helm repository to dispatch to (org/repo) | string | `LerianStudio/helm` |
+| `helm_chart` | Helm chart name to update; required when Helm dispatch is enabled | string | `''` |
+| `helm_target_ref` | Target branch in the Helm repository | string | `main` |
+| `helm_components_base_path` | Base path for components in the source repository | string | `components` |
+| `helm_env_file` | Environment example file relative to the component path | string | `.env.example` |
+| `helm_detect_env_changes` | Detect new environment variables for the chart update | boolean | `true` |
+| `helm_dispatch_on_rc` | Dispatch Helm updates for release-candidate tags | boolean | `false` |
+| `helm_dispatch_on_beta` | Dispatch Helm updates for beta tags | boolean | `false` |
+| `helm_values_key_mappings` | JSON mapping of component names to `values.yaml` keys | string | `''` |
+| `helm_legacy_patch_detection` | Route maintenance-branch releases to the matching legacy chart line | boolean | `true` |
+| `helm_legacy_branch_patterns` | Glob patterns for maintenance branches that publish legacy patches | string | `maintenance/*` |
 | `enable_gitops_update` | Run the gitops-update job on tag push | boolean | `true` |
 | `gitops_repository` | GitOps repository to update (org/repo). Empty → `GITOPS_REPOSITORY` org-level variable | string | `''` |
 | `update_sandbox` | Include sandbox environment on production tags | boolean | `false` |
@@ -149,6 +161,23 @@ jobs:
       gitops_yaml_key_mappings: '{"plugin-access-manager-auth.tag": ".auth.image.tag", "plugin-access-manager-identity.tag": ".identity.image.tag"}'
     secrets: inherit
 ```
+
+### Helm chart dispatch
+
+Enable Helm dispatch to open a chart-update pull request after a successful stable image build:
+
+```yaml
+jobs:
+  pipeline:
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/js-release.yml@tier-1
+    with:
+      enable_helm_dispatch: true
+      helm_chart: product-console
+    secrets: inherit
+```
+
+Release-candidate and beta tags remain disabled by default. Opt in with
+`helm_dispatch_on_rc` or `helm_dispatch_on_beta` when a chart should track those channels.
 
 ### E2E tests on tag push — mock mode
 
