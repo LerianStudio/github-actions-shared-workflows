@@ -71,19 +71,29 @@ Everything else it leaves alone follows the same logic:
 
 A failed mutation emits a `::warning::` and the job stays green. Tidying up is never worth a red check.
 
-## Trigger
+## Trigger, and the one GitHub does not offer
 
-`pull_request_review_thread` is what makes this useful:
+**There is no Actions trigger for resolving a review thread.** `pull_request_review_thread` exists as a webhook, carrying exactly the `resolved` and `unresolved` activity types this wants — but it is not an Actions event. It appears nowhere in `content/actions/reference/workflows-and-actions/events-that-trigger-workflows.md`; the family is `pull_request`, `pull_request_target`, `pull_request_review`, `pull_request_review_comment` and `pull_request_comment`, and nothing else. actionlint rejects it (`unknown Webhook event`), and a workflow declaring it simply never runs.
+
+So the fold cannot follow the click. It rides on the next activity in the pull request instead:
 
 ```yaml
 on:
-  pull_request_review_thread:
-    types: [resolved, unresolved]
+  pull_request:
+    types: [synchronize]          # a push
+  pull_request_review:
+    types: [submitted]            # a review landed
+  pull_request_review_comment:
+    types: [created]              # someone replied in a thread
 ```
 
-The event fires the moment a thread changes state, so the fold follows the click. Driving it from `pull_request` instead would fold on the *next push* — the one moment the summary is actually worth reading.
+**The cost is real and worth stating plainly: resolve the last thread, do nothing else, and the summary stays until something else happens on the pull request.** In practice something usually does — a push, the next review — and the fold catches up then. But this is a best-effort tidy, not a guarantee tied to the moment of resolution.
 
-Resolving several threads in a row fires the workflow once per click. Only the last run matters, since each one reads the live state of every thread, so `concurrency` with `cancel-in-progress: true` drops the earlier ones instead of letting them race to the same mutation.
+All three events run from the pull request's own merge ref (`refs/pull/N/merge`), not from the default branch, so a caller can test the workflow on the pull request that introduces it.
+
+The alternative to all of this is a scheduled sweep over open pull requests, which would have full coverage at the cost of latency and of running from the default branch only — meaning it could not be tested before merging. That trade was considered and not taken.
+
+A burst of activity fires the workflow several times over. Only the last run matters, since each reads the live state of every thread, so `concurrency` with `cancel-in-progress: true` drops the earlier ones instead of letting them race to the same mutation.
 
 ## Usage
 
@@ -91,8 +101,12 @@ Resolving several threads in a row fires the workflow once per click. Only the l
 name: Collapse Resolved Reviews
 
 on:
-  pull_request_review_thread:
-    types: [resolved, unresolved]
+  pull_request:
+    types: [synchronize]
+  pull_request_review:
+    types: [submitted]
+  pull_request_review_comment:
+    types: [created]
 
 permissions:
   contents: read

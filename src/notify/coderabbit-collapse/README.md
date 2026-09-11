@@ -80,14 +80,18 @@ jobs:
 
 ## Usage as reusable workflow
 
-The trigger is what makes this useful — `pull_request_review_thread` fires the moment a thread is resolved or reopened, so the fold follows the click:
+GitHub has no Actions trigger for resolving a review thread — `pull_request_review_thread` is a webhook only, not an Actions event — so the fold rides on the next activity in the pull request instead. Resolve the last thread and do nothing else, and the summary stays until something else happens there:
 
 ```yaml
 name: Collapse Resolved Reviews
 
 on:
-  pull_request_review_thread:
-    types: [resolved, unresolved]
+  pull_request:
+    types: [synchronize]
+  pull_request_review:
+    types: [submitted]
+  pull_request_review_comment:
+    types: [created]
 
 permissions:
   contents: read

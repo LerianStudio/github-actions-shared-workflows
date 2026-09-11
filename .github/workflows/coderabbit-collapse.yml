@@ -15,10 +15,20 @@ name: CodeRabbit Collapse
 # same object. Requiring a resolvable child is what makes this the safe exception
 # to that warning instead of a violation of it. See docs/coderabbit-collapse.md.
 #
-# NOTE for callers: the trigger is what makes this useful. `pull_request_review_thread`
-# (types: resolved, unresolved) fires the moment a thread changes state, so the
-# fold follows the click. Calling this from `pull_request` instead would only fold
-# on the next push, which is the one moment the summary is worth reading.
+# NOTE for callers: there is no Actions trigger for resolving a review thread, so
+# the fold cannot follow the click. `pull_request_review_thread` exists as a
+# webhook, with exactly the `resolved` and `unresolved` activity types this wants,
+# but it is absent from the Actions event list — actionlint rejects it, and a
+# workflow declaring it never runs. Verified against the source of
+# content/actions/reference/workflows-and-actions/events-that-trigger-workflows.md:
+# the family is pull_request, pull_request_target, pull_request_review,
+# pull_request_review_comment and pull_request_comment, and nothing else.
+#
+# So drive this from the next activity on the pull request instead — a push, a
+# submitted review, a new review comment. Each of those runs from the pull
+# request's own merge ref, so a caller can test it before merging. The cost is
+# real and worth stating: resolve the last thread and do nothing else, and the
+# summary stays until something else happens on the pull request.
 
 on:
   workflow_call:

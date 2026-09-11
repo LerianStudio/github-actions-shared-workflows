@@ -209,8 +209,8 @@ jobs:
           # review opened is resolved, so the findings have been dealt with by
           # definition. It refuses to touch a review with no thread at all —
           # precisely the case this note is about. That check needs the review →
-          # threads edge and a `pull_request_review_thread` trigger, neither of which
-          # this job has, so the two stay separate.
+          # threads edge, which this job never reads, and a trigger tied to thread
+          # activity rather than to a push, so the two stay separate.
           #
           # Kept non-fatal throughout — losing a review because the tidying failed
           # would be a bad trade.

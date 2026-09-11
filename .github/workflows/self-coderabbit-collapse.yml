@@ -3,19 +3,27 @@ name: Self — CodeRabbit Collapse
 # Folds CodeRabbit's review summary on this repository's pull requests once every
 # inline thread it opened is resolved. Paired with `self-pr-validation.yml`, which
 # is where the review is requested in the first place.
+#
+# The triggers are the ones GitHub offers, not the one this wants. See the note in
+# coderabbit-collapse.yml.
 
 on:
-  pull_request_review_thread:
+  pull_request:
     types:
-      - resolved
-      - unresolved
+      - synchronize
+  pull_request_review:
+    types:
+      - submitted
+  pull_request_review_comment:
+    types:
+      - created
 
 permissions:
   contents: read
 
-# Resolving several threads in a row fires this once per click. Only the last run
-# matters — it reads the live state of every thread — so the earlier ones are
-# cancelled rather than racing each other to the same mutation.
+# A burst of activity fires this several times over. Only the last run matters —
+# each reads the live state of every thread — so the earlier ones are cancelled
+# rather than racing each other to the same mutation.
 concurrency:
   group: coderabbit-collapse-${{ github.event.pull_request.number }}
   cancel-in-progress: true
