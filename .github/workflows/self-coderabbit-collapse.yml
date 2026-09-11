@@ -31,6 +31,14 @@ concurrency:
 jobs:
   collapse:
     name: Collapse Resolved Reviews
+    # A fork pull request checks out the contributor's merge ref, so the composite below
+    # is their code running in this repository's job. GitHub already makes that inert —
+    # fork pull requests get a read-only GITHUB_TOKEN and no secrets, and that holds for
+    # all three events here — but the guarantee is a platform setting rather than
+    # something this workflow controls, and a read-only token could not fold anything
+    # anyway. Skip outright instead of depending on it and logging warnings that only
+    # ever mean "this was never going to work".
+    if: github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ${{ vars.GENERAL_RUNNERS || 'blacksmith-4vcpu-ubuntu-2404' }}
     permissions:
       contents: read

@@ -118,6 +118,9 @@ concurrency:
 
 jobs:
   collapse:
+    # Fork pull requests get a read-only token and no secrets, so this could never fold
+    # anything there — and the checked-out composite would be the contributor's code.
+    if: github.event.pull_request.head.repo.full_name == github.repository
     permissions:
       contents: read
       pull-requests: write

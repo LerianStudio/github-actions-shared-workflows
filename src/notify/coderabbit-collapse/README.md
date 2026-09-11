@@ -102,6 +102,8 @@ permissions:
 
 jobs:
   collapse:
+    # Fork pull requests get a read-only token and no secrets — nothing to fold there.
+    if: github.event.pull_request.head.repo.full_name == github.repository
     uses: LerianStudio/github-actions-shared-workflows/.github/workflows/coderabbit-collapse.yml@tier-1
     with:
       pr_number: ${{ github.event.pull_request.number }}
