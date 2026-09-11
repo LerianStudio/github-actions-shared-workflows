@@ -42,8 +42,12 @@ on:
 permissions:
   contents: read
 
+# Keyed by chart, not just by ref. Dispatching several charts in a row is the
+# normal way to use this — sweeping a set of charts before trusting the gate — and
+# grouping them all under the ref made each dispatch cancel the previous one, so a
+# nine-chart sweep produced eight cancellations and one result.
 concurrency:
-  group: self-helm-image-refs-${{ github.ref }}
+  group: self-helm-image-refs-${{ github.ref }}-${{ inputs.chart }}
   cancel-in-progress: true
 
 jobs:
