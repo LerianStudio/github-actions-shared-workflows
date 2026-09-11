@@ -21,12 +21,18 @@ on:
 permissions:
   contents: read
 
-# A burst of activity fires this several times over. Only the last run matters —
-# each reads the live state of every thread — so the earlier ones are cancelled
-# rather than racing each other to the same mutation.
+# A burst of activity fires this several times over — a push and a review landing
+# together is enough. They must not race to the same mutation, so they are grouped
+# per pull request and run one at a time.
+#
+# Queued rather than cancelled: a cancelled run is reported as a non-success check
+# and leaves the pull request UNSTABLE, which is a poor trade for tidying that is
+# cosmetic to begin with. Nothing is lost by letting the extra run proceed — each
+# reads the live state of every thread, so a redundant one folds nothing and costs
+# a few seconds.
 concurrency:
   group: coderabbit-collapse-${{ github.event.pull_request.number }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   collapse:

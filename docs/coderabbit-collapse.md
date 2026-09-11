@@ -93,7 +93,9 @@ All three events run from the pull request's own merge ref (`refs/pull/N/merge`)
 
 The alternative to all of this is a scheduled sweep over open pull requests, which would have full coverage at the cost of latency and of running from the default branch only — meaning it could not be tested before merging. That trade was considered and not taken.
 
-A burst of activity fires the workflow several times over. Only the last run matters, since each reads the live state of every thread, so `concurrency` with `cancel-in-progress: true` drops the earlier ones instead of letting them race to the same mutation.
+A burst of activity fires the workflow several times over — a push and a review landing together is enough. Those runs must not race to the same mutation, so `concurrency` groups them per pull request and lets them run one at a time.
+
+They queue rather than cancel. `cancel-in-progress: true` was the first instinct and it was wrong in practice: **a cancelled run is reported as a non-success check**, which leaves the pull request `UNSTABLE` over tidying that is cosmetic to begin with. Queueing costs a few seconds of runner time and nothing else — each run reads the live state of every thread, so a redundant one simply folds nothing.
 
 ## Usage
 
@@ -114,7 +116,7 @@ permissions:
 
 concurrency:
   group: coderabbit-collapse-${{ github.event.pull_request.number }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   collapse:
