@@ -390,7 +390,7 @@ The runtime check has two parts, with deliberately different scopes:
 4. Final env list: `dev-st dev-mt stg-mt`
 5. Sync targets: `benedita-midaz-dev-st`, `benedita-midaz-dev-mt`, `benedita-midaz-stg-mt`
 
-⚠️ **Operational consequence**: the beta image stays running in `stg-mt` until the next rc release overwrites it. That is the point of the exception, but it means `stg-mt` is no longer an rc-only environment for the listed apps. Keep the list narrow and deliberate.
+⚠️ **Operational consequence**: the beta image stays running in `stg-mt` until the next rc release overwrites it. That is the point of the exception, but it means `stg-mt` is no longer an rc-only environment for the listed apps. On benedita the list covers every app that has a `stg-mt` values file in `lerian-internal-gitops` — keep it in sync with `environments/benedita/helmfile/applications/stg-mt/` rather than adding apps that have no such directory, which would only produce *values file not found* warnings.
 
 Apps not listed are unaffected, and a cluster without `app_extra_envs` behaves exactly as before.
 
