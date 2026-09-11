@@ -1,5 +1,21 @@
 # Github-actions-shared-workflows Changelog
 
+## [1.69.0](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.69.0)
+
+Features:
+- Report what each run did in GitOps, including a link to the commit. (@bedatty)
+- Verify a chart's image references exist before publishing in the validation process. (@bedatty)
+
+Fixes:
+- Summarize after the sync in GitOps to ensure the ArgoCD line is not always empty. (@bedatty)
+- Emit `[]` instead of `[""]` when no image is missing in the validation process. (@bedatty)
+- Emit `[]` instead of `[""]` when nothing is missing in the validation process. (@bedatty)
+- Stop reading an authentication failure as a missing image in the validation process. (@bedatty)
+
+[Compare changes](https://github.com/LerianStudio/github-actions-shared-workflows/compare/v1.68.1...v1.69.0)
+
+---
+
 ## [1.68.1](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.68.1)
 
 Fixes:
