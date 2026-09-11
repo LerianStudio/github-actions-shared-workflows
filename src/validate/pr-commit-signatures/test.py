@@ -6,7 +6,9 @@ src/validate/permission-manifest-publish/test.py, adapted to a `github-script`
 step: the embedded `script: |` body is pulled out of action.yml by step name and
 executed by a JS runtime inside an async wrapper that stubs `core`, `github`, and
 `context`. The stubbed `github.paginate` walks pages exactly like Octokit does,
-so pagination is exercised for real instead of being mocked away.
+so pagination is exercised for real instead of being mocked away, and the stubbed
+`github.graphql` resolves the aliased `object(oid:)` lookups the action builds for
+pull requests above the 250-commit API cap.
 
 The wrapper prints a single JSON blob on stdout; every assertion reads it.
 """
@@ -21,6 +23,10 @@ from pathlib import Path
 
 ACTION_PATH = Path(__file__).resolve().parent / "action.yml"
 ACTION = ACTION_PATH.read_text(encoding="utf-8")
+
+# The head the pull request points at. The range step resolves refs/pull/N/head, so its
+# result has to agree with this or the verdict belongs to another revision.
+PR_HEAD_SHA = f"{0xfeed:040x}"
 
 STEP_NAME = "Verify commit signatures"
 
@@ -76,8 +82,14 @@ const FIXTURE = __FIXTURE__;
 const DECLARED = __DECLARED__;
 const DRY_RUN = __DRY_RUN__;
 const HAS_PR = __HAS_PR__;
+const RANGE_SHA_FILE = __RANGE_SHA_FILE__;
+const RANGE_NODES = __RANGE_NODES__;
+const RANGE_HEAD_SHA = __RANGE_HEAD_SHA__;
+const HEAD_SHA = __HEAD_SHA__;
 
 process.env.DRY_RUN = DRY_RUN;
+process.env.RANGE_SHA_FILE = RANGE_SHA_FILE;
+process.env.RANGE_HEAD_SHA = RANGE_HEAD_SHA;
 
 const record = {
   failed: false,
@@ -88,6 +100,7 @@ const record = {
   notices: [],
   infos: [],
   listCommitsCalls: [],
+  graphqlCalls: [],
 };
 
 const core = {
@@ -109,7 +122,14 @@ const context = {
   runId: 42,
   issue: { number: 7 },
   payload: HAS_PR
-    ? { pull_request: { number: 7, commits: DECLARED, base: { ref: 'main' } } }
+    ? {
+        pull_request: {
+          number: 7,
+          commits: DECLARED,
+          base: { ref: 'main' },
+          head: { sha: HEAD_SHA },
+        },
+      }
     : {},
 };
 
@@ -124,8 +144,28 @@ const listCommits = async (params) => {
   return { data: capped.slice(start, start + perPage) };
 };
 
+// Mirrors github.graphql for the aliased object(oid:) lookups: every $oidN variable
+// comes back as the matching cN field, and an oid with no node comes back null the way
+// GraphQL returns it for a commit it cannot resolve.
+const graphql = async (query, variables) => {
+  const keys = Object.keys(variables).filter((k) => /^oid\\d+$/.test(k));
+  record.graphqlCalls.push({
+    count: keys.length,
+    oids: keys.map((k) => variables[k]),
+    declaresOids: keys.every((k) => query.includes(`$${k}: GitObjectID!`)),
+    // The SHAs must travel as variables, never interpolated into the query text.
+    interpolated: keys.some((k) => query.includes(variables[k])),
+  });
+  const repository = {};
+  for (const key of keys) {
+    repository[`c${key.slice(3)}`] = RANGE_NODES[variables[key]] ?? null;
+  }
+  return { repository };
+};
+
 const github = {
   rest: { pulls: { listCommits } },
+  graphql,
   // Octokit's paginate: keeps requesting pages until one comes back short.
   paginate: async (endpoint, params) => {
     const perPage = params.per_page ?? 30;
@@ -160,20 +200,59 @@ def commit(index, verified, reason="valid", login="dev"):
     }
 
 
-def run_script(commits, declared=None, dry_run="false", has_pr=True):
+def range_node(index, is_valid, state="VALID", login="dev", name="Dev Name"):
+    """A GraphQL commit node keyed by its SHA, as the aliased object(oid:) lookup returns it."""
+    sha = f"{index:040x}"
+    return sha, {
+        "url": f"https://github.com/LerianStudio/example/commit/{sha}",
+        "signature": None if state is None else {"isValid": is_valid, "state": state},
+        "author": {"name": name, "user": {"login": login} if login else None},
+    }
+
+
+def run_script(
+    commits,
+    declared=None,
+    dry_run="false",
+    has_pr=True,
+    range_shas=None,
+    range_nodes=None,
+    range_head_sha=None,
+    head_sha=PR_HEAD_SHA,
+):
+    """Run the action script.
+
+    `commits` is the Pull Request Commits API fixture. Passing `range_shas` stands in for
+    the range step having written a SHA file, which switches the action to the GraphQL
+    path; `range_nodes` maps a SHA to the commit node the API returns for it.
+    """
     if RUNTIME is None:
         raise unittest.SkipTest("no JS runtime (node/bun) available")
 
-    harness = (
-        HARNESS.replace("__FIXTURE__", json.dumps(commits))
-        .replace("__DECLARED__", json.dumps(len(commits) if declared is None else declared))
-        .replace("__DRY_RUN__", json.dumps(dry_run))
-        .replace("__HAS_PR__", "true" if has_pr else "false")
-        .replace("__SCRIPT__", textwrap.indent(SCRIPT_BODY, "  "))
-    )
-
     with tempfile.TemporaryDirectory() as temp_dir:
-        script_path = Path(temp_dir) / "harness.mjs"
+        if range_shas is None:
+            sha_file = ""
+        else:
+            sha_path = Path(temp_dir) / "shas.txt"
+            sha_path.write_text("\n".join(range_shas) + "\n", encoding="utf-8")
+            sha_file = str(sha_path)
+
+        harness = (
+            HARNESS.replace("__FIXTURE__", json.dumps(commits))
+            .replace("__DECLARED__", json.dumps(len(commits) if declared is None else declared))
+            .replace("__DRY_RUN__", json.dumps(dry_run))
+            .replace("__HAS_PR__", "true" if has_pr else "false")
+            .replace("__RANGE_SHA_FILE__", json.dumps(sha_file))
+            .replace("__RANGE_NODES__", json.dumps(range_nodes or {}))
+            .replace(
+                "__RANGE_HEAD_SHA__",
+                json.dumps("" if range_shas is None else (range_head_sha or head_sha)),
+            )
+            .replace("__HEAD_SHA__", json.dumps(head_sha))
+            .replace("__SCRIPT__", textwrap.indent(SCRIPT_BODY, "  "))
+        )
+
+        script_path = Path(temp_dir) / "harness.cjs"
         script_path.write_text(harness, encoding="utf-8")
         result = subprocess.run(
             [RUNTIME, str(script_path)],
@@ -255,8 +334,9 @@ class CommitSignatureValidation(unittest.TestCase):
         self.assertEqual(record["outputs"]["unverified-count"], "0")
         self.assertEqual(record["outputs"]["has-signature-failures"], "false")
 
-    # (f) Beyond the 250-commit API cap the verdict cannot be complete -> fail closed.
-    def test_beyond_api_cap_fails_closed(self):
+    # (f) Beyond the 250-commit API cap, with no resolved range to fall back on, the
+    # verdict cannot be complete -> fail closed.
+    def test_beyond_api_cap_without_a_range_fails_closed(self):
         record = run_script([commit(i, True) for i in range(1, 320)], declared=319)
         self.assertTrue(record["failed"])
         self.assertEqual(record["outputs"]["total-commits"], "250")
@@ -398,6 +478,155 @@ class CommitSignatureValidation(unittest.TestCase):
     def test_blank_author_falls_back_to_unknown(self):
         findings = run_script([self._unlinked("   ")])["outputs"]["findings-markdown"]
         self.assertIn("| unknown |", findings)
+
+    # ---- Past the 250-commit API cap the action switches to the range the git step
+    # resolved and verifies each SHA through GraphQL, so a release pull request carrying
+    # hundreds of commits gets a complete verdict instead of a fail-closed block. ----
+
+    def _range(self, count, offenders=()):
+        """`count` verified commits, with the indices in `offenders` made unverified."""
+        nodes = {}
+        shas = []
+        for index in range(1, count + 1):
+            if index in dict(offenders):
+                sha, node = range_node(index, False, dict(offenders)[index], login="alice")
+            else:
+                sha, node = range_node(index, True)
+            nodes[sha] = node
+            shas.append(sha)
+        return shas, nodes
+
+    # (u) A 574-commit PR is fully evaluated: the API path is never used, every commit is
+    # covered, and an offender past the 250th is still caught.
+    def test_range_path_covers_every_commit_past_the_cap(self):
+        shas, nodes = self._range(574, offenders={480: "UNKNOWN_KEY"})
+        record = run_script([], declared=574, range_shas=shas, range_nodes=nodes)
+        self.assertTrue(record["failed"])
+        self.assertEqual(record["outputs"]["commit-source"], "range")
+        self.assertEqual(record["outputs"]["total-commits"], "574")
+        self.assertEqual(record["outputs"]["unverified-count"], "1")
+        self.assertEqual(record["outputs"]["evaluation-complete"], "true")
+        self.assertEqual(record["listCommitsCalls"], [])
+        self.assertIn("1 of 574 commit(s)", record["failedMessage"])
+        self.assertIn("unknown_key", record["errors"][0])
+        # Batched in 50s, and the whole range is requested exactly once.
+        self.assertEqual([c["count"] for c in record["graphqlCalls"]], [50] * 11 + [24])
+        requested = [oid for call in record["graphqlCalls"] for oid in call["oids"]]
+        self.assertEqual(requested, shas)
+
+    # (v) All verified across the full range -> pass, and the declared count no longer
+    # reads as truncation even though it is far past the cap.
+    def test_range_path_all_verified_passes(self):
+        shas, nodes = self._range(574)
+        record = run_script([], declared=574, range_shas=shas, range_nodes=nodes)
+        self.assertFalse(record["failed"], msg=record["failedMessage"])
+        self.assertEqual(record["outputs"]["has-signature-failures"], "false")
+        self.assertEqual(record["outputs"]["evaluation-complete"], "true")
+        self.assertEqual(record["outputs"]["findings-markdown"], "")
+        self.assertNotIn("cap a pull request at 250", record["summary"])
+        self.assertIn("verified signature", record["summary"])
+        # The summary says where the commits came from, so a reader is not left wondering
+        # why the count exceeds what the API can return.
+        self.assertIn("merge base", record["summary"])
+
+    # (w) An unsigned commit has no signature node at all, and a commit GraphQL cannot
+    # resolve must not read as a pass.
+    def test_range_path_unsigned_and_unresolvable_commits_are_offenders(self):
+        unsigned_sha, unsigned_node = range_node(1, False, state=None)
+        verified_sha, verified_node = range_node(2, True)
+        missing_sha = f"{3:040x}"
+        record = run_script(
+            [],
+            declared=3,
+            range_shas=[unsigned_sha, verified_sha, missing_sha],
+            range_nodes={unsigned_sha: unsigned_node, verified_sha: verified_node},
+        )
+        self.assertTrue(record["failed"])
+        self.assertEqual(record["outputs"]["unverified-count"], "2")
+        joined = "\n".join(record["errors"])
+        self.assertIn("unsigned", joined)
+        self.assertIn("unknown", joined)
+        # The unresolvable commit still links somewhere, built from the SHA.
+        self.assertIn(f"/commit/{missing_sha}", record["summary"])
+
+    # (x) The SHA file is git output, but it feeds a GraphQL variable and a URL — anything
+    # that is not an object name is dropped rather than forwarded.
+    def test_range_path_rejects_non_sha_lines(self):
+        good_sha, good_node = range_node(1, True)
+        record = run_script(
+            [],
+            declared=1,
+            range_shas=[good_sha, "", "  ", "not-a-sha", "HEAD", "A" * 40],
+            range_nodes={good_sha: good_node},
+        )
+        self.assertFalse(record["failed"], msg=record["failedMessage"])
+        self.assertEqual(record["outputs"]["total-commits"], "1")
+        self.assertEqual([c["oids"] for c in record["graphqlCalls"]], [[good_sha]])
+
+    # (y) SHAs travel as GraphQL variables, declared as GitObjectID!, never interpolated
+    # into the query text.
+    def test_range_path_passes_oids_as_variables(self):
+        shas, nodes = self._range(3)
+        record = run_script([], declared=3, range_shas=shas, range_nodes=nodes)
+        self.assertEqual(len(record["graphqlCalls"]), 1)
+        call = record["graphqlCalls"][0]
+        self.assertTrue(call["declaresOids"])
+        self.assertFalse(call["interpolated"])
+
+    # (z) A range-sourced verdict is not trusted just because it came from git: an empty
+    # range would otherwise report zero offenders and a complete evaluation, passing the
+    # gate for a pull request whose commits were never looked at.
+    def test_empty_range_fails_closed(self):
+        record = run_script([], declared=574, range_shas=[], range_nodes={})
+        self.assertTrue(record["failed"])
+        self.assertEqual(record["outputs"]["total-commits"], "0")
+        self.assertEqual(record["outputs"]["unverified-count"], "0")
+        self.assertEqual(record["outputs"]["has-signature-failures"], "true")
+        self.assertEqual(record["outputs"]["evaluation-complete"], "false")
+        self.assertIn("resolved no commits", record["failedMessage"])
+        self.assertIn("came back empty", record["outputs"]["findings-markdown"])
+        self.assertNotIn("verified signature", record["summary"])
+
+    # (aa) Same when every line in the file is filtered out: usable SHAs, not lines, are
+    # what the verdict rests on.
+    def test_range_of_only_unusable_lines_fails_closed(self):
+        record = run_script(
+            [], declared=574, range_shas=["", "not-a-sha", "HEAD"], range_nodes={}
+        )
+        self.assertTrue(record["failed"])
+        self.assertEqual(record["outputs"]["evaluation-complete"], "false")
+        self.assertEqual(record["graphqlCalls"], [])
+
+    # (bb) refs/pull/N/head moves with every push, so a range resolved for another head is
+    # a verdict about a revision nobody is reviewing -> fail closed, and say which run
+    # decides instead.
+    def test_stale_range_head_fails_closed(self):
+        shas, nodes = self._range(574)
+        record = run_script(
+            [],
+            declared=574,
+            range_shas=shas,
+            range_nodes=nodes,
+            range_head_sha=f"{0xdead:040x}",
+        )
+        self.assertTrue(record["failed"])
+        # Every commit it did look at was verified, so the count alone reads as a pass.
+        self.assertEqual(record["outputs"]["unverified-count"], "0")
+        self.assertEqual(record["outputs"]["evaluation-complete"], "false")
+        self.assertIn("verdict is stale", record["failedMessage"])
+        findings = record["outputs"]["findings-markdown"]
+        self.assertIn(f"{0xdead:040x}"[:7], findings)
+        self.assertIn(PR_HEAD_SHA[:7], findings)
+
+    # (cc) A range that agrees with the pull request head is complete, and the stale-range
+    # guard must not fire on it.
+    def test_matching_range_head_is_complete(self):
+        shas, nodes = self._range(574)
+        record = run_script(
+            [], declared=574, range_shas=shas, range_nodes=nodes, range_head_sha=PR_HEAD_SHA
+        )
+        self.assertFalse(record["failed"], msg=record["failedMessage"])
+        self.assertEqual(record["outputs"]["evaluation-complete"], "true")
 
 
 if __name__ == "__main__":

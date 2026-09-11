@@ -1,0 +1,90 @@
+name: CodeRabbit Collapse
+
+# Folds a bot review's summary once every inline thread it opened is resolved, and
+# restores it when one is reopened.
+#
+# A CodeRabbit review is two objects in the timeline: the summary block and the
+# inline threads carrying the findings. Resolving the threads hides them; the
+# summary stays. A pull request that has addressed everything therefore still
+# opens on a wall of bot text with nothing actionable left in it.
+#
+# The condition is the safeguard, not a convenience: only a review with at least
+# one inline thread, all of them resolved, is folded. `coderabbit-gate` carries a
+# warning earned on PR #717 — the review holding CodeRabbit's permissions notice
+# also held 13 actionable findings, because a summary and its findings are the
+# same object. Requiring a resolvable child is what makes this the safe exception
+# to that warning instead of a violation of it. See docs/coderabbit-collapse.md.
+#
+# NOTE for callers: there is no Actions trigger for resolving a review thread, so
+# the fold cannot follow the click. `pull_request_review_thread` exists as a
+# webhook, with exactly the `resolved` and `unresolved` activity types this wants,
+# but it is absent from the Actions event list — actionlint rejects it, and a
+# workflow declaring it never runs. Verified against the source of
+# content/actions/reference/workflows-and-actions/events-that-trigger-workflows.md:
+# the family is pull_request, pull_request_target, pull_request_review,
+# pull_request_review_comment and pull_request_comment, and nothing else.
+#
+# So drive this from the next activity on the pull request instead — a push, a
+# submitted review, a new review comment. Each of those runs from the pull
+# request's own merge ref, so a caller can test it before merging. The cost is
+# real and worth stating: resolve the last thread and do nothing else, and the
+# summary stays until something else happens on the pull request.
+
+on:
+  workflow_call:
+    inputs:
+      pr_number:
+        description: Pull request to act on
+        required: true
+        type: number
+      authors:
+        description: Comma-separated logins whose reviews are eligible. A trailing `[bot]` is optional — REST and GraphQL disagree on it, so both spellings match.
+        required: false
+        type: string
+        default: coderabbitai[bot]
+      dry_run:
+        description: Report what would be folded or restored without mutating the pull request
+        required: false
+        type: boolean
+        default: false
+      runner_type:
+        description: Runner label for the job
+        required: false
+        type: string
+        default: blacksmith-4vcpu-ubuntu-2404
+    outputs:
+      has_changes:
+        description: Whether this run changed anything (`true`/`false`) — any review folded or restored. Always `false` under dry_run.
+        value: ${{ jobs.collapse.outputs.has_changes }}
+    secrets:
+      MANAGE_TOKEN:
+        description: 'Token with `pull-requests: write` on the target repository. Falls back to `github.token`, which is enough for same-repository pull requests — the default token is read-only on pull requests from forks.'
+        required: false
+
+# No `workflow_dispatch`: the repository convention is that reusable workflows do
+# not offer one — manual triggering belongs in a `self-*` entrypoint. The manual
+# equivalent here is the "Hide comment" item GitHub already puts on the review.
+
+permissions:
+  contents: read
+
+jobs:
+  collapse:
+    name: Collapse Resolved Reviews
+    runs-on: ${{ vars.GENERAL_RUNNERS || inputs.runner_type }}
+    permissions:
+      pull-requests: write
+    outputs:
+      has_changes: ${{ steps.collapse.outputs.has-changes }}
+    steps:
+      # TODO: pin to @v1 once released. The composite does not exist in v1 yet, and
+      # a `uses:` pointing at a path that is absent from the tag fails the job
+      # outright — there is no silent fallback to fall back to.
+      - name: Collapse resolved reviews
+        id: collapse
+        uses: LerianStudio/github-actions-shared-workflows/src/notify/coderabbit-collapse@develop
+        with:
+          github-token: ${{ secrets.MANAGE_TOKEN || github.token }}
+          pr-number: ${{ inputs.pr_number }}
+          authors: ${{ inputs.authors }}
+          dry-run: ${{ inputs.dry_run && 'true' || 'false' }}
