@@ -15,10 +15,6 @@ name: Self — Helm Image Refs
 on:
   workflow_dispatch:
     inputs:
-      chart_repository:
-        description: Repository holding the chart to render
-        type: string
-        default: LerianStudio/helm
       chart_ref:
         description: Ref of the chart repository to check out
         type: string
@@ -58,10 +54,14 @@ jobs:
       packages: read
     steps:
       # ----------------- Setup -----------------
+      # The repository is fixed rather than an input: a dispatch-supplied repository
+      # would let this job check out and render arbitrary third-party charts, and
+      # `helm dependency build` fetches whatever their Chart.yaml points at. The ref
+      # stays open so a branch can be tested, which is the whole point of the harness.
       - name: Checkout chart repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
         with:
-          repository: ${{ inputs.chart_repository }}
+          repository: LerianStudio/helm
           ref: ${{ inputs.chart_ref }}
           persist-credentials: false
 

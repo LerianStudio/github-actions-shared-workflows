@@ -30,13 +30,18 @@ checked, so `lerianstudio/product-console` and `docker.io/lerianstudio/product-c
 are one entry. A digest reference keeps its digest; only a tagless reference gains the
 implicit `:latest`.
 
-References are then classified with `docker manifest inspect`, reusing the
-classification already proven in `.github/workflows/build.yml`: the command exits
+References are then classified with `docker manifest inspect`: the command exits
 non-zero both when a tag is absent and when the lookup itself could not be completed,
 and only the registry's error text tells the two apart. An unrecognised error is
 reported as `unknown`, never guessed as `absent` — treating a rate limit or an expired
 credential as a missing image would block a release for the wrong reason. What happens
 to an `unknown` is the caller's choice, via `on-unknown`.
+
+The absence patterns are the ones `.github/workflows/build.yml` uses, minus
+`pull access denied`. That error means the credential could not see the repository,
+which is a failure to verify rather than evidence of absence. Nothing is lost by
+excluding it: GHCR answers `manifest unknown` both for a missing tag and for a
+repository that does not exist, with or without credentials.
 
 By default only references matching `registry-allowlist` are checked. Third-party
 subchart images (Bitnami and friends) are reported as skipped, which keeps a chart with
@@ -50,9 +55,11 @@ Library charts render nothing and are skipped.
 `docker manifest inspect` reads the Docker CLI credential store, so the calling job
 must `docker login` to every registry it wants verified **before** this step.
 `helm registry login` writes to a different store and does not satisfy this. Without a
-login, private repositories answer `pull access denied`, which classifies as `absent`
-and would fail the gate for the wrong reason — pair a missing login with
-`on-unknown: warn` only when you understand that trade-off.
+login, a private repository answers `pull access denied`, which classifies as
+`unknown` — so the gate reports that it could not verify the reference rather than
+claiming the image is gone. Under the default `on-unknown: fail` that still fails the
+job, which is the intended outcome: a gate that cannot see the registry has not
+verified anything.
 
 ## Inputs
 
@@ -104,12 +111,27 @@ jobs:
 
 ## Usage as a reusable workflow
 
+There is no reusable-workflow wrapper for this composite, and adding one would
+create a workflow with no callers. A chart repository publishes from its own
+release pipeline, so the gate belongs inside that job — as a step, immediately
+before whatever runs `helm push`:
+
 ```yaml
-jobs:
-  release:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/release.yml@v1.60.0
-    secrets: inherit
+      - name: Verify referenced images exist
+        uses: LerianStudio/github-actions-shared-workflows/src/validate/helm-image-refs@tier-2
+        with:
+          chart-path: ${{ matrix.chart.working_dir }}
+          values-file: .github/configs/helm-render-values/${{ matrix.chart.name }}.yaml
+
+      - name: Release
+        uses: cycjimmy/semantic-release-action@v4   # publishCmd runs helm push
 ```
+
+Placing it earlier than the publishing step is the whole point: a failure there
+leaves the chart unpublished, with no tag or changelog entry to roll back.
+
+`.github/workflows/self-helm-image-refs.yml` in this repository exercises the
+composite by hand against any chart in `LerianStudio/helm`.
 
 ## Required permissions
 

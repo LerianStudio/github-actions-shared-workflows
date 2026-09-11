@@ -69,11 +69,14 @@ runs:
           exit 1
         fi
 
-        # A library chart renders nothing and has no images of its own.
+        # A library chart renders nothing and has no images of its own. It still goes
+        # through the verify step, against an empty render: skipping the step outright
+        # would leave every output an empty string instead of [] / [] / false, and a
+        # caller testing has-missing would get neither 'true' nor 'false'.
         CHART_KIND=$(yq -r '.type // "application"' "${CHART_PATH}/Chart.yaml")
         if [ "$CHART_KIND" = "library" ]; then
           echo "::notice::${CHART_PATH} is a library chart, nothing to verify"
-          echo "skipped=true" >> "$GITHUB_OUTPUT"
+          : > /tmp/helm-image-refs-render.yaml
           exit 0
         fi
 
@@ -109,12 +112,9 @@ runs:
         # migration image that was never published is exactly the failure this guards.
         helm template "$RELEASE_NAME" "${CHART_PATH}" "${VALUES_ARGS[@]}" > /tmp/helm-image-refs-render.yaml
 
-        echo "skipped=false" >> "$GITHUB_OUTPUT"
-
     # ----------------- Verify -----------------
     - name: Verify image references
       id: verify
-      if: steps.render.outputs.skipped != 'true'
       shell: bash
       env:
         CHART_PATH: ${{ inputs.chart-path }}
@@ -124,6 +124,13 @@ runs:
         DRY_RUN: ${{ inputs.dry-run }}
       run: |
         set -euo pipefail
+
+        # A typo here would silently fall through to the permissive branch and turn
+        # the gate off, which is worse than not having it.
+        case "$ON_UNKNOWN" in
+          fail|warn) ;;
+          *) echo "::error::on-unknown must be 'fail' or 'warn', got '${ON_UNKNOWN}'"; exit 1 ;;
+        esac
 
         # Every kind nests its pod spec differently — a CronJob buries it two levels
         # deeper than a Deployment — so the container lists are found by recursive
@@ -167,17 +174,24 @@ runs:
           printf '%s' "$ref"
         }
 
-        # Same classification as the image build pipeline (.github/workflows/build.yml):
         # `docker manifest inspect` exits non-zero both for a tag that is not there and
         # for a lookup that could not be completed, and only the registry's error text
         # tells the two apart. An unrecognised error stays "unknown" rather than being
         # guessed as absent — treating a rate limit as a missing image would block a
         # release for the wrong reason.
+        #
+        # The patterns are the ones .github/workflows/build.yml uses, minus
+        # `pull access denied`. That one means the credential could not see the
+        # repository, which is a verification failure, not evidence of absence. GHCR
+        # answers `manifest unknown` for a missing tag AND for a repository that does
+        # not exist, authenticated or not, so nothing is lost by dropping it — while
+        # keeping it would turn an expired login into "the image does not exist" and
+        # block the release.
         classify_tag() {
           local ref="$1" err
           if err=$(docker manifest inspect "$ref" 2>&1 >/dev/null); then
             printf 'present'
-          elif printf '%s' "$err" | grep -qiE 'manifest unknown|manifest_unknown|no such manifest|not found|repository does not exist|pull access denied'; then
+          elif printf '%s' "$err" | grep -qiE 'manifest unknown|manifest_unknown|no such manifest|not found|repository does not exist'; then
             printf 'absent'
           else
             printf 'unknown'
@@ -191,7 +205,11 @@ runs:
           for prefix in "${PREFIXES[@]}"; do
             prefix="$(echo "$prefix" | xargs)"
             [ -z "$prefix" ] && continue
-            case "$ref" in "$prefix"*) return 0 ;; esac
+            # The prefix must end on a reference boundary, or `ghcr.io/lerianstudio`
+            # would also claim `ghcr.io/lerianstudio-something/image`.
+            case "$ref" in
+              "$prefix"|"$prefix"/*|"$prefix":*|"$prefix"@*) return 0 ;;
+            esac
           done
           return 1
         }
