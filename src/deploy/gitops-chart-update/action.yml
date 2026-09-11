@@ -38,9 +38,15 @@ inputs:
     required: false
     default: ''
   fail-on-orphan:
-    description: Fail when an environment values file holds a key the chart dropped
+    # Reports by default, does not block. The check compares the environment
+    # against the chart's own values.yaml, and that is not the whole contract:
+    # a chart built on lerian-common-helm declares only what it overrides and
+    # passes the rest through, so crm.serviceAccount.create reads exactly like
+    # a typo. On midaz that is 223 findings across nine environments, none of
+    # them real. Turn it on for a chart whose values.yaml is exhaustive.
+    description: Fail, rather than only report, when an environment sets a key the chart does not declare
     required: false
-    default: 'true'
+    default: 'false'
   dry-run:
     description: Resolve and run both gates, then stop. No commit, push or pull request
     required: false
