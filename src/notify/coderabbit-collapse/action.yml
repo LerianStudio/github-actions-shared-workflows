@@ -1,0 +1,249 @@
+name: Collapse Resolved CodeRabbit Reviews
+description: "Minimises a bot review's summary once every inline thread it opened is resolved, and restores it when one is reopened."
+
+inputs:
+  github-token:
+    description: GitHub token with pull-requests write permission
+    required: true
+  pr-number:
+    description: Pull request to act on
+    required: true
+  authors:
+    description: >-
+      Comma-separated logins whose reviews are eligible. A trailing `[bot]` is optional —
+      REST and GraphQL disagree on it, so both spellings match.
+    required: false
+    default: "coderabbitai[bot]"
+  dry-run:
+    description: "When true, report what would be folded without mutating the pull request"
+    required: false
+    default: "false"
+
+outputs:
+  has-changes:
+    description: >-
+      Whether this run changed anything (`true`/`false`) — any review folded or restored.
+      Always `false` under dry-run, which changes nothing by definition.
+    value: ${{ steps.collapse.outputs.has-changes }}
+  evaluated:
+    description: Number of eligible reviews examined
+    value: ${{ steps.collapse.outputs.evaluated }}
+  collapsed:
+    description: Number of reviews actually minimised in this run. Zero under dry-run
+    value: ${{ steps.collapse.outputs.collapsed }}
+  restored:
+    description: Number of reviews actually unminimised because a thread was reopened. Zero under dry-run
+    value: ${{ steps.collapse.outputs.restored }}
+
+runs:
+  using: composite
+  steps:
+    - name: Collapse resolved reviews
+      id: collapse
+      uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+      env:
+        PR_NUMBER: ${{ inputs.pr-number }}
+        AUTHORS: ${{ inputs.authors }}
+        DRY_RUN: ${{ inputs.dry-run }}
+      with:
+        github-token: ${{ inputs.github-token }}
+        script: |
+          const dryRun = process.env.DRY_RUN === 'true';
+          const prNumber = Number(process.env.PR_NUMBER);
+
+          if (!Number.isInteger(prNumber) || prNumber < 1) {
+            core.setFailed(`pr-number must be a positive integer, got: ${process.env.PR_NUMBER}`);
+            return;
+          }
+
+          // REST spells the bot `coderabbitai[bot]` and GraphQL spells it `coderabbitai`.
+          // Callers copy whichever they last saw, so neither spelling may miss.
+          const normalise = (login) =>
+            String(login ?? '').trim().toLowerCase().replace(/\[bot\]$/, '');
+          const authors = new Set(
+            String(process.env.AUTHORS ?? '').split(',').map(normalise).filter(Boolean),
+          );
+
+          if (authors.size === 0) {
+            core.info('No eligible authors configured — nothing to do.');
+            core.setOutput('evaluated', '0');
+            core.setOutput('collapsed', '0');
+            core.setOutput('restored', '0');
+            core.setOutput('has-changes', 'false');
+            return;
+          }
+
+          const { owner, repo } = context.repo;
+
+          // GraphQL, not REST, for two reasons: only GraphQL reports `isMinimized`, so a
+          // REST-based pass could not tell a folded review from a fresh one and would
+          // re-fold everything on every run; and only GraphQL exposes the review a thread
+          // belongs to, which is the review → threads edge this whole check rests on and
+          // the UI never shows.
+          const paginate = async (field, selection) => {
+            const nodes = [];
+            let cursor = null;
+            for (;;) {
+              const data = await github.graphql(
+                `query($owner: String!, $repo: String!, $pr: Int!, $cursor: String) {
+                  repository(owner: $owner, name: $repo) {
+                    pullRequest(number: $pr) {
+                      ${field}(first: 100, after: $cursor) {
+                        pageInfo { hasNextPage endCursor }
+                        nodes { ${selection} }
+                      }
+                    }
+                  }
+                }`,
+                { owner, repo, pr: prNumber, cursor },
+              );
+              const connection = data?.repository?.pullRequest?.[field];
+              if (!connection) break;
+              nodes.push(...(connection.nodes ?? []));
+              if (!connection.pageInfo?.hasNextPage) break;
+              cursor = connection.pageInfo.endCursor;
+            }
+            return nodes;
+          };
+
+          const reviews = await paginate(
+            'reviews',
+            'id author { login } isMinimized minimizedReason body',
+          );
+          const threads = await paginate(
+            'reviewThreads',
+            'isResolved comments(first: 1) { nodes { pullRequestReview { id } } }',
+          );
+
+          // The first comment in a thread is the one that opened it, so its review is the
+          // parent. Later comments are replies and may belong to other reviews — ours do,
+          // since every reply creates a review of its own.
+          const children = new Map();
+          for (const thread of threads) {
+            const parent = thread.comments?.nodes?.[0]?.pullRequestReview?.id;
+            if (!parent) continue;
+            const tally = children.get(parent) ?? { total: 0, unresolved: 0 };
+            tally.total += 1;
+            if (thread.isResolved !== true) tally.unresolved += 1;
+            children.set(parent, tally);
+          }
+
+          let evaluated = 0;
+          // `collapsed` and `restored` count mutations that actually happened, so a caller
+          // can treat a non-zero value as a state change. Dry-run changes nothing, so it
+          // must not touch them — what it *would* do is counted separately, for the
+          // summary only.
+          let collapsed = 0;
+          let restored = 0;
+          let plannedCollapse = 0;
+          let plannedRestore = 0;
+          const rows = [];
+
+          for (const review of reviews) {
+            if (!authors.has(normalise(review.author?.login))) continue;
+
+            // A review with no inline thread has no resolvable child, so the condition
+            // this acts on is never satisfiable for it. That is the guard the gate's
+            // warning asks for: on PR #717 the review carrying CodeRabbit's permissions
+            // notice also carried 13 actionable findings, because a summary and its
+            // findings are the same object. Folding on an empty condition would hide a
+            // summary nobody could ever un-hide by resolving anything.
+            const tally = children.get(review.id);
+            if (!tally || tally.total === 0) continue;
+
+            // Every reply posts a review of its own, with no body. Nothing renders, so
+            // there is nothing to fold.
+            if (String(review.body ?? '').trim() === '') continue;
+
+            evaluated += 1;
+            const short = review.id.slice(-8);
+
+            if (tally.unresolved === 0) {
+              if (review.isMinimized === true) {
+                rows.push([short, `${tally.total} resolved`, 'already folded']);
+                continue;
+              }
+              if (dryRun) {
+                rows.push([short, `${tally.total} resolved`, 'would fold']);
+                plannedCollapse += 1;
+                continue;
+              }
+              try {
+                await github.graphql(
+                  `mutation($id: ID!) {
+                    minimizeComment(input: { subjectId: $id, classifier: RESOLVED }) {
+                      minimizedComment { isMinimized }
+                    }
+                  }`,
+                  { id: review.id },
+                );
+                collapsed += 1;
+                rows.push([short, `${tally.total} resolved`, 'folded']);
+              } catch (error) {
+                // Tidying is never worth a red check: the review itself is the product.
+                core.warning(`Could not fold review ${short}: ${error.message}`);
+                rows.push([short, `${tally.total} resolved`, 'fold failed']);
+              }
+              continue;
+            }
+
+            // A reopened thread makes the summary relevant again. Only a fold this action
+            // would have made is undone — `resolved`. A review hidden as spam, off-topic
+            // or outdated was hidden for a reason that has nothing to do with threads.
+            if (review.isMinimized === true && review.minimizedReason === 'resolved') {
+              if (dryRun) {
+                rows.push([short, `${tally.unresolved} unresolved`, 'would restore']);
+                plannedRestore += 1;
+                continue;
+              }
+              try {
+                await github.graphql(
+                  `mutation($id: ID!) {
+                    unminimizeComment(input: { subjectId: $id }) {
+                      unminimizedComment { isMinimized }
+                    }
+                  }`,
+                  { id: review.id },
+                );
+                restored += 1;
+                rows.push([short, `${tally.unresolved} unresolved`, 'restored']);
+              } catch (error) {
+                core.warning(`Could not restore review ${short}: ${error.message}`);
+                rows.push([short, `${tally.unresolved} unresolved`, 'restore failed']);
+              }
+              continue;
+            }
+
+            rows.push([short, `${tally.unresolved} unresolved`, 'left open']);
+          }
+
+          core.setOutput('evaluated', String(evaluated));
+          core.setOutput('collapsed', String(collapsed));
+          core.setOutput('restored', String(restored));
+          core.setOutput('has-changes', String(collapsed + restored > 0));
+
+          if (evaluated === 0) {
+            core.info('No eligible review with inline threads on this pull request.');
+            return;
+          }
+
+          const lines = ['## Collapse Resolved CodeRabbit Reviews', ''];
+          if (dryRun) {
+            lines.push('> **DRY RUN** — nothing was folded or restored', '');
+          }
+          lines.push(
+            dryRun
+              ? `Reviews examined: **${evaluated}** · would fold: **${plannedCollapse}** · would restore: **${plannedRestore}**`
+              : `Reviews examined: **${evaluated}** · folded: **${collapsed}** · restored: **${restored}**`,
+            '',
+            '| Review | Threads | Action |',
+            '|--------|---------|--------|',
+            ...rows.map(([id, threadState, action]) => `| \`…${id}\` | ${threadState} | ${action} |`),
+          );
+          await core.summary.addRaw(lines.join('\n')).write();
+
+          core.info(
+            dryRun
+              ? `DRY RUN — examined ${evaluated} review(s): would fold ${plannedCollapse}, would restore ${plannedRestore}.`
+              : `Examined ${evaluated} review(s): folded ${collapsed}, restored ${restored}.`,
+          );
