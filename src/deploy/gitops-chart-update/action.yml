@@ -170,6 +170,13 @@ runs:
       run: |
         set -euo pipefail
         printf '%s' "$REGISTRY_TOKEN" | helm registry login ghcr.io -u x-access-token --password-stdin
+        # rm, not mkdir -p: helm refuses to untar over an existing directory, and
+        # this job runs on a self-hosted pool whose workspace is not new each
+        # time. A re-run, or any second run on the same machine, would find the
+        # previous chart still here and fail on it. The other paths this action
+        # writes are either checkout targets, which get cleaned for us, or files
+        # opened with > .
+        rm -rf chart
         mkdir -p chart
         helm pull "$CHART_REF" --version "$CHART_VERSION" --untar --untardir chart
         echo "dir=$(find chart -maxdepth 1 -mindepth 1 -type d | head -1)" >> "$GITHUB_OUTPUT"
