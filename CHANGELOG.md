@@ -1,5 +1,17 @@
 # Github-actions-shared-workflows Changelog
 
+## [1.69.1](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.69.1)
+
+Fixes:
+
+- Merged changes from `develop` to `main` to ensure the latest updates are reflected in the main branch. (@bedatty)
+- Updated the GitOps workflow to prevent reuse of a chart directory left by a previous run, ensuring a clean environment for each execution. (@bedatty)
+- Adjusted the validation workflow to key the image-refs harness concurrency by chart, improving the accuracy and reliability of concurrent operations. (@bedatty)
+
+[Compare changes](https://github.com/LerianStudio/github-actions-shared-workflows/compare/v1.69.0...v1.69.1)
+
+---
+
 ## [1.69.0](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.69.0)
 
 Features:
