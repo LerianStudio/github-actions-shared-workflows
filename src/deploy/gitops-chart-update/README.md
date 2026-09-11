@@ -26,7 +26,7 @@ Only releases whose `chart:` matches `chart-ref` **exactly** are touched. That i
 | `git-user-email` | Committer email matching the CI GPG identity | yes | — |
 | `deployment-matrix-ref` | Ref to read `config/deployment-matrix.yml` from | no | `main` |
 | `target-envs` | Space-separated env list; empty means every environment | no | `''` |
-| `fail-on-orphan` | Fail when an environment sets a key the chart dropped | no | `true` |
+| `fail-on-orphan` | Fail, rather than only report, when an environment sets a key the chart does not declare | no | `false` |
 | `dry-run` | Resolve and run both gates, then stop | no | `false` |
 | `enable-argocd-sync` | Sync the affected applications and wait for healthy after a direct commit | no | `true` |
 | `argocd-url` | ArgoCD server; required when the sync is enabled | no | `''` |
@@ -94,9 +94,21 @@ So a refusal never silently drops the work; it changes shape. The `route` output
 
 Both run before anything is delivered, and both run on a dry run too. **They detect and stop — they never repair.**
 
-**Render** — `helmfile lint` and `helmfile template` on every changed file, against the mutated tree.
+**Render** — `helmfile lint` and `helmfile template` on every changed file, against the mutated tree. This is the blocking gate, and it is the one with authority: `helm lint` validates against the chart's own `values.schema.json`, so what it rejects is the chart saying no.
 
-**Orphan keys** — a key set in an environment that no longer exists in the chart. This matters because the charts' `values.schema.json` is permissive (midaz has 106 `additionalProperties: true` against 2 `false`), so `helm template` accepts a key the chart dropped and the deploy silently falls back to the chart default — including for the image pin written by the image-tag path.
+**Orphan keys** — a key set in an environment that the chart does not declare. It reports; it does not block, unless `fail-on-orphan` is turned on.
+
+It matters because the schemas are permissive — midaz has 103 `additionalProperties: true` against 2 `false` — so `helm template` accepts a key the chart dropped and the deploy silently falls back to the default.
+
+### Why it only reports
+
+The check compares the environment against the chart's `values.yaml`, and that file is not the whole contract. A chart built on `lerian-common-helm` declares only the values it overrides and passes whole subtrees through to the library, so `crm.serviceAccount.create` — read by the library, entirely legitimate — is structurally indistinguishable from `crm.serviceAccount.creat`, a typo the chart ignores.
+
+Measured on midaz across nine environments: 290 findings, none of them real. Merging the vendored subcharts' own `values.yaml` accounts for 67 of those; the remaining 223 are library delegation and have no mechanical fix.
+
+A gate that blocks on 223 false positives does not protect anything — it gets switched off, or worse, skimmed. So it reports, and the render gate does the blocking.
+
+**Turning it on.** `fail-on-orphan: true` is right for a chart whose `values.yaml` enumerates everything it reads. It becomes right in general once `lerian-common-helm` publishes its own contract and this check can merge that too.
 
 ### Why breaking is the point
 
