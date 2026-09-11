@@ -254,8 +254,11 @@ runs:
         }
 
         {
-          echo "images=$(to_json "${ALL_REFS[@]-}")"
-          echo "missing=$(to_json "${MISSING_REFS[@]-}")"
+          # ${arr[@]+"${arr[@]}"}, not ${arr[@]-}: the latter expands an empty array
+          # to one empty argument rather than to no arguments, which would emit [""]
+          # instead of [] and make `fromJSON(missing) | length` report 1.
+          echo "images=$(to_json ${ALL_REFS[@]+"${ALL_REFS[@]}"})"
+          echo "missing=$(to_json ${MISSING_REFS[@]+"${MISSING_REFS[@]}"})"
           echo "has-missing=$([ "${#MISSING_REFS[@]}" -gt 0 ] && echo true || echo false)"
         } >> "$GITHUB_OUTPUT"
 
