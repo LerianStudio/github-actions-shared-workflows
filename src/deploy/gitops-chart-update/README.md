@@ -42,6 +42,20 @@ Only releases whose `chart:` matches `chart-ref` **exactly** are touched. That i
 | `route` | How the change was actually delivered: `commit`, or `pr` when the push was refused and the fallback ran |
 | `synced` | `true` when every affected ArgoCD application reported healthy |
 
+## What a run reports
+
+Every run writes a summary to its own page in the Actions UI, because reading a log to find out whether a chart reached the environments is not something anyone actually does — so in practice nobody knew.
+
+It names the chart and version, tables the environments that moved with their `from` → `to`, and **links the commit in the GitOps repository** when there was one:
+
+> **Committed** to `LerianStudio/lerian-internal-gitops` — [`76b4de7`](https://github.com/LerianStudio/lerian-internal-gitops/commit/76b4de7)
+
+On the pull-request fallback it links the pull request instead, and it reports whether ArgoCD confirmed healthy.
+
+The case worth having it for is the one that looks like success and is not. **A green run is not the same as a commit.** When every candidate environment is pinned to another OCI repository — an `alpha/` channel, typically — the run is a perfectly green no-op, and the summary says so outright rather than leaving it to be inferred from an absent commit:
+
+> **No environment takes this chart.** Every candidate is pinned to a different OCI repository, so this release was not theirs to receive.
+
 ## Reconciliation
 
 Writing to git is not the same as the change being live. The composite syncs each affected ArgoCD application and waits for it to report healthy; a run that cannot reach that state fails instead of reporting success over a half-updated cluster.
