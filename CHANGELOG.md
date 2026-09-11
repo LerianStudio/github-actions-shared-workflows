@@ -1,5 +1,15 @@
 # Github-actions-shared-workflows Changelog
 
+## [1.68.1](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.68.1)
+
+Fixes:
+- Corrected the release process by ensuring changes are merged from `develop` to `main`. (@bedatty)
+- Updated the gitops workflow to report orphan keys instead of blocking on them. (@bedatty)
+
+[Compare changes](https://github.com/LerianStudio/github-actions-shared-workflows/compare/v1.68.0...v1.68.1)
+
+---
+
 ## [1.68.0](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.68.0)
 
 Features:
