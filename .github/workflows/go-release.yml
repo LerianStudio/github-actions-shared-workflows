@@ -164,13 +164,13 @@ on:
         type: string
         default: 'maintenance/*'
       extra_builds:
-        description: 'JSON array of additional build groups, each forwarded to build.yml with its own config (filter_paths, path_level, normalize_to_filter, app_name_overrides, build_context_from_working_dir, helm_*, tag_prefix, enable_dockerhub, enable_ghcr, enable_gitops_artifacts, force_full_matrix). Runs alongside the primary build on tag push; groups with enable_gitops_artifacts enabled (the default) feed the single gitops-update. A group with tag_prefix set only builds when the triggering tag starts with that prefix (e.g. a component with its own independent semver and tag scheme); omit tag_prefix to build on every tag push, as before. enable_dockerhub/enable_ghcr default to the top-level inputs of the same name when omitted (explicit true/false on the group always wins, including false) — use to publish a group to only one registry regardless of the primary build''s registries. enable_gitops_artifacts defaults to true when omitted. force_full_matrix (default false) skips change detection for this group entirely and always builds/publishes it in lockstep with the release version — use when a downstream consumer (e.g. a Helm chart defaulting every subcomponent to one shared version tag) expects this component''s image to exist at every release, not only releases that touched its own filter_paths. Empty = one build only (default).'
+        description: 'JSON array of additional build groups, each forwarded to build.yml with its own config (filter_paths, path_level, normalize_to_filter, app_name_overrides, build_context_from_working_dir, helm_*, tag_prefix, enable_dockerhub, enable_ghcr, enable_gitops_artifacts, force_full_matrix). Runs alongside the primary build on tag push; groups with enable_gitops_artifacts enabled (the default) feed the single gitops-update. A group with tag_prefix set only builds when the triggering tag starts with that prefix (e.g. a component with its own independent semver and tag scheme); omit tag_prefix to build on every tag push, as before. enable_dockerhub/enable_ghcr default to the top-level inputs of the same name when omitted (explicit true/false on the group always wins, including false) — use to publish a group to only one registry regardless of the primary build''s registries. enable_gitops_artifacts defaults to true when omitted. force_full_matrix defaults to true, skipping change detection so the group builds/publishes every listed component in lockstep with the release version; set it to false to build only changed components. Empty = one build only (default).'
         type: string
         default: ''
       force_full_matrix:
-        description: 'When true, build all filter_paths components on every run regardless of what changed. Use for repos where components must always share the same image tag (e.g., auth + identity always released together).'
+        description: 'Build all filter_paths components on every run regardless of what changed. Set false to build only changed components.'
         type: boolean
-        default: false
+        default: true
       build_on_release:
         description: 'Publish container images (and run gitops-update) for STABLE releases in the same run as semantic-release, gated on the release output, instead of on the [skip ci]-suppressed stable tag push. Beta/rc still build on their tag push. Any extra_builds groups build in the same stable run too. Default false preserves the tag-push build path for all consumers.'
         type: boolean
@@ -776,7 +776,7 @@ jobs:
       shared_paths: ${{ matrix.group.shared_paths || inputs.shared_paths }}
       path_level: ${{ matrix.group.path_level || inputs.path_level }}
       normalize_to_filter: ${{ toJSON(matrix.group.normalize_to_filter) != 'false' }}
-      force_full_matrix: ${{ matrix.group.force_full_matrix || false }}
+      force_full_matrix: ${{ toJSON(matrix.group.force_full_matrix) != 'false' }}
       app_name: ${{ matrix.group.app_name }}
       app_name_prefix: ${{ matrix.group.app_name_prefix }}
       app_name_overrides: ${{ matrix.group.app_name_overrides }}
