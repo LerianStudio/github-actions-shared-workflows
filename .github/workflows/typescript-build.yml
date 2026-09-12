@@ -97,9 +97,9 @@ on:
         type: boolean
         default: true
       force_full_matrix:
-        description: 'When true, build all filter_paths components on every run regardless of what changed. Use for repos where components must always share the same image tag (e.g., auth + identity always released together).'
+        description: 'Build all filter_paths components on every run regardless of what changed. Set false to build only changed components.'
         type: boolean
-        default: false
+        default: true
       # Helm dispatch configuration
       enable_helm_dispatch:
         description: 'Enable dispatching to Helm repository for chart updates'
