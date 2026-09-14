@@ -119,6 +119,25 @@ way into `develop`.
 Setting both to an empty string disables reviews without editing any workflow —
 useful as a kill switch.
 
+### Ignored authors veto both dimensions
+
+`ignore_authors` (default `dependabot[bot]`) is checked **before** either
+dimension, and it is a veto rather than a third dimension. The dimensions are
+OR'd, so an exclusion expressed as one would lose to any positive match — the
+same shape as the "release PRs reviewed anyway" failure in the table above.
+
+Dependabot is the default because its bumps target the same base branches as
+human work, which leaves the base dimension unable to separate them, and the
+review allowance is hourly: a batch of bumps can consume it before a human PR
+asks for anything. Set it to an empty string to review every author.
+
+Write the login however you know it. Bot logins have three spellings and all of
+them match: REST returns `dependabot[bot]`, GraphQL returns `dependabot`, and
+`gh pr view --json author` — what this job actually reads — returns
+`app/dependabot`, since the CLI prefixes bot logins with `app/`. Both affixes are
+stripped before comparing, so `dependabot`, `dependabot[bot]` and
+`app/dependabot` are the same entry.
+
 ### The caller's trigger bounds this
 
 A base branch listed in `review_base_branches` but absent from the caller's
@@ -139,6 +158,7 @@ than which of them get reviewed.
 | `head_sha` | string | — | Commit the verdict covers. Required — also the idempotency key. |
 | `review_base_branches` | string | `develop` | Comma-separated exact base branch names. Empty removes this dimension. |
 | `review_head_patterns` | string | `hotfix/*` | Comma-separated globs matched against the head branch. Empty removes this dimension. |
+| `ignore_authors` | string | `dependabot[bot]` | Comma-separated logins never reviewed, checked before scope as a veto. A trailing `[bot]` is optional. Empty reviews every author. |
 | `label` | string | `review-ready` | Visual marker applied alongside the command. Cosmetic — failing to apply it never fails the job. Empty disables it. |
 | `dry_run` | boolean | `false` | Log the decision without changing any label. |
 | `runner_type` | string | `blacksmith-4vcpu-ubuntu-2404` | Runner label. Overridden by `vars.GENERAL_RUNNERS`. |

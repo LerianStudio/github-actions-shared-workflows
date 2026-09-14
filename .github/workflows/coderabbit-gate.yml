@@ -24,6 +24,12 @@ name: CodeRabbit Gate
 #
 # Setting both to an empty string disables reviews without editing any workflow.
 #
+# `ignore_authors` is checked first and is a veto, not a third dimension — it
+# cannot be OR'd with the two above or it would lose to any positive match. It
+# defaults to dependabot[bot], whose bumps land on the same base branches as
+# human work and would otherwise spend the hourly review allowance on diffs that
+# are a version number.
+#
 # NOTE for callers: the caller's own `pull_request` trigger bounds this. A base
 # branch listed here but absent from `on.pull_request.branches` never sees the
 # workflow run at all, so the command is never posted. The effective scope is the
@@ -55,6 +61,11 @@ on:
         required: false
         type: string
         default: hotfix/*
+      ignore_authors:
+        description: Comma-separated logins whose pull requests are never reviewed, checked before scope as a veto. Write the login however you know it — `dependabot`, `dependabot[bot]` and `app/dependabot` are the same entry, since REST, GraphQL and the `gh` CLI each spell a bot differently. Empty reviews every author.
+        required: false
+        type: string
+        default: dependabot[bot]
       label:
         description: Visual marker applied when the review is requested. Cosmetic — failure to apply it never fails the job. Empty disables it.
         required: false
@@ -99,6 +110,7 @@ jobs:
           HEAD_SHA: ${{ inputs.head_sha }}
           REVIEW_BASE_BRANCHES: ${{ inputs.review_base_branches }}
           REVIEW_HEAD_PATTERNS: ${{ inputs.review_head_patterns }}
+          IGNORE_AUTHORS: ${{ inputs.ignore_authors }}
           LABEL: ${{ inputs.label }}
           DRY_RUN: ${{ inputs.dry_run }}
         run: |
@@ -106,10 +118,10 @@ jobs:
           # which are frozen at dispatch. A run started before the pull request
           # was retargeted would otherwise decide against a branch that no longer
           # applies.
-          read -r base head live_sha < <(
+          read -r base head live_sha author < <(
             gh pr view "$PR_NUMBER" --repo "$REPO" \
-              --json baseRefName,headRefName,headRefOid \
-              --jq '"\(.baseRefName) \(.headRefName) \(.headRefOid)"'
+              --json baseRefName,headRefName,headRefOid,author \
+              --jq '"\(.baseRefName) \(.headRefName) \(.headRefOid) \(.author.login)"'
           )
 
           # Verbose only under dry_run, per the repository's dry_run contract. A
@@ -119,11 +131,13 @@ jobs:
             echo "::notice::DRY RUN — no comment and no label will be posted"
             echo "  pull request      : #${PR_NUMBER}"
             echo "  head → base       : ${head} → ${base}"
+            echo "  author            : ${author}"
             echo "  checks passed     : ${CHECKS_PASSED}"
             echo "  verdict commit    : ${HEAD_SHA}"
             echo "  live head         : ${live_sha}"
             echo "  scope bases       : [${REVIEW_BASE_BRANCHES}]"
             echo "  scope head globs  : [${REVIEW_HEAD_PATTERNS}]"
+            echo "  ignored authors   : [${IGNORE_AUTHORS}]"
           fi
 
           # `checks_passed` describes one specific commit. Without concurrency
@@ -133,6 +147,44 @@ jobs:
             echo "::notice::Stale run — the verdict covers ${HEAD_SHA:0:7} but PR #${PR_NUMBER} now heads at ${live_sha:0:7}; not requesting a review"
             exit 0
           fi
+
+          # Authors vetoed outright, before scope is even considered. Dependabot
+          # opens its bumps against the same base branches as human work, so the
+          # base dimension cannot tell the two apart — and each bump would spend
+          # one of the hourly review allowance on a diff whose entire content is
+          # a version number.
+          #
+          # A veto rather than a third scope dimension: the dimensions are OR'd,
+          # so an exclusion expressed as one would lose to any positive match.
+          # That is the "release PRs reviewed anyway" failure in
+          # docs/coderabbit-gate.md — a negative match cannot veto a positive
+          # trigger when both feed the same OR.
+          #
+          # Three spellings of the same bot, all of which must match. REST says
+          # `dependabot[bot]`, GraphQL says `dependabot`, and `gh pr view --json
+          # author` — the call right above — says `app/dependabot`, because the
+          # CLI prefixes bot logins with `app/`. Verified on PR #786: GraphQL
+          # returned `{"is_bot":true,"login":"app/dependabot"}` where REST
+          # returned `dependabot[bot]`.
+          #
+          # So strip the affixes from both sides rather than comparing raw. A
+          # caller writes whichever spelling it last saw, and the one this job
+          # reads is the one no caller would think to write.
+          normalise_login() {
+            local login="${1,,}"
+            login="${login#app/}"
+            printf '%s' "${login%\[bot\]}"
+          }
+
+          author_key=$(normalise_login "$author")
+
+          while IFS= read -r entry; do
+            [ -z "$entry" ] && continue
+            if [ "$author_key" = "$(normalise_login "$entry")" ]; then
+              echo "::notice::PR #${PR_NUMBER} was opened by ${author}, an ignored author — not requesting a review"
+              exit 0
+            fi
+          done < <(tr ',' '\n' <<< "$IGNORE_AUTHORS" | xargs -n1 2>/dev/null)
 
           matched=""
 
