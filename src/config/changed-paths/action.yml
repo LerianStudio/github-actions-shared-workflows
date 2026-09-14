@@ -47,7 +47,7 @@ inputs:
     required: false
     default: ''
   force-full-matrix:
-    description: 'When true, skip change detection and return all filter-paths entries as the build matrix. Use for tightly-coupled components that must always share the same image tag (e.g., auth + identity always released together).'
+    description: 'When true, skip change detection and return all filter-paths entries as the build matrix. Use when every listed component must be published under the same image tag, so a release never leaves a component without an image at that tag. Entries whose directory no longer exists in HEAD are still dropped. This default is false because the action is change detection; the reusable build workflows always pass the value explicitly and default it to true.'
     required: false
     default: 'false'
 
