@@ -38,7 +38,9 @@ Composite action that detects changed files between commits and outputs a matrix
 | `fallback-app-name` | When `filter-paths` is empty, return single-item matrix with this name | No | `''` |
 | `consolidate-to-root` | Consolidate all entries (except `consolidate-keep-dirs`) to root | No | `false` |
 | `consolidate-keep-dirs` | Newline-separated dirs to keep as-is during consolidation | No | `''` |
-| `force-full-matrix` | When `true`, skip change detection and return all `filter-paths` entries. Use for tightly-coupled components that must always share the same image tag (e.g., auth + identity always released together). | No | `false` |
+| `force-full-matrix` | When `true`, skip change detection and return all `filter-paths` entries. Use when every listed component must be published under the same image tag, so a release never leaves a component without an image at that tag. Entries whose directory no longer exists in HEAD are still dropped. | No | `false` |
+
+> `force-full-matrix` defaults to `false` here because this action *is* the change detection — callers decide whether to use it. The reusable build workflows (`build.yml`, `typescript-build.yml`, and the `go-release`/`js-release` umbrellas) always pass the value explicitly and default it to `true`, so a release publishes every declared component under the same tag.
 
 ## Outputs
 

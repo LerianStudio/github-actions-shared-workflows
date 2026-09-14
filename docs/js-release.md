@@ -48,7 +48,7 @@ Mirrors the [`go-release`](./go-release.md) umbrella for Go services — providi
 | `build_secrets` | Additional build secrets (one per line); npmrc is always injected | string | `''` |
 | `enable_cosign_sign` | Sign images with cosign keyless (OIDC) | boolean | `true` |
 | `dockerhub_org` | DockerHub organization name | string | `lerianstudio` |
-| `force_full_matrix` | Build all `filter_paths` components on every tag regardless of what changed (use for tightly-coupled components that must always share the same image tag) | boolean | `false` |
+| `force_full_matrix` | Build all `filter_paths` components on every tag regardless of what changed; set `false` to build only changed components | boolean | `true` |
 | `enable_helm_dispatch` | Dispatch stable image releases to the Helm repository for chart updates | boolean | `false` |
 | `helm_repository` | Helm repository to dispatch to (org/repo) | string | `LerianStudio/helm` |
 | `helm_chart` | Helm chart name to update; required when Helm dispatch is enabled | string | `''` |
@@ -141,9 +141,9 @@ jobs:
     secrets: inherit
 ```
 
-### Monorepo with tightly-coupled components
+### Monorepo with selective component builds
 
-Use `force_full_matrix: true` when components must always be released together with the same image tag:
+All components are released together by default. Set `force_full_matrix: false` only when the repository should publish changed components independently:
 
 ```yaml
 jobs:
@@ -156,7 +156,7 @@ jobs:
       filter_paths: |
         components/auth
         components/identity
-      force_full_matrix: true
+      force_full_matrix: false
       gitops_repository: "LerianStudio/midaz-firmino-gitops"
       gitops_yaml_key_mappings: '{"plugin-access-manager-auth.tag": ".auth.image.tag", "plugin-access-manager-identity.tag": ".identity.image.tag"}'
     secrets: inherit
