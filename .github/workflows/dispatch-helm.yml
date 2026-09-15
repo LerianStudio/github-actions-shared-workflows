@@ -403,10 +403,9 @@ jobs:
 
           # A dispatch opens a pull request on the chart repository, so it is a write
           # to another repo — exactly what a dry run must not do. Everything above
-          # still runs, so the payload a real run would send is visible.
+          # still runs, so the payload printed just above is what a real run sends.
           if [ "${DRY_RUN}" = "true" ]; then
             echo "::notice::dry-run: not dispatching. Would send ${WORKFLOW_FILE} to ${HELM_REPOSITORY} on ref ${TARGET_REF} for chart ${CHART}"
-            echo "$PAYLOAD" | jq .
             exit 0
           fi
 
