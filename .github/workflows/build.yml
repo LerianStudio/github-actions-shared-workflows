@@ -20,6 +20,9 @@ on:
       matrix:
         description: 'JSON array of the app matrix that was actually built this run (each entry {"name": ..., "working_dir": ...}). Empty array ("[]") when has_builds is false. Lets downstream jobs (e.g. per-component e2e) scope themselves to only what changed.'
         value: ${{ jobs.prepare.outputs.matrix }}
+      is_release:
+        description: 'Whether this run is a production release (true/false) — a tag that is neither -rc nor -beta. Exposed so a caller that defers the Helm dispatch to its own job can reproduce the same gating this workflow applies internally.'
+        value: ${{ jobs.prepare.outputs.is_release }}
     inputs:
       runner_type:
         description: 'Runner to use for the workflow'
