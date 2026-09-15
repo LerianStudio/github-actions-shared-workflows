@@ -122,6 +122,7 @@ apps:
 
     # Test/mock infrastructure
     - mock-btg-server             # benedita only (-st variant); companion to plugin-br-pix-indirect-btg
+    - br-spi-mock-bacen           # benedita dev-st only; internal BACEN simulator for the SPI rail
 
     # Lerian internal platform suite (Benedita cross/)
     - backoffice-console
@@ -352,6 +353,7 @@ clusters:
       - br-sfn
       - br-consignado-gw
       - mock-btg-server
+      - br-spi-mock-bacen
       - backoffice-console
       - cs-platform
       - forge

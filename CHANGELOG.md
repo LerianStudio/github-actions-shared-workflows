@@ -1,5 +1,23 @@
 # Github-actions-shared-workflows Changelog
 
+## [1.70.0](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.70.0)
+
+Features:
+- Released changes from `develop` to `main`. (@bedatty)
+- Stopped spending reviews on dependabot bumps in the coderabbit workflow. (@bedatty)
+- Built the full component matrix by default in the build process. (@bedatty, @gandalf-at-lerian)
+
+Improvements:
+- Updated `docker/setup-qemu-action` from `4.2.0` to `4.3.0` in the docker group. (@bedatty)
+- Bumped the security-scanners group with three updates. (@bedatty)
+
+Documentation:
+- Revised the documentation to stop framing the full matrix as the exceptional case. (@bedatty)
+
+[Compare changes](https://github.com/LerianStudio/github-actions-shared-workflows/compare/v1.69.1...v1.70.0)
+
+---
+
 ## [1.69.1](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.69.1)
 
 Fixes:
