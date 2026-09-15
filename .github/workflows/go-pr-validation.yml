@@ -155,6 +155,16 @@ on:
         description: 'GolangCI-Lint version'
         type: string
         default: 'v1.62.2'
+      govulncheck_version:
+        description: >-
+          govulncheck version to install, as a Go module query. Pinned rather than `@latest` because
+          `@latest` is resolved against the PINNED TOOLCHAIN and fails outright when the two disagree:
+          golang.org/x/vuln v1.8.0 raised its own `go` directive to 1.26.0, so `go install ...@latest`
+          under `GOTOOLCHAIN=local` with go_version 1.25.3 refuses with `requires go >= 1.26.0`, and
+          the step has no `continue-on-error` to soften it. Every Go repository on this channel failed
+          the moment that release landed. Raise this together with go_version, never ahead of it.
+        type: string
+        default: 'v1.7.0'
       golangci_lint_args:
         description: 'Extra arguments passed to golangci-lint (e.g. --timeout=5m)'
         type: string
@@ -394,6 +404,7 @@ jobs:
       build_runner_type: ${{ inputs.build_runner_type }}
       go_version: ${{ inputs.go_version }}
       golangci_lint_version: ${{ inputs.golangci_lint_version }}
+      govulncheck_version: ${{ inputs.govulncheck_version }}
       golangci_lint_args: ${{ inputs.golangci_lint_args }}
       app_name_prefix: ${{ inputs.app_name_prefix }}
       filter_paths: ${{ inputs.filter_paths }}
