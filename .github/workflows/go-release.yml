@@ -846,6 +846,7 @@ jobs:
       legacy_patch_detection: ${{ inputs.helm_legacy_patch_detection }}
       legacy_branch_patterns: ${{ inputs.helm_legacy_branch_patterns }}
       runner_type: ${{ inputs.runner_type }}
+      dry_run: ${{ inputs.dry_run }}
     secrets:
       helm_repo_token: ${{ secrets.HELM_REPO_TOKEN }}
 

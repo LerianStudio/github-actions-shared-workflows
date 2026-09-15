@@ -97,6 +97,10 @@ on:
         description: 'GitHub runner type to use'
         type: string
         default: 'blacksmith-4vcpu-ubuntu-2404'
+      dry_run:
+        description: 'Resolve the payload and print it, without sending the workflow_dispatch. The chart repository is left untouched.'
+        type: boolean
+        default: false
     secrets:
       helm_repo_token:
         description: 'Token scoped to the Helm repository with Actions: read and write permission (enough to trigger workflow_dispatch). A classic token with repo scope also works but is broader than needed.'
@@ -365,6 +369,7 @@ jobs:
           WORKFLOW_FILE: ${{ inputs.workflow_file }}
           TARGET_REF: ${{ inputs.target_ref }}
           HELM_REPO_TOKEN: ${{ secrets.helm_repo_token }}
+          DRY_RUN: ${{ inputs.dry_run }}
         run: |
           COMPONENTS=$(cat /tmp/components_payload.json)
 
@@ -395,6 +400,15 @@ jobs:
 
           echo "Dispatching payload:"
           echo "$PAYLOAD" | jq .
+
+          # A dispatch opens a pull request on the chart repository, so it is a write
+          # to another repo — exactly what a dry run must not do. Everything above
+          # still runs, so the payload a real run would send is visible.
+          if [ "${DRY_RUN}" = "true" ]; then
+            echo "::notice::dry-run: not dispatching. Would send ${WORKFLOW_FILE} to ${HELM_REPOSITORY} on ref ${TARGET_REF} for chart ${CHART}"
+            echo "$PAYLOAD" | jq .
+            exit 0
+          fi
 
           # Convert payload to compact JSON string for workflow_dispatch input
           PAYLOAD_STRING=$(echo "$PAYLOAD" | jq -c .)
