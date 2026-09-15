@@ -398,14 +398,23 @@ jobs:
               version_line: $version_line
             }')
 
-          echo "Dispatching payload:"
-          echo "$PAYLOAD" | jq .
+          # env_vars carries VALUES read from the env file, not just names. The file
+          # is meant to hold placeholders, but nothing enforces that, and a log is
+          # readable by anyone with access to the run. Keys are enough to see what a
+          # release adds — which is what the job summary below already shows. The
+          # payload that gets dispatched is unredacted; only this log is.
+          echo "Dispatching payload (env values redacted):"
+          echo "$PAYLOAD" | jq '(.components[]?.env_vars) |= with_entries(.value = "<redacted>")'
 
           # A dispatch opens a pull request on the chart repository, so it is a write
           # to another repo — exactly what a dry run must not do. Everything above
           # still runs, so the payload printed just above is what a real run sends.
           if [ "${DRY_RUN}" = "true" ]; then
-            echo "::notice::dry-run: not dispatching. Would send ${WORKFLOW_FILE} to ${HELM_REPOSITORY} on ref ${TARGET_REF} for chart ${CHART}"
+            # A workflow command ends at a newline, so a value carrying one could
+            # close this notice and forge further commands after it. These four come
+            # from caller inputs; strip the characters that would do it.
+            clean() { printf '%s' "$1" | tr -d '\r\n'; }
+            echo "::notice::dry-run: not dispatching. Would send $(clean "${WORKFLOW_FILE}") to $(clean "${HELM_REPOSITORY}") on ref $(clean "${TARGET_REF}") for chart $(clean "${CHART}")"
             exit 0
           fi
 
