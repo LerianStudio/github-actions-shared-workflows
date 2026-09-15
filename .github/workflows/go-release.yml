@@ -494,7 +494,10 @@ jobs:
       cosign_initial_delay: ${{ inputs.cosign_initial_delay }}
       cosign_max_delay: ${{ inputs.cosign_max_delay }}
       continue_gitops_on_signing_failure: ${{ inputs.continue_gitops_on_signing_failure }}
-      enable_helm_dispatch: ${{ inputs.enable_helm_dispatch }}
+      # Deferred to the dispatch_helm job below. build.yml dispatches from inside
+      # itself, which cannot see extra_build — a sibling job here — so the chart
+      # would be bumped while the migrations image was still building.
+      enable_helm_dispatch: false
       helm_chart: ${{ inputs.helm_chart }}
       helm_repository: ${{ inputs.helm_repository }}
       helm_detect_env_changes: ${{ inputs.helm_detect_env_changes }}
@@ -799,6 +802,53 @@ jobs:
   # Callers whose extra_builds groups need their own gitops-update (e.g. a
   # component deployed as a separate ArgoCD Application) should add a
   # dedicated gitops-update.yml job of their own, independent of this one.
+  # The chart is told about a new version only once EVERY image that version
+  # refers to has been pushed. build.yml owns this dispatch internally, but from
+  # in there it only knows about its own matrix: `build` and `extra_build` are
+  # siblings that both hang off `release`, so the dispatch fired while the extra
+  # images were still building.
+  #
+  # That is how plugin-br-bank-transfer 2.0.1 shipped pointing at a migrations
+  # image that did not exist. The image-refs gate on the chart repository catches
+  # the result before it publishes; this removes the race that creates it.
+  #
+  # Gating mirrors what build.yml applied here before: go-release never exposed
+  # helm_dispatch_on_rc / helm_dispatch_on_beta, so build.yml fell through to its
+  # own defaults and only production releases ever dispatched. Stated literally
+  # rather than referencing inputs that do not exist on this workflow.
+  #
+  # target_ref, components_base_path and env_file are omitted for the same reason:
+  # go-release does not expose them either, and dispatch-helm.yml's defaults are
+  # identical to build.yml's (main / components / .env.example), so leaving them
+  # out reproduces the previous behaviour exactly.
+  #
+  # is_release comes from the build outputs so the two cannot drift apart.
+  dispatch_helm:
+    name: Dispatch Helm Update
+    needs: [release, build, extra_build]
+    if: >-
+      inputs.enable_helm_dispatch && !cancelled() &&
+      inputs.helm_chart != '' &&
+      needs.build.result == 'success' &&
+      needs.build.outputs.has_builds == 'true' &&
+      needs.extra_build.result != 'failure' &&
+      (
+        needs.build.outputs.is_release == 'true'
+      )
+    uses: ./.github/workflows/dispatch-helm.yml
+    with:
+      helm_repository: ${{ inputs.helm_repository }}
+      chart: ${{ inputs.helm_chart }}
+      version: ${{ github.ref_name }}
+      components_json: ${{ needs.build.outputs.matrix }}
+      detect_env_changes: ${{ inputs.helm_detect_env_changes }}
+      values_key_mappings: ${{ inputs.helm_values_key_mappings }}
+      legacy_patch_detection: ${{ inputs.helm_legacy_patch_detection }}
+      legacy_branch_patterns: ${{ inputs.helm_legacy_branch_patterns }}
+      runner_type: ${{ inputs.runner_type }}
+    secrets:
+      helm_repo_token: ${{ secrets.HELM_REPO_TOKEN }}
+
   update_gitops:
     needs: [release, build, extra_build]
     if: >-
