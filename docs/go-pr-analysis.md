@@ -107,6 +107,7 @@ jobs:
 | `app_name_prefix` | Prefix for app names in matrix output | No | `''` |
 | `go_version` | Go version to use | No | `1.23` |
 | `golangci_lint_version` | GolangCI-Lint version | No | `v1.62.2` |
+| `govulncheck_version` | govulncheck version to install. Pinned rather than `@latest` so an upstream release cannot change what runs here unchosen. Works at any `go_version` — the install step overrides `GOTOOLCHAIN=auto`, the scan still runs under the pinned toolchain | No | `v1.7.0` |
 | `golangci_lint_args` | Additional golangci-lint arguments | No | `--timeout=5m` |
 | `coverage_threshold` | Minimum coverage percentage (0-100) | No | `80` |
 | `fail_on_coverage_threshold` | Fail if coverage below threshold | No | `true` |
