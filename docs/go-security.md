@@ -85,10 +85,12 @@ jobs:
 | `enable_dependency_review` | Enable GitHub dependency review (PR only) | No | `true` |
 | `enable_gosec` | Enable Gosec security scanner | No | `true` |
 | `enable_govulncheck` | Enable Go vulnerability database check | No | `true` |
+| `govulncheck_version` | govulncheck version to install. Pinned rather than `@latest` so an upstream release cannot change what runs here unchosen. Works at any `go_version` — the install step overrides `GOTOOLCHAIN=auto`, the scan still runs under the pinned toolchain | No | `v1.7.0` |
 | `enable_nancy` | Enable Nancy dependency scanner | No | `true` |
 | `enable_trivy` | Enable Trivy filesystem scanner | No | `true` |
 | `enable_secret_scan` | Enable TruffleHog secret scanning | No | `true` |
 | `enable_license_check` | Enable go-licenses compliance check | No | `true` |
+| `go_licenses_version` | go-licenses version to install. Pinned for the same reason as `govulncheck_version`; the install step overrides `GOTOOLCHAIN=auto` so it works at any `go_version` | No | `v1.6.0` |
 | `enable_sbom` | Enable SBOM generation | No | `true` |
 | `trivy_severity` | Trivy severity levels (comma-separated) | No | `CRITICAL,HIGH` |
 | `license_disallowed_types` | Disallowed license types (comma-separated) | No | `forbidden,restricted` |
@@ -110,6 +112,18 @@ Go security scanner that finds security issues in Go code.
 ### govulncheck
 Official Go vulnerability database scanner.
 
+Two things keep this step alive across Go releases:
+
+- **`govulncheck_version`** (default `v1.7.0`) pins the tool, so an upstream release cannot change
+  what runs here without someone choosing it. `golang.org/x/vuln` v1.8.0 raised its own `go`
+  directive to 1.26.0 and broke every Go repo on this channel the day it shipped; unlike
+  `Run govulncheck`, the install step has no `continue-on-error`, so that refusal fails the job.
+- **`GOTOOLCHAIN=auto` on the install step only.** `actions/setup-go` exports `GOTOOLCHAIN=local`
+  for the whole job, which makes `go install` refuse any tool whose `go` directive is newer than
+  `go_version` rather than upgrading — v1.7.0 declares `go 1.25.0` and would not install under the
+  default `go_version: 1.23`. The override is scoped to building the scanner; `govulncheck ./...`
+  still analyses your module under the pinned toolchain, which is the part that must not drift.
+
 ### nancy
 Sonatype Nancy dependency vulnerability scanner.
 
@@ -121,6 +135,10 @@ TruffleHog secret detection scanner.
 
 ### license-check
 go-licenses compliance checker.
+
+The install is pinned via `go_licenses_version` and runs under `GOTOOLCHAIN=auto`, the same shape as
+govulncheck. `go-licenses` v1.6.0 declares `go 1.16` so it installs under any `go_version` today;
+the pin is what keeps an upstream release from changing that without anyone choosing it.
 
 ### sbom
 Software Bill of Materials generation.

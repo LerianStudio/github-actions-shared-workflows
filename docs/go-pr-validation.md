@@ -55,6 +55,7 @@ The `go-analysis`, `security` and `lib-version` pipelines each have a `*-gate` a
 | `require_verified_commits` | Block the PR when any commit is unsigned or unverified | boolean | `true` |
 | `go_version` | Go version | string | `1.23` |
 | `golangci_lint_version` | GolangCI-Lint version | string | `v1.62.2` |
+| `govulncheck_version` | govulncheck version to install. Pinned rather than `@latest` so an upstream release cannot change what runs here unchosen. Works at any `go_version` — the install step overrides `GOTOOLCHAIN=auto`, the scan still runs under the pinned toolchain | string | `v1.7.0` |
 | `golangci_lint_args` | Extra arguments passed to golangci-lint (e.g. `--timeout=5m`) | string | `--timeout=5m` |
 | `app_name_prefix` | Prefix used to namespace coverage/build artifacts | string | `''` |
 | `filter_paths` | Newline-separated component path prefixes for monorepo per-component analysis (lint/tests/coverage) **and** security scanning; empty = single-app root run. When using it for security, leave `dockerfile_path` empty so each component Dockerfile is discovered | string | `''` |
