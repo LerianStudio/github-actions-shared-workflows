@@ -1,5 +1,22 @@
 # Github-actions-shared-workflows Changelog
 
+## [1.71.0](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.71.0)
+
+Features:
+- Merged changes from `develop` to `main`. (@bedatty)
+
+Fixes:
+- Pinned `govulncheck` to a specific version because `@latest` follows the toolchain, ensuring consistent security checks. (@bedatty)
+- Corrected the handling of the license list by passing it as an argument rather than embedding it in the command. (@bedatty)
+- Applied a pin to `go-licenses` before it could break, maintaining stability. (@bedatty)
+- Ensured the version reaches the shell as data, preventing it from being interpreted as a script. (@bedatty)
+- Updated the pin to require a compatible toolchain for building, and added necessary documentation inputs. (@bedatty)
+- Adjusted `govulncheck` pinning to resolve against the pinned toolchain, enhancing security. (@bedatty)
+
+[Compare changes](https://github.com/LerianStudio/github-actions-shared-workflows/compare/v1.70.0...v1.71.0)
+
+---
+
 ## [1.70.0](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.70.0)
 
 Features:
