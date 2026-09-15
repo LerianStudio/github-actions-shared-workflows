@@ -85,6 +85,7 @@ jobs:
 | `enable_dependency_review` | Enable GitHub dependency review (PR only) | No | `true` |
 | `enable_gosec` | Enable Gosec security scanner | No | `true` |
 | `enable_govulncheck` | Enable Go vulnerability database check | No | `true` |
+| `govulncheck_version` | govulncheck version to install. Pinned rather than `@latest` so an upstream release cannot change what runs here unchosen. Works at any `go_version` — the install step overrides `GOTOOLCHAIN=auto`, the scan still runs under the pinned toolchain | No | `v1.7.0` |
 | `enable_nancy` | Enable Nancy dependency scanner | No | `true` |
 | `enable_trivy` | Enable Trivy filesystem scanner | No | `true` |
 | `enable_secret_scan` | Enable TruffleHog secret scanning | No | `true` |
@@ -109,6 +110,18 @@ Go security scanner that finds security issues in Go code.
 
 ### govulncheck
 Official Go vulnerability database scanner.
+
+Two things keep this step alive across Go releases:
+
+- **`govulncheck_version`** (default `v1.7.0`) pins the tool, so an upstream release cannot change
+  what runs here without someone choosing it. `golang.org/x/vuln` v1.8.0 raised its own `go`
+  directive to 1.26.0 and broke every Go repo on this channel the day it shipped; unlike
+  `Run govulncheck`, the install step has no `continue-on-error`, so that refusal fails the job.
+- **`GOTOOLCHAIN=auto` on the install step only.** `actions/setup-go` exports `GOTOOLCHAIN=local`
+  for the whole job, which makes `go install` refuse any tool whose `go` directive is newer than
+  `go_version` rather than upgrading — v1.7.0 declares `go 1.25.0` and would not install under the
+  default `go_version: 1.23`. The override is scoped to building the scanner; `govulncheck ./...`
+  still analyses your module under the pinned toolchain, which is the part that must not drift.
 
 ### nancy
 Sonatype Nancy dependency vulnerability scanner.

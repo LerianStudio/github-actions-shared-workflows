@@ -63,12 +63,12 @@ on:
         default: 'v1.62.2'
       govulncheck_version:
         description: >-
-          govulncheck version to install, as a Go module query. Pinned rather than `@latest` because
-          `@latest` is resolved against the PINNED TOOLCHAIN and fails outright when the two disagree:
-          golang.org/x/vuln v1.8.0 raised its own `go` directive to 1.26.0, so `go install ...@latest`
-          under `GOTOOLCHAIN=local` with go_version 1.25.3 refuses with `requires go >= 1.26.0`, and
-          the step has no `continue-on-error` to soften it. Every Go repository on this channel failed
-          the moment that release landed. Raise this together with go_version, never ahead of it.
+          govulncheck version to install, as a Go module query. Pinned rather than `@latest` so that
+          an upstream release cannot change what this workflow runs without anyone here choosing it:
+          golang.org/x/vuln v1.8.0 raised its own `go` directive to 1.26.0 and broke every Go
+          repository on this channel the day it landed, because the install step has no
+          `continue-on-error` to soften it. The install itself runs under GOTOOLCHAIN=auto, so this
+          default works at any go_version — it does NOT have to track it.
         type: string
         default: 'v1.7.0'
       golangci_lint_args:
@@ -355,6 +355,12 @@ jobs:
         continue-on-error: true
 
       - name: Install govulncheck
+        env:
+          # actions/setup-go exports GOTOOLCHAIN=local for the whole job, so `go install` of a tool
+          # whose own `go` directive is newer than go_version REFUSES instead of upgrading. That is
+          # right for the scan (it must analyse under the pinned toolchain) and wrong for BUILDING
+          # the scanner, so the override is scoped to this step alone.
+          GOTOOLCHAIN: auto
         run: go install golang.org/x/vuln/cmd/govulncheck@${{ inputs.govulncheck_version }}
 
       - name: Run govulncheck
