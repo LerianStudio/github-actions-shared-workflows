@@ -90,6 +90,7 @@ jobs:
 | `enable_trivy` | Enable Trivy filesystem scanner | No | `true` |
 | `enable_secret_scan` | Enable TruffleHog secret scanning | No | `true` |
 | `enable_license_check` | Enable go-licenses compliance check | No | `true` |
+| `go_licenses_version` | go-licenses version to install. Pinned for the same reason as `govulncheck_version`; the install step overrides `GOTOOLCHAIN=auto` so it works at any `go_version` | No | `v1.6.0` |
 | `enable_sbom` | Enable SBOM generation | No | `true` |
 | `trivy_severity` | Trivy severity levels (comma-separated) | No | `CRITICAL,HIGH` |
 | `license_disallowed_types` | Disallowed license types (comma-separated) | No | `forbidden,restricted` |
@@ -134,6 +135,10 @@ TruffleHog secret detection scanner.
 
 ### license-check
 go-licenses compliance checker.
+
+The install is pinned via `go_licenses_version` and runs under `GOTOOLCHAIN=auto`, the same shape as
+govulncheck. `go-licenses` v1.6.0 declares `go 1.16` so it installs under any `go_version` today;
+the pin is what keeps an upstream release from changing that without anyone choosing it.
 
 ### sbom
 Software Bill of Materials generation.
