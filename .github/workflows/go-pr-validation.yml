@@ -155,6 +155,16 @@ on:
         description: 'GolangCI-Lint version'
         type: string
         default: 'v1.62.2'
+      govulncheck_version:
+        description: >-
+          govulncheck version to install, as a Go module query. Pinned rather than `@latest` so that
+          an upstream release cannot change what this workflow runs without anyone here choosing it:
+          golang.org/x/vuln v1.8.0 raised its own `go` directive to 1.26.0 and broke every Go
+          repository on this channel the day it landed, because the install step has no
+          `continue-on-error` to soften it. The install itself runs under GOTOOLCHAIN=auto, so this
+          default works at any go_version — it does NOT have to track it.
+        type: string
+        default: 'v1.7.0'
       golangci_lint_args:
         description: 'Extra arguments passed to golangci-lint (e.g. --timeout=5m)'
         type: string
@@ -394,6 +404,7 @@ jobs:
       build_runner_type: ${{ inputs.build_runner_type }}
       go_version: ${{ inputs.go_version }}
       golangci_lint_version: ${{ inputs.golangci_lint_version }}
+      govulncheck_version: ${{ inputs.govulncheck_version }}
       golangci_lint_args: ${{ inputs.golangci_lint_args }}
       app_name_prefix: ${{ inputs.app_name_prefix }}
       filter_paths: ${{ inputs.filter_paths }}
