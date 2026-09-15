@@ -284,8 +284,22 @@ jobs:
           go install "github.com/google/go-licenses@$GO_LICENSES_VERSION"
 
       - name: Check licenses
+        env:
+          # Data, never script. This predates the govulncheck work and was never flagged, which is
+          # the argument FOR fixing it rather than against: an unflagged sink is still a sink, and
+          # `${{ }}` is substituted before the shell sees the line either way.
+          LICENSE_DISALLOWED_TYPES: ${{ inputs.license_disallowed_types }}
         run: |
-          go-licenses check ./... --disallowed_types=${{ inputs.license_disallowed_types }}
+          # go-licenses takes a comma-separated list of type names — forbidden, restricted,
+          # reciprocal, notice, permissive, unencumbered, unknown — so nothing outside letters,
+          # commas and word punctuation is a legitimate value. `case` tests the whole string, which
+          # a shape glob with a trailing * or a line-by-line `grep -E` would not.
+          case "$LICENSE_DISALLOWED_TYPES" in
+            ''|*[!a-zA-Z,_-]*)
+              echo "::error::license_disallowed_types must be a comma-separated list of go-licenses type names, got '$LICENSE_DISALLOWED_TYPES'"
+              exit 1 ;;
+          esac
+          go-licenses check ./... --disallowed_types="$LICENSE_DISALLOWED_TYPES"
 
       - name: Generate license report
         run: |
