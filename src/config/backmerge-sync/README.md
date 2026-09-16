@@ -37,10 +37,35 @@ Single source → single target. For fan-out across multiple targets (e.g., `dev
 | Mode | Behavior |
 |------|----------|
 | `direct` | Merge and push. Fails the step on conflict or rejected push. No PR is opened. |
-| `pr` | Always open (or reuse) a PR from `source-branch` into `target-branch`. Never pushes directly. |
+| `pr` | Always open (or reuse) a PR from a temporary branch into `target-branch`. Never pushes directly. |
 | `direct-with-pr-fallback` | Try direct merge & push first. On conflict or rejection, fall back to opening a PR. |
 
 If the target branch already contains the source (`merge-base --is-ancestor`), the step is a no-op and outputs `action=skipped`.
+
+## The temporary branch
+
+The PR is opened from `backmerge/<source>-to-<target>-<hash>`, not from `source-branch` itself.
+
+Resolving a conflict means committing on the head branch. With `main` as the head that commit is forbidden by the branch ruleset, so the PR opens in a state nobody can finish — the only way out is a bypass. It also forces consumers to authorise `main` and `release-candidate` as promotion sources, and the rule then cannot tell an automated backmerge from one a person opened by hand.
+
+The name is **deterministic**, never per-run: the reuse lookup finds the open PR by head, so a changing name would open one PR per run and leave orphaned branches behind. `/` is flattened to `-` and a 6-character digest of the pair is appended, so `hotfix/x` and `hotfix-x` do not collide.
+
+### It is never force-updated while a PR is open
+
+That branch is where the human conflict resolution lives.
+
+| State | Behavior |
+|---|---|
+| No open PR for the pair | Reset the branch to the source tip, open the PR |
+| Open PR exists | Merge the source tip **into** the branch, preserving earlier resolutions. Clean → push, the PR updates itself. Conflict → leave the branch untouched and upsert a sticky comment saying commits are pending |
+
+The open PR accumulates the backlog for its pair instead of multiplying PRs or rewriting reviewed history.
+
+### Migrating
+
+A backmerge PR opened before this behavior has `head = <source>`. The composite reuses it rather than opening a duplicate, and warns that it should be closed — its conflicts still cannot be resolved without writing to a protected branch. Close the old ones and the next run opens replacements from the temporary branch.
+
+Cleanup needs no configuration: `backmerge/*` matches none of `branch-cleanup`'s protected patterns, so the `routine.yml` post-merge hook deletes it like any other head branch.
 
 ## Usage as composite step
 
