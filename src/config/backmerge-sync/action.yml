@@ -50,6 +50,12 @@ outputs:
   pr-number:
     description: Number of the PR opened or reused in `pr` or fallback mode (empty when no PR was created)
     value: ${{ steps.sync.outputs.pr-number }}
+  has-pending-commits:
+    description: >-
+      "true" when the reused PR's branch could not be brought up to the source tip
+      (conflict, or a failed fetch/push), so the PR does not yet carry every commit.
+      Always "false" on the paths that do not reuse a PR.
+    value: ${{ steps.sync.outputs.has-pending-commits }}
 
 runs:
   using: composite
@@ -142,10 +148,17 @@ runs:
           printf '%s' "$rendered"
         }
 
+        # Set by advance_backmerge_branch when the temporary branch could not be
+        # brought up to the source tip. Without it a PR that stopped advancing
+        # reports `pr-existing` exactly like one that advanced cleanly, and the
+        # only trace is a warning inside a matrix job's log.
+        HAS_PENDING_COMMITS=false
+
         emit() {
           echo "action=$1" >> "$GITHUB_OUTPUT"
           echo "pr-url=${2:-}" >> "$GITHUB_OUTPUT"
           echo "pr-number=${3:-}" >> "$GITHUB_OUTPUT"
+          echo "has-pending-commits=${HAS_PENDING_COMMITS}" >> "$GITHUB_OUTPUT"
         }
 
         SOURCE_SHA=$(git rev-parse "origin/${SOURCE_BRANCH}")
@@ -175,6 +188,12 @@ runs:
           local flat_source flat_target digest
           flat_source=${SOURCE_BRANCH//\//-}
           flat_target=${TARGET_BRANCH//\//-}
+          # GitHub rejects a push whose full ref exceeds 255 bytes, and
+          # `refs/heads/backmerge/…-to-…-hash` spends ~32 on structure. Truncating
+          # only the readable halves keeps the name unique, because the digest is
+          # taken from the untruncated pair.
+          flat_source=${flat_source:0:100}
+          flat_target=${flat_target:0:100}
           digest=$(printf '%s\n%s' "$SOURCE_BRANCH" "$TARGET_BRANCH" | sha1sum | cut -c1-6)
           printf 'backmerge/%s-to-%s-%s' "$flat_source" "$flat_target" "$digest"
         }
@@ -184,6 +203,22 @@ runs:
         # Sticky, so a pair that keeps conflicting does not accumulate one
         # comment per run on the same PR.
         PENDING_MARKER='<!-- backmerge-pending -->'
+
+        find_pending_comment() {
+          gh api --paginate "repos/${GITHUB_REPOSITORY}/issues/${1}/comments" \
+            --jq "[.[] | select(.body | contains(\"${PENDING_MARKER}\"))] | if length>0 then .[0].id else empty end" 2>/dev/null || echo ""
+        }
+
+        # Once the branch catches up the notice is not merely stale, it is wrong:
+        # the PR would keep telling reviewers that commits are missing.
+        clear_pending_comment() {
+          local existing
+          existing=$(find_pending_comment "$1")
+          if [ -n "$existing" ]; then
+            gh api --method DELETE "repos/${GITHUB_REPOSITORY}/issues/comments/${existing}" >/dev/null \
+              || echo "::warning::could not remove the stale pending-commits comment on PR #${1}"
+          fi
+        }
 
         comment_pending() {
           local pr_num="$1" body existing
@@ -204,8 +239,7 @@ runs:
 
         > Posted automatically by the \`backmerge-sync\` composite action."
 
-          existing=$(gh api --paginate "repos/${GITHUB_REPOSITORY}/issues/${pr_num}/comments" \
-            --jq "[.[] | select(.body | contains(\"${PENDING_MARKER}\"))] | if length>0 then .[0].id else empty end" 2>/dev/null || echo "")
+          existing=$(find_pending_comment "$pr_num")
 
           if [ -n "$existing" ]; then
             gh api --method PATCH "repos/${GITHUB_REPOSITORY}/issues/comments/${existing}" -f body="$body" >/dev/null \
@@ -226,11 +260,14 @@ runs:
 
           if [ "$DRY_RUN" = "true" ]; then
             echo "::notice::[dry-run] would merge ${SOURCE_BRANCH} into ${BACKMERGE_BRANCH} for PR #${pr_num}"
+            # Nothing was pushed, so the source tip is not known to be present.
+            HAS_PENDING_COMMITS=true
             return 0
           fi
 
           git fetch --no-tags origin "+refs/heads/${BACKMERGE_BRANCH}:refs/remotes/origin/${BACKMERGE_BRANCH}" || {
             echo "::warning::could not fetch ${BACKMERGE_BRANCH}; leaving PR #${pr_num} untouched"
+            HAS_PENDING_COMMITS=true
             return 0
           }
 
@@ -239,12 +276,15 @@ runs:
           if git merge --no-ff "origin/${SOURCE_BRANCH}" -m "$COMMIT_MESSAGE"; then
             if git push origin "$BACKMERGE_BRANCH"; then
               echo "::notice::Advanced ${BACKMERGE_BRANCH} with new commits from ${SOURCE_BRANCH}"
+              clear_pending_comment "$pr_num"
             else
               echo "::warning::could not push ${BACKMERGE_BRANCH}; PR #${pr_num} is missing recent commits"
+              HAS_PENDING_COMMITS=true
             fi
           else
             git merge --abort || true
             echo "::warning::New commits on ${SOURCE_BRANCH} conflict with ${BACKMERGE_BRANCH} — leaving it untouched"
+            HAS_PENDING_COMMITS=true
             comment_pending "$pr_num"
           fi
         }
@@ -270,7 +310,16 @@ runs:
             if [ -n "$LEGACY_PR" ]; then
               LEGACY_NUM=$(echo "$LEGACY_PR" | jq -r '.number')
               LEGACY_URL=$(echo "$LEGACY_PR" | jq -r '.url')
-              echo "::warning::PR #${LEGACY_NUM} is an older backmerge opened directly from ${SOURCE_BRANCH}. Its conflicts can only be resolved by committing on ${SOURCE_BRANCH}, which the branch ruleset forbids. Close it and the next run opens one from ${BACKMERGE_BRANCH} instead."
+              # The lookup matches any open PR for the pair, which need not be a
+              # backmerge at all. Checking the composite's own body marker keeps
+              # the warning from asserting a provenance it cannot know — but
+              # either way no second PR is opened for the same pair, since
+              # backmerges opened by hand are common and would be duplicated.
+              if gh pr view "$LEGACY_NUM" --json body --jq '.body' 2>/dev/null | grep -qF 'backmerge-sync'; then
+                echo "::warning::PR #${LEGACY_NUM} is an older backmerge opened directly from ${SOURCE_BRANCH}. Its conflicts can only be resolved by committing on ${SOURCE_BRANCH}, which the branch ruleset forbids. Close it and the next run opens one from ${BACKMERGE_BRANCH} instead."
+              else
+                echo "::warning::PR #${LEGACY_NUM} is open for ${SOURCE_BRANCH} → ${TARGET_BRANCH} and was not created by this action. Not opening a second PR for the pair; close or merge it, and the next run opens one from ${BACKMERGE_BRANCH}."
+              fi
               echo "::notice::Backmerge PR #${LEGACY_NUM} already exists: ${LEGACY_URL}"
               emit "pr-existing" "$LEGACY_URL" "$LEGACY_NUM"
               return 0

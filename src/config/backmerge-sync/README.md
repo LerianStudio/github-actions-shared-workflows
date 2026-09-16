@@ -31,6 +31,7 @@ Single source → single target. For fan-out across multiple targets (e.g., `dev
 | `action` | One of `skipped`, `pushed`, `pr-opened`, `pr-existing`, `failed` |
 | `pr-url` | URL of the PR opened or reused in `pr` or fallback mode (empty when no PR was created) |
 | `pr-number` | Number of the PR opened or reused in `pr` or fallback mode (empty when no PR was created) |
+| `has-pending-commits` | `"true"` when a reused PR's branch could not be advanced to the source tip (conflict, or failed fetch/push), so the PR does not yet carry every commit. `"false"` on every path that does not reuse a PR |
 
 ## Modes
 
@@ -58,6 +59,8 @@ That branch is where the human conflict resolution lives.
 |---|---|
 | No open PR for the pair | Reset the branch to the source tip, open the PR |
 | Open PR exists | Merge the source tip **into** the branch, preserving earlier resolutions. Clean → push, the PR updates itself. Conflict → leave the branch untouched and upsert a sticky comment saying commits are pending |
+
+A run that cannot advance the branch sets `has-pending-commits=true` and keeps `action=pr-existing`; `backmerge.yml` surfaces it in the job summary. Without that, a backmerge that quietly stopped advancing looks exactly like one that is up to date. The sticky comment is removed once the branch does catch up — left in place it would keep telling reviewers that commits are missing.
 
 The open PR accumulates the backlog for its pair instead of multiplying PRs or rewriting reviewed history.
 
