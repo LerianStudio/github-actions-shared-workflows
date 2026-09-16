@@ -1,0 +1,65 @@
+name: Go Integration Skip Guard
+description: >-
+  Fail when an integration suite that was configured to run did not actually run.
+
+# Go integration tests conventionally skip themselves when their backing service
+# is unconfigured:
+#
+#     if dsn == "" { t.Skip("POSTGRES_TEST_URL not set") }
+#
+# Under `go test ./...` that skip is invisible: the job is green and the check is
+# named "Integration Tests". A missing job is honest; a green one that ran nothing
+# is a claim. This guard turns that silence into a failure.
+
+inputs:
+  packages:
+    description: Space-separated packages that must each report a pass.
+    required: true
+  pattern:
+    description: Test-name pattern passed to `go test -run`.
+    required: true
+  working-dir:
+    description: Directory to run from.
+    required: false
+    default: "."
+
+runs:
+  using: composite
+  steps:
+    - name: Verify the integration suite actually ran
+      shell: bash
+      working-directory: ${{ inputs.working-dir }}
+      env:
+        PACKAGES: ${{ inputs.packages }}
+        PATTERN: ${{ inputs.pattern }}
+      run: |
+        set -uo pipefail
+
+        failed=0
+
+        # One invocation per package, deliberately. A merged log cannot express
+        # this: a package with no matching test emits neither --- PASS nor
+        # --- SKIP, so another package's pass would cover for it.
+        for pkg in $PACKAGES; do
+          # -count=1 defeats the test cache, which would otherwise replay a pass
+          # recorded on a run that did have the service available.
+          output=$(go test -run "$PATTERN" -v -count=1 "$pkg" 2>&1)
+          status=$?
+
+          echo "::group::guard: $pkg"
+          echo "$output"
+          echo "::endgroup::"
+
+          if (( status != 0 )); then
+            echo "::error::$pkg: integration tests failed."
+            failed=1
+          elif grep -qE '^[[:space:]]*--- SKIP' <<<"$output"; then
+            echo "::error::$pkg: matched '$PATTERN' but skipped — the suite is configured to run, not running. Check its required environment."
+            failed=1
+          elif ! grep -qE '^[[:space:]]*--- PASS' <<<"$output"; then
+            echo "::error::$pkg: no test matched '$PATTERN'. Either the pattern is wrong or the package does not belong in guard.packages."
+            failed=1
+          fi
+        done
+
+        exit $failed

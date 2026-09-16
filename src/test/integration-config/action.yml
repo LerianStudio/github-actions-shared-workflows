@@ -1,0 +1,170 @@
+name: Parse Integration Tests Config
+description: >-
+  Validate the integration_tests_config JSON, export its test_env entries to the
+  job environment, and expose the service/guard settings as step outputs.
+
+inputs:
+  config:
+    description: >-
+      JSON object with the optional keys `service`, `test_env` and `guard`.
+      Unknown keys are rejected — a typo must fail loudly rather than be ignored.
+    required: true
+
+outputs:
+  has-service:
+    description: '"true" when a service container is configured.'
+    value: ${{ steps.parse.outputs.has-service }}
+  service-image:
+    description: Container image for the service (empty when has-service is false).
+    value: ${{ steps.parse.outputs.service-image }}
+  service-ports:
+    description: Space-separated host:container port mappings.
+    value: ${{ steps.parse.outputs.service-ports }}
+  service-health-cmd:
+    description: Command executed inside the container until it succeeds.
+    value: ${{ steps.parse.outputs.service-health-cmd }}
+  service-health-timeout:
+    description: Seconds to wait for the health command to succeed.
+    value: ${{ steps.parse.outputs.service-health-timeout }}
+  service-env-json:
+    description: JSON object of environment variables for the container.
+    value: ${{ steps.parse.outputs.service-env-json }}
+  has-guard:
+    description: '"true" when the anti-skip guard is configured.'
+    value: ${{ steps.parse.outputs.has-guard }}
+  guard-packages:
+    description: Space-separated packages the guard must see pass.
+    value: ${{ steps.parse.outputs.guard-packages }}
+  guard-pattern:
+    description: Test-name pattern the guard runs.
+    value: ${{ steps.parse.outputs.guard-pattern }}
+
+runs:
+  using: composite
+  steps:
+    - name: Parse and validate configuration
+      id: parse
+      shell: bash
+      env:
+        CONFIG: ${{ inputs.config }}
+      run: |
+        set -euo pipefail
+
+        # A caller typo must not be silently ignored: the whole point of this
+        # feature is to stop CI reporting coverage it never produced, so an
+        # unrecognised key is a hard error rather than a dropped setting.
+        die() { echo "::error::integration_tests_config: $1"; exit 1; }
+
+        emit() {
+          local name="$1" value="$2" delim
+          delim="GHO_$(openssl rand -hex 8)"
+          printf '%s<<%s\n%s\n%s\n' "$name" "$delim" "$value" "$delim" >> "$GITHUB_OUTPUT"
+        }
+
+        reject_unknown() {
+          local json="$1" label="$2" allowed="$3" unknown
+          unknown=$(jq -r --argjson allowed "$allowed" '((keys - $allowed) | join(", "))' <<<"$json")
+          [[ -z "$unknown" ]] || die "unknown key(s) in $label: $unknown"
+        }
+
+        # Both `service.env` and `test_env` end up as process environment, so the
+        # same rules apply: usable shell identifiers, and never a reserved prefix
+        # that would shadow a runner-provided variable.
+        validate_env_object() {
+          local json="$1" label="$2" key
+          [[ "$(jq -r 'type' <<<"$json")" == "object" ]] || die "$label must be a JSON object"
+          jq -e 'all(.[]; type == "string" or type == "number" or type == "boolean")' >/dev/null <<<"$json" \
+            || die "$label values must be strings, numbers or booleans"
+          while IFS= read -r key; do
+            [[ -n "$key" ]] || continue
+            [[ "$key" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || die "$label: '$key' is not a valid variable name"
+            case "$key" in
+              GITHUB_*|ACTIONS_*|RUNNER_*) die "$label: '$key' uses a reserved prefix" ;;
+            esac
+          done < <(jq -r 'keys[]' <<<"$json")
+        }
+
+        jq -e . >/dev/null 2>&1 <<<"$CONFIG" || die "not valid JSON"
+        [[ "$(jq -r 'type' <<<"$CONFIG")" == "object" ]] || die "must be a JSON object"
+        reject_unknown "$CONFIG" "integration_tests_config" '["service","test_env","guard"]'
+
+        # ----------------- service -----------------
+        HAS_SERVICE=false
+        IMAGE=''; PORTS=''; HEALTH_CMD=''; HEALTH_TIMEOUT='60'; SERVICE_ENV='{}'
+
+        if jq -e 'has("service")' >/dev/null <<<"$CONFIG"; then
+          SERVICE=$(jq -c '.service' <<<"$CONFIG")
+          [[ "$(jq -r 'type' <<<"$SERVICE")" == "object" ]] || die "service must be a JSON object"
+          reject_unknown "$SERVICE" "service" '["image","ports","health_cmd","health_timeout","env"]'
+
+          IMAGE=$(jq -r '.image // ""' <<<"$SERVICE")
+          [[ -n "$IMAGE" ]] || die "service.image is required when service is present"
+          # A mutable tag makes "CI matches production" quietly stop being true.
+          [[ "$IMAGE" == *:* ]] || echo "::warning::service.image '$IMAGE' has no tag — pin it to a patch version so CI stays reproducible."
+
+          PORTS=$(jq -r 'if has("ports") then (if (.ports | type) == "array" then (.ports | join(" ")) else (.ports | tostring) end) else "" end' <<<"$SERVICE")
+          for port in $PORTS; do
+            [[ "$port" =~ ^[0-9]+:[0-9]+(/(tcp|udp))?$ ]] || die "service.ports: '$port' is not a host:container mapping"
+          done
+
+          HEALTH_CMD=$(jq -r '.health_cmd // ""' <<<"$SERVICE")
+          if [[ -z "$HEALTH_CMD" ]]; then
+            echo "::warning::service.health_cmd is empty — the first connection races the container's startup, so failures will be intermittent rather than useful."
+          fi
+
+          HEALTH_TIMEOUT=$(jq -r '.health_timeout // 60 | tostring' <<<"$SERVICE")
+          [[ "$HEALTH_TIMEOUT" =~ ^[0-9]+$ ]] || die "service.health_timeout must be a positive integer"
+
+          SERVICE_ENV=$(jq -c '.env // {}' <<<"$SERVICE")
+          validate_env_object "$SERVICE_ENV" "service.env"
+
+          HAS_SERVICE=true
+        fi
+
+        # ----------------- test_env -----------------
+        if jq -e 'has("test_env")' >/dev/null <<<"$CONFIG"; then
+          TEST_ENV=$(jq -c '.test_env' <<<"$CONFIG")
+          validate_env_object "$TEST_ENV" "test_env"
+          while IFS= read -r key; do
+            [[ -n "$key" ]] || continue
+            value=$(jq -r --arg k "$key" '.[$k] | tostring' <<<"$TEST_ENV")
+            delim="GHE_$(openssl rand -hex 8)"
+            printf '%s<<%s\n%s\n%s\n' "$key" "$delim" "$value" "$delim" >> "$GITHUB_ENV"
+            # Names only. These values are connection strings that may embed
+            # credentials, and a job log is not the place for them.
+            echo "Exported $key to the job environment."
+          done < <(jq -r 'keys[]' <<<"$TEST_ENV")
+        fi
+
+        # ----------------- guard -----------------
+        HAS_GUARD=false
+        GUARD_PACKAGES=''; GUARD_PATTERN=''
+
+        if jq -e 'has("guard")' >/dev/null <<<"$CONFIG"; then
+          GUARD=$(jq -c '.guard' <<<"$CONFIG")
+          [[ "$(jq -r 'type' <<<"$GUARD")" == "object" ]] || die "guard must be a JSON object"
+          reject_unknown "$GUARD" "guard" '["packages","pattern"]'
+
+          GUARD_PACKAGES=$(jq -r '.packages // ""' <<<"$GUARD")
+          GUARD_PATTERN=$(jq -r '.pattern // ""' <<<"$GUARD")
+          [[ -n "$GUARD_PACKAGES" ]] || die "guard.packages is required when guard is present"
+          [[ -n "$GUARD_PATTERN" ]] || die "guard.pattern is required when guard is present"
+
+          # Leading dashes would be read by `go test` as flags, not operands.
+          for pkg in $GUARD_PACKAGES; do
+            [[ "$pkg" != -* ]] || die "guard.packages: '$pkg' looks like a flag"
+          done
+          [[ "$GUARD_PATTERN" != -* ]] || die "guard.pattern: '$GUARD_PATTERN' looks like a flag"
+
+          HAS_GUARD=true
+        fi
+
+        emit "has-service" "$HAS_SERVICE"
+        emit "service-image" "$IMAGE"
+        emit "service-ports" "$PORTS"
+        emit "service-health-cmd" "$HEALTH_CMD"
+        emit "service-health-timeout" "$HEALTH_TIMEOUT"
+        emit "service-env-json" "$SERVICE_ENV"
+        emit "has-guard" "$HAS_GUARD"
+        emit "guard-packages" "$GUARD_PACKAGES"
+        emit "guard-pattern" "$GUARD_PATTERN"

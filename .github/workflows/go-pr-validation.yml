@@ -209,6 +209,15 @@ on:
         description: 'Command to run integration tests. Empty = go-pr-analysis default (`make test-integration`).'
         type: string
         default: ''
+      integration_tests_config:
+        description: >-
+          JSON configuring the integration lane beyond the command: `service` (a backing
+          container started on the runner), `test_env` (variables exported to the test
+          step) and `guard` (packages that must report a pass, so a suite that skipped
+          itself fails instead of reporting green). See docs/go-pr-analysis.md.
+          Empty keeps today's serviceless, unguarded job.
+        type: string
+        default: ''
       enable_test_determinism:
         description: 'Enable the test determinism check (runs tests multiple times with shuffle)'
         type: boolean
@@ -421,6 +430,9 @@ jobs:
       # integration-tests job, which is a workflow validation error. So the literal
       # has to be repeated here rather than deferred to.
       integration_test_command: ${{ inputs.integration_test_command || 'make test-integration' }}
+      # No such duplication needed here: '' is the value that disables the feature,
+      # so passing it straight through is exactly the intended default.
+      integration_tests_config: ${{ inputs.integration_tests_config }}
       enable_test_determinism: ${{ inputs.enable_test_determinism }}
       test_determinism_runs: ${{ inputs.test_determinism_runs }}
       enable_custom_checks: ${{ inputs.enable_custom_checks }}
