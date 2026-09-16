@@ -69,11 +69,11 @@ Matching is on the **first two whitespace-delimited tokens of the raw scanned li
 
 | Finding in | Raw line in the file | Entry to write |
 |---|---|---|
-| `go.mod` | `    github.com/emersion/go-imap/v2 v2.0.0-beta.8 // indirect` (tab-indented) | `github.com/emersion/go-imap/v2 v2.0.0-beta.8` |
-| `package.json` | `    "@lerianstudio/sindarian-ui": "2.0.0-beta.6",` | `"@lerianstudio/sindarian-ui": "2.0.0-beta.6",` |
+| `go.mod` | tab-indented, `github.com/emersion/go-imap/v2 v2.0.0-beta.8 // indirect` | `github.com/emersion/go-imap/v2 v2.0.0-beta.8` |
+| `package.json` | indented, `"@lerianstudio/sindarian-ui": "2.0.0-beta.6",` | `"@lerianstudio/sindarian-ui": "2.0.0-beta.6",` |
 | `Dockerfile` | `FROM node:20.0.0-rc1 AS builder` | `FROM node:20.0.0-rc1` |
 
-Leading indentation and a trailing `// indirect` never affect the match, because only the first two tokens are compared. A leading `require ` keyword (the `go.mod` single-line form) is stripped, so both `go.mod` spellings key the same. Everything after the second token is ignored, so the `package.json` entry must carry the trailing comma when the line in the file has one, and the `Dockerfile` entry stops at the tag.
+Leading indentation and a trailing `// indirect` never affect the match, because only the first two tokens are compared. A leading `require` keyword, and the whitespace following it (the `go.mod` single-line form), is stripped too, so both `go.mod` spellings key the same. Everything after the second token is ignored, so the `package.json` entry must carry the trailing comma when the line in the file has one, and the `Dockerfile` entry stops at the tag.
 
 > **Compatibility.** Until this was fixed, allow-file entries were put through shell word splitting, which stripped the quotes and made every `package.json` entry inert unless its quotes were backslash-escaped (`\"pkg\": \"2.0.0-beta.6\",`). Repositories that worked around it that way keep working: a backslash before a quote is still dropped. New entries should be written unescaped, exactly as the line appears in the file.
 
