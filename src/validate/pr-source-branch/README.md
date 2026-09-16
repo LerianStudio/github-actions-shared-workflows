@@ -17,7 +17,32 @@ On failure, upserts a single PR comment (identified by the `<!-- pr-source-branc
 | `allowed-branches` | Allowed source branches (pipe-separated, supports `*` wildcard) | No | `hotfix/*\|release-candidate` |
 | `target-branches` | Target branches that require validation (pipe-separated) | No | `main` |
 | `branch-rules` | Per-target rules as JSON. A listed target uses its own patterns and is validated even when `target-branches` omits it | No | `''` |
+| `automation-only-patterns` | Source patterns accepted only on PRs opened by automation (pipe-separated, `*` suffix). Restricts, does not grant | No | `''` |
+| `automation-actors` | Comma-separated logins counting as automation. Empty accepts any author of type `Bot` | No | `''` |
 | `dry-run` | When true, validate without upserting the failure comment | No | `false` |
+
+## Automation-only patterns
+
+A branch-name pattern alone is guessable — anyone can push `backmerge/anything` and target a protected branch. `automation-only-patterns` adds an author condition to patterns that only a bot should ever use:
+
+```yaml
+branch-rules: |
+  {"main": "release-candidate|hotfix/*|backmerge/*",
+   "release-candidate": "develop-*|backmerge/*"}
+automation-only-patterns: "backmerge/*"
+automation-actors: "lerian-studio-midaz-push-bot[bot]"
+```
+
+**It restricts; it does not grant.** The pattern must still be allowed by `allowed-branches` or `branch-rules` — listing it here only adds the requirement that the author be automation. Granting instead would be a no-op in exactly this configuration, where `backmerge/*` is already allowed by the rules, and a human pushing `backmerge/anything` would sail through.
+
+| Source | Author | Verdict |
+|---|---|---|
+| `backmerge/main-to-rc-1a42d1` | `…push-bot[bot]` | allowed |
+| `backmerge/main-to-rc-1a42d1` | a person | **blocked** — the comment says the pattern is automation-only |
+| `develop-x` | a person | allowed by the normal rules |
+| `backmerge/x` not listed in the rules | `…push-bot[bot]` | blocked — the rules never authorised it |
+
+With `automation-actors` empty, any author whose account type is `Bot` qualifies. Set it to pin the specific app.
 
 ## Per-target rules
 

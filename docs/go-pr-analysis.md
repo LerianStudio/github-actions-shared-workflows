@@ -119,6 +119,7 @@ jobs:
 | `go_private_modules` | GOPRIVATE pattern for private Go modules (e.g., `github.com/LerianStudio/*`) | No | `''` |
 | `enable_integration_tests` | Enable integration tests job | No | `false` |
 | `integration_test_command` | Command to run integration tests | No | `make test-integration` |
+| `integration_tests_config` | JSON configuring the integration lane beyond the command: `service`, `test_env` and `guard`. See [Integration tests with a service container](#integration-tests-with-a-service-container). Empty keeps the serviceless, unguarded job | No | `''` |
 | `enable_test_determinism` | Enable test determinism check (runs tests multiple times with shuffle) | No | `false` |
 | `test_determinism_runs` | Number of times to run tests for determinism check | No | `3` |
 | `system_packages` | Space-separated list of apt packages to install before running Go commands (e.g., `"libxml2-dev pkg-config"`). Required for CGO repositories that depend on native system libraries. Installed in all Go jobs (lint, security, tests, build, integration-tests, test-determinism). | No | `''` |
@@ -177,11 +178,98 @@ Verifies code compiles successfully per changed app.
 ### integration-tests
 Runs integration tests per changed app using a configurable command (default: `make test-integration`). Disabled by default — enable with `enable_integration_tests: true`.
 
+Optionally starts a backing service container, exports the suite's environment, and verifies the suite actually ran — see [Integration tests with a service container](#integration-tests-with-a-service-container).
+
 ### test-determinism
 Runs unit tests multiple times with `-shuffle=on` to detect flaky or order-dependent tests. Always uses `go test` directly (bypasses Makefile) to guarantee shuffle flags are applied. Excludes `/tests/` and `/api/` packages. Disabled by default — enable with `enable_test_determinism: true`.
 
 ### no-changes
 Runs when no Go changes are detected - outputs skip message.
+
+
+## Integration tests with a service container
+
+`enable_integration_tests: true` on its own runs the suite on a bare runner. That is enough for suites with no external dependency, but Go integration tests conventionally skip themselves when their backing service is unconfigured:
+
+```go
+dsn := os.Getenv("POSTGRES_TEST_URL")
+if dsn == "" {
+    t.Skip("POSTGRES_TEST_URL not set")
+}
+```
+
+Under `go test ./...` that skip is invisible: the run is green and the check is named "Integration Tests". A missing job is honest; a green one that ran nothing is a claim.
+
+`integration_tests_config` closes both halves of that gap — it gives the job a database, and it makes a skipped suite fail.
+
+### Schema
+
+```jsonc
+{
+  "service": {                       // optional — a backing container on the runner
+    "image": "postgres:16.13",       // required when `service` is present
+    "ports": "5432:5432",            // string, or an array of "host:container"
+    "health_cmd": "pg_isready",      // run inside the container until it exits 0
+    "health_timeout": 60,            // seconds, default 60
+    "env": { "POSTGRES_PASSWORD": "postgres", "POSTGRES_DB": "app" }
+  },
+  "test_env": {                      // optional — exported to the test step
+    "POSTGRES_TEST_URL": "postgres://postgres:postgres@127.0.0.1:5432/app?sslmode=disable"
+  },
+  "guard": {                         // optional — anti-skip guard
+    "packages": "./internal/store/ ./internal/httpapi/",
+    "pattern": "AgainstRealPostgres",
+    "args": ["-tags=integration"]    // flags the guard's own `go test` needs
+  }
+}
+```
+
+Every key is optional and the three parts are independent: a suite with no external dependency can still use `guard` alone. **Unknown keys are rejected** — with the configuration travelling as a JSON string, a typo must fail loudly rather than be silently dropped.
+
+### Full example
+
+```yaml
+jobs:
+  validate:
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/go-pr-validation.yml@tier-1
+    with:
+      go_version: "1.25.3"
+      enable_integration_tests: true
+      integration_tests_config: |
+        {
+          "service": {
+            "image": "postgres:16.13",
+            "ports": "5432:5432",
+            "health_cmd": "pg_isready",
+            "env": { "POSTGRES_PASSWORD": "postgres", "POSTGRES_DB": "app" }
+          },
+          "test_env": {
+            "POSTGRES_TEST_URL": "postgres://postgres:postgres@127.0.0.1:5432/app?sslmode=disable"
+          },
+          "guard": {
+            "packages": "./internal/store/ ./internal/httpapi/",
+            "pattern": "AgainstRealPostgres"
+          }
+        }
+    secrets: inherit
+```
+
+### The guard
+
+When `guard` is set, the job runs `go test <args> -run <pattern> -v -count=1 <package>` **once per package** and fails if a package exits non-zero, reports `--- SKIP`, or reports no `--- PASS` at all.
+
+`guard.args` matters when the suite sits behind a build tag. The guard builds its own invocation, so it does not inherit the flags `integration_test_command` uses: a suite guarded by `//go:build integration` would be invisible to it and reported as "no test matched" immediately after the suite passed. Repeat the tag there — `"args": ["-tags=integration"]`.
+
+`-json` and `-list` are rejected there: the guard reads its verdict from `go test`'s plain-text output, so either flag would report a passing test as "no test matched".
+
+One invocation per package is deliberate: a merged log cannot express this, because a package with no matching test emits neither line and another package's pass would cover for it. `-count=1` defeats the test cache, which would otherwise replay a pass recorded when the service *was* available.
+
+### Notes
+
+- **Pin the image to a patch version.** `postgres:16` is mutable and silently becomes 16.14, 16.15…, so "CI matches the deployed planner" quietly stops being true — and a planner difference that passes CI and fails in the cluster is exactly what the job exists to catch. A tagless image raises a warning.
+- **Always set `health_cmd`.** Without one, the first connection races the container's startup and the job fails intermittently rather than usefully. Its absence raises a warning.
+- **Use throwaway credentials only.** `service.env` and `test_env` values are CI-local; they are never echoed, but they are not secrets storage.
+- **`service` uses `docker run`, not a `services:` block.** `services.<id>.env` is a static mapping that cannot be expanded from an input, and a `services:` block cannot be declared conditionally. The job runs on the runner itself, so a published port lands on `localhost` exactly as it would with `services:`. The container is removed under `if: always()`, and its last 200 log lines are printed on the way out.
 
 ## How Change Detection Works
 

@@ -124,6 +124,10 @@
   color: "1f6feb"
   description: Changes to periodic maintenance routines (self-routine.yml and related reusables)
 
+- name: test
+  color: "d4a373"
+  description: Changes to test-execution composite actions (src/test/)
+
 - name: composite
   color: "8b949e"
   description: Changes to any composite action manifest (src/**/*.yml)
