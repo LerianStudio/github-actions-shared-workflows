@@ -59,9 +59,23 @@ Some pre-release pins cannot be remediated by upgrade — a direct dependency wh
 # go-imap v2 has no stable upstream release (v2 is beta-only). Direct dep.
 # Review by: 2026-09-30
 github.com/emersion/go-imap/v2 v2.0.0-beta.8
+
+# sindarian-ui ships no stable v2 yet. Copied verbatim from package.json,
+# quotes and trailing comma included.
+"@lerianstudio/sindarian-ui": "2.0.0-beta.6",
 ```
 
-Matching is on the **first two whitespace-delimited tokens of the raw scanned line**. For `go.mod` that is `module version` (a trailing `// indirect` does not affect the match). For `package.json` and `Dockerfile` findings the entry must mirror the raw scan output verbatim, punctuation and all — e.g. `"pkg": "^2.0.0-beta.1"` or `FROM node:20.0.0-rc1`.
+Matching is on the **first two whitespace-delimited tokens of the raw scanned line**, and an entry is compared to them **verbatim — the only processing applied to it is `#` comment stripping and whitespace trimming**. Nothing else is removed: quotes, colons, commas and version range operators are all part of the key.
+
+| Finding in | Raw line in the file | Entry to write |
+|---|---|---|
+| `go.mod` | `    github.com/emersion/go-imap/v2 v2.0.0-beta.8 // indirect` (tab-indented) | `github.com/emersion/go-imap/v2 v2.0.0-beta.8` |
+| `package.json` | `    "@lerianstudio/sindarian-ui": "2.0.0-beta.6",` | `"@lerianstudio/sindarian-ui": "2.0.0-beta.6",` |
+| `Dockerfile` | `FROM node:20.0.0-rc1 AS builder` | `FROM node:20.0.0-rc1` |
+
+Leading indentation and a trailing `// indirect` never affect the match, because only the first two tokens are compared. A leading `require ` keyword (the `go.mod` single-line form) is stripped, so both `go.mod` spellings key the same. Everything after the second token is ignored, so the `package.json` entry must carry the trailing comma when the line in the file has one, and the `Dockerfile` entry stops at the tag.
+
+> **Compatibility.** Until this was fixed, allow-file entries were put through shell word splitting, which stripped the quotes and made every `package.json` entry inert unless its quotes were backslash-escaped (`\"pkg\": \"2.0.0-beta.6\",`). Repositories that worked around it that way keep working: a backslash before a quote is still dropped. New entries should be written unescaped, exactly as the line appears in the file.
 
 > **Security — review your exemptions.** The allow-file is read from the scanned working tree, so — exactly like `.trivyignore` — a PR can add its own entry and self-exempt a pin. Put `.prerelease-allow` under `CODEOWNERS` in consuming repos so every exemption gets a dedicated review rather than being self-approved.
 
