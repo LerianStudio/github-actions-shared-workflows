@@ -1,5 +1,25 @@
 # Github-actions-shared-workflows Changelog
 
+## [1.72.0](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.72.0)
+
+Features:
+- Introduced a fallback mechanism to open pull requests from a `backmerge/*` branch, restricted to automation. (@bedatty)
+- Added an optional service container and anti-skip guard for integration tests in the Go PR analysis workflow. (@bedatty)
+
+Fixes:
+- Corrected the process to advance pending backmerge operations and removed the stale pending notice. (@bedatty)
+- Fixed stale reusable-workflow path instructions in the Coderabbit workflow. (@bedatty)
+- Rejected output-format flags in guard arguments for the Go integration guard. (@bedatty)
+- Improved handling of malformed `args-json` by rejecting it instead of dropping the flags in the Go integration guard. (@bedatty)
+- Forwarded build-tag flags to the guard and tightened configuration validation in the Go PR analysis workflow. (@bedatty)
+
+Improvements:
+- Completed the dry-run verbose/silent contract in the dispatch Helm workflow. (@bedatty)
+
+[Compare changes](https://github.com/LerianStudio/github-actions-shared-workflows/compare/v1.71.1...v1.72.0)
+
+---
+
 ## [1.71.1](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.71.1)
 
 Fixes:
