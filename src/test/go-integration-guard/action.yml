@@ -43,6 +43,14 @@ runs:
       run: |
         set -uo pipefail
 
+        # Validated here as well as in the parser, because this composite is
+        # usable on its own. jq runs in a process substitution, so malformed
+        # input would leave EXTRA_ARGS empty while mapfile still succeeds — the
+        # flags would vanish and the failure would be blamed on the suite.
+        jq -e 'if type == "array" then all(.[]; type == "string" and length > 0) else false end' \
+          >/dev/null 2>&1 <<<"$ARGS_JSON" \
+          || { echo "::error::args-json must be a JSON array of non-empty strings, got: $ARGS_JSON"; exit 1; }
+
         mapfile -t EXTRA_ARGS < <(jq -r '.[]' <<<"$ARGS_JSON")
 
         failed=0

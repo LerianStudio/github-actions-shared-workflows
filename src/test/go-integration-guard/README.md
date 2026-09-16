@@ -50,7 +50,7 @@ and the package fails the guard if it:
 |---|---|---|---|
 | `packages` | Space-separated packages that must each report a pass | Yes | — |
 | `pattern` | Test-name pattern passed to `go test -run` | Yes | — |
-| `args-json` | JSON array of extra flags for `go test`, e.g. `["-tags=integration"]` | No | `"[]"` |
+| `args-json` | JSON array of extra flags for `go test`, e.g. `["-tags=integration"]`. Rejected unless it is an array of non-empty strings | No | `"[]"` |
 | `working-dir` | Directory to run from | No | `"."` |
 
 ## Usage as composite step
