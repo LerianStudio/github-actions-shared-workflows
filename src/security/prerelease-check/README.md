@@ -65,7 +65,7 @@ github.com/emersion/go-imap/v2 v2.0.0-beta.8
 "@lerianstudio/sindarian-ui": "2.0.0-beta.6",
 ```
 
-Matching is on the **first two whitespace-delimited tokens of the raw scanned line**, and an entry is compared to them **verbatim — the only processing applied to it is `#` comment stripping and whitespace trimming**. Nothing else is removed: quotes, colons, commas and version range operators are all part of the key.
+Matching is on the **first two whitespace-delimited tokens of the raw scanned line**, and an entry is compared to them **verbatim — the only processing applied to it is `#` comment stripping, whitespace trimming and, for compatibility (see below), dropping a backslash that precedes a quote**. Nothing else is removed: quotes, colons, commas and version range operators are all part of the key.
 
 | Finding in | Raw line in the file | Entry to write |
 |---|---|---|
