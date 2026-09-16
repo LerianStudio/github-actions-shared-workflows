@@ -188,6 +188,7 @@ jobs:
           TO: ${{ matrix.to }}
           ACTION: ${{ steps.sync.outputs.action }}
           PR_URL: ${{ steps.sync.outputs.pr-url }}
+          HAS_PENDING: ${{ steps.sync.outputs.has-pending-commits }}
         run: |
           {
             echo "### \`${FROM}\` → \`${TO}\`"
@@ -195,6 +196,11 @@ jobs:
             echo "- **action:** \`${ACTION:-failed}\`"
             if [ -n "${PR_URL:-}" ]; then
               echo "- **PR:** ${PR_URL}"
+            fi
+            # Otherwise a backmerge that silently stopped advancing looks exactly
+            # like one that is up to date.
+            if [ "${HAS_PENDING:-false}" = "true" ]; then
+              echo "- ⚠️ **pending:** the PR branch could not be advanced to the tip of \`${FROM}\`"
             fi
             echo ""
           } >> "$GITHUB_STEP_SUMMARY"

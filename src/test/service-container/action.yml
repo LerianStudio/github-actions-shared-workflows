@@ -1,0 +1,98 @@
+name: Service Container
+description: >-
+  Start a backing service (database, broker, cache) as a Docker container on the
+  runner and block until its health command succeeds.
+
+# Why not a `services:` block? Because `services.<id>.env` is a static mapping —
+# it cannot be expanded from an input — so a shared workflow using it would have
+# to hardcode every consumer's container variables. `docker run` keeps the whole
+# configuration in the caller's hands. The job runs on the runner itself, not in
+# a container, so `-p` puts the service on localhost exactly as `services:` would.
+
+inputs:
+  name:
+    description: Container name — must be unique per concurrent job on the runner.
+    required: true
+  image:
+    description: Image reference. Pin it to a patch version, not a floating minor.
+    required: true
+  ports:
+    description: Space-separated host:container port mappings.
+    required: false
+    default: ""
+  env-json:
+    description: JSON object of environment variables passed to the container.
+    required: false
+    default: "{}"
+  health-cmd:
+    description: >-
+      Command run inside the container until it exits 0 (e.g. pg_isready).
+      Empty means no wait — the first connection then races the container's startup.
+    required: false
+    default: ""
+  health-timeout:
+    description: Seconds to wait for the health command before failing.
+    required: false
+    default: "60"
+
+runs:
+  using: composite
+  steps:
+    - name: Start container
+      shell: bash
+      env:
+        NAME: ${{ inputs.name }}
+        IMAGE: ${{ inputs.image }}
+        PORTS: ${{ inputs.ports }}
+        ENV_JSON: ${{ inputs.env-json }}
+      run: |
+        set -euo pipefail
+
+        ARGS=(run --detach --name "$NAME")
+        for port in $PORTS; do ARGS+=(--publish "$port"); done
+
+        # Built into an array rather than a string, and never echoed: these
+        # values are the container's credentials.
+        while IFS= read -r key; do
+          [[ -n "$key" ]] || continue
+          value=$(jq -r --arg k "$key" '.[$k] | tostring' <<<"$ENV_JSON")
+          ARGS+=(--env "$key=$value")
+        done < <(jq -r 'keys[]' <<<"$ENV_JSON")
+
+        ARGS+=("$IMAGE")
+
+        echo "::notice::Starting service container $NAME from $IMAGE${PORTS:+ on $PORTS}"
+        docker "${ARGS[@]}" > /dev/null
+
+    - name: Wait for health
+      shell: bash
+      env:
+        NAME: ${{ inputs.name }}
+        HEALTH_CMD: ${{ inputs.health-cmd }}
+        HEALTH_TIMEOUT: ${{ inputs.health-timeout }}
+      run: |
+        set -euo pipefail
+
+        if [[ -z "$HEALTH_CMD" ]]; then
+          echo "::warning::No health command for $NAME — continuing without waiting."
+          exit 0
+        fi
+
+        deadline=$(( SECONDS + HEALTH_TIMEOUT ))
+        until docker exec "$NAME" sh -c "$HEALTH_CMD" > /dev/null 2>&1; do
+          # An exited container will never pass the health check; fail on the
+          # real reason instead of burning the whole timeout first.
+          if [[ "$(docker inspect -f '{{.State.Running}}' "$NAME" 2>/dev/null)" != "true" ]]; then
+            echo "::error::Service container $NAME exited before becoming healthy."
+            docker logs "$NAME" 2>&1 | tail -n 100 || true
+            exit 1
+          fi
+          if (( SECONDS >= deadline )); then
+            echo "::error::Service container $NAME did not become healthy within ${HEALTH_TIMEOUT}s."
+            docker logs "$NAME" 2>&1 | tail -n 100 || true
+            exit 1
+          fi
+          sleep 2
+        done
+
+        echo "::notice::Service container $NAME is healthy."
