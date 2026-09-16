@@ -28,6 +28,7 @@ It also classifies the release: when the tag being dispatched was cut from a mai
 | `legacy_patch_detection` | Flag releases cut from maintenance branches as legacy patches | no | `true` |
 | `legacy_branch_patterns` | Glob patterns (newline or comma separated) of maintenance branches | no | `maintenance/*` |
 | `runner_type` | GitHub runner type | no | `blacksmith-4vcpu-ubuntu-2404` |
+| `dry_run` | Resolve the payload and print it without dispatching. See [Dry run](#dry-run). | no | `false` |
 
 ## Secrets
 
@@ -55,6 +56,38 @@ It also classifies the release: when the tag being dispatched was cut from a mai
 ```
 
 `source_branch`, `is_legacy_patch` and `version_line` are additive — receivers that ignore them behave exactly as before.
+
+## Dry run
+
+`dry_run: true` resolves everything a real run resolves — source branch, component
+list, versions, new environment variables, the full payload — and stops before the
+`workflow_dispatch`. The chart repository is never written to.
+
+It is also the verbose mode, per the repository's `dry_run` contract:
+
+- every resolved non-secret input is echoed under a `::notice::` annotation
+- the branches containing `HEAD` and the per-component decisions are printed
+- the payload is printed, with `env_vars` **values** replaced by `<redacted>`
+
+The payload actually dispatched on a real run is never redacted — only the log is.
+`env_vars` carries values read from the env example file, and a workflow log is
+readable by anyone with access to the run; the job summary shows the variable
+**names**, which is what a reviewer needs.
+
+`dry_run: false` (the default) is silent: no diagnostics, a single `::notice::` on
+success, and the HTTP status plus response body only when the dispatch fails.
+
+```yaml
+dispatch-helm:
+  uses: LerianStudio/github-actions-shared-workflows/.github/workflows/dispatch-helm.yml@develop
+  with:
+    helm_repository: org/helm-repo
+    chart: my-app
+    version: ${{ github.ref_name }}
+    dry_run: true
+  secrets:
+    helm_repo_token: ${{ secrets.HELM_REPO_TOKEN }}
+```
 
 ## Legacy patch detection
 
