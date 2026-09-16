@@ -53,9 +53,17 @@ reviews:
     - path: ".github/workflows/*.yml"
       instructions: |
         This is a reusable workflow in a shared CI/CD library. Repo-specific rules:
-        - Both `workflow_call` and `workflow_dispatch` must be present (except self-* files)
+        - `workflow_call` must be present. `workflow_dispatch` must NOT be: its inputs are
+          free-text and user-controlled, which is a script-injection vector when they reach
+          a `run:` block. Manual triggering belongs in a `self-*` entrypoint, where inputs
+          can be `type: choice`. Do not flag a reusable workflow for lacking it.
         - Workflows that apply state changes must have a `dry_run` boolean input (default: false)
-        - Composites must use local path only: `./src/<capability>/<name>` — never an external ref
+        - Composites in this repo must be referenced by absolute external ref
+          (`LerianStudio/github-actions-shared-workflows/src/<capability>/<name>@v1`), using a
+          floating major tag rather than an exact semver pin. A local `./src/...` path resolves
+          against the CALLER's workspace, where the directory does not exist, so it breaks every
+          external consumer. Local paths are correct only in `self-*` files, where the caller is
+          this repository. Do not flag an absolute external ref as a violation.
         - A `docs/<filename>.md` matching this workflow's name must exist or be added in this PR
         - Flag any removed or renamed input/output as a breaking change for callers
 
