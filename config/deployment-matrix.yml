@@ -145,6 +145,7 @@ apps:
     # Provisioned by Severino (app-provisioning automation)
     - billing-worker
     - finance-hub
+    - lerian-clients-dev
     - plugin-br-ted-lerian
     - status-page-lerian
     - system-facts
@@ -373,6 +374,7 @@ clusters:
       # Provisioned by Severino (app-provisioning automation)
       - billing-worker
       - finance-hub
+      - lerian-clients-dev
       - plugin-br-ted-lerian
       - status-page-lerian
       - system-facts
