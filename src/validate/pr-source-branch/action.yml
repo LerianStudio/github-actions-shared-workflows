@@ -35,11 +35,12 @@ inputs:
     default: ""
   automation-actors:
     description: >-
-      Comma-separated logins that count as automation for the patterns above
-      (e.g. "lerian-studio-midaz-push-bot[bot]"). Empty accepts any author whose
-      account type is Bot.
+      Comma-separated logins that count as automation for the patterns above.
+      A list is authoritative — those logins are accepted whatever their account
+      type, which matters because `lerian-studio` is a User, not a Bot. Set to
+      empty to accept any author whose account type is Bot instead.
     required: false
-    default: ""
+    default: "lerian-studio-midaz-push-bot[bot],lerian-studio"
   dry-run:
     description: "When true, validate without posting REQUEST_CHANGES review"
     required: false
@@ -124,8 +125,14 @@ runs:
 
           const author = context.payload.pull_request.user || {};
           const matchesAutomationPattern = automationPatterns.some(p => matchesPattern(sourceBranch, p));
-          const isAutomation = author.type === 'Bot'
-            && (automationActors.length === 0 || automationActors.includes(author.login));
+          // An explicit list is authoritative: it names the accounts that count
+          // as automation, whatever their account type. Requiring type Bot on top
+          // would silently drop machine users such as `lerian-studio`, which is a
+          // User — the entry would look configured and never match. With no list,
+          // fall back to any Bot.
+          const isAutomation = automationActors.length === 0
+            ? author.type === 'Bot'
+            : automationActors.includes(author.login);
 
           if (matchesAutomationPattern) {
             console.log(`Automation-only patterns: ${automationPatterns.join(', ')}`);
