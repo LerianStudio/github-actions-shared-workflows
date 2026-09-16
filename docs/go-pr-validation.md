@@ -66,6 +66,7 @@ The `go-analysis`, `security` and `lib-version` pipelines each have a `*-gate` a
 | `go_private_modules` | GOPRIVATE pattern for private modules | string | `''` |
 | `enable_integration_tests` | Enable integration tests | boolean | `false` |
 | `integration_test_command` | Command for the integration lane. Empty → `make test-integration` | string | `''` |
+| `integration_tests_config` | JSON configuring the integration lane beyond the command — `service`, `test_env` and `guard`. Forwarded verbatim to `go-pr-analysis`; see [go-pr-analysis.md](go-pr-analysis.md#integration-tests-with-a-service-container) | string | `''` |
 | `enable_test_determinism` | Enable the test determinism check (repeat runs with shuffle) | boolean | `false` |
 | `test_determinism_runs` | Number of repeat runs for the determinism check | number | `3` |
 | `enable_custom_checks` | Run arbitrary caller-owned Makefile targets as an extra gate | boolean | `false` |
