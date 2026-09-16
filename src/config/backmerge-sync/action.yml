@@ -50,6 +50,12 @@ outputs:
   pr-number:
     description: Number of the PR opened or reused in `pr` or fallback mode (empty when no PR was created)
     value: ${{ steps.sync.outputs.pr-number }}
+  has-pending-commits:
+    description: >-
+      "true" when the reused PR's branch could not be brought up to the source tip
+      (conflict, or a failed fetch/push), so the PR does not yet carry every commit.
+      Always "false" on the paths that do not reuse a PR.
+    value: ${{ steps.sync.outputs.has-pending-commits }}
 
 runs:
   using: composite
@@ -142,10 +148,17 @@ runs:
           printf '%s' "$rendered"
         }
 
+        # Set by advance_backmerge_branch when the temporary branch could not be
+        # brought up to the source tip. Without it a PR that stopped advancing
+        # reports `pr-existing` exactly like one that advanced cleanly, and the
+        # only trace is a warning inside a matrix job's log.
+        HAS_PENDING_COMMITS=false
+
         emit() {
           echo "action=$1" >> "$GITHUB_OUTPUT"
           echo "pr-url=${2:-}" >> "$GITHUB_OUTPUT"
           echo "pr-number=${3:-}" >> "$GITHUB_OUTPUT"
+          echo "has-pending-commits=${HAS_PENDING_COMMITS}" >> "$GITHUB_OUTPUT"
         }
 
         SOURCE_SHA=$(git rev-parse "origin/${SOURCE_BRANCH}")
@@ -160,8 +173,159 @@ runs:
         COMMIT_MESSAGE=$(render "$COMMIT_MESSAGE_TEMPLATE")
         PR_TITLE=$(render "$PR_TITLE_TEMPLATE")
 
+        # The fallback PR is opened from a disposable branch, never from the
+        # source branch itself. Resolving a conflict means committing on the
+        # head branch: with head=main that commit is forbidden by the ruleset,
+        # so the PR opens in a state nobody can finish. It also forces consumers
+        # to authorise main and release-candidate as promotion sources, which
+        # then cannot tell an automated backmerge from a hand-opened one.
+        #
+        # The name must be deterministic — the reuse lookup below finds the open
+        # PR by head, and a per-run name would open one PR per run plus orphaned
+        # branches. The hash disambiguates sources that flatten to the same
+        # string (hotfix/x and hotfix-x both yield hotfix-x).
+        backmerge_branch_name() {
+          local flat_source flat_target digest
+          flat_source=${SOURCE_BRANCH//\//-}
+          flat_target=${TARGET_BRANCH//\//-}
+          # GitHub rejects a push whose full ref exceeds 255 bytes, and
+          # `refs/heads/backmerge/…-to-…-hash` spends ~32 on structure. Truncating
+          # only the readable halves keeps the name unique, because the digest is
+          # taken from the untruncated pair.
+          flat_source=${flat_source:0:100}
+          flat_target=${flat_target:0:100}
+          digest=$(printf '%s\n%s' "$SOURCE_BRANCH" "$TARGET_BRANCH" | sha1sum | cut -c1-6)
+          printf 'backmerge/%s-to-%s-%s' "$flat_source" "$flat_target" "$digest"
+        }
+
+        BACKMERGE_BRANCH=$(backmerge_branch_name)
+
+        # Sticky, so a pair that keeps conflicting does not accumulate one
+        # comment per run on the same PR.
+        PENDING_MARKER='<!-- backmerge-pending -->'
+
+        find_pending_comment() {
+          gh api --paginate "repos/${GITHUB_REPOSITORY}/issues/${1}/comments" \
+            --jq "[.[] | select(.body | contains(\"${PENDING_MARKER}\"))] | if length>0 then .[0].id else empty end" 2>/dev/null || echo ""
+        }
+
+        # Once the branch catches up the notice is not merely stale, it is wrong:
+        # the PR would keep telling reviewers that commits are missing.
+        clear_pending_comment() {
+          local existing
+          existing=$(find_pending_comment "$1")
+          if [ -n "$existing" ]; then
+            gh api --method DELETE "repos/${GITHUB_REPOSITORY}/issues/comments/${existing}" >/dev/null \
+              || echo "::warning::could not remove the stale pending-commits comment on PR #${1}"
+          fi
+        }
+
+        comment_pending() {
+          local pr_num="$1" body existing
+          body="${PENDING_MARKER}
+        ⚠️ **Backmerge commits pending**
+
+        New commits on \`${SOURCE_BRANCH}\` conflict with the resolution already on \`${BACKMERGE_BRANCH}\`, so this pull request does not yet carry them.
+
+        To bring them in, merge \`${SOURCE_BRANCH}\` into \`${BACKMERGE_BRANCH}\` and resolve the conflict there:
+
+        \`\`\`bash
+        git fetch origin
+        git checkout ${BACKMERGE_BRANCH}
+        git merge origin/${SOURCE_BRANCH}
+        # resolve, then
+        git push origin ${BACKMERGE_BRANCH}
+        \`\`\`
+
+        > Posted automatically by the \`backmerge-sync\` composite action."
+
+          existing=$(find_pending_comment "$pr_num")
+
+          if [ -n "$existing" ]; then
+            gh api --method PATCH "repos/${GITHUB_REPOSITORY}/issues/comments/${existing}" -f body="$body" >/dev/null \
+              || echo "::warning::could not update the pending-commits comment on PR #${pr_num}"
+          else
+            gh pr comment "$pr_num" --body "$body" >/dev/null \
+              || echo "::warning::could not comment pending commits on PR #${pr_num}"
+          fi
+        }
+
+        # Called only when a PR is already open for this pair. The temporary
+        # branch is where the human resolution lives, so it is never force-updated:
+        # that would destroy the resolution and silently change the content of an
+        # already-reviewed PR. Merge forward instead, and if that conflicts leave
+        # the branch exactly as it is.
+        advance_backmerge_branch() {
+          local pr_num="$1"
+
+          if [ "$DRY_RUN" = "true" ]; then
+            echo "::notice::[dry-run] would merge ${SOURCE_BRANCH} into ${BACKMERGE_BRANCH} for PR #${pr_num}"
+            # Nothing was pushed, so the source tip is not known to be present.
+            HAS_PENDING_COMMITS=true
+            return 0
+          fi
+
+          git fetch --no-tags origin "+refs/heads/${BACKMERGE_BRANCH}:refs/remotes/origin/${BACKMERGE_BRANCH}" || {
+            echo "::warning::could not fetch ${BACKMERGE_BRANCH}; leaving PR #${pr_num} untouched"
+            HAS_PENDING_COMMITS=true
+            return 0
+          }
+
+          git checkout -B "$BACKMERGE_BRANCH" "origin/${BACKMERGE_BRANCH}"
+
+          if git merge --no-ff "origin/${SOURCE_BRANCH}" -m "$COMMIT_MESSAGE"; then
+            if git push origin "$BACKMERGE_BRANCH"; then
+              echo "::notice::Advanced ${BACKMERGE_BRANCH} with new commits from ${SOURCE_BRANCH}"
+              clear_pending_comment "$pr_num"
+            else
+              echo "::warning::could not push ${BACKMERGE_BRANCH}; PR #${pr_num} is missing recent commits"
+              HAS_PENDING_COMMITS=true
+            fi
+          else
+            git merge --abort || true
+            echo "::warning::New commits on ${SOURCE_BRANCH} conflict with ${BACKMERGE_BRANCH} — leaving it untouched"
+            HAS_PENDING_COMMITS=true
+            comment_pending "$pr_num"
+          fi
+        }
+
+        # Point the temporary branch at the source tip. Only ever called when no
+        # PR is open for the pair, so there is no review to invalidate.
+        reset_backmerge_branch() {
+          if [ "$DRY_RUN" = "true" ]; then
+            echo "::notice::[dry-run] would reset ${BACKMERGE_BRANCH} to ${SOURCE_BRANCH}"
+            return 0
+          fi
+          git push --force origin "origin/${SOURCE_BRANCH}:refs/heads/${BACKMERGE_BRANCH}"
+        }
+
         open_pr() {
-          EXISTING_PR=$(gh pr list --base "$TARGET_BRANCH" --head "$SOURCE_BRANCH" --state open --json number,url --jq 'if length>0 then .[0] else empty end' 2>/dev/null || echo "")
+          EXISTING_PR=$(gh pr list --base "$TARGET_BRANCH" --head "$BACKMERGE_BRANCH" --state open --json number,url --jq 'if length>0 then .[0] else empty end' 2>/dev/null || echo "")
+
+          # Backmerge PRs opened before this composite used a temporary branch
+          # have head=<source>. Reuse them rather than opening a duplicate for
+          # the same pair, and say why they should be closed.
+          if [ -z "$EXISTING_PR" ]; then
+            LEGACY_PR=$(gh pr list --base "$TARGET_BRANCH" --head "$SOURCE_BRANCH" --state open --json number,url --jq 'if length>0 then .[0] else empty end' 2>/dev/null || echo "")
+            if [ -n "$LEGACY_PR" ]; then
+              LEGACY_NUM=$(echo "$LEGACY_PR" | jq -r '.number')
+              LEGACY_URL=$(echo "$LEGACY_PR" | jq -r '.url')
+              # The lookup matches any open PR for the pair, which need not be a
+              # backmerge at all. Checking the composite's own body marker keeps
+              # the warning from asserting a provenance it cannot know — but
+              # either way no second PR is opened for the same pair, since
+              # backmerges opened by hand are common and would be duplicated.
+              if gh pr view "$LEGACY_NUM" --json body --jq '.body' 2>/dev/null | grep -qF 'backmerge-sync'; then
+                echo "::warning::PR #${LEGACY_NUM} is an older backmerge opened directly from ${SOURCE_BRANCH}. Its conflicts can only be resolved by committing on ${SOURCE_BRANCH}, which the branch ruleset forbids. Close it and the next run opens one from ${BACKMERGE_BRANCH} instead."
+              else
+                echo "::warning::PR #${LEGACY_NUM} is open for ${SOURCE_BRANCH} → ${TARGET_BRANCH} and was not created by this action. Not opening a second PR for the pair; close or merge it, and the next run opens one from ${BACKMERGE_BRANCH}."
+              fi
+              echo "::notice::Backmerge PR #${LEGACY_NUM} already exists: ${LEGACY_URL}"
+              emit "pr-existing" "$LEGACY_URL" "$LEGACY_NUM"
+              return 0
+            fi
+          fi
+
           if [ -n "$EXISTING_PR" ]; then
             PR_NUM=$(echo "$EXISTING_PR" | jq -r '.number')
             PR_URL=$(echo "$EXISTING_PR" | jq -r '.url')
@@ -171,6 +335,7 @@ runs:
               gh pr edit "$PR_NUM" --title "$PR_TITLE" >/dev/null || \
                 echo "::warning::could not retitle backmerge PR #${PR_NUM}; check that it carries the marker before merging"
             fi
+            advance_backmerge_branch "$PR_NUM"
             echo "::notice::Backmerge PR #${PR_NUM} already exists: ${PR_URL}"
             emit "pr-existing" "$PR_URL" "$PR_NUM"
             return 0
@@ -182,13 +347,18 @@ runs:
 
         ${1:-A direct push could not be performed.} This PR needs review and merge to keep \`${TARGET_BRANCH}\` in sync.
 
+        Its head is \`${BACKMERGE_BRANCH}\`, a disposable branch created from the tip of \`${SOURCE_BRANCH}\`, so conflicts can be resolved with ordinary commits without writing to a protected branch.
+
         > Created automatically by the \`backmerge-sync\` composite action."
 
           if [ "$DRY_RUN" = "true" ]; then
-            echo "::notice::[dry-run] would open PR: ${PR_TITLE} (${SOURCE_BRANCH} → ${TARGET_BRANCH})"
+            echo "::notice::[dry-run] would open PR: ${PR_TITLE} (${BACKMERGE_BRANCH} → ${TARGET_BRANCH})"
+            reset_backmerge_branch
             emit "pr-opened" "" ""
             return 0
           fi
+
+          reset_backmerge_branch
 
           LABEL_ARGS=()
           if [ -n "$PR_LABELS" ]; then
@@ -208,15 +378,20 @@ runs:
 
           PR_URL=$(gh pr create \
             --base "$TARGET_BRANCH" \
-            --head "$SOURCE_BRANCH" \
+            --head "$BACKMERGE_BRANCH" \
             --title "$PR_TITLE" \
             --body "$PR_BODY" \
             "${LABEL_ARGS[@]}")
 
           PR_NUM=$(echo "$PR_URL" | grep -oE '[0-9]+$')
-          echo "::notice::Opened backmerge PR #${PR_NUM}: ${PR_URL}"
+          echo "::notice::Opened backmerge PR #${PR_NUM} from ${BACKMERGE_BRANCH}: ${PR_URL}"
           emit "pr-opened" "$PR_URL" "$PR_NUM"
         }
+
+        # Set before any branch is opened: advance_backmerge_branch() merges, and
+        # in `pr` mode open_pr() is reached without going through the direct path.
+        git config user.name "$GIT_USER_NAME"
+        git config user.email "$GIT_USER_EMAIL"
 
         if [ "$MODE" = "pr" ]; then
           open_pr "PR-only mode."
@@ -224,9 +399,6 @@ runs:
         fi
 
         # direct or direct-with-pr-fallback: try direct merge
-        git config user.name "$GIT_USER_NAME"
-        git config user.email "$GIT_USER_EMAIL"
-
         git checkout -B "$TARGET_BRANCH" "origin/${TARGET_BRANCH}"
 
         if ! git merge --no-ff "origin/${SOURCE_BRANCH}" -m "$COMMIT_MESSAGE"; then

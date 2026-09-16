@@ -123,6 +123,11 @@ routine:
       - ".github/workflows/branch-cleanup.yml"
       - ".github/workflows/workflow-runs-cleanup.yml"
 
+test:
+  - changed-files:
+    - any-glob-to-any-file:
+      - "src/test/**"
+
 # ── File-type generic rules (apply across all src/ composites) ────────────────
 
 composite:

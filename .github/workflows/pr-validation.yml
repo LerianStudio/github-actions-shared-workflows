@@ -87,6 +87,22 @@ on:
           follows allowed_source_branches/target_branches_for_source_check.
         type: string
         default: ''
+      automation_only_source_patterns:
+        description: >-
+          Source patterns (pipe-separated) accepted only on pull requests opened by
+          automation — e.g. "backmerge/*". This restricts rather than grants: the
+          pattern must still be allowed by allowed_source_branches or
+          source_branch_rules, and this adds the condition that the author be a bot.
+          Lets a repository authorise the backmerge mechanism without authorising
+          `main` and `release-candidate` as promotion sources.
+        type: string
+        default: ''
+      automation_source_actors:
+        description: >-
+          Comma-separated logins that count as automation for
+          automation_only_source_patterns. Empty accepts any author of type Bot.
+        type: string
+        default: ''
       require_verified_commits:
         description: 'Block the PR when any of its commits is unsigned or has an unverified signature'
         type: boolean
@@ -226,6 +242,8 @@ jobs:
           allowed-branches: ${{ inputs.allowed_source_branches }}
           target-branches: ${{ inputs.target_branches_for_source_check }}
           branch-rules: ${{ inputs.source_branch_rules }}
+          automation-only-patterns: ${{ inputs.automation_only_source_patterns }}
+          automation-actors: ${{ inputs.automation_source_actors }}
           dry-run: ${{ inputs.dry_run && 'true' || 'false' }}
 
       - name: Validate PR title
