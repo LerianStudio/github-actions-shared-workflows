@@ -117,6 +117,29 @@ on:
         description: 'Target branches that require source branch validation (pipe-separated)'
         type: string
         default: 'main'
+      source_branch_rules:
+        description: >-
+          Per-target source rules as JSON, for repositories where each protected
+          branch accepts a different set of sources — e.g.
+          {"main": "develop|hotfix/*", "release-candidate": "develop-*|hotfix/*"}.
+          A target listed here uses its own patterns; every other target still
+          follows allowed_source_branches/target_branches_for_source_check.
+        type: string
+        default: ''
+      automation_only_source_patterns:
+        description: >-
+          Source patterns (pipe-separated) accepted only on pull requests opened by
+          automation — e.g. "backmerge/*". Restricts rather than grants: the pattern
+          must still be allowed by allowed_source_branches or source_branch_rules,
+          and this adds the condition that the author be a bot.
+        type: string
+        default: ''
+      automation_source_actors:
+        description: >-
+          Comma-separated logins that count as automation for
+          automation_only_source_patterns. Empty accepts any author of type Bot.
+        type: string
+        default: ''
       require_verified_commits:
         description: 'Block the PR when any of its commits is unsigned or has an unverified signature'
         type: boolean
@@ -207,6 +230,15 @@ on:
         default: false
       integration_test_command:
         description: 'Command to run integration tests. Empty = go-pr-analysis default (`make test-integration`).'
+        type: string
+        default: ''
+      integration_tests_config:
+        description: >-
+          JSON configuring the integration lane beyond the command: `service` (a backing
+          container started on the runner), `test_env` (variables exported to the test
+          step) and `guard` (packages that must report a pass, so a suite that skipped
+          itself fails instead of reporting green). See docs/go-pr-analysis.md.
+          Empty keeps today's serviceless, unguarded job.
         type: string
         default: ''
       enable_test_determinism:
@@ -363,6 +395,9 @@ jobs:
       enforce_source_branches: ${{ inputs.enforce_source_branches }}
       allowed_source_branches: ${{ inputs.allowed_source_branches }}
       target_branches_for_source_check: ${{ inputs.target_branches_for_source_check }}
+      source_branch_rules: ${{ inputs.source_branch_rules }}
+      automation_only_source_patterns: ${{ inputs.automation_only_source_patterns }}
+      automation_source_actors: ${{ inputs.automation_source_actors }}
       require_verified_commits: ${{ inputs.require_verified_commits }}
     secrets: inherit
 
@@ -421,6 +456,9 @@ jobs:
       # integration-tests job, which is a workflow validation error. So the literal
       # has to be repeated here rather than deferred to.
       integration_test_command: ${{ inputs.integration_test_command || 'make test-integration' }}
+      # No such duplication needed here: '' is the value that disables the feature,
+      # so passing it straight through is exactly the intended default.
+      integration_tests_config: ${{ inputs.integration_tests_config }}
       enable_test_determinism: ${{ inputs.enable_test_determinism }}
       test_determinism_runs: ${{ inputs.test_determinism_runs }}
       enable_custom_checks: ${{ inputs.enable_custom_checks }}

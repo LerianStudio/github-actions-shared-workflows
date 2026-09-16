@@ -22,6 +22,24 @@ inputs:
       allowed-branches/target-branches, which still govern every other target.
     required: false
     default: ""
+  automation-only-patterns:
+    description: >-
+      Source patterns (pipe-separated, `*` suffix for prefix matching) accepted
+      ONLY when the pull request was opened by automation — e.g. "backmerge/*".
+      This restricts, it does not grant: the pattern must still be allowed by
+      allowed-branches or branch-rules, and listing it here adds the condition
+      that the author be automation. A branch name alone is guessable — anyone
+      can push `backmerge/anything` and target a protected branch — so this
+      authorises the mechanism rather than the name.
+    required: false
+    default: ""
+  automation-actors:
+    description: >-
+      Comma-separated logins that count as automation for the patterns above
+      (e.g. "lerian-studio-midaz-push-bot[bot]"). Empty accepts any author whose
+      account type is Bot.
+    required: false
+    default: ""
   dry-run:
     description: "When true, validate without posting REQUEST_CHANGES review"
     required: false
@@ -36,6 +54,8 @@ runs:
         ALLOWED_BRANCHES: ${{ inputs.allowed-branches }}
         TARGET_BRANCHES: ${{ inputs.target-branches }}
         BRANCH_RULES: ${{ inputs.branch-rules }}
+        AUTOMATION_ONLY_PATTERNS: ${{ inputs.automation-only-patterns }}
+        AUTOMATION_ACTORS: ${{ inputs.automation-actors }}
         DRY_RUN: ${{ inputs.dry-run }}
       with:
         github-token: ${{ inputs.github-token }}
@@ -86,17 +106,32 @@ runs:
           console.log(`Rule source: ${hasRule ? 'branch-rules' : 'allowed-branches'}`);
           console.log(`Allowed patterns: ${allowedBranches.join(', ')}`);
 
-          let isAllowed = false;
-          for (const pattern of allowedBranches) {
-            if (pattern.endsWith('*')) {
-              const prefix = pattern.slice(0, -1);
-              if (sourceBranch.startsWith(prefix)) {
-                isAllowed = true;
-                break;
-              }
-            } else if (pattern === sourceBranch) {
-              isAllowed = true;
-              break;
+          const matchesPattern = (branch, pattern) =>
+            pattern.endsWith('*') ? branch.startsWith(pattern.slice(0, -1)) : pattern === branch;
+
+          let isAllowed = allowedBranches.some(p => matchesPattern(sourceBranch, p));
+
+          // These patterns RESTRICT, they do not grant. The pattern still has to
+          // be authorised by the rules above; listing it here adds the condition
+          // that the author be automation. Granting instead would be a no-op in
+          // the intended configuration, where `backmerge/*` also appears in the
+          // rules — a human pushing `backmerge/anything` would sail through, and
+          // a guessable branch name is exactly what this closes.
+          const automationPatterns = (process.env.AUTOMATION_ONLY_PATTERNS || '')
+            .split('|').map(p => p.trim()).filter(Boolean);
+          const automationActors = (process.env.AUTOMATION_ACTORS || '')
+            .split(',').map(a => a.trim()).filter(Boolean);
+
+          const author = context.payload.pull_request.user || {};
+          const matchesAutomationPattern = automationPatterns.some(p => matchesPattern(sourceBranch, p));
+          const isAutomation = author.type === 'Bot'
+            && (automationActors.length === 0 || automationActors.includes(author.login));
+
+          if (matchesAutomationPattern) {
+            console.log(`Automation-only patterns: ${automationPatterns.join(', ')}`);
+            console.log(`Author: ${author.login || 'unknown'} (type ${author.type || 'unknown'}) — automation: ${isAutomation}`);
+            if (!isAutomation) {
+              isAllowed = false;
             }
           }
 
@@ -132,7 +167,14 @@ runs:
           }
 
           if (!isAllowed) {
-            const message = `⚠️ **Invalid Source Branch**\n\nPull requests to **${targetBranch}** can only come from:\n${allowedBranches.map(b => `- \`${b}\``).join('\n')}\n\nYour source branch: \`${sourceBranch}\`\n\nPlease **change the base branch** or create a PR from an allowed branch.`;
+            // A branch that matched an automation-only pattern failed for a
+            // different reason than one that matched nothing, and saying so is
+            // the difference between "use another branch" and "you cannot open
+            // this by hand".
+            const reason = matchesAutomationPattern
+              ? `\n\n\`${sourceBranch}\` matches an automation-only pattern, so it is accepted only on pull requests opened by automation${automationActors.length ? ` (${automationActors.join(', ')})` : ''}. This one was opened by \`${author.login || 'unknown'}\`.`
+              : '';
+            const message = `⚠️ **Invalid Source Branch**\n\nPull requests to **${targetBranch}** can only come from:\n${allowedBranches.map(b => `- \`${b}\``).join('\n')}\n\nYour source branch: \`${sourceBranch}\`${reason}\n\nPlease **change the base branch** or create a PR from an allowed branch.`;
 
             if (dryRun) {
               core.notice(`DRY RUN — would upsert source-branch validation comment for '${sourceBranch}' → '${targetBranch}'`);
