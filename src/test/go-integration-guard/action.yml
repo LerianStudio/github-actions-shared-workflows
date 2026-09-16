@@ -18,6 +18,13 @@ inputs:
   pattern:
     description: Test-name pattern passed to `go test -run`.
     required: true
+  args-json:
+    description: >-
+      JSON array of extra flags forwarded to `go test`, e.g. ["-tags=integration"].
+      The guard builds its own invocation, so it does not inherit the flags used by
+      the integration command — a suite behind a build tag needs them repeated here.
+    required: false
+    default: "[]"
   working-dir:
     description: Directory to run from.
     required: false
@@ -32,8 +39,11 @@ runs:
       env:
         PACKAGES: ${{ inputs.packages }}
         PATTERN: ${{ inputs.pattern }}
+        ARGS_JSON: ${{ inputs.args-json }}
       run: |
         set -uo pipefail
+
+        mapfile -t EXTRA_ARGS < <(jq -r '.[]' <<<"$ARGS_JSON")
 
         failed=0
 
@@ -43,7 +53,7 @@ runs:
         for pkg in $PACKAGES; do
           # -count=1 defeats the test cache, which would otherwise replay a pass
           # recorded on a run that did have the service available.
-          output=$(go test -run "$PATTERN" -v -count=1 "$pkg" 2>&1)
+          output=$(go test "${EXTRA_ARGS[@]}" -run "$PATTERN" -v -count=1 "$pkg" 2>&1)
           status=$?
 
           echo "::group::guard: $pkg"

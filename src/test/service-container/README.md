@@ -68,7 +68,7 @@ Reached through `go-pr-analysis.yml` via the `integration_tests_config.service` 
 ```yaml
 jobs:
   validate:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/go-pr-validation.yml@v1.72.0
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/go-pr-validation.yml@tier-1
     with:
       enable_integration_tests: true
       integration_tests_config: |

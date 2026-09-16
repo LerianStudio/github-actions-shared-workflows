@@ -38,6 +38,9 @@ outputs:
   guard-pattern:
     description: Test-name pattern the guard runs.
     value: ${{ steps.parse.outputs.guard-pattern }}
+  guard-args-json:
+    description: JSON array of extra flags forwarded to the guard's `go test`.
+    value: ${{ steps.parse.outputs.guard-args-json }}
 
 runs:
   using: composite
@@ -113,7 +116,7 @@ runs:
           fi
 
           HEALTH_TIMEOUT=$(jq -r '.health_timeout // 60 | tostring' <<<"$SERVICE")
-          [[ "$HEALTH_TIMEOUT" =~ ^[0-9]+$ ]] || die "service.health_timeout must be a positive integer"
+          [[ "$HEALTH_TIMEOUT" =~ ^[1-9][0-9]*$ ]] || die "service.health_timeout must be a positive integer"
 
           SERVICE_ENV=$(jq -c '.env // {}' <<<"$SERVICE")
           validate_env_object "$SERVICE_ENV" "service.env"
@@ -138,12 +141,27 @@ runs:
 
         # ----------------- guard -----------------
         HAS_GUARD=false
-        GUARD_PACKAGES=''; GUARD_PATTERN=''
+        GUARD_PACKAGES=''; GUARD_PATTERN=''; GUARD_ARGS='[]'
 
         if jq -e 'has("guard")' >/dev/null <<<"$CONFIG"; then
           GUARD=$(jq -c '.guard' <<<"$CONFIG")
           [[ "$(jq -r 'type' <<<"$GUARD")" == "object" ]] || die "guard must be a JSON object"
-          reject_unknown "$GUARD" "guard" '["packages","pattern"]'
+          reject_unknown "$GUARD" "guard" '["packages","pattern","args"]'
+
+          # The guard builds its own `go test` invocation, so it does not inherit
+          # the flags integration_test_command uses. A suite behind a build tag
+          # (//go:build integration) would be invisible to it and reported as
+          # "no test matched" right after the suite passed — hence guard.args.
+          if jq -e 'has("args")' >/dev/null <<<"$GUARD"; then
+            GUARD_ARGS=$(jq -c '.args' <<<"$GUARD")
+            [[ "$(jq -r 'type' <<<"$GUARD_ARGS")" == "array" ]] || die "guard.args must be a JSON array of strings"
+            jq -e 'all(.[]; type == "string" and length > 0)' >/dev/null <<<"$GUARD_ARGS" \
+              || die "guard.args entries must be non-empty strings"
+            # The packages and the -run pattern are the guard's own; a leading
+            # operand here means the caller passed something that is not a flag.
+            first=$(jq -r '.[0] // ""' <<<"$GUARD_ARGS")
+            [[ -z "$first" || "$first" == -* ]] || die "guard.args must start with a flag, got '$first'"
+          fi
 
           GUARD_PACKAGES=$(jq -r '.packages // ""' <<<"$GUARD")
           GUARD_PATTERN=$(jq -r '.pattern // ""' <<<"$GUARD")
@@ -168,3 +186,4 @@ runs:
         emit "has-guard" "$HAS_GUARD"
         emit "guard-packages" "$GUARD_PACKAGES"
         emit "guard-pattern" "$GUARD_PATTERN"
+        emit "guard-args-json" "$GUARD_ARGS"

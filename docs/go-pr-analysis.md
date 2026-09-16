@@ -218,7 +218,8 @@ Under `go test ./...` that skip is invisible: the run is green and the check is 
   },
   "guard": {                         // optional — anti-skip guard
     "packages": "./internal/store/ ./internal/httpapi/",
-    "pattern": "AgainstRealPostgres"
+    "pattern": "AgainstRealPostgres",
+    "args": ["-tags=integration"]    // flags the guard's own `go test` needs
   }
 }
 ```
@@ -230,7 +231,7 @@ Every key is optional and the three parts are independent: a suite with no exter
 ```yaml
 jobs:
   validate:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/go-pr-validation.yml@v1.72.0
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/go-pr-validation.yml@tier-1
     with:
       go_version: "1.25.3"
       enable_integration_tests: true
@@ -255,7 +256,9 @@ jobs:
 
 ### The guard
 
-When `guard` is set, the job runs `go test -run <pattern> -v -count=1 <package>` **once per package** and fails if a package exits non-zero, reports `--- SKIP`, or reports no `--- PASS` at all.
+When `guard` is set, the job runs `go test <args> -run <pattern> -v -count=1 <package>` **once per package** and fails if a package exits non-zero, reports `--- SKIP`, or reports no `--- PASS` at all.
+
+`guard.args` matters when the suite sits behind a build tag. The guard builds its own invocation, so it does not inherit the flags `integration_test_command` uses: a suite guarded by `//go:build integration` would be invisible to it and reported as "no test matched" immediately after the suite passed. Repeat the tag there — `"args": ["-tags=integration"]`.
 
 One invocation per package is deliberate: a merged log cannot express this, because a package with no matching test emits neither line and another package's pass would cover for it. `-count=1` defeats the test cache, which would otherwise replay a pass recorded when the service *was* available.
 

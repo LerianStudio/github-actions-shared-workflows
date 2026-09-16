@@ -25,7 +25,8 @@ Parses the `integration_tests_config` JSON used by `go-pr-analysis.yml`, validat
   },
   "guard": {                         // optional — anti-skip guard
     "packages": "./internal/store/ ./internal/httpapi/",
-    "pattern": "AgainstRealPostgres"
+    "pattern": "AgainstRealPostgres",
+    "args": ["-tags=integration"]    // extra flags for the guard's `go test`
   }
 }
 ```
@@ -42,6 +43,7 @@ Validation performed:
 | `service.env` / `test_env` value not a scalar | error |
 | `service.env` / `test_env` key not a shell identifier, or using a `GITHUB_`/`ACTIONS_`/`RUNNER_` prefix | error |
 | `guard.packages` or `guard.pattern` missing while `guard` is present | error |
+| `guard.args` not an array of non-empty strings, or not starting with a flag | error |
 | `guard.packages` entry or `guard.pattern` starting with `-` | error — `go test` would read it as a flag |
 
 ## Inputs
@@ -63,6 +65,7 @@ Validation performed:
 | `has-guard` | `"true"` when the guard is configured |
 | `guard-packages` | Space-separated packages |
 | `guard-pattern` | Test-name pattern |
+| `guard-args-json` | JSON array of extra `go test` flags |
 
 `test_env` has no output: its entries are written straight to `$GITHUB_ENV`, and the log records the names only — the values are typically connection strings carrying credentials.
 
@@ -96,7 +99,7 @@ Callers do not use this action directly. It is wired into `go-pr-analysis.yml`, 
 ```yaml
 jobs:
   validate:
-    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/go-pr-validation.yml@v1.72.0
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/go-pr-validation.yml@tier-1
     with:
       enable_integration_tests: true
       integration_tests_config: |

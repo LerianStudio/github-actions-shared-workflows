@@ -1042,6 +1042,7 @@ jobs:
         with:
           packages: ${{ steps.integration-config.outputs.guard-packages }}
           pattern: ${{ steps.integration-config.outputs.guard-pattern }}
+          args-json: ${{ steps.integration-config.outputs.guard-args-json }}
           working-dir: ${{ matrix.app.working_dir }}
 
       # ----------------- Teardown -----------------
