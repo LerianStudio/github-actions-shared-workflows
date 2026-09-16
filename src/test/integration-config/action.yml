@@ -161,6 +161,15 @@ runs:
             # operand here means the caller passed something that is not a flag.
             first=$(jq -r '.[0] // ""' <<<"$GUARD_ARGS")
             [[ -z "$first" || "$first" == -* ]] || die "guard.args must start with a flag, got '$first'"
+
+            # The guard reads its verdict from go test's plain-text output.
+            while IFS= read -r arg; do
+              case "${arg%%=*}" in
+                -json|--json|-list|--list)
+                  die "guard.args: '$arg' changes go test's output format, which the guard parses"
+                  ;;
+              esac
+            done < <(jq -r '.[]' <<<"$GUARD_ARGS")
           fi
 
           GUARD_PACKAGES=$(jq -r '.packages // ""' <<<"$GUARD")

@@ -51,6 +51,8 @@ and the package fails the guard if it:
 | `packages` | Space-separated packages that must each report a pass | Yes | — |
 | `pattern` | Test-name pattern passed to `go test -run` | Yes | — |
 | `args-json` | JSON array of extra flags for `go test`, e.g. `["-tags=integration"]`. Rejected unless it is an array of non-empty strings | No | `"[]"` |
+
+`-json` and `-list` are rejected. The guard reads its verdict from `go test`'s plain-text output, so a flag that changes or suppresses it reports a passing test as "no test matched" — failing a suite that actually ran, the mirror image of the bug this composite exists to catch.
 | `working-dir` | Directory to run from | No | `"."` |
 
 ## Usage as composite step

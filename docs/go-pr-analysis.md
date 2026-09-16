@@ -260,6 +260,8 @@ When `guard` is set, the job runs `go test <args> -run <pattern> -v -count=1 <pa
 
 `guard.args` matters when the suite sits behind a build tag. The guard builds its own invocation, so it does not inherit the flags `integration_test_command` uses: a suite guarded by `//go:build integration` would be invisible to it and reported as "no test matched" immediately after the suite passed. Repeat the tag there — `"args": ["-tags=integration"]`.
 
+`-json` and `-list` are rejected there: the guard reads its verdict from `go test`'s plain-text output, so either flag would report a passing test as "no test matched".
+
 One invocation per package is deliberate: a merged log cannot express this, because a package with no matching test emits neither line and another package's pass would cover for it. `-count=1` defeats the test cache, which would otherwise replay a pass recorded when the service *was* available.
 
 ### Notes

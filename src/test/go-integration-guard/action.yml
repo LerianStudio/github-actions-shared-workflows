@@ -53,6 +53,19 @@ runs:
 
         mapfile -t EXTRA_ARGS < <(jq -r '.[]' <<<"$ARGS_JSON")
 
+        # The verdict below is read from `go test`'s plain-text output, so a flag
+        # that changes or suppresses it turns a passing test into "no test
+        # matched" — the guard would then fail a suite that actually ran, which
+        # is the mirror image of the bug it exists to catch.
+        for arg in ${EXTRA_ARGS[@]+"${EXTRA_ARGS[@]}"}; do
+          case "${arg%%=*}" in
+            -json|--json|-list|--list)
+              echo "::error::args-json: '$arg' changes go test's output format, which the guard parses. Remove it."
+              exit 1
+              ;;
+          esac
+        done
+
         failed=0
 
         # One invocation per package, deliberately. A merged log cannot express

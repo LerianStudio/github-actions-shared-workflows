@@ -44,6 +44,7 @@ Validation performed:
 | `service.env` / `test_env` key not a shell identifier, or using a `GITHUB_`/`ACTIONS_`/`RUNNER_` prefix | error |
 | `guard.packages` or `guard.pattern` missing while `guard` is present | error |
 | `guard.args` not an array of non-empty strings, or not starting with a flag | error |
+| `guard.args` containing `-json` or `-list` | error — both change `go test`'s output format, which the guard parses |
 | `guard.packages` entry or `guard.pattern` starting with `-` | error — `go test` would read it as a flag |
 
 ## Inputs
