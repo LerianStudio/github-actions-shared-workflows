@@ -147,6 +147,7 @@ apps:
     - finance-hub
     - plugin-br-ted-lerian
     - status-page-lerian
+    - system-facts
 
 # Chart -> app resolution for the chart-version path (gitops-chart-update).
 #
@@ -247,6 +248,7 @@ clusters:
       # Provisioned by Severino (app-provisioning automation)
       - billing-worker
       - plugin-br-ted-lerian
+      - system-facts
 
   benedita:
     # Benedita hosts two parallel variants per environment as sibling namespaces:
@@ -373,3 +375,4 @@ clusters:
       - finance-hub
       - plugin-br-ted-lerian
       - status-page-lerian
+      - system-facts
