@@ -115,6 +115,19 @@ on:
         description: 'Command to run integration tests'
         type: string
         default: 'make test-integration'
+      integration_tests_config:
+        description: >-
+          JSON configuring everything the integration lane needs beyond the command
+          itself. Optional keys:
+            service   — {image, ports, health_cmd, health_timeout, env} for a backing
+                        container (database, broker) started on the runner.
+            test_env  — environment variables exported to the test step, typically the
+                        connection string the suite reads.
+            guard     — {packages, pattern}: packages that MUST report a pass, so a
+                        suite that skipped itself fails instead of reporting green.
+          Unknown keys are rejected. Empty keeps today's serviceless, unguarded job.
+        type: string
+        default: ''
       enable_test_determinism:
         description: 'Enable test determinism check (runs tests multiple times with shuffle)'
         type: boolean
@@ -997,9 +1010,53 @@ jobs:
         env:
           GOPRIVATE: ${{ inputs.go_private_modules }}
 
+      # ----------------- Service Container & Test Environment -----------------
+      - name: Parse integration configuration
+        id: integration-config
+        if: inputs.integration_tests_config != ''
+        uses: LerianStudio/github-actions-shared-workflows/src/test/integration-config@v1
+        with:
+          config: ${{ inputs.integration_tests_config }}
+
+      - name: Start service container
+        if: steps.integration-config.outputs.has-service == 'true'
+        uses: LerianStudio/github-actions-shared-workflows/src/test/service-container@v1
+        with:
+          # Unique per matrix leg so two apps sharing a persistent runner cannot
+          # collide on the container name.
+          name: integration-svc-${{ github.run_id }}-${{ strategy.job-index }}
+          image: ${{ steps.integration-config.outputs.service-image }}
+          ports: ${{ steps.integration-config.outputs.service-ports }}
+          env-json: ${{ steps.integration-config.outputs.service-env-json }}
+          health-cmd: ${{ steps.integration-config.outputs.service-health-cmd }}
+          health-timeout: ${{ steps.integration-config.outputs.service-health-timeout }}
+
+      # ----------------- Integration Suite -----------------
       - name: Run integration tests
         working-directory: ${{ matrix.app.working_dir }}
         run: ${{ inputs.integration_test_command }}
+
+      - name: Verify the integration suite actually ran
+        if: steps.integration-config.outputs.has-guard == 'true'
+        uses: LerianStudio/github-actions-shared-workflows/src/test/go-integration-guard@v1
+        with:
+          packages: ${{ steps.integration-config.outputs.guard-packages }}
+          pattern: ${{ steps.integration-config.outputs.guard-pattern }}
+          args-json: ${{ steps.integration-config.outputs.guard-args-json }}
+          working-dir: ${{ matrix.app.working_dir }}
+
+      # ----------------- Teardown -----------------
+      # always(): the runners can be persistent, so a failed suite must not leave
+      # a container holding the port for the next job.
+      - name: Stop service container
+        if: always() && steps.integration-config.outputs.has-service == 'true'
+        env:
+          NAME: integration-svc-${{ github.run_id }}-${{ strategy.job-index }}
+        run: |
+          echo "::group::Service container logs"
+          docker logs "$NAME" 2>&1 | tail -n 200 || true
+          echo "::endgroup::"
+          docker rm --force "$NAME" > /dev/null 2>&1 || true
 
   # ============================================
   # CUSTOM CHECKS

@@ -1,5 +1,19 @@
 # Github-actions-shared-workflows Changelog
 
+## [1.71.1](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.71.1)
+
+Fixes:
+
+- Corrected the release process to ensure changes are properly merged from `develop` to `main`. (@bedatty)
+- Adjusted the go-release workflow to dispatch the chart only after all images are built, ensuring a complete release process. (@bedatty)
+- Redacted environment values from logs and sanitized notices in the dispatch-helm workflow to enhance security and clarity. (@bedatty)
+- Prevented duplicate payload printing during dry runs in the dispatch-helm workflow, streamlining the output. (@bedatty)
+- Ensured the dispatch-helm workflow respects the `dry_run` flag, preventing unintended dispatches. (@bedatty)
+
+[Compare changes](https://github.com/LerianStudio/github-actions-shared-workflows/compare/v1.71.0...v1.71.1)
+
+---
+
 ## [1.71.0](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.71.0)
 
 Features:

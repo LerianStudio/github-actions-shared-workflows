@@ -159,6 +159,29 @@ jobs:
 2. **Sync** — matrix job (`fail-fast: false`) running `backmerge-sync` per pair. Each pair is independent; one failure does not stop the others.
 3. **Report** — every pair appends its outcome (`skipped`, `pushed`, `pr-opened`, `pr-existing`, `failed`, plus optional PR URL) to the workflow's job summary.
 
+## The fallback PR's head branch
+
+The fallback opens its PR from `backmerge/<source>-to-<target>-<hash>`, a disposable branch created from the source tip — never from the source branch itself.
+
+Conflict resolution requires committing on the head branch. With `main` as head, the branch ruleset forbids that commit, so the PR cannot be completed without a bypass; and consumers are forced to list `main` and `release-candidate` as allowed promotion sources, which then also permits anyone to open those PRs by hand.
+
+Authorise the mechanism instead, pairing the pattern with the author check in `pr-validation`:
+
+```yaml
+source_branch_rules: |
+  {"main": "release-candidate|hotfix/*|backmerge/*",
+   "release-candidate": "develop-*|backmerge/*",
+   "develop": "develop-*|backmerge/*"}
+automation_only_source_patterns: "backmerge/*"
+automation_source_actors: "lerian-studio-midaz-push-bot[bot]"
+```
+
+`backmerge/*` has to appear in both: the rules authorise the pattern, and `automation_only_source_patterns` adds the condition that the author be automation. A person opening `backmerge/x → main` is rejected. `main` and `release-candidate` disappear as promotion sources.
+
+**Roll out in this order** — ship and promote this repository to `tier-1` first, then tighten the consuming repositories. The other order leaves a consumer pinned to a feature branch, which is how `develop` ended up pointing at a deleted branch in `product-console#899`.
+
+The branch is never force-updated while its PR is open, and it is deleted on merge by the existing `routine.yml` cleanup — `backmerge/*` matches no protected pattern. See the [composite README](../src/config/backmerge-sync/README.md) for the full contract.
+
 ## Notes
 
 - The workflow uses `secrets: inherit` style — secrets are referenced directly without being declared in `workflow_call.secrets:` (same pattern as `release.yml`).
@@ -167,11 +190,10 @@ jobs:
 - Both paths mark themselves `[backmerge]`, a marker GitHub does not recognise. The run starts and every
   check reports; `release.yml` matches the marker in its `check-skip` step and skips only the release.
 - `[skip ci]` is deliberately **not** used, even on the direct path. It suppresses the run at the GitHub
-  level, which costs two things that matter here. A PR opened by the fallback uses the source branch as its
-  head, so a suppressed run leaves required checks at *Pending* forever and the backmerge can only land
-  through a bypass — and the same applies to any later PR opened from a branch whose tip is a `[skip ci]`
-  backmerge commit. A suppressed push also fires nothing downstream, so a chain such as
-  `main → develop → develop-*` stops at the first link.
+  level, which costs two things that matter here. A suppressed run leaves the fallback PR's required checks
+  at *Pending* forever, so the backmerge can only land through a bypass — and the same applies to any later
+  PR opened from a branch whose tip is a `[skip ci]` backmerge commit. A suppressed push also fires nothing
+  downstream, so a chain such as `main → develop → develop-*` stops at the first link.
 - The cost of the marker over the token is one no-op run per backmerge.
 - The marker is read from the full commit message, so it is found whether the PR is squashed (title becomes
   the subject) or merged (title goes to the body).

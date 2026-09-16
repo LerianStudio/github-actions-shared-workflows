@@ -123,8 +123,14 @@ jobs:
           DETECT: ${{ inputs.legacy_patch_detection }}
           PATTERNS: ${{ inputs.legacy_branch_patterns }}
           VERSION: ${{ inputs.version }}
+          DRY_RUN: ${{ inputs.dry_run }}
         run: |
           set -euo pipefail
+
+          # Verbose only under dry_run, per the repository's dry_run contract.
+          # A real run keeps the warnings and the legacy notice below — those
+          # report a decision, not the steps taken to reach it.
+          v() { [ "$DRY_RUN" = "true" ] && printf '%s\n' "$*"; return 0; }
 
           RAW_VERSION="${VERSION#v}"
           VERSION_LINE=$(printf '%s' "$RAW_VERSION" | sed -nE 's/^([0-9]+\.[0-9]+)\..*/\1/p')
@@ -133,13 +139,15 @@ jobs:
           IS_LEGACY="false"
 
           if [ "$DETECT" != "true" ]; then
-            echo "Legacy patch detection disabled"
+            v "Legacy patch detection disabled"
           elif [ -z "$VERSION_LINE" ]; then
             echo "::warning::Could not derive an X.Y version line from '${VERSION}' — skipping legacy patch detection"
           else
             CONTAINING=$(git for-each-ref --contains HEAD --format='%(refname:strip=3)' refs/remotes/origin/ 2>/dev/null || true)
-            echo "Branches containing HEAD:"
-            printf '%s\n' "$CONTAINING" | sed 's/^/  /'
+            if [ "$DRY_RUN" = "true" ]; then
+              echo "Branches containing HEAD:"
+              printf '%s\n' "$CONTAINING" | sed 's/^/  /'
+            fi
 
             PATTERN_LIST=$(printf '%s' "$PATTERNS" | tr ',' '\n')
 
@@ -177,38 +185,55 @@ jobs:
       # ----------------- Payload Preparation -----------------
       - name: Process all components
         id: process
+        env:
+          # Caller-controlled values reach the shell through the environment, never
+          # through ${{ }} interpolation — an interpolated value is pasted into the
+          # script before it runs, so a crafted input would execute as code.
+          BASE_PATH: ${{ inputs.components_base_path }}
+          ENV_FILE: ${{ inputs.env_file }}
+          DETECT_ENV: ${{ inputs.detect_env_changes }}
+          VALUES_KEY_MAPPINGS: ${{ inputs.values_key_mappings }}
+          RAW_INPUT_VERSION: ${{ inputs.version }}
+          PATHS_MATRIX: ${{ inputs.paths_matrix }}
+          PATH_MAPPING: ${{ inputs.path_mapping }}
+          RAW_COMPONENTS: ${{ inputs.components_json }}
+          EVENT_BEFORE: ${{ github.event.before }}
+          CURRENT_TAG: ${{ github.ref_name }}
+          HELM_REPOSITORY: ${{ inputs.helm_repository }}
+          CHART: ${{ inputs.chart }}
+          TARGET_REF: ${{ inputs.target_ref }}
+          WORKFLOW_FILE: ${{ inputs.workflow_file }}
+          DRY_RUN: ${{ inputs.dry_run }}
         run: |
-          BASE_PATH="${{ inputs.components_base_path }}"
-          ENV_FILE="${{ inputs.env_file }}"
-          DETECT_ENV="${{ inputs.detect_env_changes }}"
-          VALUES_KEY_MAPPINGS='${{ inputs.values_key_mappings }}'
+          # Verbose only under dry_run, per the repository's dry_run contract.
+          v() { [ "$DRY_RUN" = "true" ] && printf '%s\n' "$*"; return 0; }
+
+          # A workflow command ends at a newline, so a value carrying one could
+          # close an annotation and forge further commands after it. Every value
+          # below comes from caller inputs; strip the characters that would do it.
+          clean() { printf '%s' "$1" | tr -d '\r\n'; }
 
           # Determine BEFORE_SHA for comparison
           # For tags, github.event.before is 0000..., so we need to find the previous tag
-          BEFORE_SHA="${{ github.event.before }}"
+          BEFORE_SHA="$EVENT_BEFORE"
           if [ "$BEFORE_SHA" = "0000000000000000000000000000000000000000" ] || [ -z "$BEFORE_SHA" ]; then
-            # For tags, get the previous tag to compare against
-            CURRENT_TAG="${{ github.ref_name }}"
             # Get list of tags sorted by version, find the one before current
             PREVIOUS_TAG=$(git tag --sort=-v:refname | grep -A1 "^${CURRENT_TAG}$" | tail -1)
             if [ -n "$PREVIOUS_TAG" ] && [ "$PREVIOUS_TAG" != "$CURRENT_TAG" ]; then
               BEFORE_SHA=$(git rev-parse "${PREVIOUS_TAG}^{}" 2>/dev/null || echo "")
-              echo "Using previous tag for comparison: $PREVIOUS_TAG ($BEFORE_SHA)"
+              v "Using previous tag for comparison: $PREVIOUS_TAG ($BEFORE_SHA)"
             else
-              echo "No previous tag found, will treat all env vars as new"
+              v "No previous tag found, will treat all env vars as new"
               BEFORE_SHA=""
             fi
           fi
 
           # Get version from input (remove 'v' prefix if present)
-          INPUT_VERSION="${{ inputs.version }}"
-          INPUT_VERSION="${INPUT_VERSION#v}"
+          INPUT_VERSION="${RAW_INPUT_VERSION#v}"
 
           # Build components JSON from paths_matrix + path_mapping OR use components_json directly
-          if [ -n "${{ inputs.paths_matrix }}" ] && [ -n "${{ inputs.path_mapping }}" ]; then
-            echo "Using paths_matrix + path_mapping mode"
-            PATHS_MATRIX='${{ inputs.paths_matrix }}'
-            PATH_MAPPING='${{ inputs.path_mapping }}'
+          if [ -n "$PATHS_MATRIX" ] && [ -n "$PATH_MAPPING" ]; then
+            MODE="paths_matrix + path_mapping"
 
             # Build components_json from paths and mapping
             # Supports both simple format: {"src": "app-name"}
@@ -224,19 +249,35 @@ jobs:
                 end
               ]
             ')
-            echo "Built components from paths: $COMPONENTS_JSON"
+            v "Built components from paths: $COMPONENTS_JSON"
           else
-            echo "Using components_json mode"
+            MODE="components_json"
             # Normalize components_json: handle both 'path' and 'working_dir' fields
-            RAW_COMPONENTS='${{ inputs.components_json }}'
-            echo "Raw components_json: $RAW_COMPONENTS"
+            v "Raw components_json: $RAW_COMPONENTS"
 
             # Normalize to use 'path' field (convert working_dir to path if needed)
             COMPONENTS_JSON=$(echo "$RAW_COMPONENTS" | jq -c '[.[] | {name: .name, path: (.path // .working_dir // null), version: (.version // null)}]')
-            echo "Normalized components: $COMPONENTS_JSON"
+            v "Normalized components: $COMPONENTS_JSON"
           fi
 
-          echo "Processing components: $COMPONENTS_JSON"
+          # Every resolved non-secret input, so a dry run answers "what would this
+          # send, and from what" without anyone having to read the workflow.
+          if [ "$DRY_RUN" = "true" ]; then
+            echo "::notice::DRY RUN — the chart repository will not be dispatched to"
+            echo "  helm repository   : $(clean "$HELM_REPOSITORY")"
+            echo "  chart             : $(clean "$CHART")"
+            echo "  workflow file     : $(clean "$WORKFLOW_FILE")"
+            echo "  target ref        : $(clean "$TARGET_REF")"
+            echo "  version           : ${INPUT_VERSION}"
+            echo "  input mode        : ${MODE}"
+            echo "  components base   : $(clean "$BASE_PATH")"
+            echo "  env file          : $(clean "$ENV_FILE")"
+            echo "  detect env changes: ${DETECT_ENV}"
+            echo "  values key map    : $(clean "$VALUES_KEY_MAPPINGS")"
+            echo "  diff base sha     : ${BEFORE_SHA:-<none>}"
+          fi
+
+          v "Processing components: $COMPONENTS_JSON"
 
           # Initialize output array
           PROCESSED_COMPONENTS="["
@@ -259,7 +300,7 @@ jobs:
               COMP_PATH="${BASE_PATH}/${COMP_NAME}"
             fi
 
-            echo "Processing component: $COMP_NAME (path: $COMP_PATH)"
+            v "Processing component: $COMP_NAME (path: $COMP_PATH)"
 
             # Determine values_key (from mapping or fallback to component name)
             VALUES_KEY="$COMP_NAME"
@@ -267,17 +308,17 @@ jobs:
               MAPPED_KEY=$(echo "$VALUES_KEY_MAPPINGS" | jq -r --arg name "$COMP_NAME" '.[$name] // empty')
               if [ -n "$MAPPED_KEY" ]; then
                 VALUES_KEY="$MAPPED_KEY"
-                echo "  Values key (mapped): $VALUES_KEY"
+                v "  Values key (mapped): $VALUES_KEY"
               else
-                echo "  Values key (fallback): $VALUES_KEY"
+                v "  Values key (fallback): $VALUES_KEY"
               fi
             else
-              echo "  Values key: $VALUES_KEY"
+              v "  Values key: $VALUES_KEY"
             fi
 
             # Use component version or input version
             VERSION="$COMP_VERSION"
-            echo "  Version: $VERSION"
+            v "  Version: $VERSION"
 
             # Detect new env vars
             ENV_VARS_JSON="{}"
@@ -329,7 +370,7 @@ jobs:
                     # Use jq to properly escape the value for JSON
                     ENV_VARS_JSON=$(echo "$ENV_VARS_JSON" | jq --arg key "$var" --arg val "$RAW_VALUE" '. + {($key): $val}')
                   done
-                  echo "  New env vars: $NEW_VARS"
+                  v "  New env vars: $NEW_VARS"
                 fi
               fi
             fi
@@ -347,7 +388,7 @@ jobs:
 
           PROCESSED_COMPONENTS="${PROCESSED_COMPONENTS}]"
 
-          echo "Processed components: $PROCESSED_COMPONENTS"
+          v "Processed components: $PROCESSED_COMPONENTS"
           echo "has_new_env_vars=$HAS_NEW_ENV_VARS" >> "$GITHUB_OUTPUT"
 
           # Save to file to avoid escaping issues
@@ -371,6 +412,12 @@ jobs:
           HELM_REPO_TOKEN: ${{ secrets.helm_repo_token }}
           DRY_RUN: ${{ inputs.dry_run }}
         run: |
+          # A workflow command ends at a newline, so a value carrying one could
+          # close an annotation and forge further commands after it. The four values
+          # echoed into notices below come from caller inputs; strip the characters
+          # that would do it.
+          clean() { printf '%s' "$1" | tr -d '\r\n'; }
+
           COMPONENTS=$(cat /tmp/components_payload.json)
 
           # Build the full payload
@@ -398,22 +445,18 @@ jobs:
               version_line: $version_line
             }')
 
-          # env_vars carries VALUES read from the env file, not just names. The file
-          # is meant to hold placeholders, but nothing enforces that, and a log is
-          # readable by anyone with access to the run. Keys are enough to see what a
-          # release adds — which is what the job summary below already shows. The
-          # payload that gets dispatched is unredacted; only this log is.
-          echo "Dispatching payload (env values redacted):"
-          echo "$PAYLOAD" | jq '(.components[]?.env_vars) |= with_entries(.value = "<redacted>")'
-
           # A dispatch opens a pull request on the chart repository, so it is a write
           # to another repo — exactly what a dry run must not do. Everything above
-          # still runs, so the payload printed just above is what a real run sends.
+          # still runs, so the payload printed below is what a real run would send.
           if [ "${DRY_RUN}" = "true" ]; then
-            # A workflow command ends at a newline, so a value carrying one could
-            # close this notice and forge further commands after it. These four come
-            # from caller inputs; strip the characters that would do it.
-            clean() { printf '%s' "$1" | tr -d '\r\n'; }
+            # env_vars carries VALUES read from the env file, not just names. The
+            # file is meant to hold placeholders, but nothing enforces that, and a
+            # log is readable by anyone with access to the run. Keys are enough to
+            # see what a release adds — which is what the job summary below already
+            # shows. The payload that gets dispatched is unredacted; only this log is.
+            echo "Payload that would be dispatched (env values redacted):"
+            echo "$PAYLOAD" | jq '(.components[]?.env_vars) |= with_entries(.value = "<redacted>")'
+
             echo "::notice::dry-run: not dispatching. Would send $(clean "${WORKFLOW_FILE}") to $(clean "${HELM_REPOSITORY}") on ref $(clean "${TARGET_REF}") for chart $(clean "${CHART}")"
             exit 0
           fi
@@ -436,15 +479,15 @@ jobs:
           HTTP_BODY=$(echo "$HTTP_RESPONSE" | sed '$d')
           HTTP_CODE=$(echo "$HTTP_RESPONSE" | tail -n1)
 
-          echo "HTTP Status: $HTTP_CODE"
-
           if [ "$HTTP_CODE" != "204" ]; then
             echo "::error::Failed to dispatch workflow. HTTP $HTTP_CODE"
             echo "$HTTP_BODY" | jq . 2>/dev/null || echo "$HTTP_BODY"
             exit 1
           fi
 
-          echo "Workflow dispatched successfully"
+          # The single line a real run leaves behind: the dispatch is this job's
+          # only observable product, and it happens in another repository.
+          echo "::notice::Dispatched $(clean "${WORKFLOW_FILE}") to $(clean "${HELM_REPOSITORY}") on ref $(clean "${TARGET_REF}") for chart $(clean "${CHART}")"
 
       - name: Summary
         env:
