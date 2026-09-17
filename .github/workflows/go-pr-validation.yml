@@ -137,9 +137,12 @@ on:
       automation_source_actors:
         description: >-
           Comma-separated logins that count as automation for
-          automation_only_source_patterns. Empty accepts any author of type Bot.
+          automation_only_source_patterns. A list is authoritative — those logins
+          are accepted whatever their account type, which matters because
+          lerian-studio is a User, not a Bot. Set to empty to accept any author of
+          type Bot instead.
         type: string
-        default: ''
+        default: 'lerian-studio-midaz-push-bot[bot],lerian-studio'
       require_verified_commits:
         description: 'Block the PR when any of its commits is unsigned or has an unverified signature'
         type: boolean

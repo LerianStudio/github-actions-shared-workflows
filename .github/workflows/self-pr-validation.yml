@@ -150,6 +150,21 @@ jobs:
       - name: Run ungoliant-release-diff behavioural tests
         run: python3 src/validate/ungoliant-release-diff/test.py
 
+  # ----------------- Pre-release Check Tests -----------------
+  prerelease-check-tests:
+    name: Pre-release Check Tests
+    runs-on: ${{ vars.GENERAL_RUNNERS || 'blacksmith-4vcpu-ubuntu-2404' }}
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+        with:
+          persist-credentials: false
+
+      - name: Run prerelease-check allow-file behavioural tests
+        run: python3 src/security/prerelease-check/test.py
+
   # ----------------- YAML Lint -----------------
   yamllint:
     name: YAML Lint
@@ -415,6 +430,7 @@ jobs:
       - permission-manifest-publish-tests
       - pr-commit-signatures-tests
       - coderabbit-collapse-tests
+      - prerelease-check-tests
       - yamllint
       - actionlint
       - pinned-actions
