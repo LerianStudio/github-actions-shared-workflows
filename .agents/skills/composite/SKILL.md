@@ -1,16 +1,12 @@
 ---
-description: Structure, design rules, and conventions for composite actions in src/
-globs: src/**/*.yml,src/**/action.yml,src/**/README.md
-alwaysApply: false
+name: composite
+description: >-
+  Rules and conventions for composite actions under src/. Load before creating a composite or changing an existing action.yml — covers directory layout, action.yml structure, the 5-15 step limit, README requirements and the labels/dependabot checklists.
 ---
 
-# Composite Actions
+# Composite Actions — Rules & Conventions
 
-## Modifying an existing composite?
-
-Follow the **refactoring protocol** in `.cursor/rules/refactoring.mdc` before making any change. Always produce a plan and wait for confirmation.
-
----
+Use these rules whenever creating or editing a composite action in `src/`.
 
 ## Before you create anything
 
@@ -29,7 +25,7 @@ Before writing custom steps from scratch, search the [Marketplace](https://githu
 - Prefer a well-maintained marketplace action over custom shell scripting for non-trivial logic
 - Wrap it in a composite if it needs input normalization or additional steps
 - **Third-party actions (outside `LerianStudio` org) must be pinned by commit SHA**, not by tag — add a `# vX.Y.Z` comment for readability (e.g., `uses: actions/checkout@abc123 # v6`). Tags are mutable and can be force-pushed by upstream maintainers. Dependabot proposes SHA bumps automatically.
-- `LerianStudio/*` actions pin a **tier channel** (`@tier-0`/`@tier-1`/`@tier-2`), or `@develop` for testing. A tier is a branch promoted ring by ring, so the pin is set once and never edited — see `docs/tiers.md`. An exact `@v1.2.3` still resolves but opts the caller out of the rings
+- `LerianStudio/*` actions are pinned by **release tag** (`@v1.2.3`) or branch (`@develop` for testing)
 - Never use `@main` or `@master` for third-party actions
 - Document in the composite `README.md` why that action was chosen
 
@@ -57,8 +53,6 @@ src/config/labels-sync/
 ├── action.yml   ← required
 └── README.md    ← required
 ```
-
-> **File extension rule:** always use `.yml`, never `.yaml`. This applies to `action.yml`, workflow files, and any YAML configuration files in this repository.
 
 ## action.yml structure
 
@@ -89,82 +83,35 @@ runs:
 
 ## Configurability — defaults first, override when needed
 
-Every composite must be **self-contained with sensible defaults**. A caller should be able to drop it in with zero extra configuration and get a safe, useful result. Additional inputs allow the reusable workflow (or caller) to override specific behaviors.
+Every composite must be **self-contained with sensible defaults**. A caller should get a safe, useful result with zero extra configuration. Additional inputs allow the workflow (or caller) to override specific behaviors.
 
-### Composite layer — always define defaults
-
-All optional inputs must declare a `default` that makes the composite safe and functional on its own:
+**Composite layer — always define defaults:**
 
 ```yaml
 inputs:
   enable-recommendations:
     description: Include Docker Scout recommendations in the PR comment
     required: false
-    default: "true"       # ✅ safe default — composite works standalone
+    default: "true"       # ✅ composite works standalone
   severity-threshold:
-    description: Minimum severity to report (critical, high, medium, low)
     required: false
-    default: "high"       # ✅ opinionated but sensible default
+    default: "high"       # ✅ opinionated but safe default
 ```
 
-### Reusable workflow layer — expose toggles for each configurable step
+**Rules:**
+- All optional inputs must have a `default` — never `required: true` for feature flags
+- Never hardcode feature flags — expose them as inputs so they can be overridden by the reusable workflow
+- Step-level feature toggles (`if: inputs.enable_xxx`) belong in the **reusable workflow**, not inside the composite
 
-When a composite has optional features (steps that can be turned on/off), the reusable workflow must expose a matching input and pass it down. This gives callers control without touching the composite directly:
-
-```yaml
-# reusable workflow inputs — mirrors composite flags
-on:
-  workflow_call:
-    inputs:
-      enable_docker_scout:
-        description: Run Docker Scout vulnerability scan
-        required: false
-        type: boolean
-        default: true
-      enable_docker_scout_recommendations:
-        description: Include Docker Scout recommendations in the PR comment
-        required: false
-        type: boolean
-        default: true
-
-jobs:
-  scan:
-    steps:
-      - name: Docker Scout
-        if: inputs.enable_docker_scout
-        uses: LerianStudio/github-actions-shared-workflows/src/security/docker-scout@tier-1
-        with:
-          enable-recommendations: ${{ inputs.enable_docker_scout_recommendations }}
-```
-
-### Three-layer flow
+**Three-layer configurability flow:**
 
 ```
 Caller repo              Reusable workflow           Composite
 ──────────────────────── ──────────────────────────  ──────────────────────────
 enable_docker_scout_     →  enable_docker_scout_    →  enable-recommendations:
 recommendations: false      recommendations             ${{ inputs.... }}
-                            (passes it down)            (step-level if condition)
+                            (passes it down)
 ```
-
-**Rules:**
-- Composite inputs → always have a `default`; never `required: true` for feature flags
-- Reusable workflow inputs → match composite flag names (use `_` instead of `-`); pass values explicitly to the composite step
-- Step-level toggles (`if: inputs.enable_xxx`) belong in the **reusable workflow**, not inside the composite — composites run the step based on their own inputs
-- Never hardcode feature flags inside a composite — always expose them as inputs so they can be overridden
-
-## Skip-enabling outputs
-
-Composite actions that perform conditional work (change detection, feature-flag checks, validation gates) **must expose boolean outputs** so the calling workflow can skip downstream steps or jobs.
-
-```yaml
-outputs:
-  has_changes:
-    description: 'Whether any changes were detected (true/false)'
-    value: ${{ steps.detect.outputs.has_changes }}
-```
-
-Naming convention: `has_<noun>` (e.g. `has_changes`, `has_updates`, `has_drift`). Value must be the string `'true'` or `'false'`.
 
 ## Step section titles
 
@@ -188,10 +135,10 @@ runs:
 ```
 
 **Rules:**
-- Use the exact format: `# ----------------- Title -----------------`
-- Add a section title whenever there are 2 or more logical groups of steps
+- Format: `# ----------------- Title -----------------` (exact spacing)
+- Add when there are 2+ logical groups of steps
 - Title must be short and action-oriented
-- Place the comment immediately before the first step of the group — no blank line between comment and step
+- Place the comment immediately before the first step — no blank line between comment and step
 
 ## Design rules
 
@@ -257,7 +204,7 @@ uses: LerianStudio/github-actions-shared-workflows/.github/workflows/labels-sync
 uses: LerianStudio/github-actions-shared-workflows/.github/workflows/labels-sync.yml@feat/my-branch
 
 # ✅ Production — always a pinned stable version
-uses: LerianStudio/github-actions-shared-workflows/.github/workflows/labels-sync.yml@tier-1
+uses: LerianStudio/github-actions-shared-workflows/.github/workflows/labels-sync.yml@v1.2.3
 
 # ❌ Never in examples
 uses: LerianStudio/github-actions-shared-workflows/.github/workflows/labels-sync.yml@main
@@ -272,23 +219,21 @@ uses: LerianStudio/github-actions-shared-workflows/.github/workflows/labels-sync
 Check `.github/labels.yml` for a label matching the composite's capability group. If it doesn't exist, add it:
 
 ```yaml
-# Example: adding a new capability group label
 - name: <capability>           # e.g. "infrastructure", "notifications"
   color: "0075ca"              # pick a distinct hex color
   description: Changes to <capability> composite actions
 ```
 
-After adding, run the `Sync Labels` workflow (`workflow_dispatch`) to create the label in the repository.
+After adding, run the `Sync Labels` workflow (`workflow_dispatch`) to create it in the repository.
 
 ### Dependabot checklist
 
 For every third-party action used in the new composite (`uses: owner/action@vX`), check `.github/dependabot.yml`:
 
-- If `owner/*` already matches an existing group pattern → no change needed
-- If the action doesn't match any group → add it to the most appropriate group, or create a new group:
+- If `owner/*` already matches an existing group → no change needed
+- If not → add to the most appropriate group, or create a new one:
 
 ```yaml
-# Example: new group for a new tool category
 new-tool-category:
   patterns:
     - "owner/new-action"
@@ -297,23 +242,23 @@ new-tool-category:
     - "patch"
 ```
 
-Never add `LerianStudio/*` actions to dependabot — they pin a tier channel (`@tier-0`/`@tier-1`/`@tier-2`), which is a branch ref Dependabot does not rewrite anyway. See `docs/tiers.md`.
+Never add `LerianStudio/*` actions to dependabot — pinned to `@main` intentionally.
 
-## Reserved names — never use as input names
+## Reserved input names — never use
 
-Never declare a composite input using GitHub's reserved prefixes — they will be silently overridden or cause failures:
+Never declare composite inputs using GitHub's reserved prefixes — they conflict with runtime variables and break jobs:
 
 ```yaml
-# ❌ Reserved — will conflict with the runtime variable
+# ❌ Reserved — conflicts with GitHub's runtime variable
 inputs:
   GITHUB_TOKEN:
   GITHUB_SHA:
   ACTIONS_RUNTIME_TOKEN:
   RUNNER_OS:
 
-# ✅ Use distinct names
+# ✅ Use kebab-case and distinct names
 inputs:
-  github-token:    # conventional kebab-case name for tokens
+  github-token:
   manage-token:
 ```
 

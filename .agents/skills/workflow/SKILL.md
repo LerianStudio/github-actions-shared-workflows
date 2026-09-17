@@ -1,3 +1,9 @@
+---
+name: workflow
+description: >-
+  Rules and conventions for reusable workflows under .github/workflows/. Load before adding a workflow or changing its inputs, jobs or secrets — covers the caller/workflow/composite architecture, runner policy, the dry_run pattern, secrets routing and the workflow_dispatch injection rule.
+---
+
 # Reusable Workflows — Rules & Conventions
 
 Use these rules whenever creating or editing a reusable workflow in `.github/workflows/`.
