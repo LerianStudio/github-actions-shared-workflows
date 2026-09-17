@@ -1,5 +1,22 @@
 # Github-actions-shared-workflows Changelog
 
+## [1.73.0](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.73.0)
+
+Features:
+- Default automation actors to the Lerian accounts. (@bedatty)
+
+Fixes:
+- Correct the release process from `develop` to `main`. (@bedatty)
+- Ensure `pr-security` matches quoted prerelease allow-file entries. (@fredcamaral)
+
+Improvements:
+- Name the escaped-quote exception in the verbatim rule for `pr-security`. (@fredcamaral)
+- Remove spaces inside README code spans for `pr-security`. (@fredcamaral)
+
+[Compare changes](https://github.com/LerianStudio/github-actions-shared-workflows/compare/v1.72.0...v1.73.0)
+
+---
+
 ## [1.72.0](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.72.0)
 
 Features:
