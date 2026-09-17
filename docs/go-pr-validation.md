@@ -215,16 +215,23 @@ jobs:
 ## CodeRabbit review gate
 
 `enable_coderabbit_gate` requests a review once `metadata`, `changes`,
-`security-gate`, `lib-version-gate` and the Go analysis verdict are all clear —
-not once the umbrella as a whole passes. The two differ: `go-analysis` can end in
-`failure` because `notify` failed, and a review is still requested, which is the
-point. The verdict reads `go-analysis`'s `checks_passed` output rather than the
-`Go Analysis` aggregator, so it covers the analysis jobs and only them — the aggregator mirrors
-the called workflow's result, which also folds in `notify`, and that job fails in
-a repository without `SLACK_WEBHOOK_URL`. Nothing is excluded from the verdict:
-the whole pipeline has to be clean. `skipped` counts as passed throughout.
+`lib-version-gate`, the Go analysis verdict and the security scan verdict are all
+clear — not once the umbrella as a whole passes. The two differ: `go-analysis` or
+`security` can end in `failure` because its `notify` job failed, and a review is
+still requested, which is the point — a Slack delivery that did not land says
+nothing about the code.
 
-The aggregator is unchanged and still gates the merge. See
+A `CodeRabbit Verdict` job computes this with the
+[`needs-verdict`](../src/validate/needs-verdict/README.md) composite over
+`toJSON(needs)`, so the job's `needs:` list is the whole declaration of what the
+gate requires. It reads the `checks_passed` outputs of `go-analysis`
+([go-pr-analysis](./go-pr-analysis.md)) and `security`
+([pr-security-scan](./pr-security-scan.md)) rather than the `Go Analysis` and
+`Security` aggregators, which mirror their workflows' own results. Nothing is
+excluded from either verdict: the whole pipeline has to be clean. `skipped`
+counts as passed throughout.
+
+Both aggregators are unchanged and still gate the merge. See
 [coderabbit-gate](./coderabbit-gate.md).
 
 ## Branch protection

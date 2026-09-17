@@ -211,6 +211,17 @@ Uses `secrets: inherit` pattern. Required secrets:
 | `MANAGE_TOKEN` | GitHub token for PR comments | PR comments (falls back to GITHUB_TOKEN) |
 | `SLACK_WEBHOOK_URL` | Slack webhook for notifications | Optional |
 
+## Outputs
+
+| Output | Values | Description |
+|--------|--------|-------------|
+| `core_passed` | `true` / `false` | Every analysis job **except** Custom Checks. Read this to gate on the pipeline while leaving the end-to-end suite out — it is the slowest and least stable job, and a flaky browser run is a poor reason to spend no review on work that lints, type-checks, tests and builds cleanly. |
+| `custom_checks_passed` | `true` / `false` | Custom Checks alone. Reported separately so excluding it from one gate does not remove it from the others. |
+| `checks_passed` | `true` / `false` | `core_passed` and `custom_checks_passed` together — the whole analysis. Named to match the other pipelines, so a caller reading `checks_passed` everywhere gets consistent semantics; ask for `core_passed` by name to leave the end-to-end suite out. |
+
+All three treat `skipped` as passed: most jobs are conditional on the file types
+in the diff, so requiring success from all of them would never be satisfied.
+
 ## Jobs
 
 ### detect-changes

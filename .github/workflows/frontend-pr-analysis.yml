@@ -33,6 +33,14 @@ on:
           separately from core_passed so excluding it from one gate does not
           remove it from the others.
         value: ${{ jobs.results.outputs.custom_checks_passed }}
+      checks_passed:
+        description: >-
+          'true' when no analysis job at all failed or was cancelled — core_passed
+          and custom_checks_passed together. Named to match the other pipelines,
+          so a caller that reads `checks_passed` everywhere gets the whole
+          analysis here too; a caller that wants the end-to-end suite left out
+          asks for core_passed by name.
+        value: ${{ jobs.results.outputs.checks_passed }}
     inputs:
       runner_type:
         description: 'GitHub runner type'
@@ -1096,6 +1104,7 @@ jobs:
     outputs:
       core_passed: ${{ steps.aggregate.outputs.core_passed }}
       custom_checks_passed: ${{ steps.aggregate.outputs.custom_checks_passed }}
+      checks_passed: ${{ steps.aggregate.outputs.checks_passed }}
     steps:
       - name: Aggregate results
         id: aggregate
@@ -1126,13 +1135,18 @@ jobs:
           core=$(verdict "$CORE_RESULTS")
           custom=$(verdict "$CUSTOM_CHECKS_RESULT")
 
+          all=true
+          [ "$core" = "true" ] && [ "$custom" = "true" ] || all=false
+
           {
             echo "core_passed=$core"
             echo "custom_checks_passed=$custom"
+            echo "checks_passed=$all"
           } >> "$GITHUB_OUTPUT"
 
           echo "core (excluding Custom Checks): $core"
           echo "custom checks                 : $custom"
+          echo "everything                    : $all"
 
   # ============================================
   # SLACK NOTIFICATION

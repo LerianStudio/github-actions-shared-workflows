@@ -18,8 +18,10 @@ on:
           requiring success from all of them would never be satisfied. Exists so
           a caller can gate on the analysis itself rather than on this workflow's
           own result, which also folds in jobs that are not analysis — Notify,
-          for one, which fails in a repository without SLACK_WEBHOOK_URL and
-          would otherwise withhold a gate from a green pipeline.
+          for one, whose failure to reach Slack says nothing about the code and
+          should not withhold a gate from a green pipeline. A missing
+          SLACK_WEBHOOK_URL is not that case: the notification skips itself and
+          the job succeeds.
         value: ${{ jobs.results.outputs.checks_passed }}
     inputs:
       runner_type:

@@ -593,46 +593,54 @@ jobs:
   # consuming repository's .coderabbit.yml, and the label to exist there.
   #
   # See docs/coderabbit-gate.md for the contract and the setup checklist.
-  coderabbit-review:
-    name: CodeRabbit Review
-    # go-analysis rather than go-analysis-gate: the gate mirrors the called
-    # workflow's own result, which also folds in jobs that are not analysis —
-    # Notify, for one, which fails in a repository without SLACK_WEBHOOK_URL.
-    # checks_passed is the verdict of the analysis jobs themselves, all of them.
-    # go-analysis-gate is untouched, so it keeps its status-check name and the
-    # merge stays gated on the full pipeline.
+  # The verdict is computed in its own job so that adding a required job to the
+  # gate is one line in the `needs:` list below — not a line there plus a clause
+  # in an expression. needs-verdict reads `toJSON(needs)` and believes a job's own
+  # `checks_passed` output over its result, because a reusable workflow's result
+  # also folds in jobs that report on the run rather than on the code: Notify, for
+  # one, whose failure to reach Slack is no reason to withhold a review. Jobs that
+  # publish no such output are judged by their result, and `skipped` passes
+  # throughout — every job here is conditional on the diff and on the toggles.
+  coderabbit-verdict:
+    name: CodeRabbit Verdict
     needs:
       - metadata
       - changes
       - go-analysis
-      - security-gate
+      - security
       - lib-version-gate
-    # `always()` so a skipped component gate does not block this one — the
-    # verdict below distinguishes skipped from failed. Draft pull requests are
-    # excluded; CodeRabbit ignores them anyway.
+    # `always()` so a skipped component does not skip the verdict along with it.
+    # Draft pull requests are excluded; CodeRabbit ignores them anyway.
     if: >-
       always()
       && inputs.enable_coderabbit_gate
       && github.event_name == 'pull_request'
       && github.event.pull_request.draft != true
+    runs-on: ${{ inputs.gate_runner_type || vars.GENERAL_RUNNERS || inputs.runner_type }}
+    permissions:
+      contents: read
+    outputs:
+      passed: ${{ steps.verdict.outputs.passed }}
+    steps:
+      - name: Compute verdict
+        id: verdict
+        uses: LerianStudio/github-actions-shared-workflows/src/validate/needs-verdict@v1
+        with:
+          needs: ${{ toJSON(needs) }}
+          label: CodeRabbit gate
+
+  coderabbit-review:
+    name: CodeRabbit Review
+    # No `if:` needed: the verdict job carries the conditions, and this one is
+    # skipped along with it when they do not hold.
+    needs: coderabbit-verdict
     permissions:
       contents: read
       pull-requests: write
     uses: ./.github/workflows/coderabbit-gate.yml
     with:
       pr_number: ${{ github.event.pull_request.number }}
-      # Skipped is fine; only a real failure or cancellation withholds the label.
-      # Spelled out per job rather than with `needs.*`, which would read
-      # go-analysis's own result instead of the analysis verdict it now reports.
-      # A skipped analysis passes, in keeping with the rest: every job here is
-      # conditional on the diff and on the pipeline toggles.
-      checks_passed: >-
-        ${{ needs.metadata.result != 'failure' && needs.metadata.result != 'cancelled'
-            && needs.changes.result != 'failure' && needs.changes.result != 'cancelled'
-            && needs.security-gate.result != 'failure' && needs.security-gate.result != 'cancelled'
-            && needs.lib-version-gate.result != 'failure' && needs.lib-version-gate.result != 'cancelled'
-            && (needs.go-analysis.result == 'skipped'
-                || needs.go-analysis.outputs.checks_passed == 'true') }}
+      checks_passed: ${{ needs.coderabbit-verdict.outputs.passed == 'true' }}
       # Binds the verdict to the commit it was computed for, so a run superseded
       # by a newer push cannot authorise a head it never validated.
       head_sha: ${{ github.event.pull_request.head.sha }}
