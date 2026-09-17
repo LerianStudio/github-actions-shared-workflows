@@ -6,6 +6,19 @@ name: "Go PR Analysis"
 
 on:
   workflow_call:
+    outputs:
+      checks_passed:
+        description: >-
+          'true' when no analysis job failed or was cancelled. Every job in the
+          pipeline counts, so this is the whole analysis verdict — nothing is
+          excluded by default. Skipped counts as passed: most jobs are
+          conditional on the file types in the diff and on the enable_* flags, so
+          requiring success from all of them would never be satisfied. Exists so
+          a caller can gate on the analysis itself rather than on this workflow's
+          own result, which also folds in jobs that are not analysis — Notify,
+          for one, which fails in a repository without SLACK_WEBHOOK_URL and
+          would otherwise withhold a gate from a green pipeline.
+        value: ${{ jobs.results.outputs.checks_passed }}
     inputs:
       runner_type:
         description: 'GitHub runner type'
@@ -1241,6 +1254,48 @@ jobs:
         run: |
           echo "No Go code changes detected in monitored paths."
           echo "Skipping Go analysis workflows."
+
+  # ============================================
+  # RESULT AGGREGATION
+  # ============================================
+  # Reports the pipeline verdict as a workflow output so a caller can gate on the
+  # analysis jobs alone. `always()` because the point is to report on jobs that
+  # were skipped or failed; without it this job would be skipped along with them.
+  results:
+    name: Results
+    needs: [detect-changes, lint, security, tests, coverage, build, integration-tests, custom-checks, test-determinism]
+    if: always()
+    runs-on: ${{ vars.GENERAL_RUNNERS || inputs.runner_type }}
+    permissions:
+      contents: read
+    outputs:
+      checks_passed: ${{ steps.aggregate.outputs.checks_passed }}
+    steps:
+      - name: Aggregate results
+        id: aggregate
+        env:
+          # Listed one by one rather than with `needs.*.result`, which here would
+          # be the same set — but keeping it explicit means a job added later is
+          # a deliberate decision to include, not a silent one.
+          RESULTS: >-
+            ${{ needs.detect-changes.result }} ${{ needs.lint.result }}
+            ${{ needs.security.result }} ${{ needs.tests.result }}
+            ${{ needs.coverage.result }} ${{ needs.build.result }}
+            ${{ needs.integration-tests.result }} ${{ needs.custom-checks.result }}
+            ${{ needs.test-determinism.result }}
+        run: |
+          set -euo pipefail
+
+          passed=true
+          for result in $RESULTS; do
+            case "$result" in
+              failure|cancelled) passed=false ;;
+            esac
+          done
+
+          echo "checks_passed=$passed" >> "$GITHUB_OUTPUT"
+          echo "analysis verdict: $passed"
+          echo "job results     : $RESULTS"
 
   # ============================================
   # SLACK NOTIFICATION
