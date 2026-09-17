@@ -170,6 +170,41 @@ Whitespace around commas is tolerated: `"develop, release-candidate"` works.
 conditional on the file types touched and are `skipped` on any given pull
 request, so requiring success from all of them would never release anything.
 
+### Excluding the end-to-end suite
+
+`js-pr-validation.yml` computes its own verdict from every umbrella gate except
+one dimension of the frontend pipeline: the Custom Checks job, which is where the
+end-to-end suite runs. `frontend-pr-analysis.yml` reports two outputs instead of a
+single result:
+
+| output | covers |
+|---|---|
+| `core_passed` | every analysis job except Custom Checks |
+| `custom_checks_passed` | Custom Checks alone |
+
+The gate reads `core_passed`, so a failing end-to-end suite no longer withholds
+the review. It is the slowest and least stable job in the pipeline, and a flaky
+browser run is a poor reason to spend no review on work that lints, type-checks,
+tests and builds cleanly.
+
+This does **not** weaken the merge. `frontend-analysis-gate` still aggregates the
+whole pipeline, Custom Checks included, and it is that job whose name branch
+protection requires. The end-to-end suite still blocks the merge; it just no
+longer decides whether a review is requested.
+
+A caller wiring the gate by hand gets the same split by reading the outputs of
+its own `frontend-pr-analysis` job rather than that job's result:
+
+```yaml
+checks_passed: >-
+  ${{ needs.frontend-analysis.result == 'skipped'
+      || needs.frontend-analysis.outputs.core_passed == 'true' }}
+```
+
+Read the job's outputs, not `needs.*.result`: the wildcard picks up the
+reusable workflow's own result, which is `failure` whenever Custom Checks failed
+— exactly the case this exists to exclude.
+
 ## Permissions
 
 The calling job must grant **both**:
