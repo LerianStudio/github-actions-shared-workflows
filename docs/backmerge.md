@@ -173,7 +173,7 @@ source_branch_rules: |
    "release-candidate": "develop-*|backmerge/*",
    "develop": "develop-*|backmerge/*"}
 automation_only_source_patterns: "backmerge/*"
-automation_source_actors: "lerian-studio-midaz-push-bot[bot]"
+automation_source_actors: "lerian-studio-midaz-push-bot[bot],lerian-studio"   # this is the default
 ```
 
 `backmerge/*` has to appear in both: the rules authorise the pattern, and `automation_only_source_patterns` adds the condition that the author be automation. A person opening `backmerge/x → main` is rejected. `main` and `release-candidate` disappear as promotion sources.

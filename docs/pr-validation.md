@@ -172,7 +172,7 @@ jobs:
 | `target_branches_for_source_check` | string | `main` | Target branches that require source branch validation |
 | `source_branch_rules` | string | `''` | Per-target source rules as JSON. A target listed here uses its own patterns and ignores the two inputs above |
 | `automation_only_source_patterns` | string | `''` | Source patterns (pipe-separated) accepted only on PRs opened by automation, e.g. `backmerge/*`. Restricts rather than grants — the pattern must still be allowed by `allowed_source_branches` or `source_branch_rules` |
-| `automation_source_actors` | string | `''` | Comma-separated logins counting as automation. Empty accepts any author of type `Bot` |
+| `automation_source_actors` | string | `'lerian-studio-midaz-push-bot[bot],lerian-studio'` | Comma-separated logins counting as automation. A list is authoritative: those logins are accepted whatever their account type, which matters because `lerian-studio` is a `User`, not a `Bot`. Empty accepts any author of type `Bot` |
 | `require_verified_commits` | boolean | `true` | Block the PR when any of its commits is unsigned or has an unverified signature |
 
 The breaking change guard has no enable input, target-branch input, acknowledgement input, or opt-out. It applies to every caller and every PR target branch. `dry_run: true` remains a global preview mode without guard enforcement; it is not a guard-specific opt-out and does not change normal `dry_run: false` operation. Existing callers must migrate their `pull_request.types` list to include both `edited` and `ready_for_review`; otherwise body edits and draft-to-ready transitions do not rerun validation.
