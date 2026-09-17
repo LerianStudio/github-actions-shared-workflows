@@ -9,9 +9,11 @@ on:
     outputs:
       checks_passed:
         description: >-
-          'true' when no analysis job failed or was cancelled. Every job in the
-          pipeline counts, so this is the whole analysis verdict — nothing is
-          excluded by default. Skipped counts as passed: most jobs are
+          'true' when no analysis job failed or was cancelled. Every ANALYSIS
+          job counts — Lint, Security, Tests, Coverage, Build, Integration Tests,
+          Custom Checks and Test Determinism — so none of them is excluded. The
+          two jobs outside that set, no-changes and notify, report on the run
+          rather than on the code. Skipped counts as passed: most jobs are
           conditional on the file types in the diff and on the enable_* flags, so
           requiring success from all of them would never be satisfied. Exists so
           a caller can gate on the analysis itself rather than on this workflow's

@@ -214,9 +214,12 @@ jobs:
 
 ## CodeRabbit review gate
 
-`enable_coderabbit_gate` requests a review once the umbrella passes. The verdict
-reads `go-analysis`'s `checks_passed` output rather than the `Go Analysis`
-aggregator, so it covers the analysis jobs and only them — the aggregator mirrors
+`enable_coderabbit_gate` requests a review once `metadata`, `changes`,
+`security-gate`, `lib-version-gate` and the Go analysis verdict are all clear —
+not once the umbrella as a whole passes. The two differ: `go-analysis` can end in
+`failure` because `notify` failed, and a review is still requested, which is the
+point. The verdict reads `go-analysis`'s `checks_passed` output rather than the
+`Go Analysis` aggregator, so it covers the analysis jobs and only them — the aggregator mirrors
 the called workflow's result, which also folds in `notify`, and that job fails in
 a repository without `SLACK_WEBHOOK_URL`. Nothing is excluded from the verdict:
 the whole pipeline has to be clean. `skipped` counts as passed throughout.

@@ -150,7 +150,7 @@ Uses `secrets: inherit` pattern. Required secrets:
 
 | Output | Values | Description |
 |--------|--------|-------------|
-| `checks_passed` | `true` / `false` | `false` when any analysis job failed or was cancelled, `true` otherwise. Covers every analysis job — nothing is excluded. `skipped` counts as passed, since each job is conditional on the diff and on the `enable_*` toggles. |
+| `checks_passed` | `true` / `false` | `false` when any analysis job failed or was cancelled, `true` otherwise. Covers every analysis job — Lint, Security, Tests, Coverage, Build, Integration Tests, Custom Checks and Test Determinism — and none of them is excluded. `no-changes` and `notify` are outside it: they report on the run, not on the code. `skipped` counts as passed, since each job is conditional on the diff and on the `enable_*` toggles. |
 
 Read this rather than the job's own result when gating on the analysis: a
 reusable workflow's result also folds in jobs that are not analysis — `notify`,

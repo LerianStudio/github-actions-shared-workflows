@@ -209,8 +209,9 @@ reusable workflow's own result, which is `failure` whenever Custom Checks failed
 
 `go-pr-analysis.yml` reports a single output, `checks_passed`, covering **every**
 analysis job — Lint, Security, Tests, Coverage, Build, Integration Tests, Custom
-Checks and Test Determinism. Nothing is excluded by default: the whole pipeline
-has to be clean before a review is requested. Skipped still counts as passed,
+Checks and Test Determinism. None of those is excluded: the whole analysis has to
+be clean before a review is requested. `no-changes` and `notify` sit outside the
+output, reporting on the run rather than on the code. Skipped still counts as passed,
 since every one of those jobs is conditional on the diff and on the `enable_*`
 toggles.
 
