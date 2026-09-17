@@ -212,6 +212,18 @@ jobs:
     secrets: inherit
 ```
 
+## CodeRabbit review gate
+
+`enable_coderabbit_gate` requests a review once the umbrella passes. The verdict
+reads `go-analysis`'s `checks_passed` output rather than the `Go Analysis`
+aggregator, so it covers the analysis jobs and only them — the aggregator mirrors
+the called workflow's result, which also folds in `notify`, and that job fails in
+a repository without `SLACK_WEBHOOK_URL`. Nothing is excluded from the verdict:
+the whole pipeline has to be clean. `skipped` counts as passed throughout.
+
+The aggregator is unchanged and still gates the merge. See
+[coderabbit-gate](./coderabbit-gate.md).
+
 ## Branch protection
 
 Require the aggregator checks `Go Analysis`, `Security` and `Lib Version` (plus the PR metadata checks from `pr-validation.yml`). Breaking-change enforcement remains inside the existing `Blocking Checks` status; it does not add a branch-protection check. These names are stable even when the underlying analysis matrix changes.
