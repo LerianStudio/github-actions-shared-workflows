@@ -205,6 +205,33 @@ Read the job's outputs, not `needs.*.result`: the wildcard picks up the
 reusable workflow's own result, which is `failure` whenever Custom Checks failed
 — exactly the case this exists to exclude.
 
+### The Go pipeline reports its own verdict
+
+`go-pr-analysis.yml` reports a single output, `checks_passed`, covering **every**
+analysis job — Lint, Security, Tests, Coverage, Build, Integration Tests, Custom
+Checks and Test Determinism. None of those is excluded: the whole analysis has to
+be clean before a review is requested. `no-changes` and `notify` sit outside the
+output, reporting on the run rather than on the code. Skipped still counts as passed,
+since every one of those jobs is conditional on the diff and on the `enable_*`
+toggles.
+
+`go-pr-validation.yml` reads that output instead of `go-analysis-gate`'s result:
+
+```yaml
+checks_passed: >-
+  ${{ needs.go-analysis.result == 'skipped'
+      || needs.go-analysis.outputs.checks_passed == 'true' }}
+```
+
+The reason is the same trap as above, from the other direction. A reusable
+workflow's result folds in jobs that are not analysis — `Notify`, for one, which
+fails in a repository without `SLACK_WEBHOOK_URL` and would withhold the review
+from a pipeline that is entirely green. The output covers the analysis jobs and
+only them.
+
+`go-analysis-gate` is untouched, keeps its status-check name, and still mirrors
+the called workflow's result, so branch protection is unaffected.
+
 ## Permissions
 
 The calling job must grant **both**:
