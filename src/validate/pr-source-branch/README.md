@@ -18,7 +18,7 @@ On failure, upserts a single PR comment (identified by the `<!-- pr-source-branc
 | `target-branches` | Target branches that require validation (pipe-separated) | No | `main` |
 | `branch-rules` | Per-target rules as JSON. A listed target uses its own patterns and is validated even when `target-branches` omits it | No | `''` |
 | `automation-only-patterns` | Source patterns accepted only on PRs opened by automation (pipe-separated, `*` suffix). Restricts, does not grant | No | `''` |
-| `automation-actors` | Comma-separated logins counting as automation. Empty accepts any author of type `Bot` | No | `''` |
+| `automation-actors` | Comma-separated logins counting as automation. A list is authoritative: those logins are accepted whatever their account type. Empty accepts any author of type `Bot` | No | `lerian-studio-midaz-push-bot[bot],lerian-studio` |
 | `dry-run` | When true, validate without upserting the failure comment | No | `false` |
 
 ## Automation-only patterns
@@ -30,7 +30,7 @@ branch-rules: |
   {"main": "release-candidate|hotfix/*|backmerge/*",
    "release-candidate": "develop-*|backmerge/*"}
 automation-only-patterns: "backmerge/*"
-automation-actors: "lerian-studio-midaz-push-bot[bot]"
+automation-actors: "lerian-studio-midaz-push-bot[bot],lerian-studio"
 ```
 
 **It restricts; it does not grant.** The pattern must still be allowed by `allowed-branches` or `branch-rules` — listing it here only adds the requirement that the author be automation. Granting instead would be a no-op in exactly this configuration, where `backmerge/*` is already allowed by the rules, and a human pushing `backmerge/anything` would sail through.
@@ -42,7 +42,7 @@ automation-actors: "lerian-studio-midaz-push-bot[bot]"
 | `develop-x` | a person | allowed by the normal rules |
 | `backmerge/x` not listed in the rules | `…push-bot[bot]` | blocked — the rules never authorised it |
 
-With `automation-actors` empty, any author whose account type is `Bot` qualifies. Set it to pin the specific app.
+The default names the Lerian automation accounts. A non-empty list is authoritative and is matched by login alone, without also requiring account type `Bot` — `lerian-studio` is a `User`, so requiring both would leave it configured and never matching. Set the input to empty to accept any author whose account type is `Bot` instead.
 
 ## Per-target rules
 
