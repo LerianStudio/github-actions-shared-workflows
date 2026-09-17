@@ -868,10 +868,14 @@ jobs:
   # See docs/coderabbit-gate.md for the contract and the setup checklist.
   coderabbit-review:
     name: CodeRabbit Review
+    # frontend-analysis rather than frontend-analysis-gate: the gate folds Custom
+    # Checks into one verdict, and the job exposes core_passed, which leaves it
+    # out. frontend-analysis-gate is untouched, so the end-to-end suite still
+    # blocks the merge — it just no longer decides whether a review is requested.
     needs:
       - metadata
       - changes
-      - frontend-analysis-gate
+      - frontend-analysis
       - security-gate
       - socket-gate
     # `always()` so a skipped component gate does not block this one — the
@@ -889,7 +893,17 @@ jobs:
     with:
       pr_number: ${{ github.event.pull_request.number }}
       # Skipped is fine; only a real failure or cancellation withholds the label.
-      checks_passed: ${{ !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') }}
+      # Spelled out per job rather than with `needs.*`, which would read
+      # frontend-analysis's own result and fail the moment Custom Checks did —
+      # the case core_passed exists to exclude. A skipped analysis passes, in
+      # keeping with the rest: most jobs are conditional on the diff.
+      checks_passed: >-
+        ${{ needs.metadata.result != 'failure' && needs.metadata.result != 'cancelled'
+            && needs.changes.result != 'failure' && needs.changes.result != 'cancelled'
+            && needs.security-gate.result != 'failure' && needs.security-gate.result != 'cancelled'
+            && needs.socket-gate.result != 'failure' && needs.socket-gate.result != 'cancelled'
+            && (needs.frontend-analysis.result == 'skipped'
+                || needs.frontend-analysis.outputs.core_passed == 'true') }}
       # Binds the verdict to the commit it was computed for, so a run superseded
       # by a newer push cannot authorise a head it never validated.
       head_sha: ${{ github.event.pull_request.head.sha }}
