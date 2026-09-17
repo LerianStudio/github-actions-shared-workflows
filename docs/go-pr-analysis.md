@@ -146,6 +146,24 @@ Uses `secrets: inherit` pattern. Required secrets:
 | `MANAGE_TOKEN` | GitHub token for PR comments and private module access | Private modules or PR comments |
 | `SLACK_WEBHOOK_URL` | Slack webhook for notifications | Optional |
 
+## Outputs
+
+| Output | Values | Description |
+|--------|--------|-------------|
+| `checks_passed` | `true` / `false` | `false` when any analysis job failed or was cancelled, `true` otherwise. Covers every analysis job — Lint, Security, Tests, Coverage, Build, Integration Tests, Custom Checks and Test Determinism — and none of them is excluded. `no-changes` and `notify` are outside it: they report on the run, not on the code. `skipped` counts as passed, since each job is conditional on the diff and on the `enable_*` toggles. |
+
+Read this rather than the job's own result when gating on the analysis: a
+reusable workflow's result also folds in jobs that are not analysis — `notify`,
+for one, whose failure to reach Slack says nothing about the code. That is how
+[go-pr-validation](./go-pr-validation.md) decides whether to request a CodeRabbit
+review; see [coderabbit-gate](./coderabbit-gate.md).
+
+```yaml
+checks_passed: >-
+  ${{ needs.go-analysis.result == 'skipped'
+      || needs.go-analysis.outputs.checks_passed == 'true' }}
+```
+
 ## Jobs
 
 ### detect-changes
@@ -185,6 +203,10 @@ Runs unit tests multiple times with `-shuffle=on` to detect flaky or order-depen
 
 ### no-changes
 Runs when no Go changes are detected - outputs skip message.
+
+### results
+Aggregates every analysis job into the `checks_passed` output. Runs under
+`always()` — the point is to report on jobs that were skipped or failed.
 
 
 ## Integration tests with a service container

@@ -66,6 +66,15 @@ reviews:
           this repository. Do not flag an absolute external ref as a violation.
         - A `docs/<filename>.md` matching this workflow's name must exist or be added in this PR
         - Flag any removed or renamed input/output as a breaking change for callers
+        - Jobs take their runner from `${{ vars.GENERAL_RUNNERS || inputs.runner_type }}`,
+          or from a more specific `*_runner_type` input where one exists. 134 jobs here do
+          so against 1 hardcoded literal, because a consumer has to be able to size a job
+          it pays for. Do not ask for a literal runner such as `blacksmith-4vcpu-ubuntu-2404`,
+          and do not flag the configurable form.
+        - `echo` in a `run:` block is how these workflows report what they decided, and
+          there are 249 of them across 30 files here. There is no silent-by-default rule,
+          and no requirement to route messages through `::notice::` or to gate them on
+          `dry_run`. Flag logging only when it would print a secret.
 
     - path: "src/**/action.yml"
       instructions: |

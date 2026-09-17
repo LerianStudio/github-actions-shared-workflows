@@ -232,6 +232,17 @@ permissions:
   security-events: write # Required for security scanning
 ```
 
+## Outputs
+
+| Output | Values | Description |
+|--------|--------|-------------|
+| `checks_passed` | `true` / `false` | `false` when any scan job failed or was cancelled, `true` otherwise. Covers `prepare_matrix`, `security_scan` and `codeql_scan`. `notify` is outside it: it reports on the run, not on the code. `skipped` counts as passed, since the jobs are conditional on the changed components and on the `enable_*` flags. |
+
+Read this rather than the job's own result when gating on the scan: a reusable
+workflow's result also folds in `notify`, and a Slack delivery that did not land
+is not a security finding. Both PR umbrellas read it to decide whether to request
+a CodeRabbit review — see [coderabbit-gate](./coderabbit-gate.md).
+
 ## Workflow Steps
 
 ### Job 1: prepare_matrix
@@ -255,6 +266,11 @@ For each component in the matrix:
 9. **Post Security Scan Results**: PR comment with consolidated findings
 
 > **Note**: When `enable_docker_scan: false`, only filesystem scanning and pre-release checks run.
+
+### Job 4: results
+
+Aggregates the scan jobs into the `checks_passed` output. Runs under `always()` —
+the point is to report on jobs that were skipped or failed.
 
 ### Job 3: codeql_scan *(optional)*
 

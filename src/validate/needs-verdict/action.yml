@@ -1,0 +1,98 @@
+name: Needs Verdict
+description: Computes a single pass/fail verdict over every job in a needs context, preferring a job's own verdict output over its result.
+
+inputs:
+  needs:
+    description: >-
+      The `toJSON(needs)` payload of the calling job. Every job it names is part
+      of the verdict, so the job's `needs:` list is the single place a required
+      job is declared.
+    required: true
+  prefer-output:
+    description: >-
+      Output name to read from a job that publishes one. A reusable workflow's
+      `result` also folds in jobs that report on the run rather than on the code
+      — Notify, for one — so a job that publishes its own verdict is believed
+      over its result. Jobs without the output fall back to `result`.
+    required: false
+    default: checks_passed
+  overrides:
+    description: >-
+      Comma-separated `<job>=<output>` pairs for jobs whose verdict lives under a
+      different output name, e.g. `frontend-analysis=core_passed`. One line per
+      exception; everything else follows `prefer-output`.
+    required: false
+    default: ''
+  label:
+    description: Human-readable name of the gate, used in log output.
+    required: false
+    default: verdict
+
+outputs:
+  passed:
+    description: "'true' when every job passed, 'false' otherwise."
+    value: ${{ steps.evaluate.outputs.passed }}
+  failed-jobs:
+    description: Space-separated names of the jobs that failed the verdict. Empty when it passed.
+    value: ${{ steps.evaluate.outputs.failed-jobs }}
+
+runs:
+  using: composite
+  steps:
+    - name: Evaluate needs
+      id: evaluate
+      shell: bash
+      env:
+        NEEDS: ${{ inputs.needs }}
+        PREFER_OUTPUT: ${{ inputs.prefer-output }}
+        OVERRIDES: ${{ inputs.overrides }}
+        LABEL: ${{ inputs.label }}
+      run: |
+        set -euo pipefail
+
+        # A job's own verdict output wins over its result; a job without one is
+        # judged by its result. `skipped` passes either way: jobs here are
+        # conditional on the diff and on the pipeline toggles, so requiring
+        # success from all of them would never be satisfied. A job whose
+        # aggregating step never ran publishes no output and is judged by its
+        # result, which is the failure itself — so a broken pipeline still fails
+        # the verdict rather than slipping through on a missing output.
+        verdict=$(
+          jq -r --arg prefer "$PREFER_OUTPUT" --arg overrides "$OVERRIDES" '
+            ($overrides
+              | split(",")
+              | map(select(length > 0) | split("=") | {key: (.[0] | ltrimstr(" ")), value: .[1]})
+              | from_entries) as $map
+            | to_entries
+            | map(
+                .key as $job
+                | ($map[$job] // $prefer) as $output
+                | (.value.outputs // {})[$output] as $declared
+                | {
+                    job: $job,
+                    passed: (
+                      if .value.result == "skipped" then true
+                      elif $declared != null then $declared == "true"
+                      elif .value.result == "failure" or .value.result == "cancelled" then false
+                      else true
+                      end
+                    ),
+                    detail: (if $declared != null then "\($output)=\($declared)" else .value.result end)
+                  }
+              )
+          ' <<< "$NEEDS"
+        )
+
+        failed=$(jq -r 'map(select(.passed | not) | .job) | join(" ")' <<< "$verdict")
+
+        jq -r '.[] | "  \(.job): \(.detail)\(if .passed then "" else "  <- fails the verdict" end)"' <<< "$verdict"
+
+        if [ -n "$failed" ]; then
+          echo "passed=false" >> "$GITHUB_OUTPUT"
+          echo "failed-jobs=$failed" >> "$GITHUB_OUTPUT"
+          echo "::notice::${LABEL}: not passed — $failed"
+        else
+          echo "passed=true" >> "$GITHUB_OUTPUT"
+          echo "failed-jobs=" >> "$GITHUB_OUTPUT"
+          echo "::notice::${LABEL}: passed"
+        fi
