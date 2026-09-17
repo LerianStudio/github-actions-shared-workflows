@@ -94,7 +94,7 @@ on:
         required: true
 
 # NOTE: no `workflow_dispatch` here — a reusable workflow must be `workflow_call`
-# only (see .claude/commands/workflow.md, "Script injection & workflow_dispatch").
+# only (see .agents/skills/workflow/SKILL.md, "Script injection & workflow_dispatch").
 # `build_command` is free-text and is eval'd below, so exposing it via a
 # manual-dispatch string input would be a command-injection surface. Manual
 # runs belong in a `self-*`/caller entrypoint with safe (choice/boolean) inputs.
@@ -193,7 +193,7 @@ jobs:
       # Composites are referenced by EXTERNAL ref (LerianStudio/.../src/...@ref),
       # never `./src/...`: in a workflow_call reusable workflow `./` resolves to
       # the CALLER's workspace, so a local path breaks for external callers
-      # (see .claude/commands/workflow.md, "Composite action references").
+      # (see .agents/skills/workflow/SKILL.md, "Composite action references").
       - name: Ensure AWS CLI
         if: ${{ !inputs.dry_run }}
         uses: LerianStudio/github-actions-shared-workflows/src/setup/aws-cli@v1
