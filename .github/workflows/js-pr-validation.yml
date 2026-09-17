@@ -866,44 +866,60 @@ jobs:
   # first would authorise before the other finished validating.
   #
   # See docs/coderabbit-gate.md for the contract and the setup checklist.
-  coderabbit-review:
-    name: CodeRabbit Review
-    # frontend-analysis rather than frontend-analysis-gate: the gate folds Custom
-    # Checks into one verdict, and the job exposes core_passed, which leaves it
-    # out. frontend-analysis-gate is untouched, so the end-to-end suite still
-    # blocks the merge — it just no longer decides whether a review is requested.
+  # The verdict is computed in its own job so that adding a required job to the
+  # gate is one line in the `needs:` list below — not a line there plus a clause
+  # in an expression. needs-verdict reads `toJSON(needs)` and believes a job's own
+  # `checks_passed` output over its result, because a reusable workflow's result
+  # also folds in jobs that report on the run rather than on the code: Notify, for
+  # one, whose failure to reach Slack is no reason to withhold a review. Jobs that
+  # publish no such output are judged by their result, and `skipped` passes
+  # throughout — every job here is conditional on the diff and on the toggles.
+  #
+  # frontend-analysis is the one exception: its verdict lives under
+  # `core_passed`, which leaves the Custom Checks job — where the end-to-end
+  # suite runs — out. frontend-analysis-gate is untouched, so that suite still
+  # blocks the merge; it just no longer decides whether a review is requested.
+  coderabbit-verdict:
+    name: CodeRabbit Verdict
     needs:
       - metadata
       - changes
       - frontend-analysis
-      - security-gate
+      - security
       - socket-gate
-    # `always()` so a skipped component gate does not block this one — the
-    # verdict below distinguishes skipped from failed. Draft pull requests are
-    # excluded; CodeRabbit ignores them anyway.
+    # `always()` so a skipped component does not skip the verdict along with it.
+    # Draft pull requests are excluded; CodeRabbit ignores them anyway.
     if: >-
       always()
       && inputs.enable_coderabbit_gate
       && github.event_name == 'pull_request'
       && github.event.pull_request.draft != true
+    runs-on: ${{ vars.GENERAL_RUNNERS || inputs.runner_type }}
+    permissions:
+      contents: read
+    outputs:
+      passed: ${{ steps.verdict.outputs.passed }}
+    steps:
+      - name: Compute verdict
+        id: verdict
+        uses: LerianStudio/github-actions-shared-workflows/src/validate/needs-verdict@v1
+        with:
+          needs: ${{ toJSON(needs) }}
+          overrides: frontend-analysis=core_passed
+          label: CodeRabbit gate
+
+  coderabbit-review:
+    name: CodeRabbit Review
+    # No `if:` needed: the verdict job carries the conditions, and this one is
+    # skipped along with it when they do not hold.
+    needs: coderabbit-verdict
     permissions:
       contents: read
       pull-requests: write
     uses: ./.github/workflows/coderabbit-gate.yml
     with:
       pr_number: ${{ github.event.pull_request.number }}
-      # Skipped is fine; only a real failure or cancellation withholds the label.
-      # Spelled out per job rather than with `needs.*`, which would read
-      # frontend-analysis's own result and fail the moment Custom Checks did —
-      # the case core_passed exists to exclude. A skipped analysis passes, in
-      # keeping with the rest: most jobs are conditional on the diff.
-      checks_passed: >-
-        ${{ needs.metadata.result != 'failure' && needs.metadata.result != 'cancelled'
-            && needs.changes.result != 'failure' && needs.changes.result != 'cancelled'
-            && needs.security-gate.result != 'failure' && needs.security-gate.result != 'cancelled'
-            && needs.socket-gate.result != 'failure' && needs.socket-gate.result != 'cancelled'
-            && (needs.frontend-analysis.result == 'skipped'
-                || needs.frontend-analysis.outputs.core_passed == 'true') }}
+      checks_passed: ${{ needs.coderabbit-verdict.outputs.passed == 'true' }}
       # Binds the verdict to the commit it was computed for, so a run superseded
       # by a newer push cannot authorise a head it never validated.
       head_sha: ${{ github.event.pull_request.head.sha }}
