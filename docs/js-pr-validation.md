@@ -305,6 +305,27 @@ with:
 
 Note these are independent: `run_socket: false` removes the gate job and the comment but leaves the guarded installs in place.
 
+## CodeRabbit review gate
+
+`enable_coderabbit_gate` requests a review once `metadata`, `changes`,
+`socket-gate`, the frontend analysis verdict and the security scan verdict are
+all clear — not once the umbrella as a whole passes. A `CodeRabbit Verdict` job
+computes this with the
+[`needs-verdict`](../src/validate/needs-verdict/README.md) composite over
+`toJSON(needs)`, so the job's `needs:` list is the whole declaration of what the
+gate requires.
+
+Two jobs are read through their outputs rather than their results:
+
+| job | output read | why |
+|---|---|---|
+| `frontend-analysis` | `core_passed` | leaves Custom Checks — the end-to-end suite — out of the review verdict |
+| `security` | `checks_passed` | leaves `notify` out; a Slack delivery that did not land is not a security finding |
+
+`frontend-analysis-gate` and `Security` are unchanged and still gate the merge,
+so the end-to-end suite and the scans continue to block it. See
+[coderabbit-gate](./coderabbit-gate.md).
+
 ## Branch protection
 
 Require the aggregator checks `Frontend Analysis`, `Security` and `Socket` (plus the PR metadata checks from `pr-validation.yml`). Breaking-change enforcement remains inside the existing `Blocking Checks` status; it does not add a branch-protection check. These names are stable even when the underlying analysis steps change.
