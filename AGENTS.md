@@ -11,11 +11,11 @@ Every change here can affect all repositories in the organization that consume t
 
 Full documentation: [`README.md`](README.md) | Contributing: [`CONTRIBUTING.md`](CONTRIBUTING.md) | Security: [`SECURITY.md`](SECURITY.md)
 
-**Claude Code CLI commands** (load at session start for full context):
-- `/gha` — complete reference (workflows + composites + refactoring protocol)
-- `/workflow` — reusable workflow rules only
-- `/composite` — composite action rules only
-- `/refactor` — refactoring protocol for modifying existing workflows or composites
+**Skills** in `.agents/skills/` (load at session start for full context; `/<name>` in Claude Code):
+- `gha` — complete reference (workflows + composites + refactoring protocol)
+- `workflow` — reusable workflow rules only
+- `composite` — composite action rules only
+- `refactor` — refactoring protocol for modifying existing workflows or composites
 
 ---
 
@@ -31,10 +31,10 @@ Full documentation: [`README.md`](README.md) | Contributing: [`CONTRIBUTING.md`]
 Composite actions are grouped by capability: `src/setup/`, `src/build/`, `src/test/`, `src/deploy/`, `src/config/`.  
 Each composite must have an `action.yml` and a `README.md`.
 
-Full rules:
-- Composite actions → `.cursor/rules/composite-actions.mdc` or `/composite`
-- Reusable workflows → `.cursor/rules/reusable-workflows.mdc` or `/workflow`
-- Modifying existing files → `.cursor/rules/refactoring.mdc` or `/refactor`
+Full rules, in `.agents/skills/`:
+- Composite actions → `composite`
+- Reusable workflows → `workflow`
+- Modifying existing files → `refactor`
 
 ### Composite action references in reusable workflows
 
@@ -141,7 +141,7 @@ PRs always target `develop` — never `main` directly.
 
 ## Refactoring existing workflows or composites
 
-Before modifying any existing file, follow the refactoring protocol in `.cursor/rules/refactoring.mdc` (or run `/refactor` in Claude CLI):
+Before modifying any existing file, follow the refactoring protocol in `.agents/skills/refactor/` (`/refactor` in Claude Code):
 
 1. Summarize the current state of the file (inputs, outputs, jobs/steps, dry_run presence)
 2. Produce a numbered plan with impact classification for each change

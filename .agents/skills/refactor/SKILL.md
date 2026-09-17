@@ -1,7 +1,7 @@
 ---
-description: Refactoring and incremental change protocol for reusable workflows and composite actions
-globs: .github/workflows/*.yml,src/**/*.yml,src/**/action.yml
-alwaysApply: false
+name: refactor
+description: >-
+  Protocol for refactoring or additively changing an existing reusable workflow or composite action. Analyse the current state, produce a numbered plan, flag breaking changes with a migration guide, confirm with the user, then apply one step at a time.
 ---
 
 # Refactoring Protocol

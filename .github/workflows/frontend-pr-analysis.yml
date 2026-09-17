@@ -17,6 +17,30 @@ name: "Frontend PR Analysis"
 
 on:
   workflow_call:
+    outputs:
+      core_passed:
+        description: >-
+          'true' when no analysis job other than Custom Checks failed or was
+          cancelled. Skipped counts as passed: most jobs are conditional on the
+          file types in the diff, so requiring success from all of them would
+          never be satisfied. Exists so a caller can gate on the pipeline while
+          excluding the end-to-end suite, which is the slowest and least stable
+          job and should not decide, for example, whether a review is requested.
+        value: ${{ jobs.results.outputs.core_passed }}
+      custom_checks_passed:
+        description: >-
+          'true' when Custom Checks did not fail or get cancelled. Reported
+          separately from core_passed so excluding it from one gate does not
+          remove it from the others.
+        value: ${{ jobs.results.outputs.custom_checks_passed }}
+      checks_passed:
+        description: >-
+          'true' when no analysis job at all failed or was cancelled — core_passed
+          and custom_checks_passed together. Named to match the other pipelines,
+          so a caller that reads `checks_passed` everywhere gets the whole
+          analysis here too; a caller that wants the end-to-end suite left out
+          asks for core_passed by name.
+        value: ${{ jobs.results.outputs.checks_passed }}
     inputs:
       runner_type:
         description: 'GitHub runner type'
@@ -1063,6 +1087,66 @@ jobs:
         run: |
           echo "No frontend code changes detected in monitored paths."
           echo "Skipping frontend analysis workflows."
+
+  # ============================================
+  # RESULT AGGREGATION
+  # ============================================
+  # Splits the pipeline verdict in two so a caller can gate on everything except
+  # the end-to-end suite. `always()` because the point is to report on jobs that
+  # were skipped or failed; without it this job would be skipped along with them.
+  results:
+    name: Results
+    needs: [detect-changes, lint, typecheck, security, tests, coverage, build, i18n-check, accessibility, custom-checks, bundle-budget, performance-budget, visual-regression, docker-smoke]
+    if: always()
+    runs-on: ${{ vars.GENERAL_RUNNERS || inputs.runner_type }}
+    permissions:
+      contents: read
+    outputs:
+      core_passed: ${{ steps.aggregate.outputs.core_passed }}
+      custom_checks_passed: ${{ steps.aggregate.outputs.custom_checks_passed }}
+      checks_passed: ${{ steps.aggregate.outputs.checks_passed }}
+    steps:
+      - name: Aggregate results
+        id: aggregate
+        env:
+          # One variable per job rather than `needs.*.result`, which would fold
+          # Custom Checks back into the set this exists to keep it out of.
+          CORE_RESULTS: >-
+            ${{ needs.detect-changes.result }} ${{ needs.lint.result }}
+            ${{ needs.typecheck.result }} ${{ needs.security.result }}
+            ${{ needs.tests.result }} ${{ needs.coverage.result }}
+            ${{ needs.build.result }} ${{ needs.i18n-check.result }}
+            ${{ needs.accessibility.result }} ${{ needs.bundle-budget.result }}
+            ${{ needs.performance-budget.result }}
+            ${{ needs.visual-regression.result }} ${{ needs.docker-smoke.result }}
+          CUSTOM_CHECKS_RESULT: ${{ needs.custom-checks.result }}
+        run: |
+          set -euo pipefail
+
+          verdict() {
+            for result in $1; do
+              case "$result" in
+                failure|cancelled) echo false; return ;;
+              esac
+            done
+            echo true
+          }
+
+          core=$(verdict "$CORE_RESULTS")
+          custom=$(verdict "$CUSTOM_CHECKS_RESULT")
+
+          all=true
+          [ "$core" = "true" ] && [ "$custom" = "true" ] || all=false
+
+          {
+            echo "core_passed=$core"
+            echo "custom_checks_passed=$custom"
+            echo "checks_passed=$all"
+          } >> "$GITHUB_OUTPUT"
+
+          echo "core (excluding Custom Checks): $core"
+          echo "custom checks                 : $custom"
+          echo "everything                    : $all"
 
   # ============================================
   # SLACK NOTIFICATION

@@ -115,16 +115,17 @@ Add the `no-stale` label to any issue or PR you want to keep open indefinitely. 
 
 Built-in guidance for AI assistants is included so they understand the architecture before making changes.
 
-### Cursor IDE
+The rules live in `.agents/skills/`, one directory per skill, in the format
+agents read directly:
 
-Rules activate automatically based on the file open — no setup needed.
-
-| File | Rule loaded |
+| Skill | Covers |
 |---|---|
-| `src/**/*.yml` | Composite action conventions |
-| `.github/workflows/*.yml` | Reusable workflow architecture |
+| `workflow` | Reusable workflow architecture, runners, `dry_run`, secrets |
+| `composite` | Composite action layout, `action.yml`, README and label checklists |
+| `refactor` | The protocol for changing an existing workflow or composite |
+| `gha` | All three at once |
 
-### Claude Code CLI
+In Claude Code, invoke one by name:
 
 ```bash
 claude
@@ -139,8 +140,6 @@ claude
 > /gha
 > Add a helm-deploy composite under src/deploy/ and wire it into release.yml
 ```
-
-Commands live in `.claude/commands/`. Rules live in `.cursor/rules/`.
 
 ## Contributing
 

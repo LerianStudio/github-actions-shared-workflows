@@ -212,6 +212,28 @@ jobs:
     secrets: inherit
 ```
 
+## CodeRabbit review gate
+
+`enable_coderabbit_gate` requests a review once `metadata`, `changes`,
+`lib-version-gate`, the Go analysis verdict and the security scan verdict are all
+clear — not once the umbrella as a whole passes. The two differ: `go-analysis` or
+`security` can end in `failure` because its `notify` job failed, and a review is
+still requested, which is the point — a Slack delivery that did not land says
+nothing about the code.
+
+A `CodeRabbit Verdict` job computes this with the
+[`needs-verdict`](../src/validate/needs-verdict/README.md) composite over
+`toJSON(needs)`, so the job's `needs:` list is the whole declaration of what the
+gate requires. It reads the `checks_passed` outputs of `go-analysis`
+([go-pr-analysis](./go-pr-analysis.md)) and `security`
+([pr-security-scan](./pr-security-scan.md)) rather than the `Go Analysis` and
+`Security` aggregators, which mirror their workflows' own results. Nothing is
+excluded from either verdict: the whole pipeline has to be clean. `skipped`
+counts as passed throughout.
+
+Both aggregators are unchanged and still gate the merge. See
+[coderabbit-gate](./coderabbit-gate.md).
+
 ## Branch protection
 
 Require the aggregator checks `Go Analysis`, `Security` and `Lib Version` (plus the PR metadata checks from `pr-validation.yml`). Breaking-change enforcement remains inside the existing `Blocking Checks` status; it does not add a branch-protection check. These names are stable even when the underlying analysis matrix changes.

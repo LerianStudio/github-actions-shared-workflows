@@ -1,3 +1,9 @@
+---
+name: gha
+description: >-
+  Complete GitHub Actions reference for this repository: the refactoring protocol, reusable workflow rules and composite action rules in one place. Load when working across both layers; use the focused workflow, composite or refactor skills when the task sits in only one.
+---
+
 # GitHub Actions — Full Rules & Conventions
 
 Complete reference for this repository. Use `/workflow` or `/composite` for focused context.

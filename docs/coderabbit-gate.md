@@ -170,6 +170,95 @@ Whitespace around commas is tolerated: `"develop, release-candidate"` works.
 conditional on the file types touched and are `skipped` on any given pull
 request, so requiring success from all of them would never release anything.
 
+### How the umbrellas compute it
+
+Both umbrellas compute `checks_passed` in a dedicated `CodeRabbit Verdict` job
+that runs the [`needs-verdict`](../src/validate/needs-verdict/README.md)
+composite over `toJSON(needs)`:
+
+```yaml
+coderabbit-verdict:
+  name: CodeRabbit Verdict
+  needs: [metadata, changes, go-analysis, security, lib-version-gate]
+  if: always()
+  outputs:
+    passed: ${{ steps.verdict.outputs.passed }}
+  steps:
+    - id: verdict
+      uses: LerianStudio/github-actions-shared-workflows/src/validate/needs-verdict@v1
+      with:
+        needs: ${{ toJSON(needs) }}
+
+coderabbit-review:
+  needs: coderabbit-verdict
+  uses: ./.github/workflows/coderabbit-gate.yml
+  with:
+    checks_passed: ${{ needs.coderabbit-verdict.outputs.passed == 'true' }}
+```
+
+The `needs:` list is the whole declaration — adding a job to the gate is one line
+there, with no expression to keep in step. Two rules decide the verdict:
+
+- **A job's own `checks_passed` output beats its result.** A reusable workflow's
+  result also folds in jobs that report on the run rather than on the code —
+  `Notify`, for one, whose failure to reach Slack says nothing about the code
+  under review. A job that publishes no such output is judged by its result, so a
+  pipeline that broke before its aggregating job ran still fails the verdict.
+  (A repository with no `SLACK_WEBHOOK_URL` was never the problem: `slack-notify`
+  detects the missing secret, skips the notification and succeeds.)
+- **`skipped` passes.** Every job here is conditional on the diff and on the
+  `enable_*` toggles, so requiring `success` from all of them would never release
+  anything.
+
+`go-pr-analysis.yml` and `pr-security-scan.yml` each publish `checks_passed`
+covering their own jobs — the whole analysis and the whole scan respectively,
+with nothing excluded.
+
+### Excluding the end-to-end suite
+
+`frontend-pr-analysis.yml` is the one exception, and it declares itself as one.
+It publishes three outputs:
+
+| output | covers |
+|---|---|
+| `core_passed` | every analysis job except Custom Checks |
+| `custom_checks_passed` | Custom Checks alone |
+| `checks_passed` | both — the whole analysis |
+
+Custom Checks is where the end-to-end suite runs. `js-pr-validation.yml` asks for
+`core_passed` by name, so a failing end-to-end suite no longer withholds the
+review:
+
+```yaml
+with:
+  needs: ${{ toJSON(needs) }}
+  overrides: frontend-analysis=core_passed
+```
+
+It is the slowest and least stable job in the pipeline, and a flaky browser run
+is a poor reason to spend no review on work that lints, type-checks, tests and
+builds cleanly.
+
+This does **not** weaken the merge. `frontend-analysis-gate` still aggregates the
+whole pipeline, Custom Checks included, and it is that job whose name branch
+protection requires. The end-to-end suite still blocks the merge; it just no
+longer decides whether a review is requested. The same holds for `Go Analysis`
+and `Security`: those aggregators are untouched and keep their status-check
+names.
+
+### Wiring the gate by hand
+
+A caller that does not use an umbrella can run the same composite, or spell the
+verdict out. If spelling it out, read the job's **outputs**, not `needs.*.result`:
+the wildcard picks up each reusable workflow's own result, which is exactly what
+the outputs exist to bypass.
+
+```yaml
+checks_passed: >-
+  ${{ needs.frontend-analysis.result == 'skipped'
+      || needs.frontend-analysis.outputs.core_passed == 'true' }}
+```
+
 ## Permissions
 
 The calling job must grant **both**:

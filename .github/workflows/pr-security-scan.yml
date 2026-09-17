@@ -9,6 +9,19 @@ name: "PR Security Scan"
 
 on:
   workflow_call:
+    outputs:
+      checks_passed:
+        description: >-
+          'true' when no scan job failed or was cancelled. Covers the jobs that
+          scan the code — Prepare Matrix, Security Scan and CodeQL Scan. Notify
+          sits outside it, reporting on the run rather than on the code. Skipped
+          counts as passed: the jobs are conditional on the changed components
+          and on the enable_* flags, so requiring success from all of them would
+          never be satisfied. Exists so a caller can gate on the scan itself
+          rather than on this workflow's own result, which also folds in Notify —
+          a Slack delivery failure is not a security finding and should not, for
+          example, withhold a review request.
+        value: ${{ jobs.results.outputs.checks_passed }}
     inputs:
       runner_type:
         description: 'GitHub runner type to use'
@@ -353,6 +366,43 @@ jobs:
           github-token: ${{ secrets.MANAGE_TOKEN || secrets.GITHUB_TOKEN }}
           languages: ${{ inputs.codeql_languages }}
           fail-on-findings: ${{ inputs.codeql_fail_on_findings }}
+
+  # ----------------- Result Aggregation -----------------
+  # Reports the scan verdict as a workflow output so a caller can gate on the
+  # scan jobs alone. `always()` because the point is to report on jobs that were
+  # skipped or failed; without it this job would be skipped along with them.
+  results:
+    name: Results
+    needs: [prepare_matrix, security_scan, codeql_scan]
+    if: always()
+    runs-on: ${{ vars.GENERAL_RUNNERS || inputs.runner_type }}
+    permissions:
+      contents: read
+    outputs:
+      checks_passed: ${{ steps.aggregate.outputs.checks_passed }}
+    steps:
+      - name: Aggregate results
+        id: aggregate
+        env:
+          # Listed one by one rather than with `needs.*.result`, which here would
+          # be the same set — but keeping it explicit means a job added later is
+          # a deliberate decision to include, not a silent one.
+          RESULTS: >-
+            ${{ needs.prepare_matrix.result }} ${{ needs.security_scan.result }}
+            ${{ needs.codeql_scan.result }}
+        run: |
+          set -euo pipefail
+
+          passed=true
+          for result in $RESULTS; do
+            case "$result" in
+              failure|cancelled) passed=false ;;
+            esac
+          done
+
+          echo "checks_passed=$passed" >> "$GITHUB_OUTPUT"
+          echo "scan verdict: $passed"
+          echo "job results : $RESULTS"
 
   # ----------------- Slack Notification -----------------
   notify:
