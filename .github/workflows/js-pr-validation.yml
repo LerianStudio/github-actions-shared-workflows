@@ -910,8 +910,17 @@ jobs:
 
   coderabbit-review:
     name: CodeRabbit Review
-    # No `if:` needed: the verdict job carries the conditions, and this one is
-    # skipped along with it when they do not hold.
+    # `always()` is load-bearing, and the reason is not obvious. The verdict job
+    # already carries every condition, so this one looks like it needs none — but
+    # a failure anywhere upstream propagates through the graph and skips a job
+    # left on the implicit `success()`, even when its own dependency succeeded.
+    # `always()` on the verdict does not neutralise that for what comes after it.
+    # Without this line the gate goes quiet on exactly the pull requests the
+    # verdict was built to approve: the ones where something failed that the
+    # verdict deliberately excluded, such as a red end-to-end suite under
+    # `core_passed`. Measured on product-console#1067, where the verdict logged
+    # `CodeRabbit gate: passed` and this job was skipped anyway.
+    if: always() && needs.coderabbit-verdict.result == 'success'
     needs: coderabbit-verdict
     permissions:
       contents: read

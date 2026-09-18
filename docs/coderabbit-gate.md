@@ -259,6 +259,36 @@ checks_passed: >-
       || needs.frontend-analysis.outputs.core_passed == 'true' }}
 ```
 
+### The requesting job needs `always()`
+
+This applies to the **two-job shape** the umbrellas use, where one job computes
+the verdict and a second one calls this workflow. A caller wiring the gate
+directly — one job listing its own required checks, as in the `release-coderabbit`
+example under [Usage](#usage) — has no `coderabbit-verdict` job and must not copy
+the condition verbatim; `always()` on that single job is what it needs, and that
+example already carries it.
+
+In the two-job shape the requesting job must carry it explicitly:
+
+```yaml
+coderabbit-review:
+  if: always() && needs.coderabbit-verdict.result == 'success'
+  needs: coderabbit-verdict
+```
+
+A verdict job on `if: always()` survives an upstream failure and computes a
+verdict, but that does not carry over: a downstream job left on the implicit
+`success()` is skipped when anything earlier in the graph failed, even though its
+own dependency succeeded. The gate then goes quiet on precisely the pull requests
+the verdict was built to approve — the ones where something failed that the
+verdict deliberately excluded.
+
+The failure mode is invisible until a verdict passes while a job is red, because
+until then the correct behaviour and the bug both produce a skipped job. It was
+found on `LerianStudio/product-console#1067`, a pull request built so that only
+the end-to-end suite failed: the verdict logged `CodeRabbit gate: passed` and the
+requesting job was skipped anyway.
+
 ## Permissions
 
 The calling job must grant **both**:
