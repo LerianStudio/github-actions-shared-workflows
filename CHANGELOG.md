@@ -1,5 +1,23 @@
 # Github-actions-shared-workflows Changelog
 
+## [1.74.0](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.74.0)
+
+Features:
+- Compute the review verdict from a needs context in the `coderabbit-gate`. (@bedatty)
+- Gate CodeRabbit on the analysis verdict in `go-pr-validation`. (@bedatty)
+- Keep the end-to-end suite out of the CodeRabbit verdict in `js-pr-validation`. (@bedatty)
+
+Improvements:
+- Move the agent rules to `.agents/skills` and drop the cursor rules. (@bedatty)
+
+Documentation:
+- Document the analysis verdict output in `go-pr-validation`. (@bedatty)
+- Specify which jobs the analysis verdict covers in `go-pr-validation`. (@bedatty)
+
+[Compare changes](https://github.com/LerianStudio/github-actions-shared-workflows/compare/v1.73.0...v1.74.0)
+
+---
+
 ## [1.73.0](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.73.0)
 
 Features:
