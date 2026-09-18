@@ -261,7 +261,14 @@ checks_passed: >-
 
 ### The requesting job needs `always()`
 
-The job that calls this workflow must carry it explicitly:
+This applies to the **two-job shape** the umbrellas use, where one job computes
+the verdict and a second one calls this workflow. A caller wiring the gate
+directly — one job listing its own required checks, as in the `release-coderabbit`
+example under [Usage](#usage) — has no `coderabbit-verdict` job and must not copy
+the condition verbatim; `always()` on that single job is what it needs, and that
+example already carries it.
+
+In the two-job shape the requesting job must carry it explicitly:
 
 ```yaml
 coderabbit-review:
