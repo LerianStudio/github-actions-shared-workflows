@@ -140,6 +140,30 @@ runs:
       uses: helmfile/helmfile-action@1f44bcb43e5fb17ecb2685d8b6081ec5f6aa5fcf # v2.4.7
       with:
         helmfile-args: --version
+        # No plugins. The action's `helm-plugins` default is
+        # `https://github.com/databus23/helm-diff`, which it installs with a
+        # plain `helm plugin install` on every run — and that command is not
+        # idempotent: against a plugin directory that already holds it, helm
+        # exits 1 with "Error: plugin already exists". On the ephemeral hosted
+        # runners that is invisible, because the directory starts empty. On the
+        # self-hosted pool this job actually runs on it is fatal and permanent,
+        # since the pool's HOME persists between jobs: the FIRST run installs
+        # the plugin and every run after it dies at this step.
+        #
+        # Measured on three consecutive helm-internal releases, all of which
+        # published their chart correctly and then failed here, so no chart pin
+        # was ever bumped automatically:
+        #   3.0.3  https://github.com/LerianStudio/helm-internal/actions/runs/35620669869
+        #   4.0.0  https://github.com/LerianStudio/helm-internal/actions/runs/35655439290
+        #
+        # Emptied rather than guarded, because nothing here needs the plugin.
+        # helm-diff backs `helmfile diff`, `apply` and `sync`; this composite
+        # runs only `--version`, `lint` and `template` (see the render gate
+        # below), and it is the single caller of this action in the repository.
+        # An empty value skips the install outright — the action guards it with
+        # `if (helmPlugins.length > 0)`. Restore the default here if a step is
+        # ever added that diffs or applies.
+        helm-plugins: ""
 
     # Into a virtualenv, not the interpreter. The self-hosted pool this runs on
     # is Debian, whose Python is externally managed (PEP 668), so a plain

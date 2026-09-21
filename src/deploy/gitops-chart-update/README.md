@@ -169,7 +169,7 @@ jobs:
 | Action | Why |
 |---|---|
 | `actions/checkout` | The canonical checkout. Used twice with different trust settings: the GitOps repository with a write token and `persist-credentials: false`, and the deployment matrix as a sparse, read-only checkout |
-| `helmfile/helmfile-action` | The maintained installer from the helmfile project. Chosen over downloading the release archive because piping `curl` into `sudo tar` installs an unverified binary that then executes as part of the render gate |
+| `helmfile/helmfile-action` | The maintained installer from the helmfile project. Chosen over downloading the release archive because piping `curl` into `sudo tar` installs an unverified binary that then executes as part of the render gate. Called with `helm-plugins: ""`: its default installs helm-diff on every run, which is not idempotent and fails with "plugin already exists" on the self-hosted pool, and this action never runs `helmfile diff`, `apply` or `sync` |
 | `crazy-max/ghaction-import-gpg` | Already the org standard for signing commits in `gitops-update.yml` and the chart release pipeline. The target repository ruleset requires signed commits, and this handles the passphrase-protected CI key |
 
 All three are pinned by commit SHA with the version in a trailing comment, as third-party actions require.
