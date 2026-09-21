@@ -12,7 +12,7 @@ It auto-detects the event:
 - `pull_request` / `pull_request_target` — lists changed files via `gh api repos/{repo}/pulls/{n}/files` (removed files excluded).
 - `push` — diffs `before...after` via `gh api repos/{repo}/compare`. A first push (empty/zero base ref) returns `code=true`.
 
-A changed file "counts" unless it matches one of the `ignore-globs` patterns. If every changed file matches an ignore pattern, `code=false`.
+A changed file "counts" unless it matches one of the `ignore-globs` patterns. If every changed file matches an ignore pattern, `code=false`. A file under `.github/workflows/` always counts, whatever the globs say: the default `.github/*` glob exists for CODEOWNERS, templates and bot config, and a PR that edits only the pipeline definition must run the pipeline it edits.
 
 ## Inputs
 
