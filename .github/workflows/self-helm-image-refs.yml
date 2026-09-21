@@ -76,7 +76,7 @@ jobs:
           persist-credentials: false
 
       - name: Setup Helm
-        uses: azure/setup-helm@b9e51907a09c216f16ebe8536097933489208112 # v4.3.0
+        uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
 
       # `docker manifest inspect` reads the Docker CLI credential store, which
       # `helm registry login` does not write to. Without this, every private GHCR
