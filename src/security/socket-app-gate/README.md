@@ -49,6 +49,8 @@ The App already does the dependency-graph analysis and posts `Socket Security: P
 
 An unreadable check-runs API returns no checks, which would be classified as `missing` and merely warn — so a job without the `checks: read` scope would pass silently while gating nothing. The action therefore treats a non-zero `gh` exit as a hard error naming the likely cause, instead of folding it into an empty result.
 
+Each poll follows all check-run pages and combines them into one array before filtering by App. Socket checks beyond the first 100 results therefore participate in both the stable-set check and the verdict. An API failure on any page aborts the poll; a partial result is never accepted as a clean verdict.
+
 For the same reason the caller must grant `checks: read`. The `js-pr-validation` umbrella declares it at both workflow and job level, but a caller that pins its own `permissions:` block has to include it: a reusable workflow's permissions are intersected with the caller's, never expanded.
 
 ## Why it polls
@@ -101,3 +103,7 @@ permissions:
 ## Third-party actions used
 
 None. The action calls the GitHub REST check-runs API through the preinstalled `gh` CLI, so there is no dependency to pin.
+
+## Regression tests
+
+Run `python3 src/security/socket-app-gate/test.py` from the repository root. The tests execute the action's actual Bash steps with mocked GitHub pages, a deterministic clock and real `jq`; they need no network or credentials. They cover multi-page success, later-page adverse and pending checks, late publication, page-fetch failure and timeout behavior.

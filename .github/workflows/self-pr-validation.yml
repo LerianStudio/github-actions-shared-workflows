@@ -75,6 +75,21 @@ jobs:
       - name: Run breaking-change workflow integration tests
         run: python3 src/validate/breaking-change-guard/test-workflow.py
 
+  # ----------------- Socket App Gate Tests -----------------
+  socket-app-gate-tests:
+    name: Socket App Gate Tests
+    runs-on: ${{ vars.GENERAL_RUNNERS || 'blacksmith-4vcpu-ubuntu-2404' }}
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+        with:
+          persist-credentials: false
+
+      - name: Run Socket App gate pagination tests
+        run: python3 src/security/socket-app-gate/test.py
+
   # ----------------- Permission Manifest Publish Tests -----------------
   permission-manifest-publish-tests:
     name: Permission Manifest Publish Tests
@@ -431,6 +446,7 @@ jobs:
       - pr-commit-signatures-tests
       - coderabbit-collapse-tests
       - prerelease-check-tests
+      - socket-app-gate-tests
       - yamllint
       - actionlint
       - pinned-actions
