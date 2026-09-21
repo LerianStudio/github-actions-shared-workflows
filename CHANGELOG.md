@@ -1,5 +1,20 @@
 # Github-actions-shared-workflows Changelog
 
+## [1.74.1](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.74.1)
+
+Fixes:
+
+- Merged changes from `develop` to `main` to ensure the latest updates are reflected in the main branch. (@bedatty)
+- Updated the pull request validation workflow to request a review when the overall verdict passes, but a specific job fails. This ensures that potential issues are flagged for review even if the overall status is successful. (@bedatty)
+
+Improvements:
+
+- Scoped the `always()` rule specifically to the two-job shape in the `coderabbit-gate` documentation, providing clearer guidance on its application. (@bedatty)
+
+[Compare changes](https://github.com/LerianStudio/github-actions-shared-workflows/compare/v1.74.0...v1.74.1)
+
+---
+
 ## [1.74.0](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.74.0)
 
 Features:
