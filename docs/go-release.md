@@ -85,6 +85,7 @@ A third layout needs `release_single_app: true`: **one semantic-release tag for 
 | `argocd_app_name_template` | Template for the ArgoCD application name. Placeholders `{server}`, `{app}`, `{env}`. For kustomize layouts without env split use e.g. `{server}-{app}` | string | `{server}-{app}-{env}` |
 | `s3_uploads` | JSON array of S3 upload entries run after build on tag push (see [S3 migrations upload](#s3-migrations-upload)) | string | `''` |
 | `run_manifest_publish` | Publish this service's own `permissions.yaml` to the shared Access-Manager RI catalog in S3 on tag push (see [Permission manifest publish](#permission-manifest-publish-ri)) | boolean | `true` |
+| `manifest_publish_environment` | GitHub Environment to scope the manifest publish job to, putting the `AWS_INIT_DATA_ROLE_ARN` assume-role behind that environment's protection rules. Empty keeps the job unscoped | string | `''` |
 | `enable_apidog_e2e` | Run the ApiDog E2E test job on tag push after a successful gitops-update | boolean | `false` |
 | `apidog_runner_type` | Runner for the ApiDog E2E test job (needs reach to the deployed environment) | string | `eveo-lxc-runners` |
 | `apidog_auto_detect_environment` | Auto-detect the ApiDog environment from the tag (beta → dev, rc → stg); when `false`, uses `APIDOG_ENVIRONMENT_ID` | boolean | `true` |
@@ -192,9 +193,18 @@ The catalog is **per-service and env-scoped**: each service writes exactly one o
 s3://lerian-casdoor-init-data/{environment}/permissions/{service}.yaml
 ```
 
-The `{environment}` folder is derived from the tag suffix exactly like the S3 upload job (`-beta` → `development`, `-rc` → `staging`, `vX.Y.Z` → `production`). There is **no aggregation** on write — the tenant-manager aggregates at read time by listing the `{environment}/permissions/` prefix, and each release overwrites only its own file.
+The `{environment}` folder is derived from the pushed tag, which must be a **strict release semver tag**: `vX.Y.Z-beta.N` → `development`, `vX.Y.Z-rc.N` → `staging`, `vX.Y.Z` → `production`. That is exactly what semantic-release produces; any other tag shape publishes **nothing** (the job logs a warning and skips) so a stray tag merely containing `beta`/`rc` can never write to the shared catalog. There is **no aggregation** on write — the tenant-manager aggregates at read time by listing the `{environment}/permissions/` prefix, and each release overwrites only its own file.
 
-The job assumes the **`AWS_INIT_DATA_ROLE_ARN`** secret (scoped to the `lerian-casdoor-init-data` bucket — the same bucket the Casdoor `init_data.json` uses) via OIDC in region `us-east-2`; map it in the caller (`secrets: inherit` is sufficient). Set `run_manifest_publish: false` to opt out.
+The job assumes the **`AWS_INIT_DATA_ROLE_ARN`** secret (scoped to the `lerian-casdoor-init-data` bucket — the same bucket the Casdoor `init_data.json` uses) via OIDC in region `sa-east-1`. Prefer mapping it **explicitly** rather than relying on `secrets: inherit`, so the release only ever receives the secrets it needs:
+
+```yaml
+    secrets:
+      AWS_INIT_DATA_ROLE_ARN: ${{ secrets.AWS_INIT_DATA_ROLE_ARN }}
+```
+
+Set `run_manifest_publish: false` to opt out.
+
+For an extra gate on **who** may publish, set `manifest_publish_environment` to the name of a GitHub Environment configured in the caller repo. The publish job then runs under that environment, so its protection rules apply to the assume-role — a **deployment tag policy** (e.g. `v*.*.*`) restricts publishing to the tags you protect, and required reviewers can hold a production publish for approval. Left empty (the default) the job stays unscoped, as before.
 
 ## ApiDog E2E tests
 

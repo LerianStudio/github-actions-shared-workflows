@@ -289,6 +289,10 @@ on:
         description: 'Publish this service''s own permissions.yaml manifest to the shared Access-Manager RI catalog in S3 on tag push (upstream half of the Inversão de Responsabilidade). Auto-detects the manifest and no-ops when out of scope (no direct lib-auth dep) or absent. The job is continue-on-error, so a hiccup never blocks the release. Requires the AWS_INIT_DATA_ROLE_ARN secret to be mapped by the caller.'
         type: boolean
         default: true
+      manifest_publish_environment:
+        description: 'Name of a GitHub Environment to scope the manifest publish job to. Empty (default) keeps the job unscoped, exactly as before. Set it to put the AWS_INIT_DATA_ROLE_ARN assume-role behind the environment''s protection rules — deployment tag policies (only protected tags may publish) and, optionally, required reviewers.'
+        type: string
+        default: ''
       # ----------------- API Dog E2E (api-dog-e2e-tests.yml) -----------------
       enable_apidog_e2e:
         description: 'Run the ApiDog E2E test job on tag push after a successful gitops-update'
@@ -670,6 +674,12 @@ jobs:
       !cancelled() && github.ref_type == 'tag' && inputs.run_manifest_publish
     runs-on: ${{ inputs.runner_type }}
     continue-on-error: true
+    # Optional GitHub Environment gate. Empty (the default) leaves the job
+    # unscoped, as it has always been; when the caller names an environment the
+    # AWS_INIT_DATA_ROLE_ARN assume-role happens under that environment's
+    # protection rules, so a deployment tag policy can keep a stray tag from
+    # ever writing to the shared RI catalog.
+    environment: ${{ inputs.manifest_publish_environment }}
     permissions:
       id-token: write
       contents: read
@@ -692,9 +702,14 @@ jobs:
         run: |
           set -euo pipefail
           TAG="${GITHUB_REF#refs/tags/}"
-          if [[ "$TAG" == *-beta* ]]; then
+          # Strict semver, the shape semantic-release actually produces. The
+          # previous *-beta* / *-rc* globs matched any tag merely CONTAINING the
+          # marker, so an arbitrary tag could write to the shared RI catalog;
+          # only `production` was pinned. Anything off-pattern now falls through
+          # to the empty folder, which already skips the publish with a warning.
+          if [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-beta\.[0-9]+$ ]]; then
             FOLDER="development"
-          elif [[ "$TAG" == *-rc* ]]; then
+          elif [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-rc\.[0-9]+$ ]]; then
             FOLDER="staging"
           elif [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
             FOLDER="production"
@@ -702,7 +717,7 @@ jobs:
             FOLDER=""
           fi
           echo "folder=${FOLDER}" >> "$GITHUB_OUTPUT"
-          [[ -n "$FOLDER" ]] && echo "📁 Environment: ${FOLDER}" || echo "::warning::Tag '${TAG}' matched no environment — manifest publish skipped."
+          [[ -n "$FOLDER" ]] && echo "📁 Environment: ${FOLDER}" || echo "::warning::Tag '${TAG}' is not a release semver tag (vX.Y.Z, vX.Y.Z-beta.N, vX.Y.Z-rc.N) — manifest publish skipped."
 
       # ----------------- AWS credentials (guarded) -----------------
       # Skip on a dry-run (the composite previews with no AWS call) and when the
