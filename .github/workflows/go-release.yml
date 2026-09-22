@@ -707,11 +707,15 @@ jobs:
           # marker, so an arbitrary tag could write to the shared RI catalog;
           # only `production` was pinned. Anything off-pattern now falls through
           # to the empty folder, which already skips the publish with a warning.
-          if [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-beta\.[0-9]+$ ]]; then
+          # NUM rejects leading zeroes, which semver forbids and which would
+          # otherwise let `v01.2.3` slip past the gate as a production tag.
+          NUM='(0|[1-9][0-9]*)'
+          CORE="v${NUM}\.${NUM}\.${NUM}"
+          if [[ "$TAG" =~ ^${CORE}-beta\.${NUM}$ ]]; then
             FOLDER="development"
-          elif [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-rc\.[0-9]+$ ]]; then
+          elif [[ "$TAG" =~ ^${CORE}-rc\.${NUM}$ ]]; then
             FOLDER="staging"
-          elif [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+          elif [[ "$TAG" =~ ^${CORE}$ ]]; then
             FOLDER="production"
           else
             FOLDER=""
