@@ -9,7 +9,7 @@ Detects whether a pull request or push contains changes beyond documentation/met
 
 It auto-detects the event:
 
-- `pull_request` / `pull_request_target` — lists changed files via `gh api repos/{repo}/pulls/{n}/files` (removed files excluded).
+- `pull_request` / `pull_request_target` — lists changed files via `gh api repos/{repo}/pulls/{n}/files`. Deleted files are included and classified by their path, so a deletion-only pull request is gated on what it deleted rather than treated as an empty diff.
 - `push` — diffs `before...after` via `gh api repos/{repo}/compare`. A first push (empty/zero base ref) returns `code=true`.
 
 A changed file "counts" unless it matches one of the `ignore-globs` patterns. If every changed file matches an ignore pattern, `code=false`.
