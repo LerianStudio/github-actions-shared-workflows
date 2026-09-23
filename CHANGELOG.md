@@ -1,5 +1,27 @@
 # Github-actions-shared-workflows Changelog
 
+## [1.75.0](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.75.0)
+
+Features:
+
+- Verify the compiled build identity before pushing the image to ensure consistency and integrity. (@fredcamaral)
+- Normalize the release version and record the checkout revision to maintain a consistent release process. (@fredcamaral)
+
+Fixes:
+
+- Ensure the Results job fails when its verdict is false to enhance security checks. (@bedatty)
+- Harden the permission manifest publish trigger scope to improve security in the `go-release` process. (@bedatty)
+- Reject leading-zero version components in the publish gate to prevent invalid versioning in `go-release`. (@bedatty)
+- Align the CodeQL composite pins with the workflows to ensure security configurations are up-to-date. (@fredcamaral)
+
+Improvements:
+
+- Document the build identity contract to provide clarity on the build process. (@fredcamaral)
+
+[Compare changes](https://github.com/LerianStudio/github-actions-shared-workflows/compare/v1.74.2...v1.75.0)
+
+---
+
 ## [1.74.2](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.74.2)
 
 Fixes:
