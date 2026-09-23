@@ -1,5 +1,18 @@
 # Github-actions-shared-workflows Changelog
 
+## [1.74.2](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.74.2)
+
+Fixes:
+- Addressed the issue of paginating all Socket app check runs before evaluating them to ensure proper handling of large datasets. (@fredcamaral)
+
+Improvements:
+- Updated `azure/setup-helm` action from version `4.3.0` to `5.0.1` to incorporate the latest features and improvements. (@bedatty)
+- Bumped the `github-security` group across one directory with four updates to enhance security measures. (@bedatty)
+
+[Compare changes](https://github.com/LerianStudio/github-actions-shared-workflows/compare/v1.74.1...v1.74.2)
+
+---
+
 ## [1.74.1](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.74.1)
 
 Fixes:
