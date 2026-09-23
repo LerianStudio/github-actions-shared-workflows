@@ -6,7 +6,7 @@ inputs:
     description: GitHub token used for gh CLI access (needs read access to the repository contents and pull requests).
     required: true
   ignore-globs:
-    description: 'Space-separated glob patterns treated as documentation/meta. When every changed file matches one of these, the gate returns code=false.'
+    description: 'Space-separated glob patterns treated as documentation/meta. When every changed file matches one of these, the gate returns code=false. Files under .github/workflows/ always count as code, whatever the globs say.'
     required: false
     default: '*.md docs/* .github/* LICENSE* .gitignore .coderabbit.yml .coderabbit.yaml'
 
@@ -62,6 +62,13 @@ runs:
         code=false
         while IFS= read -r file; do
           [ -z "$file" ] && continue
+          # A workflow file is never documentation, whatever the globs say:
+          # the default `.github/*` glob is for CODEOWNERS, templates and
+          # bot config, and a PR that edits only the pipeline definition is
+          # the one PR that must run the pipeline it edits.
+          case "$file" in
+            .github/workflows/*) code=true; break ;;
+          esac
           ignored=false
           for glob in "${ignore_patterns[@]}"; do
             # shellcheck disable=SC2254
