@@ -34,8 +34,14 @@ runs:
 
         # ----------------- Collect changed files -----------------
         if [ "$EVENT_NAME" = "pull_request" ] || [ "$EVENT_NAME" = "pull_request_target" ]; then
+          # Deletions count. A removed file is classified by its path like any
+          # other: a deleted `docs/x.md` is still documentation, a deleted `.go`
+          # file is a code change (its callers may no longer build, its tests no
+          # longer cover). Dropping removed files made a deletion-only pull
+          # request produce an empty list, and an empty list gates the pipeline
+          # off while the required check still reports green.
           if ! files=$(gh api "repos/${REPO}/pulls/${PR_NUMBER}/files" --paginate \
-              --jq '.[] | select(.status != "removed") | .filename'); then
+              --jq '.[].filename'); then
             echo "::error::Failed to list changed files for PR #${PR_NUMBER}"
             exit 1
           fi
