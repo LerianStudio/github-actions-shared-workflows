@@ -115,6 +115,10 @@ on:
         description: 'When true, continue to GitOps artifact upload even if cosign signing fails after all retries. The image stays in the registry unsigned and a warning is emitted; manual signing is required afterwards. Forwarded to build.yml.'
         type: boolean
         default: false
+      require_build_identity:
+        description: 'Fail the build when the Dockerfile does not declare ARG REVISION. Set it once the service has adopted the compiled build identity so a regression cannot ship. Forwarded to build.yml for the primary build and, unless the group sets its own require_build_identity, every extra_builds group.'
+        type: boolean
+        default: false
       app_name_prefix:
         description: 'Prefix for app names in monorepo (e.g., "midaz" -> "midaz-agent")'
         type: string
@@ -164,7 +168,7 @@ on:
         type: string
         default: 'maintenance/*'
       extra_builds:
-        description: 'JSON array of additional build groups, each forwarded to build.yml with its own config (filter_paths, path_level, normalize_to_filter, app_name_overrides, build_context_from_working_dir, helm_*, tag_prefix, enable_dockerhub, enable_ghcr, enable_gitops_artifacts, force_full_matrix). Runs alongside the primary build on tag push; groups with enable_gitops_artifacts enabled (the default) feed the single gitops-update. A group with tag_prefix set only builds when the triggering tag starts with that prefix (e.g. a component with its own independent semver and tag scheme); omit tag_prefix to build on every tag push, as before. enable_dockerhub/enable_ghcr default to the top-level inputs of the same name when omitted (explicit true/false on the group always wins, including false) — use to publish a group to only one registry regardless of the primary build''s registries. enable_gitops_artifacts defaults to true when omitted. force_full_matrix defaults to true, skipping change detection so the group builds/publishes every listed component in lockstep with the release version; set it to false to build only changed components. Empty = one build only (default).'
+        description: 'JSON array of additional build groups, each forwarded to build.yml with its own config (filter_paths, path_level, normalize_to_filter, app_name_overrides, build_context_from_working_dir, helm_*, tag_prefix, enable_dockerhub, enable_ghcr, enable_gitops_artifacts, force_full_matrix, require_build_identity). Runs alongside the primary build on tag push; groups with enable_gitops_artifacts enabled (the default) feed the single gitops-update. A group with tag_prefix set only builds when the triggering tag starts with that prefix (e.g. a component with its own independent semver and tag scheme); omit tag_prefix to build on every tag push, as before. enable_dockerhub/enable_ghcr default to the top-level inputs of the same name when omitted (explicit true/false on the group always wins, including false) — use to publish a group to only one registry regardless of the primary build''s registries. enable_gitops_artifacts defaults to true when omitted. require_build_identity defaults to the top-level input when omitted (explicit true/false on the group wins) — set false on a group whose image has not adopted the build identity (e.g. a migrations image) while the primary requires it. force_full_matrix defaults to true, skipping change detection so the group builds/publishes every listed component in lockstep with the release version; set it to false to build only changed components. Empty = one build only (default).'
         type: string
         default: ''
       force_full_matrix:
@@ -289,6 +293,10 @@ on:
         description: 'Publish this service''s own permissions.yaml manifest to the shared Access-Manager RI catalog in S3 on tag push (upstream half of the Inversão de Responsabilidade). Auto-detects the manifest and no-ops when out of scope (no direct lib-auth dep) or absent. The job is continue-on-error, so a hiccup never blocks the release. Requires the AWS_INIT_DATA_ROLE_ARN secret to be mapped by the caller.'
         type: boolean
         default: true
+      manifest_publish_environment:
+        description: 'Name of a GitHub Environment to scope the manifest publish job to. Empty (default) keeps the job unscoped, exactly as before. Set it to put the AWS_INIT_DATA_ROLE_ARN assume-role behind the environment''s protection rules — deployment tag policies (only protected tags may publish) and, optionally, required reviewers.'
+        type: string
+        default: ''
       # ----------------- API Dog E2E (api-dog-e2e-tests.yml) -----------------
       enable_apidog_e2e:
         description: 'Run the ApiDog E2E test job on tag push after a successful gitops-update'
@@ -494,6 +502,7 @@ jobs:
       cosign_initial_delay: ${{ inputs.cosign_initial_delay }}
       cosign_max_delay: ${{ inputs.cosign_max_delay }}
       continue_gitops_on_signing_failure: ${{ inputs.continue_gitops_on_signing_failure }}
+      require_build_identity: ${{ inputs.require_build_identity }}
       # Deferred to the dispatch_helm job below. build.yml dispatches from inside
       # itself, which cannot see extra_build — a sibling job here — so the chart
       # would be bumped while the migrations image was still building.
@@ -670,6 +679,12 @@ jobs:
       !cancelled() && github.ref_type == 'tag' && inputs.run_manifest_publish
     runs-on: ${{ inputs.runner_type }}
     continue-on-error: true
+    # Optional GitHub Environment gate. Empty (the default) leaves the job
+    # unscoped, as it has always been; when the caller names an environment the
+    # AWS_INIT_DATA_ROLE_ARN assume-role happens under that environment's
+    # protection rules, so a deployment tag policy can keep a stray tag from
+    # ever writing to the shared RI catalog.
+    environment: ${{ inputs.manifest_publish_environment }}
     permissions:
       id-token: write
       contents: read
@@ -692,17 +707,26 @@ jobs:
         run: |
           set -euo pipefail
           TAG="${GITHUB_REF#refs/tags/}"
-          if [[ "$TAG" == *-beta* ]]; then
+          # Strict semver, the shape semantic-release actually produces. The
+          # previous *-beta* / *-rc* globs matched any tag merely CONTAINING the
+          # marker, so an arbitrary tag could write to the shared RI catalog;
+          # only `production` was pinned. Anything off-pattern now falls through
+          # to the empty folder, which already skips the publish with a warning.
+          # NUM rejects leading zeroes, which semver forbids and which would
+          # otherwise let `v01.2.3` slip past the gate as a production tag.
+          NUM='(0|[1-9][0-9]*)'
+          CORE="v${NUM}\.${NUM}\.${NUM}"
+          if [[ "$TAG" =~ ^${CORE}-beta\.${NUM}$ ]]; then
             FOLDER="development"
-          elif [[ "$TAG" == *-rc* ]]; then
+          elif [[ "$TAG" =~ ^${CORE}-rc\.${NUM}$ ]]; then
             FOLDER="staging"
-          elif [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+          elif [[ "$TAG" =~ ^${CORE}$ ]]; then
             FOLDER="production"
           else
             FOLDER=""
           fi
           echo "folder=${FOLDER}" >> "$GITHUB_OUTPUT"
-          [[ -n "$FOLDER" ]] && echo "📁 Environment: ${FOLDER}" || echo "::warning::Tag '${TAG}' matched no environment — manifest publish skipped."
+          [[ -n "$FOLDER" ]] && echo "📁 Environment: ${FOLDER}" || echo "::warning::Tag '${TAG}' is not a release semver tag (vX.Y.Z, vX.Y.Z-beta.N, vX.Y.Z-rc.N) — manifest publish skipped."
 
       # ----------------- AWS credentials (guarded) -----------------
       # Skip on a dry-run (the composite previews with no AWS call) and when the
@@ -774,6 +798,7 @@ jobs:
       cosign_initial_delay: ${{ inputs.cosign_initial_delay }}
       cosign_max_delay: ${{ inputs.cosign_max_delay }}
       continue_gitops_on_signing_failure: ${{ inputs.continue_gitops_on_signing_failure }}
+      require_build_identity: ${{ matrix.group.require_build_identity == true || (toJSON(matrix.group.require_build_identity) == 'null' && inputs.require_build_identity == true) }}
       enable_gitops_artifacts: ${{ matrix.group.enable_gitops_artifacts == null && true || matrix.group.enable_gitops_artifacts }}
       filter_paths: ${{ matrix.group.filter_paths }}
       shared_paths: ${{ matrix.group.shared_paths || inputs.shared_paths }}
