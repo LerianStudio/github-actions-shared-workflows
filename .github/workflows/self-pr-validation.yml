@@ -75,6 +75,39 @@ jobs:
       - name: Run breaking-change workflow integration tests
         run: python3 src/validate/breaking-change-guard/test-workflow.py
 
+  # ----------------- Build Identity Verification Tests -----------------
+  # The build.yml verification step decides whether a service image may be published,
+  # so a regression in it blocks releases across every consumer of build.yml. The
+  # fixture images need docker and jq (on the runner image) and go (installed below).
+  build-identity-tests:
+    name: Build Identity Verification Tests
+    runs-on: ${{ vars.GENERAL_RUNNERS || 'blacksmith-4vcpu-ubuntu-2404' }}
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+        with:
+          persist-credentials: false
+
+      # The fixtures are compiled on the spot; every other Go job here installs the
+      # toolchain rather than assuming the runner image carries it.
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v6
+        with:
+          go-version: stable
+
+      # The repository's shellcheck job lints `run:` blocks inside YAML, so these
+      # standalone scripts have no other coverage.
+      - name: Lint build identity test scripts
+        run: shellcheck tests/build-identity/*.sh
+
+      - name: Run build.yml verification step tests
+        run: bash tests/build-identity/test.sh
+
+      - name: Run build.yml identity logic tests
+        run: bash tests/build-identity/test-workflow.sh
+
   # ----------------- Socket App Gate Tests -----------------
   socket-app-gate-tests:
     name: Socket App Gate Tests
@@ -442,6 +475,7 @@ jobs:
       - validation
       - changed-files
       - breaking-change-guard-tests
+      - build-identity-tests
       - permission-manifest-publish-tests
       - pr-commit-signatures-tests
       - coderabbit-collapse-tests

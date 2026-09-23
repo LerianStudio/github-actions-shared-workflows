@@ -101,6 +101,18 @@ uses: LerianStudio/github-actions-shared-workflows/.github/workflows/go-release.
 uses: LerianStudio/github-actions-shared-workflows/.github/workflows/go-release.yml@tier-2
 ```
 
+## Build identity verification
+
+The release that carries build identity verification changes what a build run does just before it pushes an image. Promotion is unaffected — the train above delivers it like any other release — but what it does to you depends on your Dockerfile, not on your tier.
+
+**Your Dockerfile declares `ARG REVISION`.** CI builds an image for the runner's native platform, asks it `docker run <image> --version`, and refuses to push when the version or the commit the binary reports disagrees with what the release injected. An image whose identity disagrees fails the build instead of publishing a lying image. Losing `ARG REVISION` itself is a different regression: it fails the build only when the caller sets `require_build_identity: true`, which a repository should do once it has adopted; without the input it downgrades to the warning below. The check is a step inside `build.yml` itself, not a composite, so it arrives with the workflow file your tier pins and is not subject to the composite gap described below.
+
+**It does not** — check with `grep -nE '^[[:space:]]*[Aa][Rr][Gg][[:space:]]+REVISION([[:space:]]|=|$)' <your dockerfile>`, the same match the build uses. A declaration whose name only starts with `REVISION`, such as `ARG REVISION_ID`, does not count. The build proceeds exactly as before and the job emits one warning naming the image.
+
+Adopting is three `ARG` lines in the Dockerfile and three variables in `main`: [build.md, Build identity contract](build.md#build-identity-contract).
+
+The gate on `ARG REVISION` exists because `tier-0` promotes with no human approval, and a promotion should never be what breaks a repository that never asked for the contract. It is temporary: once every consumer has adopted, verification becomes unconditional, and that release will be announced before it is cut.
+
 ## What tiers do not solve yet
 
 **The composites inside a workflow are not yet channelled.** A reusable workflow in this repository calls its composite actions by absolute ref — mostly `@v1`, a floating major tag moved on every release — because `./` inside a reusable workflow resolves against the caller's workspace, not this repository. So pinning `@tier-2` today gates the workflow file you call, while the composites it invokes still arrive from the newest release.
