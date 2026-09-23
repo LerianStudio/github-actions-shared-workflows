@@ -790,8 +790,8 @@ jobs:
       tag_prefix: ${{ matrix.group.tag_prefix }}
       runner_type: ${{ inputs.runner_type }}
       build_runner_type: ${{ inputs.build_runner_type }}
-      enable_dockerhub: ${{ (matrix.group.enable_dockerhub == null && inputs.enable_dockerhub == true) || matrix.group.enable_dockerhub == true }}
-      enable_ghcr: ${{ (matrix.group.enable_ghcr == null && inputs.enable_ghcr == true) || matrix.group.enable_ghcr == true }}
+      enable_dockerhub: ${{ matrix.group.enable_dockerhub == true || (toJSON(matrix.group.enable_dockerhub) == 'null' && inputs.enable_dockerhub == true) }}
+      enable_ghcr: ${{ matrix.group.enable_ghcr == true || (toJSON(matrix.group.enable_ghcr) == 'null' && inputs.enable_ghcr == true) }}
       dockerhub_org: ${{ inputs.dockerhub_org }}
       enable_cosign_sign: ${{ inputs.enable_cosign_sign }}
       cosign_max_attempts: ${{ inputs.cosign_max_attempts }}
@@ -799,7 +799,7 @@ jobs:
       cosign_max_delay: ${{ inputs.cosign_max_delay }}
       continue_gitops_on_signing_failure: ${{ inputs.continue_gitops_on_signing_failure }}
       require_build_identity: ${{ matrix.group.require_build_identity == true || (toJSON(matrix.group.require_build_identity) == 'null' && inputs.require_build_identity == true) }}
-      enable_gitops_artifacts: ${{ matrix.group.enable_gitops_artifacts == null && true || matrix.group.enable_gitops_artifacts }}
+      enable_gitops_artifacts: ${{ matrix.group.enable_gitops_artifacts == true || toJSON(matrix.group.enable_gitops_artifacts) == 'null' }}
       filter_paths: ${{ matrix.group.filter_paths }}
       shared_paths: ${{ matrix.group.shared_paths || inputs.shared_paths }}
       path_level: ${{ matrix.group.path_level || inputs.path_level }}
