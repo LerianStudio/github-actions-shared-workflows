@@ -162,7 +162,7 @@ on:
         type: boolean
         default: false
       docker_build_args:
-        description: 'Newline-separated Docker build arguments (e.g., "APP_NAME=spi\nCOMPONENT_NAME=api"). For sensitive values (tokens, keys, passwords), use BuildKit secrets instead — build arguments are visible in image history. Two more arguments are always appended after these: VERSION (the published image version) and BUILD_TIME (RFC3339 UTC); a Dockerfile declaring ARG VERSION / ARG BUILD_TIME gets them stamped in, one that declares neither is unaffected.'
+        description: 'Newline-separated Docker build arguments (e.g., "APP_NAME=spi\nCOMPONENT_NAME=api"). For sensitive values (tokens, keys, passwords), use BuildKit secrets instead — build arguments are visible in image history. Three more arguments are always appended after these, the build identity contract: VERSION (SemVer without a leading v), REVISION (the 40-hex commit the image was built from) and BUILD_TIME (RFC3339 UTC). A Dockerfile that declares them as ARG and compiles them into the binary lets the running image report what it was published as; one that declares none is unaffected.'
         type: string
         required: false
         default: ''
@@ -322,6 +322,20 @@ jobs:
           ref: ${{ inputs.checkout_ref }}   # empty string = default run ref
           persist-credentials: false
 
+      # The commit this image is built from, which is not github.sha whenever
+      # checkout_ref is set: in the release flow that ref is the tag semantic-release
+      # created earlier in the same run, pointing at the CHANGELOG commit rather than
+      # at the commit that triggered the run. Resolved once, here, and fed to the
+      # REVISION build argument, the OCI revision label and the pre-flight provenance
+      # comparison, so the binary, the image metadata and the re-run guard can never
+      # name three different commits for one image.
+      - name: Resolve source revision
+        id: source
+        run: |
+          set -euo pipefail
+          SHA=$(git rev-parse HEAD)
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+
       - name: Set up QEMU
         if: contains(needs.prepare.outputs.platforms, 'arm64')
         uses: docker/setup-qemu-action@1f40c72289eff860ee54a304f1438e3cff362e0a # v4
@@ -387,9 +401,10 @@ jobs:
         env:
           RELEASE_VERSION: ${{ inputs.release_version }}
         run: |
+          set -euo pipefail
           if [ -n "$RELEASE_VERSION" ]; then
             # Branch-push build (same run as semantic-release): no tag in GITHUB_REF.
-            echo "version=$RELEASE_VERSION" >> "$GITHUB_OUTPUT"
+            VERSION="$RELEASE_VERSION"
             echo "Using explicit release version: $RELEASE_VERSION"
           else
             TAG="${GITHUB_REF#refs/tags/}"
@@ -398,9 +413,21 @@ jobs:
             # e.g., control-plane-v1.0.0-beta.1 -> v1.0.0-beta.1
             # shellcheck disable=SC2001
             VERSION=$(echo "$TAG" | sed 's/.*-\(v[0-9]\)/\1/')
-            echo "version=$VERSION" >> "$GITHUB_OUTPUT"
             echo "Extracted version: $VERSION from tag: $TAG"
           fi
+
+          # One spelling of the version for the whole job: SemVer with no leading 'v'.
+          # The tag path keeps the 'v' the tag carries, the semantic-release path never
+          # has one — and the published image tag, the VERSION build argument and the
+          # GitOps tag artifact all want it gone. Normalising once here is what makes
+          # the version the image reports identical to the version it is published as.
+          VERSION="${VERSION#v}"
+          if ! printf '%s' "$VERSION" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'; then
+            echo "::error::Resolved version '$VERSION' is not SemVer X.Y.Z[-prerelease]. A ref that carries no release version must never be published as an image."
+            exit 1
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Resolved version: $VERSION"
 
           # Build provenance timestamp, fed to the image as the BUILD_TIME build
           # argument below. Captured here (once per app, alongside the version it
@@ -421,6 +448,7 @@ jobs:
           VERSION: ${{ steps.version.outputs.version }}
           ALL_IMAGES: ${{ steps.image-names.outputs.images }}
           REQUIRE_PROVENANCE: ${{ inputs.require_image_provenance }}
+          SOURCE_SHA: ${{ steps.source.outputs.sha }}
         run: |
           set -uo pipefail
 
@@ -553,7 +581,11 @@ jobs:
                   REV="$(resolve_revision "$REF")"
                   if [ -z "$REV" ]; then
                     UNVERIFIABLE="${UNVERIFIABLE}${UNVERIFIABLE:+, }${REF}"
-                  elif [ "$REV" != "$GITHUB_SHA" ]; then
+                  # The label is registry data and ends up in an ::error:: line, so
+                  # anything but a commit SHA is reported without echoing it.
+                  elif [[ ! $REV =~ ^[0-9a-f]{40}$ ]]; then
+                    DIVERGED="${DIVERGED}${DIVERGED:+, }${REF} (revision label is not a commit SHA)"
+                  elif [ "$REV" != "$SOURCE_SHA" ]; then
                     DIVERGED="${DIVERGED}${DIVERGED:+, }${REF} (built from ${REV})"
                   fi
                 done <<< "$EXISTING_REFS"
@@ -562,7 +594,7 @@ jobs:
                 # require_image_provenance disabled — that input only governs the
                 # can't-tell case below.
                 if [ -n "$DIVERGED" ]; then
-                  echo "::error::Tag ${TAG} in the registry was not built from this commit: ${DIVERGED}; this run is at ${GITHUB_SHA}. Registry tags are immutable, so on_existing_tag: ${MODE} would publish the older image. Cut a new version instead of retargeting the tag."
+                  echo "::error::Tag ${TAG} in the registry was not built from this commit: ${DIVERGED}; this run builds ${SOURCE_SHA}. Registry tags are immutable, so on_existing_tag: ${MODE} would publish the older image. Cut a new version instead of retargeting the tag."
                   exit 1
                 fi
                 if [ -n "$UNVERIFIABLE" ]; then
@@ -613,6 +645,13 @@ jobs:
           images: ${{ steps.preflight.outputs.push_images }}
           tags: |
             type=semver,pattern={{version}},value=${{ steps.version.outputs.version }}
+          # The action defaults org.opencontainers.image.revision to github.sha, which
+          # is the wrong commit whenever checkout_ref points elsewhere. Custom labels
+          # are merged over the defaults key by key, so this one wins. The pre-flight
+          # reads this label back to tell a re-run apart from a retargeted tag, so it
+          # has to name the commit that was actually built.
+          labels: |
+            org.opencontainers.image.revision=${{ steps.source.outputs.sha }}
 
       - name: Build and push Docker image
         if: steps.preflight.outputs.should_build != 'false'
@@ -625,21 +664,25 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          # Caller-supplied arguments first, then the release provenance pair this
+          # Caller-supplied arguments first, then the build identity contract this
           # workflow computes. A caller cannot pass VERSION itself: the version is
           # only known after semantic-release runs inside the release umbrella, well
           # after the static docker_build_args input is bound.
           #
-          # Additive for every consumer: a Dockerfile that declares `ARG VERSION` /
-          # `ARG BUILD_TIME` gets a stamped binary (e.g. via -ldflags -X or OCI
-          # labels); one that declares neither is unaffected, because an undeclared
-          # build argument only warns and does not invalidate build cache.
+          # VERSION, REVISION and BUILD_TIME are that contract. A Dockerfile that
+          # publishes an image declares all three as ARG and compiles them into the
+          # binary (-ldflags -X), so the running process reports the version it was
+          # published under and the commit it was built from. REVISION is the same SHA
+          # that labels the image and that the pre-flight compares against; an image
+          # whose Dockerfile declares none of the three still builds, and still carries
+          # the label, but cannot answer for itself at runtime.
           #
-          # The computed pair goes LAST so an empty docker_build_args leaves a blank
+          # The computed trio goes LAST so an empty docker_build_args leaves a blank
           # leading line (ignored by build-push-action) rather than a dangling one.
           build-args: |
             ${{ inputs.docker_build_args }}
             VERSION=${{ steps.version.outputs.version }}
+            REVISION=${{ steps.source.outputs.sha }}
             BUILD_TIME=${{ steps.version.outputs.build_time }}
           sbom: generator=docker/scout-sbom-indexer:latest
           provenance: mode=max
@@ -831,13 +874,11 @@ jobs:
       - name: Create GitOps tag artifact
         if: inputs.enable_gitops_artifacts
         env:
-          RAW_VERSION: ${{ steps.version.outputs.version }}
+          VERSION: ${{ steps.version.outputs.version }}
           APP_NAME: ${{ matrix.app.name }}
         run: |
           set -euo pipefail
           mkdir -p gitops-tags
-          # Extract version without leading 'v'
-          VERSION="${RAW_VERSION#v}"
           printf "%s" "$VERSION" > "gitops-tags/${APP_NAME}.tag"
           echo "Created artifact: gitops-tags/${APP_NAME}.tag with version: $VERSION"
 
