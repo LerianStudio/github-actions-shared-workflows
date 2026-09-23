@@ -70,6 +70,10 @@ on:
         description: 'Under on_existing_tag "skip"/"repair", abort when the existing image does not record the commit it was built from (the org.opencontainers.image.revision label, emitted by docker/metadata-action). An image whose recorded commit differs from this run always aborts, regardless of this input. Set false to accept unverifiable images, e.g. tags published before the label was emitted.'
         type: boolean
         default: true
+      require_build_identity:
+        description: 'Fail the build when the Dockerfile does not declare ARG REVISION. Set it once the service has adopted the compiled build identity so a regression cannot ship.'
+        type: boolean
+        default: false
       dockerfile_name:
         description: 'Name of the Dockerfile'
         type: string
@@ -585,7 +589,14 @@ jobs:
                   # anything but a commit SHA is reported without echoing it.
                   elif [[ ! $REV =~ ^[0-9a-f]{40}$ ]]; then
                     DIVERGED="${DIVERGED}${DIVERGED:+, }${REF} (revision label is not a commit SHA)"
-                  elif [ "$REV" != "$SOURCE_SHA" ]; then
+                  # $GITHUB_SHA is accepted alongside $SOURCE_SHA for the transition:
+                  # every image published before this workflow set the label explicitly
+                  # carries the docker/metadata-action default (github.sha), which on the
+                  # release path is the branch commit rather than the tag commit. Without
+                  # this arm, `skip`/`repair` could no longer re-run any pre-existing tag.
+                  # Drop the second comparison once no tag from before the switch can
+                  # still be re-run.
+                  elif [ "$REV" != "$SOURCE_SHA" ] && [ "$REV" != "$GITHUB_SHA" ]; then
                     DIVERGED="${DIVERGED}${DIVERGED:+, }${REF} (built from ${REV})"
                   fi
                 done <<< "$EXISTING_REFS"
@@ -652,6 +663,164 @@ jobs:
           # has to name the commit that was actually built.
           labels: |
             org.opencontainers.image.revision=${{ steps.source.outputs.sha }}
+
+      # ----------------- Build Identity Verification -----------------
+      # An image that answers `--version` with a version or revision other than the
+      # one it is published under is worse than one that cannot answer at all: it sends
+      # whoever is debugging an incident to the wrong commit. So the amd64 image is
+      # built and interrogated here, on the runner, before anything reaches a registry.
+      #
+      # Verification is gated on the app's Dockerfile declaring `ARG REVISION` — the
+      # single line that says the image compiles the identity in. This workflow is the
+      # release contract of every Lerian service repository and tier-0 promotes each
+      # stable release without human approval, so a repository that has not adopted the
+      # contract keeps releasing, with a warning, instead of breaking on a promotion it
+      # never asked for. A repository that adopted and sets require_build_identity
+      # fails if ARG REVISION is removed; without the input a removal only downgrades
+      # to the warning. Dropping the gate is a one-line change, taken once every
+      # consumer has adopted.
+      - name: Detect build identity contract
+        if: steps.preflight.outputs.should_build != 'false'
+        id: identity
+        env:
+          APP_NAME: ${{ matrix.app.name }}
+          DOCKERFILE: ${{ matrix.app.working_dir }}/${{ inputs.dockerfile_name }}
+          REQUIRE_BUILD_IDENTITY: ${{ inputs.require_build_identity }}
+        run: |
+          set -euo pipefail
+
+          # The token is anchored on both sides: without a terminator `ARG REVISION_ID`
+          # would read as adoption and force verification on a Dockerfile that never
+          # declared ARG REVISION, failing a release that was promised only a warning.
+          # The ARG keyword is case-insensitive because Docker instruction keywords are;
+          # the name is not, because build-arg names are case-sensitive: `ARG revision`
+          # never receives REVISION=<sha>, so treating it as adoption would fail it.
+          if grep -qE '^[[:space:]]*[Aa][Rr][Gg][[:space:]]+REVISION([[:space:]]|=|$)' "$DOCKERFILE"; then
+            echo "adopted=true" >> "$GITHUB_OUTPUT"
+            echo "${DOCKERFILE} declares ARG REVISION - the image is verified before push."
+          elif [[ ${REQUIRE_BUILD_IDENTITY:-false} == 'true' ]]; then
+            echo "::error::require_build_identity is true but the Dockerfile does not declare ARG REVISION, so the image would ship without compiled build identity. Restore the declaration: see docs/build.md section Build identity contract."
+            exit 1
+          else
+            echo "adopted=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::Image ${APP_NAME} is published without compiled build identity (no ARG REVISION in ${DOCKERFILE}). Adopt the contract: see docs/build.md section Build identity contract."
+          fi
+
+      # Same context, Dockerfile, build arguments, secrets and cache as the push below,
+      # narrowed to the runner's native platform (so `docker run` below executes it without
+      # emulation, whether the runner is amd64 or arm64) and loaded into the runner's Docker
+      # daemon instead of pushed. It is a separate build rather than a split of the real one because `load: true`
+      # cannot carry the SBOM and provenance attestations the published image needs; the
+      # layers it produces land in the gha cache, so the multi-arch build that follows
+      # reuses them for that platform instead of compiling it twice.
+      - name: Build image for verification
+        if: steps.preflight.outputs.should_build != 'false' && steps.identity.outputs.adopted == 'true'
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
+        with:
+          context: ${{ inputs.build_context_from_working_dir == true && matrix.app.working_dir || inputs.build_context }}
+          file: ${{ matrix.app.working_dir }}/${{ inputs.dockerfile_name }}
+          platforms: ${{ runner.arch == 'ARM64' && 'linux/arm64' || 'linux/amd64' }}
+          push: false
+          load: true
+          tags: build-identity-verify/${{ matrix.app.name }}:${{ steps.version.outputs.version }}
+          build-args: |
+            ${{ inputs.docker_build_args }}
+            VERSION=${{ steps.version.outputs.version }}
+            REVISION=${{ steps.source.outputs.sha }}
+            BUILD_TIME=${{ steps.version.outputs.build_time }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          secrets: |
+            github_token=${{ secrets.MANAGE_TOKEN }}
+
+      # Inline rather than a composite: the runner resolves every `uses:` of the job at
+      # setup, for every consumer of this workflow, before any step condition runs, so a
+      # composite ref would be one more thing every release depends on. The step is
+      # tested by extracting this block (tests/build-identity/test.sh).
+      #
+      # Every value read from the image is untrusted: an image could print a line that
+      # Actions parses as a workflow command. So each field must match a strict pattern
+      # before it reaches an annotation or a comparison, and a field that does not is
+      # rejected with a fixed message that never echoes it.
+      - name: Verify build identity
+        if: steps.preflight.outputs.should_build != 'false' && steps.identity.outputs.adopted == 'true'
+        id: verify
+        env:
+          IMAGE: build-identity-verify/${{ matrix.app.name }}:${{ steps.version.outputs.version }}
+          EXPECTED_VERSION: ${{ steps.version.outputs.version }}
+          EXPECTED_REVISION: ${{ steps.source.outputs.sha }}
+        run: |
+          set -euo pipefail
+          RUN_TIMEOUT=${RUN_TIMEOUT:-30}
+
+          # Workflow commands are read from stdout, so errors go there rather than stderr.
+          fail() {
+            printf '::error::build identity: %s\n' "$1"
+            exit 1
+          }
+
+          [[ -n ${IMAGE:-} ]] || fail 'IMAGE is required.'
+          [[ -n ${EXPECTED_VERSION:-} ]] || fail 'EXPECTED_VERSION is required.'
+          [[ -n ${EXPECTED_REVISION:-} ]] || fail 'EXPECTED_REVISION is required.'
+
+          for tool in docker jq timeout; do
+            command -v "$tool" >/dev/null 2>&1 || fail "${tool} is not available on the runner."
+          done
+
+          adoption_hint='ENTRYPOINT must be the service binary with no shell wrapper and main must call buildinfo.HandleFlag() so --version prints the identity JSON; see docs/build.md section Build identity contract'
+
+          # The image output is deliberately not echoed back into the annotation: a binary
+          # that ignores --version prints whatever it logs at startup, and Actions logs on
+          # a public repository are world-readable. The engineer gets it on their machine.
+          reproduce="Reproduce locally: docker run --rm ${IMAGE} --version"
+
+          # --pull=never: a missing local tag is a local error, never a registry pull of
+          # the unregistered build-identity-verify namespace. --network none: --version
+          # only prints JSON, so the image gets no network at all.
+          #
+          # The docker client forwards timeout's SIGTERM to the container and keeps
+          # waiting, so a binary that ignores it would hold this job; -k SIGKILLs the
+          # client instead. That leaves the container running in the daemon, hence the
+          # name and the forced removal on every failure.
+          name="build-identity-verify-${GITHUB_RUN_ID:-0}-$$"
+          if ! output=$(timeout -k 5 "$RUN_TIMEOUT" docker run --rm --name "$name" --pull=never --network none "$IMAGE" --version 2>/dev/null); then
+            docker rm -f "$name" >/dev/null 2>&1 || true
+            fail "docker run ${IMAGE} --version failed or timed out after ${RUN_TIMEOUT}s (container stopped): ${adoption_hint}. ${reproduce}"
+          fi
+
+          if ! jq -e 'type == "object"' >/dev/null 2>&1 <<<"$output"; then
+            fail "${IMAGE} did not answer --version with JSON: ${adoption_hint}. ${reproduce}"
+          fi
+
+          # Reads one field into the named variable. Empty is allowed (the mismatch below
+          # names it); anything else must match. Not a $(...) subshell, so fail() exits
+          # the step and its annotation reaches stdout.
+          read_field() {
+            local var=$1 name=$2 pattern=$3 value
+            value=$(jq -r --arg k "$name" '.[$k] // "" | tostring' <<<"$output")
+            if [[ -n $value && ! $value =~ $pattern ]]; then
+              fail "${IMAGE} reports a ${name} outside the allowed character set or longer than 64 characters; the value is not shown. ${reproduce}"
+            fi
+            printf -v "$var" '%s' "$value"
+          }
+          reported_version='' reported_revision='' reported_go_version='' reported_service=''
+          read_field reported_version version '^[A-Za-z0-9._+-]{1,64}$'
+          read_field reported_revision revision '^[A-Za-z0-9._+-]{1,64}$'
+          read_field reported_go_version goVersion '^[A-Za-z0-9._+-]{1,64}$'
+          read_field reported_service service '^[A-Za-z0-9._-]{1,64}$'
+
+          if [[ $reported_version != "$EXPECTED_VERSION" ]]; then
+            fail "${IMAGE} reports version ${reported_version:-<empty>}, CI built ${EXPECTED_VERSION}: Dockerfile must declare ARG VERSION and pass -X main.version, main must declare var version and call buildinfo.Set; see docs/build.md section Build identity contract."
+          fi
+
+          if [[ $reported_revision != "$EXPECTED_REVISION" ]]; then
+            fail "${IMAGE} reports revision ${reported_revision:-<empty>}, CI built ${EXPECTED_REVISION}: Dockerfile must declare ARG REVISION and pass -X main.revision, main must declare var revision and call buildinfo.Set; see docs/build.md section Build identity contract."
+          fi
+
+          notice="${IMAGE} reports version=${reported_version} revision=${reported_revision}"
+          [[ -n $reported_go_version ]] && notice+=" goVersion=${reported_go_version}"
+          [[ -n $reported_service ]] && notice+=" service=${reported_service}"
+          printf '::notice::build identity: %s\n' "$notice"
 
       - name: Build and push Docker image
         if: steps.preflight.outputs.should_build != 'false'
