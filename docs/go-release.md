@@ -42,12 +42,13 @@ A third layout needs `release_single_app: true`: **one semantic-release tag for 
 | `enable_gitops_artifacts` | Upload GitOps artifacts for the downstream update | boolean | `false` |
 | `app_name` | Override app/image name (build single-app mode + gitops deploy name). Empty → gitops name derives from `app_name_prefix`, then repo name | string | `''` |
 | `tag_prefix` | Restrict the primary release/build jobs to tags starting with this prefix. Use when the repo also pushes tags for an unrelated component with its own `extra_builds` `tag_prefix`, so the primary jobs ignore that component's tags. Empty = react to every tag (current behavior) | string | `''` |
-| `docker_build_args` | Newline-separated Docker build args. `VERSION` (computed release version) and `BUILD_TIME` (RFC3339 UTC) are always appended after these, for the primary build and every `extra_builds` group — see [Build Arguments](build.md#build-arguments) | string | `''` |
+| `docker_build_args` | Newline-separated Docker build args. `VERSION` (computed release version, SemVer without a leading `v`), `REVISION` (the 40-hex commit the image was built from) and `BUILD_TIME` (RFC3339 UTC) are always appended after these, for the primary build and every `extra_builds` group — see [Build Arguments](build.md#build-arguments) | string | `''` |
 | `enable_cosign_sign` | Sign images with cosign keyless (OIDC) | boolean | `true` |
 | `cosign_max_attempts` | Maximum cosign signing attempts per image reference. Increase to absorb transient OIDC/Fulcio/Rekor rate limits. Forwarded to `build.yml` | string | `'5'` |
 | `cosign_initial_delay` | Initial delay (seconds) between cosign retries. Grows exponentially (×3), capped at `cosign_max_delay`, then jittered. Forwarded to `build.yml` | string | `'5'` |
 | `cosign_max_delay` | Maximum delay (seconds) between cosign retries. Caps the backoff before jitter | string | `'60'` |
 | `continue_gitops_on_signing_failure` | Continue to the GitOps artifact upload even when cosign signing fails after all retries. The image stays in the registry unsigned and a warning is emitted; manual signing is required afterwards. Forwarded to `build.yml` | boolean | `false` |
+| `require_build_identity` | Fail the build when the Dockerfile does not declare `ARG REVISION`. Set it once the service has adopted the compiled build identity so a regression cannot ship. Forwarded to `build.yml` for the primary build and every `extra_builds` group that does not set its own `require_build_identity` — see [Build identity contract](build.md#build-identity-contract) | boolean | `false` |
 | `app_name_prefix` | Prefix for app names in monorepo (e.g. `midaz` -> `midaz-agent`) | string | `''` |
 | `app_name_overrides` | Explicit `path:name` app name mappings | string | `''` |
 | `dockerhub_org` | DockerHub organization name | string | `lerianstudio` |
@@ -161,6 +162,24 @@ jobs:
     secrets: inherit
 ```
 
+## Build identity
+
+Every image this workflow publishes is expected to carry its own identity: the
+service binary answers `docker run <image> --version` with the version it was
+published under and the commit it was built from. Before the multi-arch push, the
+build interrogates the image for the runner's native platform, built from the same
+Dockerfile and build args, and fails if it answers with anything else. The other
+platforms are built from the same inputs but are not interrogated. What a repository declares to adopt this —
+three `ARG` lines in the Dockerfile and three variables in `main` — is written in
+[build.md, Build identity contract](build.md#build-identity-contract).
+
+The verification reaches a repository when it moves to a release of this workflow
+that carries it, which for a `@tier-N` consumer is the tier promotion, not the
+merge here. Until a repository adopts, its releases keep working and the build job
+emits a warning naming the image. After adopting, set `require_build_identity: true`
+so a Dockerfile that later loses `ARG REVISION` fails instead of only warning. See
+[tiers](tiers.md).
+
 ## S3 migrations upload
 
 Set `s3_uploads` to a JSON array to upload files (e.g. SQL migrations) to S3 on tag push, after `build` succeeds. All entries are processed sequentially inside a single `s3_upload` job (this avoids a GitHub Actions limitation where a `matrix` over a reusable-workflow `uses:` call is not instantiated in a nested reusable-workflow context), independent of the gitops update (it reads repo files, not build artifacts). Per-entry keys: `s3_bucket` (required), `file_pattern` (required), `s3_prefix` (optional), `strip_prefix` (optional — removes that prefix from the source path so keys land under `s3_prefix` directly), `flatten` (optional, defaults to `true`; set `false` to preserve the directory structure), and `aws_role_arn` (optional — see per-entry role below). The target environment folder is auto-detected from the tag (`-beta` → development, `-rc` → staging, `vX.Y.Z` → production).
@@ -242,7 +261,7 @@ jobs:
 
 By default `go-release` runs **one** `build.yml` call (driven by the top-level `filter_paths`/`app_name_*`/`build_context_from_working_dir` inputs) before the single `update_gitops`. Some repos ship images that need **different build configs in the same release** — e.g. an app + workers built from the repo root, plus a tool/mock image built with `build_context_from_working_dir: true`. These cannot be merged into one `build.yml` call.
 
-Set `extra_builds` to a JSON array of build groups. Each group runs a parallel `build.yml` matrix leg alongside the primary build, and groups with `enable_gitops_artifacts` enabled (the default) upload their GitOps tag artifacts into the same run, so the single `update_gitops` aggregates all of them. Per-group keys (all optional except `filter_paths`): `filter_paths`, `shared_paths`, `path_level`, `normalize_to_filter` (defaults to `true`; set `false` to disable normalizing changed paths to their filter path), `app_name`, `app_name_prefix`, `app_name_overrides`, `build_context_from_working_dir`, `docker_build_args`, `dockerfile_name` (defaults to the top-level `dockerfile_name`; set to build a non-default Dockerfile such as `Dockerfile.mcp` for that group), `enable_dockerhub`/`enable_ghcr` (default to the top-level inputs of the same name when omitted; an explicit `true`/`false` on the group always wins — use to publish a group to only one registry regardless of what the primary build uses), `enable_gitops_artifacts` (defaults to `true`), `enable_helm_dispatch`, `helm_chart`, `helm_detect_env_changes`, `helm_values_key_mappings`, `tag_prefix`, `force_full_matrix` (defaults to `true`, so every listed component builds/publishes in lockstep with the release version; set `false` to build only changed components). Cosign/runner settings are inherited from the top-level inputs.
+Set `extra_builds` to a JSON array of build groups. Each group runs a parallel `build.yml` matrix leg alongside the primary build, and groups with `enable_gitops_artifacts` enabled (the default) upload their GitOps tag artifacts into the same run, so the single `update_gitops` aggregates all of them. Per-group keys (all optional except `filter_paths`): `filter_paths`, `shared_paths`, `path_level`, `normalize_to_filter` (defaults to `true`; set `false` to disable normalizing changed paths to their filter path), `app_name`, `app_name_prefix`, `app_name_overrides`, `build_context_from_working_dir`, `docker_build_args`, `dockerfile_name` (defaults to the top-level `dockerfile_name`; set to build a non-default Dockerfile such as `Dockerfile.mcp` for that group), `enable_dockerhub`/`enable_ghcr` (default to the top-level inputs of the same name when omitted; an explicit `true`/`false` on the group always wins — use to publish a group to only one registry regardless of what the primary build uses), `enable_gitops_artifacts` (defaults to `true`), `require_build_identity` (defaults to the top-level `require_build_identity` when omitted; an explicit `true`/`false` on the group always wins — set `false` on a group whose image has not adopted the [build identity](#build-identity), such as a migrations image, while the primary build requires it), `enable_helm_dispatch`, `helm_chart`, `helm_detect_env_changes`, `helm_values_key_mappings`, `tag_prefix`, `force_full_matrix` (defaults to `true`, so every listed component builds/publishes in lockstep with the release version; set `false` to build only changed components). Cosign/runner settings are inherited from the top-level inputs.
 
 Extra builds run on tag push (beta/rc, and stable when `build_on_release` is off). When `build_on_release` is `true`, every extra-build group *without its own `tag_prefix`* also builds in the stable semantic-release run on the branch — the same path the primary build uses — so a stable release whose tag lands on a `[skip ci]` commit still publishes all extra images (they are not left behind on the suppressed tag push). With `build_on_release_include_prerelease` also `true`, the same branch-rescue path additionally covers beta/rc releases, not just stable. A group with `tag_prefix` set is excluded from that branch-rescue run (its `tag_prefix` is only applied on an actual tag push) — it keeps building solely on its own independently-tagged pushes, per the note below.
 

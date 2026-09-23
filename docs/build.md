@@ -104,7 +104,8 @@ jobs:
 | `dockerhub_org` | string | `lerianstudio` | DockerHub organization name |
 | `ghcr_org` | string | `''` | GHCR organization (defaults to repository owner) |
 | `on_existing_tag` | string | `fail` | Behaviour when the target tag already exists in an enabled registry (pre-flight check before build): `fail` (abort early), `skip` (skip build/push when every enabled registry already has the tag, still emitting GitOps artifacts for an idempotent re-run; abort on a partial publish), `repair` (same as `skip`, but on a partial publish push only to the registries missing the tag), `warn` (warn and build anyway) |
-| `require_image_provenance` | boolean | `true` | Under `on_existing_tag: skip`/`repair`, abort when the existing image does not record the commit it was built from (`org.opencontainers.image.revision`). An image whose recorded commit *differs* from this run always aborts, regardless of this input. Set `false` to accept unverifiable images (e.g. tags published before the label was emitted) |
+| `require_image_provenance` | boolean | `true` | Under `on_existing_tag: skip`/`repair`, abort when the existing image does not record the commit it was built from (`org.opencontainers.image.revision`). An image whose recorded commit *differs* from this run always aborts, regardless of this input. Set `false` to accept unverifiable images (e.g. tags published before the label was emitted). Images published before this workflow set the label explicitly are recognised by their legacy `github.sha` value, so re-running an older tag is not blocked |
+| `require_build_identity` | boolean | `false` | Fail the build when the Dockerfile does not declare `ARG REVISION`. Set it once the service has adopted the compiled build identity so a regression cannot ship. Without it a removed `ARG REVISION` only downgrades to a warning. See [Build identity contract](#build-identity-contract) |
 | `dockerfile_name` | string | `Dockerfile` | Name of the Dockerfile |
 | `tag_prefix` | string | `''` | Skip this build entirely (`has_builds=false`) when triggered by a tag that does not start with this prefix. For callers with multiple independently-tagged components sharing one workflow_call chain. Empty = build on every tag |
 | `app_name_prefix` | string | `''` | Prefix for app names in monorepo |
@@ -163,11 +164,12 @@ Tag existence alone does not prove the image in the registry is the code this ru
 - **A genuine re-run.** The push succeeded earlier and something after it failed (cosign, the GitOps upload, the Helm dispatch). The registry image *is* the merged code — this is what `skip` is for.
 - **A retargeted tag.** A released semver tag was deleted and recreated on a newer commit. Registry tags are immutable, so the registry still holds the image built from the **old** commit. Skipping would have GitOps deploy the older code, and repairing would leave the registries holding different content under one tag.
 
-So before `skip` or `repair` reuses an existing tag, the pre-flight reads `org.opencontainers.image.revision` off the existing image (`docker buildx imagetools inspect`) and compares it with the run's commit. `docker/metadata-action` emits that label by default and this workflow passes its label set to the build, so every image it publishes carries the commit it came from.
+So before `skip` or `repair` reuses an existing tag, the pre-flight reads `org.opencontainers.image.revision` off the existing image (`docker buildx imagetools inspect`) and compares it with the commit this run checked out. This workflow sets that label explicitly from the same `REVISION` it compiles into the image (see [Build identity contract](#build-identity-contract)), overriding the `docker/metadata-action` default of `github.sha` — which is the wrong commit whenever `checkout_ref` points elsewhere, as it does on every release.
 
 | Recorded commit | Behaviour |
 |---|---|
 | matches this run | proceed with `skip` / `repair` as described above |
+| matches `github.sha` (legacy label) | proceed — images published before this workflow set the label explicitly carry the `docker/metadata-action` default, which on a release is the branch commit rather than the tag commit. Transitional: the comparison drops once no such tag can still be re-run |
 | differs from this run | **abort**, naming both commits — always, regardless of `require_image_provenance` |
 | absent, or the lookup failed | abort when `require_image_provenance: true` (default); warn and proceed when `false` |
 
@@ -203,39 +205,171 @@ fails the whole build. Consumers must pin the exact version.
 
 ## Build Arguments
 
-Every image build receives the `docker_build_args` input first, then two build
-arguments this workflow computes:
+Every image build receives the `docker_build_args` input first, then three build
+arguments this workflow computes — the build identity contract:
 
 | Build argument | Value | Example |
 |----------------|-------|---------|
-| `VERSION` | The resolved release version — the `release_version` input verbatim, or the version parsed out of the git tag | `1.4.0` / `v1.4.0` |
+| `VERSION` | The resolved release version, SemVer — the `release_version` input, or the version parsed out of the git tag, with any leading `v` stripped | `1.4.0` |
+| `REVISION` | Full 40-hex commit SHA of `HEAD` after the checkout, i.e. the commit this run actually builds | `e83c5163…7a9f0b2c` |
 | `BUILD_TIME` | Build timestamp, RFC3339 UTC, captured once per app | `2026-08-28T14:03:11Z` |
 
-The leading `v` is **not** normalized: the tag-push path yields `v1.4.0` while the
-same-run branch-push path yields whatever semantic-release computed (usually
-`1.4.0`). Strip it before comparing against the published image tag, which is
-always the bare semver.
+`VERSION` is normalized once, at the source: both the tag-push path (`v1.4.0`) and
+the same-run branch-push path (`1.4.0`, from semantic-release) yield the bare
+semver. It is the same string the image is published under and the same string the
+GitOps tag artifact carries, so nothing downstream has to strip anything.
 
-This is additive. A Dockerfile that declares the arguments can stamp them into
-the artifact:
-
-```dockerfile
-ARG VERSION=dev
-ARG BUILD_TIME=unknown
-RUN go build -ldflags "-X main.Version=${VERSION} -X main.BuildTime=${BUILD_TIME}" ./cmd/app
-```
-
-A Dockerfile that declares neither is unaffected — Docker only warns about an
-unused build argument, and an undeclared argument does not invalidate build
-cache. `BUILD_TIME` changes on every run, so in repos that *do* declare it the
-layers from its `ARG` onward rebuild each time; put the `ARG` as late as
-possible to keep dependency layers cached.
+`REVISION` is read with `git rev-parse HEAD` after the checkout, not from
+`github.sha`. On the release path those two differ: the tag semantic-release
+created points at the CHANGELOG commit made inside the same run. The same SHA
+feeds the `org.opencontainers.image.revision` label and the pre-flight provenance
+comparison, so the image, the label and the gate all name one commit.
 
 `VERSION` cannot be passed through `docker_build_args` by a caller of
 `go-release.yml`: semantic-release computes the release version inside that
 workflow, after the static input is already bound. The primary build and every
-`extra_builds` group get both arguments, because both route through this
+`extra_builds` group get all three arguments, because both route through this
 workflow.
+
+`BUILD_TIME` changes on every run, so the layers from its `ARG` onward rebuild
+each time; put the three `ARG` lines as late as the build stage allows to keep
+dependency layers cached.
+
+## Build identity contract
+
+An image that cannot say what it is costs an on-call engineer the first ten
+minutes of every incident. So a published image compiles its own identity in and
+answers for it: `docker run <image> --version` prints the version it was published
+under and the commit it was built from, and CI refuses to push an image whose
+answer disagrees with what it injected.
+
+### What a service adopts
+
+The Dockerfile declares the three arguments and compiles them into the binary:
+
+```dockerfile
+ARG TARGETARCH
+ARG VERSION=dev
+ARG REVISION=unknown
+ARG BUILD_TIME=unknown
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=${TARGETARCH} \
+    go build -trimpath -buildvcs=false \
+      -ldflags="-s -w -X main.version=${VERSION} -X main.revision=${REVISION} -X main.buildTime=${BUILD_TIME}" \
+      -o /service ./cmd/app
+```
+
+`-buildvcs=false` because CI supplies the revision and the builder does not need
+the `git` binary. `ENTRYPOINT` must be the binary itself, with no shell wrapper,
+or `docker run <image> --version` never reaches the flag.
+
+`main` declares the three variables and hands them to the shared package:
+
+```go
+package main
+
+import "github.com/LerianStudio/lib-commons/v7/commons/buildinfo"
+
+// Filled at build time via -ldflags -X main.<name>. Empty in a local build.
+var version, revision, buildTime string
+
+func main() {
+	buildinfo.Set(buildinfo.Build{Version: version, Revision: revision, BuildTime: buildTime})
+	buildinfo.HandleFlag() // "--version" prints the identity as JSON and exits 0
+
+	// ... normal bootstrap
+}
+```
+
+The symbol names `main.version`, `main.revision` and `main.buildTime` are stable
+forever. The `-X` target is `main`, never the library, so a lib-commons major bump
+never touches the Dockerfile.
+
+### What CI verifies
+
+For an image whose Dockerfile has adopted the contract, this workflow builds the
+image for the runner's native platform first, runs `--version` against it, and only then builds and pushes the real
+multi-arch image. The local image is tagged `build-identity-verify/<app>:<version>`
+and never leaves the runner; its layers land in the GitHub Actions cache, so the
+push build reuses them for that platform instead of compiling it twice.
+
+The check runs the image with no network and never pulls it, so a tag that is
+not in the runner's daemon fails locally:
+
+```bash
+docker run --rm --pull=never --network none "$IMAGE" --version
+```
+
+and is exact equality on two fields of the JSON it prints, `version` and
+`revision`, against what CI injected. Every field read back (`version`,
+`revision`, `goVersion`, `service`) is untrusted output of the image, so each
+must be at most 64 characters of `A-Z a-z 0-9 . _ + -` (`service` without `+`)
+before it is compared or written into an annotation. A value outside that set
+fails the build with a fixed message that does not repeat it: a binary could
+otherwise print a line that the runner executes as a workflow command.
+
+The verification is a `run:` step inside `build.yml`, not a composite action.
+The runner resolves every `uses:` of a job before any step condition runs, for
+every repository that calls this workflow, so a composite would be one more
+reference every release depends on, adopted or not.
+
+| Failure | What it means | Fix |
+|---|---|---|
+| `did not answer --version with JSON` | `ENTRYPOINT` is a shell wrapper, or `main` never calls `buildinfo.HandleFlag()` | Make the binary the `ENTRYPOINT`; call `HandleFlag()` before bootstrap |
+| `docker run … --version failed or timed out` | Same, or the binary started the service instead of exiting | As above |
+| `reports version X, CI built Y` | `ARG VERSION` missing, not passed to `-X main.version`, or `buildinfo.Set` not called | Add the `ARG`, the `-ldflags` entry, and the `Set` call |
+| `reports revision X, CI built Y` | Same, for `ARG REVISION` / `-X main.revision` | As above |
+| `reports a <field> outside the allowed character set` | The binary prints something other than the `buildinfo` identity JSON for that field | Print the identity with `buildinfo.HandleFlag()`; run the reproduce command locally to see the value |
+
+### Adoption
+
+Verification runs when the app's Dockerfile declares `ARG REVISION` — the single
+line that says the image compiles its identity in. Without it the build proceeds
+as before — Docker only warns about an unused build argument, and an undeclared
+argument does not invalidate the build cache — and the job emits a warning naming
+the image and this section.
+
+This workflow is the release contract of roughly thirty repositories, and
+`tier-0` promotes every stable release without human approval, so a repository
+that has not adopted keeps releasing rather than breaking on a promotion it never
+asked for. After adopting, set `require_build_identity: true`: with it, a
+Dockerfile that loses `ARG REVISION` fails the build instead of shipping an image
+without its identity. Without it, that regression only downgrades to the warning.
+The gate will be dropped once every consumer has adopted; that release will be
+announced.
+
+Local builds pass no arguments, report `dev` / `unknown`, and are not blocked.
+Images published by CI are.
+
+### How verification is tested
+
+Two suites in `tests/build-identity/` run in the `Build Identity Verification
+Tests` job of `self-pr-validation.yml`. Both extract the shell blocks they test out
+of `build.yml` and run them as written, so the workflow is what the assertions
+bind to, not a copy of it.
+
+`test.sh` runs the `Verify build identity` step against throwaway `FROM scratch`
+images built on the spot, and needs `docker`, `go` and `jq`. It covers a matching
+identity, a version mismatch, a revision mismatch, a binary whose linker flags
+were never wired (the half-adoption shape) and its revision-only half, an image
+that ignores `--version`, one that never answers before the timeout, a workflow
+command injected through `goVersion`, `version` and `service` values outside the
+allowed set, a missing local image, and each required input. `docker` is shimmed
+on `PATH` so any `docker run` without `--pull=never` and `--network none` fails.
+
+`test-workflow.sh` runs the version-resolution and adoption-gate blocks against a
+case table, including the warning a non-adopting image gets and the failure it
+gets instead under `require_build_identity`, then reads `build.yml`
+as text to pin the wiring that makes verification a pre-push gate: step order, a
+verification build that loads instead of pushing, the same version and revision fed
+to both builds and to the check, the check gated on adoption, and the gate reading
+`require_build_identity`. It needs neither
+`docker` nor `go`.
+
+```bash
+bash tests/build-identity/test.sh
+bash tests/build-identity/test-workflow.sh
+shellcheck tests/build-identity/*.sh
+```
 
 ## Monorepo Change Detection
 
@@ -325,6 +459,7 @@ Automatically sends notifications on completion:
 
 ### build
 - Runs for each component in the matrix
+- Verifies the image reports the identity CI injected, before anything is pushed (see [Build identity contract](#build-identity-contract))
 - Builds and pushes Docker images
 - Creates GitOps artifacts if enabled
 
