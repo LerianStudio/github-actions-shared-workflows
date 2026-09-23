@@ -404,6 +404,29 @@ jobs:
           echo "scan verdict: $passed"
           echo "job results : $RESULTS"
 
+          # AND THE VERDICT IS ENFORCED, not merely published. This job computed
+          # `false` and exited 0, so `Results` went green while `security_scan`
+          # was red in the same run. That matters because this is the job whose
+          # NAME reads like the aggregate, so it is what a repository reaches for
+          # when filling in required status checks -- where it could never fail,
+          # and therefore never blocked anything.
+          #
+          # Observed on LerianStudio/nemoclaw-platform#170: Trivy found a HIGH CVE
+          # (grpc CVE-2026-84445, the proposed bump vulnerable and the pinned
+          # version not), `security_scan` failed, `Results` passed, and
+          # `security / Results` was a required check on that repository's main.
+          #
+          # The output is written first and stays readable either way, so anyone
+          # already gating on `checks_passed` is unaffected.
+          #
+          # Callers gating on this WORKFLOW's result also see no change: a failed
+          # scan already made the reusable workflow fail. Only the per-job check
+          # name changes behaviour, which is precisely the hole.
+          if [ "$passed" != "true" ]; then
+            echo "::error title=Security scan did not pass::One of Prepare Matrix, Security Scan or CodeQL Scan failed or was cancelled — results: ${RESULTS}"
+            exit 1
+          fi
+
   # ----------------- Slack Notification -----------------
   notify:
     name: Notify
