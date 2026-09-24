@@ -9,6 +9,14 @@ inputs:
     description: Human-readable name of the gated pipeline, used in log output.
     required: false
     default: pipeline
+  enabled:
+    description: >-
+      Set to false when the gated pipeline was switched off by a caller flag (run_*). The gate still
+      passes — a caller that disabled a pipeline on purpose must not be blocked by it — but it says so
+      in the log instead of reporting a verdict it never reached. Keep it true for the legitimate skip,
+      where the change detector ran and found nothing to analyse: that IS a verdict.
+    required: false
+    default: 'true'
 
 runs:
   using: composite
@@ -18,7 +26,19 @@ runs:
       env:
         RESULT: ${{ inputs.result }}
         LABEL: ${{ inputs.label }}
+        ENABLED: ${{ inputs.enabled }}
       run: |
+        # A pipeline disabled by its caller produces the same `skipped` result as
+        # one the change detector found nothing for, and the gate passes either
+        # way. Only one of those is a verdict. Saying which is which here is half
+        # the fix; the other half is the job NAME, which the umbrellas suffix with
+        # "(disabled)" so the check cannot be required under its usual name while
+        # being structurally incapable of failing.
+        if [ "$ENABLED" = "false" ]; then
+          echo "${LABEL}: not run — the pipeline is switched off by its caller flag."
+          echo "This check asserts nothing about the pull request. Do not require it for branch protection."
+          exit 0
+        fi
         if [ "$RESULT" = "success" ] || [ "$RESULT" = "skipped" ]; then
           echo "${LABEL}: ${RESULT}"
           exit 0
