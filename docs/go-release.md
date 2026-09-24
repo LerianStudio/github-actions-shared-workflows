@@ -8,9 +8,7 @@
 Umbrella reusable workflow for Go **service** repositories (deployable apps that ship as container images). A caller references this single workflow and it drives the full release pipeline, branching on the pushed ref:
 
 - **Branch push** → change gate (`src/config/non-doc-changes`) → semantic release (`release.yml`). Documentation-only pushes skip the release.
-- **Tag push** → container build & push (`build.yml`) → GitOps update (`gitops-update.yml`), gated on the build actually producing images.
-
-> **Note** — As of v1.x this workflow hosts the service release pipeline (semantic-release + Docker build + GitOps). The previous GoReleaser-based binary release pipeline remains available in the Git history of this file.
+- **Tag push** → container build & push (`build.yml`) → GitOps update (`gitops-update.yml`), gated on the build actually producing images. Optionally, in the same step of the pipeline, a GoReleaser run that publishes binaries (see [GoReleaser binary lane](#goreleaser-binary-lane)).
 
 ### Repository layouts
 
@@ -60,6 +58,11 @@ A third layout needs `release_single_app: true`: **one semantic-release tag for 
 | `helm_values_key_mappings` | JSON mapping of component names to values.yaml keys | string | `''` |
 | `extra_builds` | JSON array of additional build groups, each forwarded to `build.yml` with its own config; all feed the single gitops-update (see [Multiple build groups](#multiple-build-groups)) | string | `''` |
 | `dockerfile_name` | Dockerfile name for the primary build and every `extra_builds` group (per-group override via the group's own `dockerfile_name`); forwarded to `build.yml`, which resolves the path as `{working_dir}/{dockerfile_name}` | string | `'Dockerfile'` |
+| `enable_goreleaser` | Publish binaries with GoReleaser from the repository `.goreleaser.yml`, instead of (or in addition to) container images (see [GoReleaser binary lane](#goreleaser-binary-lane)) | boolean | `false` |
+| `goreleaser_version` | GoReleaser version to install | string | `latest` |
+| `goreleaser_distribution` | GoReleaser distribution: `goreleaser` or `goreleaser-pro` | string | `goreleaser` |
+| `goreleaser_args` | Arguments passed to GoReleaser | string | `release --clean` |
+| `goreleaser_go_version` | Go version used to build the binaries. Empty reads it from the repository `go.mod` | string | `''` |
 | `enable_gitops_update` | Run the gitops-update job on tag push | boolean | `true` |
 | `gitops_repository` | GitOps repository to update (org/repo) | string | `LerianStudio/midaz-firmino-gitops` |
 | `update_sandbox` | Include sandbox environment on stable releases (appended to `stable_environments`) | boolean | `false` |
@@ -120,6 +123,7 @@ A third layout needs `release_single_app: true`: **one semantic-release tag for 
 | `APIDOG_STG_ENVIRONMENT_ID` | ApiDog staging environment ID (used for rc tags in auto-detect mode) | No |
 | `APIDOG_ENVIRONMENT_ID` | ApiDog environment ID for manual mode (`apidog_auto_detect_environment: false`) | No |
 | `UNGOLIANT_WEBHOOK_TOKEN` | Token sent as the `X-Ungoliant-Token` header (used when `enable_ungoliant_release_diff`) | No |
+| `GORELEASER_KEY` | GoReleaser Pro licence key (required only when `goreleaser_distribution: goreleaser-pro`) | No |
 
 ## Usage
 
@@ -352,6 +356,36 @@ jobs:
       gitops_yaml_key_mappings: '{"plugin-br-pix-indirect-btg.tag": ".pix.image.tag", "worker-inbound.tag": ".inbound.image.tag", "worker-outbound.tag": ".outbound.image.tag", "worker-reconciliation.tag": ".reconciliation.image.tag", "mock-btg-server.tag": ".mock.image.tag"}'
     secrets: inherit
 ```
+
+## GoReleaser binary lane
+
+Go repositories that ship **binaries** rather than container images — a CLI, an installer-driven tool — opt into `enable_goreleaser`. The job runs on the same trigger as the container build (the tag push, or the same-run path when `build_on_release` is set) and honours `tag_prefix`, so it builds from the tag semantic-release has just published. Artifacts come from the repository's own `.goreleaser.yml`; this workflow only installs Go and GoReleaser and runs it.
+
+```yaml
+jobs:
+  pipeline:
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/go-release.yml@tier-1
+    permissions:
+      id-token: write
+      contents: write
+      issues: write
+      pull-requests: write
+    with:
+      enable_goreleaser: true
+      enable_dockerhub: false
+      enable_ghcr: false
+      enable_gitops_update: false
+    secrets: inherit
+```
+
+Notes:
+
+- **Binary-only repositories** — when `enable_goreleaser` is `true` and both `enable_dockerhub` and `enable_ghcr` are `false`, the container build is skipped entirely, so a repo without a Dockerfile never enters that lane. `update_gitops` and `s3_upload` stand down with it (they gate on the build producing images). Leave one registry enabled to publish binaries **and** an image from the same tag.
+- **The GitHub Release already exists** — semantic-release creates the release and writes its notes before this job runs, so what GoReleaser does with that body is up to `release.mode` in the repository's `.goreleaser.yml`. The default, `keep-existing`, leaves the semantic-release notes untouched and just uploads the assets — that is usually what you want here. Use `append`/`prepend` to add GoReleaser's own changelog around them, and avoid `replace`, which discards the semantic-release notes.
+- **One run per tag** — with `build_on_release` and `build_on_release_include_prerelease` both on, a beta/rc tag would otherwise qualify through the tag push *and* the same-run branch path, and GoReleaser has no `on_existing_tag` escape hatch to make the second upload a no-op. In that configuration the branch rescue is the only prerelease path. `tag_prefix` is honoured on both paths.
+- **`dry_run`** — when the caller sets `dry_run: true`, GoReleaser is not executed: the job reports the resolved configuration via `::notice::` and publishes nothing.
+- **Go version** — `goreleaser_go_version` defaults to empty, which reads `go.mod`, so there is no second place to bump. Set it only to pin a different toolchain.
+- **GoReleaser Pro** — set `goreleaser_distribution: goreleaser-pro` and map the `GORELEASER_KEY` secret.
 
 ## Permissions
 
