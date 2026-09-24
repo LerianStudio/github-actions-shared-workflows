@@ -471,7 +471,7 @@ jobs:
     secrets: inherit
 
   go-analysis-gate:
-    name: Go Analysis
+    name: ${{ inputs.run_go_analysis && 'Go Analysis' || 'Go Analysis (disabled)' }}
     needs: [changes, go-analysis]
     if: always()
     runs-on: ${{ inputs.gate_runner_type || vars.GENERAL_RUNNERS || inputs.runner_type }}
@@ -481,6 +481,7 @@ jobs:
         with:
           result: ${{ needs.changes.result != 'success' && needs.changes.result || needs.go-analysis.result }}
           label: Go Analysis
+          enabled: ${{ inputs.run_go_analysis }}
 
   # ----------------- Security Scan -----------------
   security:
@@ -507,7 +508,7 @@ jobs:
     secrets: inherit
 
   security-gate:
-    name: Security
+    name: ${{ inputs.run_security && 'Security' || 'Security (disabled)' }}
     needs: [changes, security]
     if: always()
     runs-on: ${{ inputs.gate_runner_type || vars.GENERAL_RUNNERS || inputs.runner_type }}
@@ -517,6 +518,7 @@ jobs:
         with:
           result: ${{ needs.changes.result != 'success' && needs.changes.result || needs.security.result }}
           label: Security
+          enabled: ${{ inputs.run_security }}
 
   # ----------------- Lerian Library Version Check -----------------
   lib-version:
@@ -539,7 +541,7 @@ jobs:
     secrets: inherit
 
   lib-version-gate:
-    name: Lib Version
+    name: ${{ inputs.run_lib_version_check && 'Lib Version' || 'Lib Version (disabled)' }}
     needs: [changes, lib-version]
     if: always()
     runs-on: ${{ inputs.gate_runner_type || vars.GENERAL_RUNNERS || inputs.runner_type }}
@@ -549,6 +551,7 @@ jobs:
         with:
           result: ${{ needs.changes.result != 'success' && needs.changes.result || needs.lib-version.result }}
           label: Lib Version
+          enabled: ${{ inputs.run_lib_version_check }}
 
   # ----------------- Permission Manifest Nudge (RI) — NON-BLOCKING -----------------
   # Part of the Access-Manager "Inversão de Responsabilidade" (RI) rollout. Reminds
