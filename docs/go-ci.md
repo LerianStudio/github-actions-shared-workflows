@@ -77,6 +77,8 @@ jobs:
 
 | Input | Description | Required | Default |
 |-------|-------------|----------|---------|
+| `enable_doc_gate` | Skip the pipeline when only documentation/meta files changed | No | `true` |
+| `ignore_globs` | Globs treated as docs/meta by the gate; files under `.github/workflows/` always count as code | No | `*.md docs/* .github/* LICENSE* .gitignore .coderabbit.yml .coderabbit.yaml` |
 | `go_versions` | JSON array of Go versions to test | No | `["1.21", "1.22", "1.23"]` |
 | `operating_systems` | JSON array of OSes to test on | No | `["ubuntu-latest", "macos-latest", "windows-latest"]` |
 | `runner_type` | GitHub runner type for non-matrix jobs | No | `ubuntu-latest` |

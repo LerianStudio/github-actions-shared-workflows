@@ -632,6 +632,9 @@ jobs:
     uses: ./.github/workflows/pr-security-scan.yml
     with:
       enable_slack_notification: ${{ inputs.enable_slack_notification }}
+      # The `changes` job above already classified this pull request; the scan
+      # must not spend a second job and a second API call on the same verdict.
+      enable_doc_gate: false
       runner_type: ${{ inputs.runner_type }}
       security_scan_runner_type: ${{ inputs.security_scan_runner_type }}
       ignore_file: ${{ inputs.ignore_file }}

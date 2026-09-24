@@ -23,6 +23,24 @@ on:
           example, withhold a review request.
         value: ${{ jobs.results.outputs.checks_passed }}
     inputs:
+      # ----------------- Change gate -----------------
+      # A pull request that only touches documentation or repository metadata
+      # has nothing for a security scanner to find. The gate reuses
+      # src/config/non-doc-changes and collapses the scan matrix to '[]', which
+      # every scan job already treats as "nothing to do" and `checks_passed`
+      # already counts as passed.
+      #
+      # Callers that gate upstream (go-pr-validation.yml, js-pr-validation.yml)
+      # pass enable_doc_gate: false to avoid classifying the same PR twice.
+      enable_doc_gate:
+        description: 'Skip the scan when the pull request touches only documentation/meta files (see ignore_globs).'
+        type: boolean
+        default: true
+      ignore_globs:
+        description: 'Space-separated glob patterns treated as docs/meta; when every changed file matches one, the scan is skipped. Files under .github/workflows/ always count as code.'
+        type: string
+        default: '*.md docs/* .github/* LICENSE* .gitignore .coderabbit.yml .coderabbit.yaml'
+
       runner_type:
         description: 'GitHub runner type to use'
         type: string
@@ -150,11 +168,25 @@ jobs:
   prepare_matrix:
     runs-on: ${{ vars.GENERAL_RUNNERS || inputs.runner_type }}
     outputs:
-      matrix: ${{ steps.changed-paths.outputs.matrix }}
+      matrix: ${{ steps.scan-matrix.outputs.matrix }}
     steps:
+      # ----------------- Documentation Gate -----------------
+      # Runs before the matrix is built, because in single-app mode
+      # changed-paths falls back to the repository name and never yields an
+      # empty matrix — a README-only pull request would otherwise scan the whole
+      # repo. Its `ignore-dirs: .github` only ever helped the monorepo path.
+      - name: Non-doc change gate
+        id: doc-gate
+        if: inputs.enable_doc_gate
+        uses: LerianStudio/github-actions-shared-workflows/src/config/non-doc-changes@v1
+        with:
+          github-token: ${{ github.token }}
+          ignore-globs: ${{ inputs.ignore_globs }}
+
       # ----------------- Detect Changes & Build Matrix -----------------
       - name: Get changed paths
         id: changed-paths
+        if: steps.doc-gate.outputs.code != 'false'
         uses: LerianStudio/github-actions-shared-workflows/src/config/changed-paths@v1
         with:
           filter-paths: ${{ inputs.filter_paths }}
@@ -170,6 +202,24 @@ jobs:
           fallback-app-name: ${{ github.event.repository.name }}
           consolidate-to-root: ${{ inputs.monorepo_type == 'type2' }}
           consolidate-keep-dirs: ${{ inputs.frontend_folder }}
+
+      # Collapsing to '[]' rather than skipping the scan jobs through a separate
+      # `needs` condition keeps the existing contract intact: '[]' is already the
+      # "nothing changed" value every downstream job and `checks_passed` handle.
+      - name: Resolve scan matrix
+        id: scan-matrix
+        env:
+          # Empty when the gate did not run (disabled by the caller); only the
+          # literal "false" collapses the matrix, so an absent verdict scans.
+          HAS_CODE: ${{ steps.doc-gate.outputs.code }}
+          CHANGED_MATRIX: ${{ steps.changed-paths.outputs.matrix }}
+        run: |
+          if [ "$HAS_CODE" = "false" ]; then
+            echo "Documentation-only pull request - nothing to scan."
+            echo "matrix=[]" >> "$GITHUB_OUTPUT"
+          else
+            echo "matrix=${CHANGED_MATRIX:-[]}" >> "$GITHUB_OUTPUT"
+          fi
 
   security_scan:
     needs: prepare_matrix
