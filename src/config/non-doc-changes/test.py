@@ -113,6 +113,26 @@ class NonDocChangesTests(unittest.TestCase):
         self.assertEqual(self.detect(pr_files(("build/out.txt", "removed")),
                                      globs="build/*"), "false")
 
+    # ---- executable paths under .github are never documentation ----
+    #
+    # In a bash `case` pattern `*` matches `/`, so the default `.github/*` glob
+    # swallows every nested path. Only the hardcoded exceptions keep composite
+    # actions and pipeline helper scripts out of the documentation bucket.
+
+    def test_workflow_file_is_a_code_change(self):
+        self.assertEqual(self.detect(pr_files((".github/workflows/build.yml", "modified"))), "true")
+
+    def test_composite_action_is_a_code_change(self):
+        self.assertEqual(self.detect(pr_files((".github/actions/setup/action.yml", "modified"))), "true")
+
+    def test_pipeline_script_is_a_code_change(self):
+        self.assertEqual(self.detect(pr_files((".github/scripts/release.sh", "modified"))), "true")
+
+    def test_github_metadata_is_still_documentation(self):
+        self.assertEqual(self.detect(pr_files((".github/CODEOWNERS", "modified"),
+                                              (".github/dependabot.yml", "modified"),
+                                              (".github/ISSUE_TEMPLATE/bug.yml", "modified"))), "false")
+
     # ---- push events keep their own path ----
 
     def test_push_compare_diff_is_classified_by_path(self):
@@ -121,6 +141,20 @@ class NonDocChangesTests(unittest.TestCase):
 
     def test_push_without_base_ref_assumes_a_code_change(self):
         self.assertEqual(self.detect({"files": []}, event="push"), "true")
+
+    # ---- a truncated compare is not a verdict ----
+    #
+    # The compare endpoint caps `files` at 300 and signals the cap only by
+    # hitting it. A push whose first 300 entries are documentation must not be
+    # read as documentation-only just because the code was cut off the list.
+
+    def test_push_at_the_compare_ceiling_assumes_a_code_change(self):
+        payload = {"files": [{"filename": f"docs/page-{i}.md"} for i in range(300)]}
+        self.assertEqual(self.detect(payload, event="push", before="a" * 40), "true")
+
+    def test_push_below_the_compare_ceiling_is_still_classified(self):
+        payload = {"files": [{"filename": f"docs/page-{i}.md"} for i in range(299)]}
+        self.assertEqual(self.detect(payload, event="push", before="a" * 40), "false")
 
 
 if __name__ == "__main__":
