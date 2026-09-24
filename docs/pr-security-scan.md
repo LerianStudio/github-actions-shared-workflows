@@ -185,8 +185,8 @@ The detection regex can be overridden centrally through the optional **organizat
 
 | Input | Type | Default | Description |
 |-------|------|---------|-------------|
-| `enable_doc_gate` | boolean | `true` | Skip the scan when the PR touches only documentation/meta files. Callers that already gate upstream (`go-pr-validation.yml`, `js-pr-validation.yml`) pass `false` |
-| `ignore_globs` | string | `*.md docs/* .github/* LICENSE* .gitignore .coderabbit.yml .coderabbit.yaml` | Globs treated as docs/meta by the gate. Files under `.github/workflows/` always count as code |
+| `enable_doc_gate` | boolean | `true` | Skip the scan when the PR touches only documentation/meta files. Needs `pull-requests: read` on the calling job to list the PR's files; without it the gate produces no verdict and the scan runs in full. Callers that already gate upstream (`go-pr-validation.yml`, `js-pr-validation.yml`) pass `false` |
+| `ignore_globs` | string | `*.md docs/* .github/* LICENSE* .gitignore .coderabbit.yml .coderabbit.yaml` | Globs treated as docs/meta by the gate. Files under `.github/workflows/`, `.github/actions/` and `.github/scripts/` always count as code |
 | `runner_type` | string | `blacksmith-4vcpu-ubuntu-2404` | GitHub runner type |
 | `security_scan_runner_type` | string | `''` | Optional runner override for the security_scan jobs only; empty falls back to `vars.GENERAL_RUNNERS`, then `runner_type` |
 | `filter_paths` | string | - | Paths to monitor (newline separated). If empty, treats as single app |
