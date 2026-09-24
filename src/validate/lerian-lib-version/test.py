@@ -252,6 +252,76 @@ EXPECTED_CONDITION = (
 )
 
 
+GO_MOD_PRIVATE_LIB = """module github.com/LerianStudio/example
+
+go 1.23
+
+require (
+\tgithub.com/LerianStudio/lib-license-go/v4 v4.1.0
+)
+"""
+
+# curl stub: every releases call answers 404, the way an unauthenticated request
+# to a private LerianStudio repository does.
+CURL_404_STUB = """#!/usr/bin/env bash
+out=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -o) out="$2"; shift 2 ;;
+    *) shift ;;
+  esac
+done
+[[ -n "${out}" ]] && printf '%s' '{"message":"Not Found"}' > "${out}"
+printf '404'
+"""
+
+
+@unittest.skipUnless(BASH, "requires bash 4+ for the composite's associative arrays")
+class UnreadableRepositoryTests(unittest.TestCase):
+    """An unreadable private repo is UNKNOWN, never 'behind latest stable'."""
+
+    def setUp(self):
+        self.runner = ScriptRunner(self)
+        self.runner.write("go.mod", GO_MOD_PRIVATE_LIB)
+        self.runner.write(".lerianstudiolibignore", "")
+        bin_dir = self.runner.dir / "bin"
+        bin_dir.mkdir(exist_ok=True)
+        stub = bin_dir / "curl"
+        stub.write_text(CURL_404_STUB, encoding="utf-8")
+        stub.chmod(0o755)
+        self.env = {"PATH": f"{bin_dir}:{os.environ.get('PATH', '')}"}
+
+    def _run(self):
+        return self.runner.run(COMPARE_SCRIPT, **self.env)
+
+    def test_unreadable_repo_does_not_fail_the_job(self):
+        result = self._run()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertNotIn("::error title=Outdated Lerian libraries", result.stdout)
+
+    def test_unreadable_repo_is_reported_as_unknown(self):
+        result = self._run()
+        self.assertIn("⚠️ Unknown", result.step_summary)
+        self.assertNotIn("🔴 Needs update", result.step_summary)
+        self.assertIn("🔴 0 needs update", result.step_summary)
+        self.assertEqual("false", _output_value(result.github_output, "has_outdated"))
+
+    def test_warning_never_leaks_into_the_resolved_version(self):
+        result = self._run()
+        self.assertNotIn("::warning", result.step_summary)
+        self.assertIn(
+            "::warning title=Cannot read LerianStudio/lib-license-go", result.stdout
+        )
+
+
+def _output_value(github_output, key):
+    for line in github_output.splitlines():
+        name, _, value = line.partition("=")
+        if name == key:
+            return value
+    return None
+
+
 def is_advisory(enabled, base_ref, head_ref):
     """Mirror of EXPECTED_CONDITION. Asserted against the workflow verbatim in
     test_condition_is_exactly_the_documented_one, so it cannot drift."""
