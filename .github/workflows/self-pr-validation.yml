@@ -89,10 +89,13 @@ jobs:
           ignore-globs: "*.md docs/* .github/* LICENSE* .gitignore .coderabbit.yml .coderabbit.yaml .claude/* .agents/* instructions/*"
 
   # ----------------- Breaking Change Guard Detector Tests -----------------
+  # Deliberately NOT behind the gate above. This job is the regression suite for
+  # the fail-closed breaking-change guard, and
+  # test_workflow_regression_suite_runs_unconditionally_with_detector_matrix
+  # asserts it carries no `if:` and no `needs:` — the guard protects every
+  # downstream consumer, so nothing may silence the test that proves it works.
   breaking-change-guard-tests:
     name: Breaking Change Guard Detector Tests
-    needs: changes
-    if: needs.changes.outputs.code == 'true'
     runs-on: ${{ vars.GENERAL_RUNNERS || 'blacksmith-4vcpu-ubuntu-2404' }}
     permissions:
       contents: read
