@@ -323,6 +323,14 @@ on:
         description: 'Post/update a sticky PR comment with the Lerian lib version table'
         type: boolean
         default: true
+      lib_version_require_lerian_libs:
+        description: >-
+          Fail when go.mod declares no github.com/LerianStudio/* dependency at all. True is the
+          company-standards rule for a service; set it to false in a repository that legitimately
+          has none (a standard-library-only library, a template, a generator), so the rest of the
+          check keeps running instead of turning run_lib_version_check off entirely.
+        type: boolean
+        default: true
       lib_version_non_blocking_for_hotfix_to_main:
         description: >-
           Make an outdated Lerian library advisory instead of blocking on a `hotfix/*` -> `main`
@@ -534,6 +542,7 @@ jobs:
       go_mod_path: ${{ inputs.lib_version_go_mod_path }}
       check_indirect: ${{ inputs.lib_version_check_indirect }}
       comment_on_pr: ${{ inputs.lib_version_comment_on_pr }}
+      require_lerian_libs: ${{ inputs.lib_version_require_lerian_libs }}
       # Advisory only on the exact `hotfix/* -> main` path, and only when the caller opted in.
       # `github.head_ref` is empty outside pull_request, so the match is false there.
       # Softening happens inside the check itself (see lerian-lib-version-check.yml), NOT in the

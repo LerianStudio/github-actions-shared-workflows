@@ -44,6 +44,23 @@ inputs:
       out of scope (e.g. a hotfix), without turning the whole check off.
     required: false
     default: "false"
+  require-lerian-libs:
+    description: |
+      Fail when go.mod declares no github.com/LerianStudio/* dependency at all.
+
+      True is the company-standards rule for a service: it is expected to depend on at least
+      one Lerian library. It is a false positive for a repository that legitimately has none —
+      a library whose public API is standard-library only, a template, a generator — where the
+      only way to pass was to disable the whole check and lose the outdated-version guard with
+      it. Setting this to false reports "no Lerian libraries" as a warning and lets the rest of
+      the check run.
+
+      Narrow on purpose: it softens ONLY that verdict. A missing go.mod, an unreadable one and
+      an outdated dependency keep failing, so a repository that opts out cannot turn a broken
+      pipeline into a pass. Outcomes that never failed are unchanged — an unresolvable releases
+      API still reports ⚠️ Unknown and does not fail, here as everywhere else.
+    required: false
+    default: "true"
   dry-run:
     description: Verbose log of all resolved versions; never fails the build.
     required: false
@@ -88,6 +105,7 @@ runs:
         CHECK_INDIRECT: ${{ inputs.check-indirect }}
         GRACE_DAYS: ${{ inputs.major-bump-grace-days }}
         OUTDATED_NON_BLOCKING: ${{ inputs.outdated-non-blocking }}
+        REQUIRE_LERIAN_LIBS: ${{ inputs.require-lerian-libs }}
         DRY_RUN: ${{ inputs.dry-run }}
         GH_TOKEN: ${{ inputs.github-token }}
       run: |
@@ -130,6 +148,34 @@ runs:
           echo "grace_count=0" >> "${GITHUB_OUTPUT}"
           echo "report_path=${REPORT_PATH}" >> "${GITHUB_OUTPUT}"
 
+          # Compared against "false", not "!= true": this is a compliance verdict, so a
+          # value nobody recognises must enforce it rather than waive it. A direct
+          # composite caller passes a free-form string (the reusable workflow coerces a
+          # boolean, so it can only ever send "true" or "false"), and a misspelling or a
+          # bare YAML `no` must not read as an opt-out. The warning is there so a bad
+          # value is visible instead of silently enforcing a rule the caller believed it
+          # had turned off.
+          if [[ "${REQUIRE_LERIAN_LIBS}" != "true" && "${REQUIRE_LERIAN_LIBS}" != "false" ]]; then
+            echo "::warning title=Invalid require-lerian-libs value::Expected \"true\" or \"false\", got \"${REQUIRE_LERIAN_LIBS}\". Enforcing the company-standards rule."
+          fi
+
+          if [[ "${REQUIRE_LERIAN_LIBS}" == "false" ]]; then
+            # The caller declared that having no Lerian dependency is legitimate here —
+            # a library with a standard-library-only API, a template, a generator. There is
+            # nothing to compare versions against, so this is a clean pass, not a violation.
+            {
+              echo "## ⚪ Lerian Library Version Check — nothing to check"
+              echo
+              echo "**No \`github.com/LerianStudio/*\` dependencies found in \`${GO_MOD_PATH}\`.**"
+              echo
+              echo "This repository opted out of the company-standards rule (\`require-lerian-libs: false\`), so the absence is reported and not enforced. The check runs again as soon as a Lerian dependency is added."
+            } >> "${REPORT_PATH}"
+
+            echo "::warning title=No Lerian libraries found::No github.com/LerianStudio/* dependencies in ${GO_MOD_PATH}. Not enforced: this caller set require-lerian-libs to false."
+            cat "${REPORT_PATH}" >> "${GITHUB_STEP_SUMMARY}"
+            exit 0
+          fi
+
           {
             echo "## 🔴 Lerian Library Version Check — action required"
             echo
@@ -137,7 +183,7 @@ runs:
             echo
             echo "Every Lerian Go service is expected to depend on at least one Lerian library (typically \`lib-commons\`). This is a company-standards requirement."
             echo
-            echo "If this repository is genuinely exempt, please raise it with the platform team."
+            echo "If this repository is genuinely exempt, set \`require-lerian-libs: false\` on the caller (\`lib_version_require_lerian_libs\` through the Go umbrella) or raise it with the platform team."
           } >> "${REPORT_PATH}"
 
           echo "::error title=No Lerian libraries found::No github.com/LerianStudio/* dependencies in ${GO_MOD_PATH}. Every Lerian Go service must use at least one Lerian library."
