@@ -11,6 +11,20 @@ name: "TypeScript Release"
 on:
   workflow_call:
     inputs:
+      # ----------------- Change gate -----------------
+      # Documentation and repository metadata must not cut a release tag. The
+      # gate reuses src/config/non-doc-changes and folds its verdict into
+      # `should_skip`, which every downstream job already respects. Kept in step
+      # with the same gate in release.yml.
+      enable_doc_gate:
+        description: 'Skip the release when a branch push touches only documentation/meta files (see ignore_globs).'
+        type: boolean
+        default: true
+      ignore_globs:
+        description: 'Space-separated glob patterns treated as docs/meta; when only these change on a branch push, the release is skipped. Files under .github/workflows/ always count as code.'
+        type: string
+        default: '*.md docs/* .github/* LICENSE* .gitignore .coderabbit.yml .coderabbit.yaml'
+
       semantic_version:
         description: 'Semantic release version to use'
         type: string
@@ -54,12 +68,36 @@ jobs:
       matrix: ${{ steps.set-matrix.outputs.matrix }}
       has_changes: ${{ steps.set-matrix.outputs.has_changes }}
       should_skip: ${{ steps.check-skip.outputs.should_skip }}
+    permissions:
+      contents: read
+      pull-requests: read
     steps:
+      # Runs before the skip check so its verdict can feed into it. Skipped on
+      # tag pushes: a tag carries no diff to classify, and a tag-driven release
+      # is explicit intent rather than an accident of a docs commit.
+      - name: Non-doc change gate
+        id: doc-gate
+        if: inputs.enable_doc_gate && github.ref_type == 'branch'
+        uses: LerianStudio/github-actions-shared-workflows/src/config/non-doc-changes@v1
+        with:
+          github-token: ${{ github.token }}
+          ignore-globs: ${{ inputs.ignore_globs }}
+
       - name: Check if should skip (changelog commits)
         id: check-skip
         env:
           COMMIT_MSG: ${{ github.event.head_commit.message }}
+          # Empty when the gate did not run (tag push, or gate disabled by the
+          # caller). Only the literal "false" skips, so an absent verdict means
+          # "assume code" and the release proceeds as before.
+          HAS_CODE: ${{ steps.doc-gate.outputs.code }}
         run: |
+          if [ "$HAS_CODE" = "false" ]; then
+            echo "Skipping release - branch push touched only documentation/meta files"
+            echo "should_skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
           echo "Checking commit message for skip patterns"
 
           # Machinery rather than work: version bumps, changelog commits and

@@ -132,6 +132,8 @@ jobs:
 
 | Input | Type | Default | Required | Description |
 |-------|------|---------|----------|-------------|
+| `enable_doc_gate` | boolean | `true` | No | Skip the release when a branch push touches only documentation/meta files |
+| `ignore_globs` | string | `*.md docs/* .github/* LICENSE* .gitignore .coderabbit.yml .coderabbit.yaml` | No | Globs treated as docs/meta by the gate. Files under `.github/workflows/` always count as code |
 | `semantic_version` | string | `23.0.8` | No | Semantic release version to use |
 | `runner_type` | string | `blacksmith-4vcpu-ubuntu-2404` | No | GitHub runner type |
 | `node_version` | string | `20` | No | Node.js version to use |
