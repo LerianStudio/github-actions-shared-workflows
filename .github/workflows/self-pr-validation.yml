@@ -62,10 +62,13 @@ jobs:
   # test matrix below: a README fix, a docs/ page, an ISSUE_TEMPLATE tweak or a
   # dependabot/CODEOWNERS edit changes nothing the tests assert.
   #
-  # `.github/*` is a single-level glob on purpose, and the action hardcodes
-  # `.github/workflows/*` as code whatever the globs say — the pipeline
-  # definitions ARE this repository's product, so a PR that edits only a
-  # workflow is precisely the PR that must run the tests covering it.
+  # `.github/*` here is NOT a single-level glob: the action matches with a bash
+  # `case`, where `*` matches `/` (a GitHub path filter is the opposite — see
+  # self-release.yml). What keeps the product out of the documentation bucket is
+  # the action's hardcoded exception for `.github/workflows/`, `.github/actions/`
+  # and `.github/scripts/` — the pipeline definitions ARE this repository's
+  # product, so a PR editing only a workflow is precisely the PR that must run
+  # the tests covering it.
   #
   # Gated jobs report `skipped`, which branch protection counts as a pass and
   # `release-coderabbit` already tolerates through its `always()` condition.

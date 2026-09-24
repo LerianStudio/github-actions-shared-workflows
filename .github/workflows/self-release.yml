@@ -26,10 +26,21 @@ on:
       # Repository housekeeping, not product: the self-* pipelines only run here
       # and never ship to a consumer.
       - '.github/workflows/self-*.yml'
-      # Single-level glob on purpose — it covers CODEOWNERS, dependabot.yml,
-      # labeler/labels, actionlint config and the PR template, and deliberately
-      # does NOT reach '.github/workflows/**', which is the product callers pin.
-      - '.github/*'
+      # Listed file by file rather than as '.github/*'. That glob would be
+      # correct — in a GitHub path filter `*` does not match `/`, so it cannot
+      # reach '.github/workflows/**' — but the identical text means the OPPOSITE
+      # in the bash `case` of src/config/non-doc-changes, where `*` DOES match
+      # `/`. In this repository '.github/workflows/**' is the product every
+      # consumer pins by tag: a glob that silently stopped releases would be
+      # found weeks later, by a consumer stuck on a stale tag. Not worth the
+      # cleverness — the housekeeping files are few and they are named here.
+      - '.github/CODEOWNERS'
+      - '.github/dependabot.yml'
+      - '.github/labeler.yml'
+      - '.github/labels.yml'
+      - '.github/actionlint.yml'
+      - '.github/markdown-link-check-config.json'
+      - '.github/pull_request_template.md'
       - '.github/ISSUE_TEMPLATE/**'
       # Documentation and bot/agent configuration: consumed by humans and by
       # this repository's own tooling, never resolved from a published tag.
