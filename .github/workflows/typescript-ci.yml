@@ -7,6 +7,20 @@ name: "TypeScript CI"
 on:
   workflow_call:
     inputs:
+      # ----------------- Change gate -----------------
+      # A pull request or push that only touches documentation or repository
+      # metadata has nothing for CI to check. The gate reuses
+      # src/config/non-doc-changes, the same classifier behind the go-/js-
+      # umbrella workflows, so the whole family agrees on what "docs" means.
+      enable_doc_gate:
+        description: 'Skip the pipeline when only documentation/meta files changed (see ignore_globs).'
+        type: boolean
+        default: true
+      ignore_globs:
+        description: 'Space-separated glob patterns treated as docs/meta; when every changed file matches one, the pipeline is skipped. Files under .github/workflows/, .github/actions/ and .github/scripts/ always count as code.'
+        type: string
+        default: '*.md docs/* .github/* LICENSE* .gitignore .coderabbit.yml .coderabbit.yaml'
+
       node_versions:
         description: 'JSON array of Node.js versions to test (e.g., ["18.x", "20.x", "22.x"])'
         type: string
@@ -74,8 +88,38 @@ permissions:
   security-events: write
 
 jobs:
+  # ----------------- Documentation Gate -----------------
+  # Deliberately unconditional: a job skipped by its own `if` also skips
+  # everything that `needs` it, which would take the whole pipeline down when a
+  # caller sets enable_doc_gate: false. Instead the job always runs, the step
+  # inside it is what is conditional, and an absent verdict falls back to
+  # 'true' — assume code, run everything, exactly as before this gate existed.
+  changes:
+    name: Detect non-doc changes
+    runs-on: ${{ vars.GENERAL_RUNNERS || inputs.runner_type }}
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      code: ${{ steps.gate.outputs.code || 'true' }}
+    steps:
+      - name: Non-doc change gate
+        id: gate
+        if: inputs.enable_doc_gate
+        # An unreadable diff is not a verdict. A caller may grant less than
+        # `pull-requests: read`, and a reusable workflow cannot elevate what its
+        # caller restricted; failing here would block the pipeline the gate only
+        # means to shorten. The empty output that follows reads as "assume code".
+        continue-on-error: true
+        uses: LerianStudio/github-actions-shared-workflows/src/config/non-doc-changes@v1
+        with:
+          github-token: ${{ github.token }}
+          ignore-globs: ${{ inputs.ignore_globs }}
+
   lint-and-typecheck:
     name: Lint & Type Check
+    if: needs.changes.outputs.code == 'true'
+    needs: changes
     runs-on: ${{ vars.GENERAL_RUNNERS || inputs.runner_type }}
     defaults:
       run:
@@ -168,8 +212,9 @@ jobs:
 
   security-audit:
     name: Security Audit
+    if: needs.changes.outputs.code == 'true' && inputs.enable_security_audit
+    needs: changes
     runs-on: ${{ vars.GENERAL_RUNNERS || inputs.runner_type }}
-    if: inputs.enable_security_audit
     defaults:
       run:
         working-directory: ${{ inputs.working_directory }}

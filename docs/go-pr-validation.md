@@ -19,6 +19,14 @@ The `go-analysis`, `security` and `lib-version` pipelines each have a `*-gate` a
 
 > The aggregators run with `if: always()`, so they report on every run of this workflow. `result-gate` treats `skipped` as a pass, which is correct for the docs-only case (the detector ran and found nothing to analyse) but **not** for a run where the detector never ran at all — that would report the required checks green having evaluated nothing. The `changes` job must therefore stay reachable on every `pull_request` action type the caller listens to, `edited` included. A caller that adds an action type to its own `types:` list without it being covered here reintroduces the hole.
 
+### Disabled pipelines rename their check
+
+A pipeline switched off by its caller flag (`run_go_analysis`, `run_security`, `run_lib_version_check`) leaves its aggregator with nothing to report. The gate still passes — disabling on purpose must not block the repository — but the job renames itself to `Go Analysis (disabled)`, `Security (disabled)` or `Lib Version (disabled)`, so the plain name is never published by a check that cannot fail. Without the rename, `Security` reads exactly like the security gate in the branch-protection picker while asserting nothing.
+
+This distinguishes the two skips that used to look identical: a pipeline the caller turned off, versus one the change detector found nothing for. The second keeps its plain name and stays green — that is a real verdict.
+
+**Turning a flag off is therefore a branch-protection change.** A repository that requires `Security` and then sets `run_security: false` will see that check go missing, not green, and its pull requests stay pending until the name is removed from the required set. Remove it first, or require the `(disabled)` name in its place.
+
 ## Inputs
 
 | Input | Description | Type | Default |
@@ -42,6 +50,7 @@ The `go-analysis`, `security` and `lib-version` pipelines each have a `*-gate` a
 | `lib_version_go_mod_path` | Path to go.mod for the Lerian lib check | string | `go.mod` |
 | `lib_version_check_indirect` | Also check transitive (indirect) Lerian deps | boolean | `false` |
 | `lib_version_comment_on_pr` | Post/update a sticky PR comment with the lib version table | boolean | `true` |
+| `lib_version_require_lerian_libs` | Fail when `go.mod` declares no `github.com/LerianStudio/*` dependency at all. Set to `false` in a repository that legitimately has none (a standard-library-only library, a template, a generator), so the rest of the check keeps running instead of turning `run_lib_version_check` off entirely | boolean | `true` |
 | `lib_version_non_blocking_for_hotfix_to_main` | Report an outdated Lerian library as advisory instead of blocking on `hotfix/*` → `main` PRs. See [Advisory lib version on hotfix PRs](#advisory-lib-version-on-hotfix-prs) | boolean | `false` |
 | `pr_title_types` | Allowed commit types (pipe-separated) | string | conventional set |
 | `pr_title_scopes` | Allowed scopes (pipe-separated, empty = any) | string | `''` |
@@ -237,6 +246,8 @@ Both aggregators are unchanged and still gate the merge. See
 ## Branch protection
 
 Require the aggregator checks `Go Analysis`, `Security` and `Lib Version` (plus the PR metadata checks from `pr-validation.yml`). Breaking-change enforcement remains inside the existing `Blocking Checks` status; it does not add a branch-protection check. These names are stable even when the underlying analysis matrix changes.
+
+Require only the pipelines this repository actually runs: a flag set to `false` renames its check to `<name> (disabled)` (see [Disabled pipelines rename their check](#disabled-pipelines-rename-their-check)), and requiring the plain name then leaves every pull request pending.
 
 ## Related
 
