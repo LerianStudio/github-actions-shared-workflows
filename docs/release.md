@@ -77,10 +77,48 @@ jobs:
     secrets: inherit
 ```
 
+## Documentation gate
+
+A branch push whose every changed file is documentation or repository metadata
+does not cut a release. The verdict comes from `src/config/non-doc-changes` —
+the same classifier the `go-pr-validation`, `js-pr-validation`, `go-release` and
+`js-release` umbrellas already use — and is folded into the `should_skip` output
+of the `prepare` job, so every downstream job (publish, changelog, backmerge,
+major tag, announce) honours it through conditions that already existed.
+
+Two boundaries matter:
+
+- **Executable paths under `.github` always count as code**, whatever
+  `ignore_globs` says: `.github/workflows/`, `.github/actions/` and
+  `.github/scripts/` are hardcoded exceptions in the classifier. This is not
+  belt-and-braces — in the bash `case` the classifier uses, `*` *does* match
+  `/`, so the `.github/*` entry in the default list would otherwise swallow
+  every nested path, and a push touching only a composite action would go
+  unreleased. (A GitHub `paths-ignore` filter behaves the opposite way, where
+  `*` does not match `/`. Same text, different semantics — do not carry an
+  intuition from one to the other.) What `.github/*` is there for is
+  `CODEOWNERS`, `dependabot.yml`, issue templates and bot config.
+- **A diff the classifier cannot read in full is not a verdict.** The compare
+  endpoint caps its file list at 300 entries, so a push at that ceiling is
+  treated as code and released. Likewise, a gate step that errors does not fail
+  the job — it produces no verdict, and no verdict means "assume code".
+- **Tag pushes are never gated.** A tag carries no diff to classify, and a
+  tag-driven release is explicit intent rather than a side effect of a docs
+  commit.
+
+Set `ignore_globs: ''` to treat every path as code, or `enable_doc_gate: false`
+to skip the classification job entirely — which is what `go-release.yml` and
+`js-release.yml` pass, since they already gate the same push upstream.
+
+For a repository whose documentation *is* the product, `enable_doc_gate: false`
+is the correct setting.
+
 ## Inputs
 
 | Input | Type | Default | Description |
 |-------|------|---------|-------------|
+| `enable_doc_gate` | boolean | `true` | Skip the release when a branch push touches only documentation/meta files. Callers that already gate upstream (`go-release.yml`, `js-release.yml`) pass `false` |
+| `ignore_globs` | string | `*.md docs/* .github/* LICENSE* .gitignore .coderabbit.yml .coderabbit.yaml` | Globs treated as docs/meta by the gate. Files under `.github/workflows/`, `.github/actions/` and `.github/scripts/` always count as code |
 | `semantic_version` | string | `23.0.8` | Semantic release version to use |
 | `runner_type` | string | `firmino-lxc-runners` | GitHub runner type |
 | `publish_runner_type` | string | `''` | Optional runner override for the Release (publish) jobs only; empty falls back to `vars.GENERAL_RUNNERS`, then `runner_type` |
