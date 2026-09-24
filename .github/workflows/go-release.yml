@@ -553,10 +553,19 @@ jobs:
 
   # ----------------- GoReleaser (tag push, or same-run release when build_on_release) -----------------
   # Binary lane for Go repositories that ship archives/packages instead of (or
-  # alongside) container images — a CLI, an installer-driven tool. Mirrors the
-  # build job's gate exactly, so the two lanes can run together or separately
-  # depending on which registries the caller enabled; the artifacts come from
-  # the repository's own .goreleaser.yml.
+  # alongside) container images — a CLI, an installer-driven tool. Follows the
+  # build job's gate, so the two lanes can run together or separately depending
+  # on which registries the caller enabled; the artifacts come from the
+  # repository's own .goreleaser.yml.
+  #
+  # Two deliberate differences from the build gate, both because GoReleaser
+  # uploads assets to a GitHub Release and has no equivalent of build.yml's
+  # on_existing_tag escape hatch:
+  #   * with build_on_release_include_prerelease on, a beta/rc tag satisfies
+  #     BOTH the tag-push and the same-run branch path, so the tag push stops
+  #     being a prerelease path and the branch rescue is the single one;
+  #   * tag_prefix is applied to the same-run path too, against the tag
+  #     semantic-release computed, not only to the pushed tag.
   #
   # semantic-release has already created the GitHub Release for this tag by the
   # time this runs, so the repository's .goreleaser.yml decides what happens to
@@ -569,8 +578,11 @@ jobs:
       (
         (github.ref_type == 'tag' &&
           (inputs.tag_prefix == '' || startsWith(github.ref_name, inputs.tag_prefix)) &&
-          (!inputs.build_on_release || contains(github.ref, '-beta.') || contains(github.ref, '-rc.'))) ||
+          (!inputs.build_on_release ||
+            (!inputs.build_on_release_include_prerelease &&
+              (contains(github.ref, '-beta.') || contains(github.ref, '-rc.'))))) ||
         (inputs.build_on_release && github.ref_type == 'branch' &&
+          (inputs.tag_prefix == '' || startsWith(needs.release.outputs.new_release_git_tag, inputs.tag_prefix)) &&
           needs.release.result == 'success' &&
           needs.release.outputs.new_release_published == 'true' &&
           (!contains(needs.release.outputs.new_release_version, '-') ||
