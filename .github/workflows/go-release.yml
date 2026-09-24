@@ -192,6 +192,28 @@ on:
         type: string
         default: 'fail'
 
+      # ----------------- GoReleaser (binary lane, tag push, opt-in) -----------------
+      enable_goreleaser:
+        description: 'Publish binaries with GoReleaser from the repository .goreleaser.yml, instead of (or in addition to) container images. Runs on the same trigger as the container build — the tag push, or the same-run path when build_on_release is set — so the tag semantic-release just published is the one GoReleaser builds from. When this is true and both enable_dockerhub and enable_ghcr are false, the container build is skipped entirely, which is what a CLI-shaped repository without a Dockerfile wants.'
+        type: boolean
+        default: false
+      goreleaser_version:
+        description: 'GoReleaser version to install (forwarded to goreleaser/goreleaser-action). "latest" tracks the newest release; pin an exact version to freeze the binary layout.'
+        type: string
+        default: 'latest'
+      goreleaser_distribution:
+        description: 'GoReleaser distribution: goreleaser or goreleaser-pro. goreleaser-pro additionally requires the GORELEASER_KEY secret.'
+        type: string
+        default: 'goreleaser'
+      goreleaser_args:
+        description: 'Arguments passed to GoReleaser.'
+        type: string
+        default: 'release --clean'
+      goreleaser_go_version:
+        description: 'Go version used to build the binaries. Empty (the default) reads the version from the repository go.mod, so the build tracks the module without a second place to bump.'
+        type: string
+        default: ''
+
       # ----------------- GitOps Update (gitops-update.yml) -----------------
       enable_gitops_update:
         description: 'Run the gitops-update job on tag push'
@@ -379,6 +401,8 @@ on:
     secrets:
       MANAGE_TOKEN:
         required: false
+      GORELEASER_KEY:
+        required: false
       SLACK_WEBHOOK_URL:
         required: false
       HELM_REPO_TOKEN:
@@ -462,8 +486,15 @@ jobs:
   # ----------------- Build (tag push, or same-run stable release when build_on_release) -----------------
   build:
     needs: [release]
+    # The trailing registry clause only ever fires for a caller that opted into
+    # the GoReleaser lane: a binary-only repository (enable_goreleaser with both
+    # registries off) has no Dockerfile to build, so the container lane must not
+    # run at all. Every pre-existing caller has enable_goreleaser false and is
+    # therefore unaffected. update_gitops and s3_upload gate on build's
+    # has_builds output, so they stand down on their own from here.
     if: >-
       !cancelled() &&
+      (!inputs.enable_goreleaser || inputs.enable_dockerhub || inputs.enable_ghcr) &&
       (
         (github.ref_type == 'tag' &&
           (inputs.tag_prefix == '' || startsWith(github.ref_name, inputs.tag_prefix)) &&
@@ -519,6 +550,67 @@ jobs:
       dockerfile_name: ${{ inputs.dockerfile_name }}
       on_existing_tag: ${{ inputs.on_existing_tag }}
     secrets: inherit
+
+  # ----------------- GoReleaser (tag push, or same-run release when build_on_release) -----------------
+  # Binary lane for Go repositories that ship archives/packages instead of (or
+  # alongside) container images — a CLI, an installer-driven tool. Mirrors the
+  # build job's gate exactly, so the two lanes can run together or separately
+  # depending on which registries the caller enabled; the artifacts come from
+  # the repository's own .goreleaser.yml.
+  #
+  # semantic-release has already created the GitHub Release for this tag by the
+  # time this runs, so the repository's .goreleaser.yml decides what happens to
+  # it (`release.mode`) — see docs/go-release.md.
+  goreleaser:
+    name: GoReleaser
+    needs: [release]
+    if: >-
+      !cancelled() && inputs.enable_goreleaser &&
+      (
+        (github.ref_type == 'tag' &&
+          (inputs.tag_prefix == '' || startsWith(github.ref_name, inputs.tag_prefix)) &&
+          (!inputs.build_on_release || contains(github.ref, '-beta.') || contains(github.ref, '-rc.'))) ||
+        (inputs.build_on_release && github.ref_type == 'branch' &&
+          needs.release.result == 'success' &&
+          needs.release.outputs.new_release_published == 'true' &&
+          (!contains(needs.release.outputs.new_release_version, '-') ||
+            (inputs.build_on_release_include_prerelease &&
+              (contains(needs.release.outputs.new_release_version, '-beta.') ||
+                contains(needs.release.outputs.new_release_version, '-rc.')))))
+      )
+    runs-on: ${{ inputs.build_runner_type || vars.GENERAL_RUNNERS || inputs.runner_type }}
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+        with:
+          # On the same-run path the workflow is still on the branch, so check
+          # out the tag semantic-release just pushed — GoReleaser derives the
+          # version from the tag at HEAD.
+          ref: ${{ github.ref_type == 'branch' && needs.release.outputs.new_release_git_tag || '' }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Fetch all tags
+        run: git fetch --force --tags
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v6
+        with:
+          go-version: ${{ inputs.goreleaser_go_version }}
+          go-version-file: ${{ inputs.goreleaser_go_version == '' && 'go.mod' || '' }}
+          cache: true
+
+      - name: Run GoReleaser
+        uses: goreleaser/goreleaser-action@f06c13b6b1a9625abc9e6e439d9c05a8f2190e94 # v7.2.3
+        with:
+          distribution: ${{ inputs.goreleaser_distribution }}
+          version: ${{ inputs.goreleaser_version }}
+          args: ${{ inputs.goreleaser_args }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.MANAGE_TOKEN || github.token }}
+          GORELEASER_KEY: ${{ secrets.GORELEASER_KEY }}
 
   # ----------------- S3 Upload (tag push, post-build, opt-in) -----------------
   s3_upload:
