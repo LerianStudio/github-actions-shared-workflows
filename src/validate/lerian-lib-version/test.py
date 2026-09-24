@@ -307,13 +307,22 @@ class RequireLerianLibsTests(unittest.TestCase):
     # A compliance verdict must not be waived by a value nobody recognises.
     # Only the literal "false" opts out; anything else enforces and says so.
 
-    def test_typo_does_not_opt_out(self):
+    def test_wrong_case_does_not_opt_out(self):
         self.runner.write("go.mod", GO_MOD_NO_LERIAN_LIBS)
         self.runner.write(".lerianstudiolibignore", IGNORE_PIN)
-        result = self.runner.run(COMPARE_SCRIPT, REQUIRE_LERIAN_LIBS="tru")
+        result = self.runner.run(COMPARE_SCRIPT, REQUIRE_LERIAN_LIBS="FALSE")
         self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
         self.assertIn("::error title=No Lerian libraries found", result.stdout)
         self.assertIn("::warning title=Invalid require-lerian-libs value", result.stdout)
+
+    # YAML 1.1 reads a bare `no` as a boolean, but an action input is a string
+    # and arrives here spelled exactly as written.
+    def test_yaml_style_no_does_not_opt_out(self):
+        self.runner.write("go.mod", GO_MOD_NO_LERIAN_LIBS)
+        self.runner.write(".lerianstudiolibignore", IGNORE_PIN)
+        result = self.runner.run(COMPARE_SCRIPT, REQUIRE_LERIAN_LIBS="no")
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("::error title=No Lerian libraries found", result.stdout)
 
     def test_empty_value_does_not_opt_out(self):
         self.runner.write("go.mod", GO_MOD_NO_LERIAN_LIBS)

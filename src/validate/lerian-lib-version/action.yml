@@ -151,9 +151,10 @@ runs:
           # Compared against "false", not "!= true": this is a compliance verdict, so a
           # value nobody recognises must enforce it rather than waive it. A direct
           # composite caller passes a free-form string (the reusable workflow coerces a
-          # boolean, so it can only ever send "true" or "false"), and `require-lerian-libs: tru`
-          # must not read as an opt-out. The warning is there so the typo is visible
-          # instead of silently enforcing a rule the caller believed it had turned off.
+          # boolean, so it can only ever send "true" or "false"), and a misspelling or a
+          # bare YAML `no` must not read as an opt-out. The warning is there so a bad
+          # value is visible instead of silently enforcing a rule the caller believed it
+          # had turned off.
           if [[ "${REQUIRE_LERIAN_LIBS}" != "true" && "${REQUIRE_LERIAN_LIBS}" != "false" ]]; then
             echo "::warning title=Invalid require-lerian-libs value::Expected \"true\" or \"false\", got \"${REQUIRE_LERIAN_LIBS}\". Enforcing the company-standards rule."
           fi
