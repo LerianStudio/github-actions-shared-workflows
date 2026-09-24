@@ -3,7 +3,8 @@ name: "Lerian Library Version Check"
 # Reusable workflow that enforces up-to-date LerianStudio Go libraries on PRs.
 #
 # Fails when:
-#   - the service has zero LerianStudio direct deps in go.mod (company-standards violation), or
+#   - the service has zero LerianStudio direct deps in go.mod (company-standards violation;
+#     see `require_lerian_libs` for a repository where that is legitimate), or
 #   - one or more direct LerianStudio deps are behind the latest stable release (no entry in .lerianstudiolibignore).
 #
 # A missing .lerianstudiolibignore file produces a warning, not a failure.
@@ -48,6 +49,16 @@ on:
           the report is a real one — no dry-run banner.
         type: boolean
         default: false
+      require_lerian_libs:
+        description: >-
+          Fail when go.mod declares no github.com/LerianStudio/* dependency at all. True is the
+          company-standards rule for a service. Set it to false in a repository that legitimately
+          has none — a library whose public API is standard-library only, a template, a generator —
+          where the only way to pass used to be disabling this whole workflow, losing the
+          outdated-version guard with it. Narrow on purpose: it softens ONLY that verdict; a
+          missing go.mod, an outdated dependency and every infrastructure error keep failing.
+        type: boolean
+        default: true
       dry_run:
         description: 'Verbose log of all resolved versions; never fails the build'
         type: boolean
@@ -113,4 +124,5 @@ jobs:
           comment-on-pr: ${{ inputs.comment_on_pr && 'true' || 'false' }}
           major-bump-grace-days: ${{ inputs.major_bump_grace_days || vars.LERIAN_LIB_MAJOR_BUMP_GRACE_DAYS || '3' }}
           outdated-non-blocking: ${{ inputs.outdated_non_blocking && 'true' || 'false' }}
+          require-lerian-libs: ${{ inputs.require_lerian_libs && 'true' || 'false' }}
           dry-run: ${{ inputs.dry_run && 'true' || 'false' }}

@@ -102,6 +102,7 @@ jobs:
 | `comment_on_pr`  | boolean | `true`                      | Post / update a sticky comment on the PR with the result table                               |
 | `major_bump_grace_days` | string | `''`                | Per-invocation override for the major-bump grace window. Takes precedence over the `LERIAN_LIB_MAJOR_BUMP_GRACE_DAYS` variable; empty uses the variable, then defaults to `3`. |
 | `outdated_non_blocking` | boolean | `false`            | Report outdated direct libs as a warning instead of failing. Softens **only** the "behind latest stable" verdict — a missing `go.mod`, a `go.mod` with no Lerian libraries, and every other blocking failure still fail the job. Outcomes that never failed are unchanged (an unresolvable release API stays `⚠️ Unknown`). Unlike `dry_run`, the report is a real one (no dry-run banner). |
+| `require_lerian_libs` | boolean | `true`                 | Fail when `go.mod` declares no `github.com/LerianStudio/*` dependency at all. `true` is the company-standards rule for a service. Set it to `false` in a repository that legitimately has none — a library whose public API is standard-library only, a template, a generator. Narrow on purpose: it softens **only** that verdict; a missing `go.mod`, an outdated dependency and every infrastructure error keep failing. |
 | `dry_run`        | boolean | `false`                     | Verbose log of all resolved versions; never fails the build                                  |
 
 ## Major-bump grace window
@@ -170,6 +171,9 @@ permissions:
 | `dry_run: true`                                          | Verbose report, never fails                         |
 | `outdated_non_blocking: true` + outdated lib             | Warning, report headed _advisory_, does not fail    |
 | `outdated_non_blocking: true` + no Lerian libs / missing `go.mod` | Still fails — the exception is scoped to the outdated verdict |
+| No Lerian libs (default `require_lerian_libs: true`)     | Fails — company-standards violation                 |
+| `require_lerian_libs: false` + no Lerian libs            | Warning, report headed _nothing to check_, does not fail |
+| `require_lerian_libs: false` + missing `go.mod` / outdated lib | Still fails — the exception is scoped to the zero-dependency verdict |
 
 ## `.lerianstudiolibignore` format
 
