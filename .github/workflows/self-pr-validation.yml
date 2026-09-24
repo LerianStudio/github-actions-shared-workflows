@@ -287,10 +287,13 @@ jobs:
         run: python3 src/security/prerelease-check/test.py
 
   # ----------------- Non-Doc Changes Gate Tests -----------------
+  # Deliberately NOT behind the gate above — that would be circular. A change to
+  # the classifier that wrongly returns code=false for its own sources would
+  # skip the very suite that catches it, and a skipped check is mergeable. Same
+  # reasoning as breaking-change-guard-tests: nothing may silence the test that
+  # proves the mechanism deciding what runs still works.
   non-doc-changes-tests:
     name: Non-Doc Changes Gate Tests
-    needs: changes
-    if: needs.changes.outputs.code == 'true'
     runs-on: ${{ vars.GENERAL_RUNNERS || 'blacksmith-4vcpu-ubuntu-2404' }}
     permissions:
       contents: read
@@ -566,6 +569,11 @@ jobs:
     needs:
       - validation
       - changed-files
+      # `changes` is in this list for its FAILURE, not its verdict. A failed
+      # classifier leaves every gated test job `skipped`, which is not
+      # `failure`, so without this entry checks_passed would report green for a
+      # run where nothing was ever evaluated.
+      - changes
       - breaking-change-guard-tests
       - build-identity-tests
       - permission-manifest-publish-tests
