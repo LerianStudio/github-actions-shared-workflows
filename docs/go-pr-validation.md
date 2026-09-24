@@ -50,6 +50,7 @@ This distinguishes the two skips that used to look identical: a pipeline the cal
 | `lib_version_go_mod_path` | Path to go.mod for the Lerian lib check | string | `go.mod` |
 | `lib_version_check_indirect` | Also check transitive (indirect) Lerian deps | boolean | `false` |
 | `lib_version_comment_on_pr` | Post/update a sticky PR comment with the lib version table | boolean | `true` |
+| `lib_version_require_lerian_libs` | Fail when `go.mod` declares no `github.com/LerianStudio/*` dependency at all. Set to `false` in a repository that legitimately has none (a standard-library-only library, a template, a generator), so the rest of the check keeps running instead of turning `run_lib_version_check` off entirely | boolean | `true` |
 | `lib_version_non_blocking_for_hotfix_to_main` | Report an outdated Lerian library as advisory instead of blocking on `hotfix/*` → `main` PRs. See [Advisory lib version on hotfix PRs](#advisory-lib-version-on-hotfix-prs) | boolean | `false` |
 | `pr_title_types` | Allowed commit types (pipe-separated) | string | conventional set |
 | `pr_title_scopes` | Allowed scopes (pipe-separated, empty = any) | string | `''` |
