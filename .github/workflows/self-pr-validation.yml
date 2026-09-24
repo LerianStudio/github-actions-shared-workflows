@@ -57,9 +57,42 @@ jobs:
         with:
           github-token: ${{ github.token }}
 
+  # ----------------- Non-Doc Change Gate -----------------
+  # Documentation and repository metadata must not spend CI on the behavioural
+  # test matrix below: a README fix, a docs/ page, an ISSUE_TEMPLATE tweak or a
+  # dependabot/CODEOWNERS edit changes nothing the tests assert.
+  #
+  # `.github/*` is a single-level glob on purpose, and the action hardcodes
+  # `.github/workflows/*` as code whatever the globs say — the pipeline
+  # definitions ARE this repository's product, so a PR that edits only a
+  # workflow is precisely the PR that must run the tests covering it.
+  #
+  # Gated jobs report `skipped`, which branch protection counts as a pass and
+  # `release-coderabbit` already tolerates through its `always()` condition.
+  changes:
+    name: Detect non-doc changes
+    runs-on: ${{ vars.GENERAL_RUNNERS || 'blacksmith-4vcpu-ubuntu-2404' }}
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      code: ${{ steps.gate.outputs.code }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+
+      - name: Non-doc change gate
+        id: gate
+        uses: ./src/config/non-doc-changes
+        with:
+          github-token: ${{ github.token }}
+          ignore-globs: "*.md docs/* .github/* LICENSE* .gitignore .coderabbit.yml .coderabbit.yaml .claude/* .agents/* instructions/*"
+
   # ----------------- Breaking Change Guard Detector Tests -----------------
   breaking-change-guard-tests:
     name: Breaking Change Guard Detector Tests
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ${{ vars.GENERAL_RUNNERS || 'blacksmith-4vcpu-ubuntu-2404' }}
     permissions:
       contents: read
@@ -79,6 +112,8 @@ jobs:
   # Asserts the per-group boolean overrides go-release.yml forwards for extra_builds.
   go-release-workflow-tests:
     name: go-release Workflow Shape Tests
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ${{ vars.GENERAL_RUNNERS || 'blacksmith-4vcpu-ubuntu-2404' }}
     permissions:
       contents: read
@@ -100,6 +135,8 @@ jobs:
   # fixture images need docker and jq (on the runner image) and go (installed below).
   build-identity-tests:
     name: Build Identity Verification Tests
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ${{ vars.GENERAL_RUNNERS || 'blacksmith-4vcpu-ubuntu-2404' }}
     permissions:
       contents: read
@@ -130,6 +167,8 @@ jobs:
   # ----------------- Socket App Gate Tests -----------------
   socket-app-gate-tests:
     name: Socket App Gate Tests
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ${{ vars.GENERAL_RUNNERS || 'blacksmith-4vcpu-ubuntu-2404' }}
     permissions:
       contents: read
@@ -145,6 +184,8 @@ jobs:
   # ----------------- Permission Manifest Publish Tests -----------------
   permission-manifest-publish-tests:
     name: Permission Manifest Publish Tests
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ${{ vars.GENERAL_RUNNERS || 'blacksmith-4vcpu-ubuntu-2404' }}
     permissions:
       contents: read
@@ -160,6 +201,8 @@ jobs:
   # ----------------- Commit Signature Validation Tests -----------------
   pr-commit-signatures-tests:
     name: Commit Signature Validation Tests
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ${{ vars.GENERAL_RUNNERS || 'blacksmith-4vcpu-ubuntu-2404' }}
     permissions:
       contents: read
@@ -175,6 +218,8 @@ jobs:
   # ----------------- CodeRabbit Collapse Tests -----------------
   coderabbit-collapse-tests:
     name: CodeRabbit Collapse Tests
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ${{ vars.GENERAL_RUNNERS || 'blacksmith-4vcpu-ubuntu-2404' }}
     permissions:
       contents: read
@@ -190,6 +235,8 @@ jobs:
   # ----------------- Lerian Lib Version Advisory Tests -----------------
   lerian-lib-version-tests:
     name: Lerian Lib Version Advisory Tests
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ${{ vars.GENERAL_RUNNERS || 'blacksmith-4vcpu-ubuntu-2404' }}
     permissions:
       contents: read
@@ -205,6 +252,8 @@ jobs:
   # ----------------- Ungoliant Release Diff Tests -----------------
   ungoliant-release-diff-tests:
     name: Ungoliant Release Diff Tests
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ${{ vars.GENERAL_RUNNERS || 'blacksmith-4vcpu-ubuntu-2404' }}
     permissions:
       contents: read
@@ -220,6 +269,8 @@ jobs:
   # ----------------- Pre-release Check Tests -----------------
   prerelease-check-tests:
     name: Pre-release Check Tests
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ${{ vars.GENERAL_RUNNERS || 'blacksmith-4vcpu-ubuntu-2404' }}
     permissions:
       contents: read
@@ -235,6 +286,8 @@ jobs:
   # ----------------- Non-Doc Changes Gate Tests -----------------
   non-doc-changes-tests:
     name: Non-Doc Changes Gate Tests
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ${{ vars.GENERAL_RUNNERS || 'blacksmith-4vcpu-ubuntu-2404' }}
     permissions:
       contents: read
@@ -295,6 +348,8 @@ jobs:
   # ----------------- CodeQL Action Version Consistency -----------------
   codeql-action-versions:
     name: CodeQL Action Version Consistency
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ${{ vars.GENERAL_RUNNERS || 'blacksmith-4vcpu-ubuntu-2404' }}
     steps:
       - name: Checkout

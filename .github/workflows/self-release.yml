@@ -23,7 +23,23 @@ on:
       # Likewise the tier promotion flow: it is read by the promotion
       # controller at the published tag, so editing it must not cut a release.
       - 'config/tier-promotion.yml'
+      # Repository housekeeping, not product: the self-* pipelines only run here
+      # and never ship to a consumer.
       - '.github/workflows/self-*.yml'
+      # Single-level glob on purpose — it covers CODEOWNERS, dependabot.yml,
+      # labeler/labels, actionlint config and the PR template, and deliberately
+      # does NOT reach '.github/workflows/**', which is the product callers pin.
+      - '.github/*'
+      - '.github/ISSUE_TEMPLATE/**'
+      # Documentation and bot/agent configuration: consumed by humans and by
+      # this repository's own tooling, never resolved from a published tag.
+      - 'docs/**'
+      - '.coderabbit.yml'
+      - '.coderabbit.yaml'
+      - 'LICENSE'
+      - '.claude/**'
+      - '.agents/**'
+      - 'instructions/**'
     tags-ignore:
       - '**'
 
