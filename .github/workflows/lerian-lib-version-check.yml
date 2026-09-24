@@ -56,7 +56,8 @@ on:
           has none — a library whose public API is standard-library only, a template, a generator —
           where the only way to pass used to be disabling this whole workflow, losing the
           outdated-version guard with it. Narrow on purpose: it softens ONLY that verdict; a
-          missing go.mod, an outdated dependency and every infrastructure error keep failing.
+          missing go.mod and an outdated dependency keep failing. Outcomes that never failed are
+          unchanged — an unresolvable releases API still reports Unknown and does not fail.
         type: boolean
         default: true
       dry_run:

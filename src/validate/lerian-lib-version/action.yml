@@ -55,9 +55,10 @@ inputs:
       it. Setting this to false reports "no Lerian libraries" as a warning and lets the rest of
       the check run.
 
-      Narrow on purpose: it softens ONLY that verdict. A missing go.mod, an unreadable one, an
-      outdated dependency and every infrastructure error keep failing, so a repository that
-      opts out cannot turn a broken pipeline into a pass.
+      Narrow on purpose: it softens ONLY that verdict. A missing go.mod, an unreadable one and
+      an outdated dependency keep failing, so a repository that opts out cannot turn a broken
+      pipeline into a pass. Outcomes that never failed are unchanged — an unresolvable releases
+      API still reports ⚠️ Unknown and does not fail, here as everywhere else.
     required: false
     default: "true"
   dry-run:
@@ -147,7 +148,17 @@ runs:
           echo "grace_count=0" >> "${GITHUB_OUTPUT}"
           echo "report_path=${REPORT_PATH}" >> "${GITHUB_OUTPUT}"
 
-          if [[ "${REQUIRE_LERIAN_LIBS}" != "true" ]]; then
+          # Compared against "false", not "!= true": this is a compliance verdict, so a
+          # value nobody recognises must enforce it rather than waive it. A direct
+          # composite caller passes a free-form string (the reusable workflow coerces a
+          # boolean, so it can only ever send "true" or "false"), and `require-lerian-libs: tru`
+          # must not read as an opt-out. The warning is there so the typo is visible
+          # instead of silently enforcing a rule the caller believed it had turned off.
+          if [[ "${REQUIRE_LERIAN_LIBS}" != "true" && "${REQUIRE_LERIAN_LIBS}" != "false" ]]; then
+            echo "::warning title=Invalid require-lerian-libs value::Expected \"true\" or \"false\", got \"${REQUIRE_LERIAN_LIBS}\". Enforcing the company-standards rule."
+          fi
+
+          if [[ "${REQUIRE_LERIAN_LIBS}" == "false" ]]; then
             # The caller declared that having no Lerian dependency is legitimate here —
             # a library with a standard-library-only API, a template, a generator. There is
             # nothing to compare versions against, so this is a clean pass, not a violation.
