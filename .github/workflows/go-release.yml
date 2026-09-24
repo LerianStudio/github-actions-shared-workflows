@@ -589,11 +589,12 @@ jobs:
           # out the tag semantic-release just pushed — GoReleaser derives the
           # version from the tag at HEAD.
           ref: ${{ github.ref_type == 'branch' && needs.release.outputs.new_release_git_tag || '' }}
+          # GoReleaser needs the full history and every tag to compute the
+          # changelog. fetch-depth: 0 already fetches both, so no extra `git
+          # fetch` step is needed — and with persist-credentials off there
+          # would be no token for one to authenticate with anyway.
           fetch-depth: 0
           persist-credentials: false
-
-      - name: Fetch all tags
-        run: git fetch --force --tags
 
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v6
@@ -602,7 +603,26 @@ jobs:
           go-version-file: ${{ inputs.goreleaser_go_version == '' && 'go.mod' || '' }}
           cache: true
 
+      # A dry run must not upload assets to the GitHub Release, so GoReleaser is
+      # not invoked at all — the resolved configuration is reported instead.
+      - name: Preview GoReleaser configuration (dry run)
+        if: inputs.dry_run
+        env:
+          GORELEASER_DISTRIBUTION: ${{ inputs.goreleaser_distribution }}
+          GORELEASER_VERSION: ${{ inputs.goreleaser_version }}
+          GORELEASER_ARGS: ${{ inputs.goreleaser_args }}
+          GORELEASER_GO_VERSION: ${{ inputs.goreleaser_go_version }}
+        run: |
+          set -euo pipefail
+          echo "::notice::dry_run — GoReleaser not executed. distribution=${GORELEASER_DISTRIBUTION} version=${GORELEASER_VERSION} args=${GORELEASER_ARGS} go_version=${GORELEASER_GO_VERSION:-<from go.mod>} ref=$(git describe --tags --always)"
+          if [[ -f .goreleaser.yml || -f .goreleaser.yaml ]]; then
+            echo "::notice::Found a GoReleaser config in the repository root."
+          else
+            echo "::warning::No .goreleaser.yml/.goreleaser.yaml in the repository root — a real run would fail unless the config path is passed through goreleaser_args."
+          fi
+
       - name: Run GoReleaser
+        if: ${{ !inputs.dry_run }}
         uses: goreleaser/goreleaser-action@f06c13b6b1a9625abc9e6e439d9c05a8f2190e94 # v7.2.3
         with:
           distribution: ${{ inputs.goreleaser_distribution }}

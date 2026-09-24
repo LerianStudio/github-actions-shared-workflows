@@ -381,7 +381,8 @@ jobs:
 Notes:
 
 - **Binary-only repositories** — when `enable_goreleaser` is `true` and both `enable_dockerhub` and `enable_ghcr` are `false`, the container build is skipped entirely, so a repo without a Dockerfile never enters that lane. `update_gitops` and `s3_upload` stand down with it (they gate on the build producing images). Leave one registry enabled to publish binaries **and** an image from the same tag.
-- **The GitHub Release already exists** — semantic-release creates and writes the release notes for the tag before this job runs. GoReleaser's default `release.mode` (`replace`) overwrites that body with its own changelog, so set `release: { mode: append }` in the repository's `.goreleaser.yml` to keep the semantic-release notes and only upload the assets.
+- **The GitHub Release already exists** — semantic-release creates the release and writes its notes before this job runs, so what GoReleaser does with that body is up to `release.mode` in the repository's `.goreleaser.yml`. The default, `keep-existing`, leaves the semantic-release notes untouched and just uploads the assets — that is usually what you want here. Use `append`/`prepend` to add GoReleaser's own changelog around them, and avoid `replace`, which discards the semantic-release notes.
+- **`dry_run`** — when the caller sets `dry_run: true`, GoReleaser is not executed: the job reports the resolved configuration via `::notice::` and publishes nothing.
 - **Go version** — `goreleaser_go_version` defaults to empty, which reads `go.mod`, so there is no second place to bump. Set it only to pin a different toolchain.
 - **GoReleaser Pro** — set `goreleaser_distribution: goreleaser-pro` and map the `GORELEASER_KEY` secret.
 
