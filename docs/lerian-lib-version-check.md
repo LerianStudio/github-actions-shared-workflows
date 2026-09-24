@@ -101,8 +101,8 @@ jobs:
 | `check_indirect` | boolean | `false`                     | Also check transitive (`// indirect`) deps                                                   |
 | `comment_on_pr`  | boolean | `true`                      | Post / update a sticky comment on the PR with the result table                               |
 | `major_bump_grace_days` | string | `''`                | Per-invocation override for the major-bump grace window. Takes precedence over the `LERIAN_LIB_MAJOR_BUMP_GRACE_DAYS` variable; empty uses the variable, then defaults to `3`. |
-| `outdated_non_blocking` | boolean | `false`            | Report outdated direct libs as a warning instead of failing. Softens **only** the "behind latest stable" verdict — a missing `go.mod`, a `go.mod` with no Lerian libraries, and every other blocking failure still fail the job. Outcomes that never failed are unchanged (an unresolvable release API stays `⚠️ Unknown`). Unlike `dry_run`, the report is a real one (no dry-run banner). |
-| `require_lerian_libs` | boolean | `true`                 | Fail when `go.mod` declares no `github.com/LerianStudio/*` dependency at all. `true` is the company-standards rule for a service. Set it to `false` in a repository that legitimately has none — a library whose public API is standard-library only, a template, a generator. Narrow on purpose: it softens **only** that verdict; a missing `go.mod`, an outdated dependency and every infrastructure error keep failing. |
+| `outdated_non_blocking` | boolean | `false`            | Report outdated direct libs as a warning instead of failing. Softens **only** the "behind latest stable" verdict — a missing `go.mod` and every other blocking failure still fail the job. A `go.mod` with no Lerian libraries follows `require_lerian_libs` rather than this input. Outcomes that never failed are unchanged (an unresolvable release API stays `⚠️ Unknown`). Unlike `dry_run`, the report is a real one (no dry-run banner). |
+| `require_lerian_libs` | boolean | `true`                 | Fail when `go.mod` declares no `github.com/LerianStudio/*` dependency at all. `true` is the company-standards rule for a service. Set it to `false` in a repository that legitimately has none — a library whose public API is standard-library only, a template, a generator. Narrow on purpose: it softens **only** that verdict; a missing `go.mod` and an outdated dependency keep failing. Outcomes that never failed are unchanged — an unresolvable releases API stays `⚠️ Unknown`. |
 | `dry_run`        | boolean | `false`                     | Verbose log of all resolved versions; never fails the build                                  |
 
 ## Major-bump grace window
@@ -161,7 +161,6 @@ permissions:
 
 | Condition                                                | Behavior                                            |
 |----------------------------------------------------------|-----------------------------------------------------|
-| App has no Lerian libs in `go.mod`                       | Fail — violates company standards                   |
 | One or more direct Lerian libs are outdated (minor/patch, or expired major) | Fail — bump or add to ignore file        |
 | Major bump with latest release younger than the grace window | Tolerated — marked _grace_, does not fail       |
 | `.lerianstudiolibignore` does not exist                  | Warning in log, proceed normally                    |
@@ -170,7 +169,8 @@ permissions:
 | GitHub API cannot resolve latest release                 | Warning in log, marked _unknown_, does not fail     |
 | `dry_run: true`                                          | Verbose report, never fails                         |
 | `outdated_non_blocking: true` + outdated lib             | Warning, report headed _advisory_, does not fail    |
-| `outdated_non_blocking: true` + no Lerian libs / missing `go.mod` | Still fails — the exception is scoped to the outdated verdict |
+| `outdated_non_blocking: true` + missing `go.mod` | Still fails — the exception is scoped to the outdated verdict |
+| `outdated_non_blocking: true` + no Lerian libs | Follows `require_lerian_libs`: fails by default, warns when it is `false` |
 | No Lerian libs (default `require_lerian_libs: true`)     | Fails — company-standards violation                 |
 | `require_lerian_libs: false` + no Lerian libs            | Warning, report headed _nothing to check_, does not fail |
 | `require_lerian_libs: false` + missing `go.mod` / outdated lib | Still fails — the exception is scoped to the zero-dependency verdict |
