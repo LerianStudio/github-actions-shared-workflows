@@ -342,10 +342,10 @@ jobs:
 
       - name: Set up QEMU
         if: contains(needs.prepare.outputs.platforms, 'arm64')
-        uses: docker/setup-qemu-action@1f40c72289eff860ee54a304f1438e3cff362e0a # v4
+        uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4
 
       - name: Log in to DockerHub
         if: inputs.enable_dockerhub
@@ -715,7 +715,7 @@ jobs:
       # reuses them for that platform instead of compiling it twice.
       - name: Build image for verification
         if: steps.preflight.outputs.should_build != 'false' && steps.identity.outputs.adopted == 'true'
-        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7
         with:
           context: ${{ inputs.build_context_from_working_dir == true && matrix.app.working_dir || inputs.build_context }}
           file: ${{ matrix.app.working_dir }}/${{ inputs.dockerfile_name }}
@@ -825,7 +825,7 @@ jobs:
       - name: Build and push Docker image
         if: steps.preflight.outputs.should_build != 'false'
         id: build-push
-        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7
         with:
           context: ${{ inputs.build_context_from_working_dir == true && matrix.app.working_dir || inputs.build_context }}
           file: ${{ matrix.app.working_dir }}/${{ inputs.dockerfile_name }}

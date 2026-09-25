@@ -473,9 +473,36 @@ jobs:
             echo "  Values Key: $VALUES_KEY"
             echo "  Env Vars: $COMP_ENV_VARS"
 
-            # Update image tag in values.yaml
-            echo "  Updating ${VALUES_KEY}.image.tag to ${COMP_VERSION}"
-            yq -i ".${VALUES_KEY}.image.tag = \"${COMP_VERSION}\"" "${VALUES_FILE}"
+            # Update image tag in values.yaml.
+            #
+            # Every Lerian chart nests the component image under its values key
+            # (.<VALUES_KEY>.image.tag) EXCEPT a single-service chart that keeps its
+            # own image at the values root (.image.tag). Writing .<VALUES_KEY>.image.tag
+            # to such a chart creates an orphan top-level "<component>:" block the chart
+            # never reads, while the real root image.tag stays stale. Pick the path the
+            # chart actually uses: root only when the chart is annotated single-service
+            # AND a root .image.tag already exists (so single-service charts that DO nest,
+            # e.g. tracer/bank-transfer, keep nesting). Every other chart is unchanged.
+            CHART_TYPE=$(yq -r '.annotations."lerian.studio/chart-type" // ""' "${CHART_FILE}")
+            if [ "${CHART_TYPE}" = "single-service" ] && yq -e '.image.tag' "${VALUES_FILE}" >/dev/null 2>&1; then
+              IMAGE_PATH=".image.tag"
+            else
+              IMAGE_PATH=".${VALUES_KEY}.image.tag"
+            fi
+            echo "  Updating ${IMAGE_PATH} to ${COMP_VERSION}"
+            yq -i "${IMAGE_PATH} = \"${COMP_VERSION}\"" "${VALUES_FILE}"
+
+            # Self-heal: a root-image chart must not carry an orphan top-level
+            # "<VALUES_KEY>:" block left by older runs of this workflow. Only remove it
+            # when it holds nothing but the image mapping, so a legitimately-named
+            # top-level key is never touched.
+            if [ "${IMAGE_PATH}" = ".image.tag" ] && [ "${VALUES_KEY}" != "image" ]; then
+              ORPHAN_KEYS=$(yq -r "(.\"${VALUES_KEY}\" // {}) | keys | @csv" "${VALUES_FILE}" 2>/dev/null || true)
+              if [ "${ORPHAN_KEYS}" = "image" ]; then
+                yq -i "del(.\"${VALUES_KEY}\")" "${VALUES_FILE}"
+                echo "  Removed orphan top-level .${VALUES_KEY} block (single-service root-image chart)"
+              fi
+            fi
 
             # Track highest version for appVersion (using sort -V for version comparison)
             if [ -z "$HIGHEST_VERSION" ]; then

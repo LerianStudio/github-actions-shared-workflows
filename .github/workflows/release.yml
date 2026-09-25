@@ -20,6 +20,23 @@ on:
         description: 'Git tag semantic-release created (single-app mode; last leg that actually published wins in monorepo).'
         value: ${{ jobs.publish_release_status.outputs.release_git_tag }}
     inputs:
+      # ----------------- Change gate -----------------
+      # Documentation and repository metadata must not cut a release tag. The
+      # gate reuses src/config/non-doc-changes, the same classifier behind the
+      # go-/js- umbrella workflows, and folds its verdict into `should_skip` so
+      # every downstream job already respects it.
+      #
+      # Callers that gate upstream (go-release.yml, js-release.yml) pass
+      # enable_doc_gate: false to avoid classifying the same push twice.
+      enable_doc_gate:
+        description: 'Skip the release when a branch push touches only documentation/meta files (see ignore_globs).'
+        type: boolean
+        default: true
+      ignore_globs:
+        description: 'Space-separated glob patterns treated as docs/meta; when only these change on a branch push, the release is skipped. Files under .github/workflows/, .github/actions/ and .github/scripts/ always count as code.'
+        type: string
+        default: '*.md docs/* .github/* LICENSE* .gitignore .coderabbit.yml .coderabbit.yaml'
+
       semantic_version:
         description: 'Semantic release version to use'
         type: string
@@ -141,11 +158,37 @@ jobs:
       has_changes: ${{ steps.set-matrix.outputs.has_changes }}
       should_skip: ${{ steps.check-skip.outputs.should_skip }}
     steps:
+      # Runs before the skip check so its verdict can feed into it. Skipped
+      # entirely on tag pushes: a tag carries no diff to classify, and a release
+      # driven by a tag is explicit intent, not an accident of a docs commit.
+      - name: Non-doc change gate
+        id: doc-gate
+        if: inputs.enable_doc_gate && github.ref_type == 'branch'
+        # An unreadable diff is not a verdict. A caller may grant less than
+        # `pull-requests: read`, and a reusable workflow cannot elevate what its
+        # caller restricted; failing here would block the pipeline the gate only
+        # means to shorten. The empty output that follows reads as "assume code".
+        continue-on-error: true
+        uses: LerianStudio/github-actions-shared-workflows/src/config/non-doc-changes@v1
+        with:
+          github-token: ${{ github.token }}
+          ignore-globs: ${{ inputs.ignore_globs }}
+
       - name: Check if should skip (changelog commits)
         id: check-skip
         env:
           COMMIT_MSG: ${{ github.event.head_commit.message }}
+          # Empty when the gate did not run (tag push, or gate disabled by the
+          # caller). Only the literal "false" skips, so an absent verdict means
+          # "assume code" and the release proceeds exactly as it did before.
+          HAS_CODE: ${{ steps.doc-gate.outputs.code }}
         run: |
+          if [ "$HAS_CODE" = "false" ]; then
+            echo "🛑 Skipping release - branch push touched only documentation/meta files"
+            echo "should_skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
           echo "📌 Checking commit message for skip patterns"
 
           # Backmerges and syncs mark themselves [backmerge], which GitHub does

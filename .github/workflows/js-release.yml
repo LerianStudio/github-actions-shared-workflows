@@ -357,6 +357,9 @@ jobs:
     uses: ./.github/workflows/release.yml
     with:
       runner_type: ${{ inputs.runner_type }}
+      # The `changes` job above already classified this push; release.yml must
+      # not spend a second job and a second API call reaching the same verdict.
+      enable_doc_gate: false
       publish_runner_type: ${{ inputs.release_runner_type }}
       dry_run: ${{ inputs.dry_run }}
       semantic_version: ${{ inputs.semantic_version }}
