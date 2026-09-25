@@ -75,6 +75,25 @@ jobs:
       - name: Run breaking-change workflow integration tests
         run: python3 src/validate/breaking-change-guard/test-workflow.py
 
+  # ----------------- go-release Workflow Shape Tests -----------------
+  # Asserts the per-group boolean overrides go-release.yml forwards for extra_builds.
+  go-release-workflow-tests:
+    name: go-release Workflow Shape Tests
+    runs-on: ${{ vars.GENERAL_RUNNERS || 'blacksmith-4vcpu-ubuntu-2404' }}
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+        with:
+          persist-credentials: false
+
+      - name: Lint go-release test scripts
+        run: shellcheck tests/go-release/*.sh
+
+      - name: Run go-release per-group override tests
+        run: bash tests/go-release/test-workflow.sh
+
   # ----------------- Build Identity Verification Tests -----------------
   # The build.yml verification step decides whether a service image may be published,
   # so a regression in it blocks releases across every consumer of build.yml. The
@@ -212,6 +231,21 @@ jobs:
 
       - name: Run prerelease-check allow-file behavioural tests
         run: python3 src/security/prerelease-check/test.py
+
+  # ----------------- Non-Doc Changes Gate Tests -----------------
+  non-doc-changes-tests:
+    name: Non-Doc Changes Gate Tests
+    runs-on: ${{ vars.GENERAL_RUNNERS || 'blacksmith-4vcpu-ubuntu-2404' }}
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+        with:
+          persist-credentials: false
+
+      - name: Run non-doc-changes classification tests
+        run: python3 src/config/non-doc-changes/test.py
 
   # ----------------- YAML Lint -----------------
   yamllint:
@@ -481,6 +515,7 @@ jobs:
       - coderabbit-collapse-tests
       - prerelease-check-tests
       - socket-app-gate-tests
+      - non-doc-changes-tests
       - yamllint
       - actionlint
       - pinned-actions

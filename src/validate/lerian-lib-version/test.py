@@ -136,6 +136,10 @@ class ScriptRunner:
             "CHECK_INDIRECT": "false",
             "GRACE_DAYS": "0",
             "OUTDATED_NON_BLOCKING": "false",
+            # Mirrors the action's declared default. Absent, `set -u` aborts the
+            # script at the first expansion and every verdict test reads as a
+            # silent pass of the wrong kind.
+            "REQUIRE_LERIAN_LIBS": "true",
             "DRY_RUN": "false",
             "GH_TOKEN": "unused-because-every-lib-is-pinned",
         }
@@ -250,6 +254,143 @@ EXPECTED_CONDITION = (
     "&& github.base_ref == 'main' "
     "&& startsWith(github.head_ref, 'hotfix/') }}"
 )
+
+
+GO_MOD_PRIVATE_LIB = """module github.com/LerianStudio/example
+
+go 1.23
+
+require (
+\tgithub.com/LerianStudio/lib-license-go/v4 v4.1.0
+)
+"""
+
+# curl stub: every releases call answers 404, the way an unauthenticated request
+# to a private LerianStudio repository does.
+CURL_404_STUB = """#!/usr/bin/env bash
+out=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -o) out="$2"; shift 2 ;;
+    *) shift ;;
+  esac
+done
+[[ -n "${out}" ]] && printf '%s' '{"message":"Not Found"}' > "${out}"
+printf '404'
+"""
+
+
+@unittest.skipUnless(BASH, "requires bash 4+ for the composite's associative arrays")
+@unittest.skipUnless(BASH, "requires bash 4+ for the composite's associative arrays")
+class RequireLerianLibsTests(unittest.TestCase):
+    """The zero-dependency verdict, and the exactly-one way to waive it."""
+
+    def setUp(self):
+        self.runner = ScriptRunner(self)
+
+    def test_no_lerian_libs_fails_by_default(self):
+        self.runner.write("go.mod", GO_MOD_NO_LERIAN_LIBS)
+        self.runner.write(".lerianstudiolibignore", IGNORE_PIN)
+        result = self.runner.run(COMPARE_SCRIPT)
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("::error title=No Lerian libraries found", result.stdout)
+
+    def test_opt_out_reports_nothing_to_check_and_passes(self):
+        self.runner.write("go.mod", GO_MOD_NO_LERIAN_LIBS)
+        self.runner.write(".lerianstudiolibignore", IGNORE_PIN)
+        result = self.runner.run(COMPARE_SCRIPT, REQUIRE_LERIAN_LIBS="false")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("nothing to check", result.step_summary)
+        self.assertIn("::warning title=No Lerian libraries found", result.stdout)
+        self.assertNotIn("::error title=No Lerian libraries found", result.stdout)
+
+    # A compliance verdict must not be waived by a value nobody recognises.
+    # Only the literal "false" opts out; anything else enforces and says so.
+
+    def test_wrong_case_does_not_opt_out(self):
+        self.runner.write("go.mod", GO_MOD_NO_LERIAN_LIBS)
+        self.runner.write(".lerianstudiolibignore", IGNORE_PIN)
+        result = self.runner.run(COMPARE_SCRIPT, REQUIRE_LERIAN_LIBS="FALSE")
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("::error title=No Lerian libraries found", result.stdout)
+        self.assertIn("::warning title=Invalid require-lerian-libs value", result.stdout)
+
+    # YAML 1.1 reads a bare `no` as a boolean, but an action input is a string
+    # and arrives here spelled exactly as written.
+    def test_yaml_style_no_does_not_opt_out(self):
+        self.runner.write("go.mod", GO_MOD_NO_LERIAN_LIBS)
+        self.runner.write(".lerianstudiolibignore", IGNORE_PIN)
+        result = self.runner.run(COMPARE_SCRIPT, REQUIRE_LERIAN_LIBS="no")
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("::error title=No Lerian libraries found", result.stdout)
+
+    def test_empty_value_does_not_opt_out(self):
+        self.runner.write("go.mod", GO_MOD_NO_LERIAN_LIBS)
+        self.runner.write(".lerianstudiolibignore", IGNORE_PIN)
+        result = self.runner.run(COMPARE_SCRIPT, REQUIRE_LERIAN_LIBS="")
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("::error title=No Lerian libraries found", result.stdout)
+
+    # The exception must not widen beyond the zero-dependency verdict.
+
+    def test_opt_out_does_not_soften_missing_go_mod(self):
+        result = self.runner.run(GO_MOD_SCRIPT, REQUIRE_LERIAN_LIBS="false")
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("::error title=go.mod not found", result.stdout)
+
+    def test_go_mod_guard_cannot_see_the_opt_out_at_all(self):
+        self.assertNotIn("REQUIRE_LERIAN_LIBS", GO_MOD_SCRIPT)
+
+    def test_opt_out_does_not_soften_an_outdated_lib(self):
+        self.runner.write("go.mod", GO_MOD_OUTDATED)
+        self.runner.write(".lerianstudiolibignore", IGNORE_PIN)
+        result = self.runner.run(COMPARE_SCRIPT, REQUIRE_LERIAN_LIBS="false")
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+
+
+class UnreadableRepositoryTests(unittest.TestCase):
+    """An unreadable private repo is UNKNOWN, never 'behind latest stable'."""
+
+    def setUp(self):
+        self.runner = ScriptRunner(self)
+        self.runner.write("go.mod", GO_MOD_PRIVATE_LIB)
+        self.runner.write(".lerianstudiolibignore", "")
+        bin_dir = self.runner.dir / "bin"
+        bin_dir.mkdir(exist_ok=True)
+        stub = bin_dir / "curl"
+        stub.write_text(CURL_404_STUB, encoding="utf-8")
+        stub.chmod(0o755)
+        self.env = {"PATH": f"{bin_dir}:{os.environ.get('PATH', '')}"}
+
+    def _run(self):
+        return self.runner.run(COMPARE_SCRIPT, **self.env)
+
+    def test_unreadable_repo_does_not_fail_the_job(self):
+        result = self._run()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertNotIn("::error title=Outdated Lerian libraries", result.stdout)
+
+    def test_unreadable_repo_is_reported_as_unknown(self):
+        result = self._run()
+        self.assertIn("⚠️ Unknown", result.step_summary)
+        self.assertNotIn("🔴 Needs update", result.step_summary)
+        self.assertIn("🔴 0 needs update", result.step_summary)
+        self.assertEqual("false", _output_value(result.github_output, "has_outdated"))
+
+    def test_warning_never_leaks_into_the_resolved_version(self):
+        result = self._run()
+        self.assertNotIn("::warning", result.step_summary)
+        self.assertIn(
+            "::warning title=Cannot read LerianStudio/lib-license-go", result.stdout
+        )
+
+
+def _output_value(github_output, key):
+    for line in github_output.splitlines():
+        name, _, value = line.partition("=")
+        if name == key:
+            return value
+    return None
 
 
 def is_advisory(enabled, base_ref, head_ref):
