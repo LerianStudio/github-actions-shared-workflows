@@ -328,14 +328,14 @@ as before — Docker only warns about an unused build argument, and an undeclare
 argument does not invalidate the build cache — and the job emits a warning naming
 the image and this section.
 
-This workflow is the release contract of roughly thirty repositories, and
-`tier-0` promotes every stable release without human approval, so a repository
-that has not adopted keeps releasing rather than breaking on a promotion it never
-asked for. After adopting, set `require_build_identity: true`: with it, a
-Dockerfile that loses `ARG REVISION` fails the build instead of shipping an image
-without its identity. Without it, that regression only downgrades to the warning.
-The gate will be dropped once every consumer has adopted; that release will be
-announced.
+`require_build_identity: true` turns that warning into a failure, so a Dockerfile
+that loses `ARG REVISION` fails the build instead of shipping an image without its
+identity. `go-release.yml` always sets it for its primary image and defaults it to
+`true` for its `extra_builds` groups: every Go service image released through it
+proves its identity, and a group without a Go binary opts out with
+`"require_build_identity": false` (see [go-release, Build identity](go-release.md#build-identity)).
+Here the input still defaults to `false`: the repositories that call this workflow
+directly publish TypeScript and Python images, which do not carry the contract.
 
 Local builds pass no arguments, report `dev` / `unknown`, and are not blocked.
 Images published by CI are.
