@@ -116,9 +116,9 @@ on:
         type: boolean
         default: false
       require_build_identity:
-        description: 'Fail the build when the Dockerfile does not declare ARG REVISION. Set it once the service has adopted the compiled build identity so a regression cannot ship. Forwarded to build.yml for the primary build and, unless the group sets its own require_build_identity, every extra_builds group.'
+        description: 'Default for every extra_builds group that does not set its own require_build_identity: fail the group build when its Dockerfile does not declare ARG REVISION. The primary image always proves its compiled build identity, whatever this input says.'
         type: boolean
-        default: false
+        default: true
       app_name_prefix:
         description: 'Prefix for app names in monorepo (e.g., "midaz" -> "midaz-agent")'
         type: string
@@ -168,7 +168,7 @@ on:
         type: string
         default: 'maintenance/*'
       extra_builds:
-        description: 'JSON array of additional build groups, each forwarded to build.yml with its own config (filter_paths, path_level, normalize_to_filter, app_name_overrides, build_context_from_working_dir, helm_*, tag_prefix, enable_dockerhub, enable_ghcr, enable_gitops_artifacts, force_full_matrix, require_build_identity). Runs alongside the primary build on tag push; groups with enable_gitops_artifacts enabled (the default) feed the single gitops-update. A group with tag_prefix set only builds when the triggering tag starts with that prefix (e.g. a component with its own independent semver and tag scheme); omit tag_prefix to build on every tag push, as before. enable_dockerhub/enable_ghcr default to the top-level inputs of the same name when omitted (explicit true/false on the group always wins, including false) — use to publish a group to only one registry regardless of the primary build''s registries. enable_gitops_artifacts defaults to true when omitted. require_build_identity defaults to the top-level input when omitted (explicit true/false on the group wins) — set false on a group whose image has not adopted the build identity (e.g. a migrations image) while the primary requires it. force_full_matrix defaults to true, skipping change detection so the group builds/publishes every listed component in lockstep with the release version; set it to false to build only changed components. Empty = one build only (default).'
+        description: 'JSON array of additional build groups, each forwarded to build.yml with its own config (filter_paths, path_level, normalize_to_filter, app_name_overrides, build_context_from_working_dir, helm_*, tag_prefix, enable_dockerhub, enable_ghcr, enable_gitops_artifacts, force_full_matrix, require_build_identity). Runs alongside the primary build on tag push; groups with enable_gitops_artifacts enabled (the default) feed the single gitops-update. A group with tag_prefix set only builds when the triggering tag starts with that prefix (e.g. a component with its own independent semver and tag scheme); omit tag_prefix to build on every tag push, as before. enable_dockerhub/enable_ghcr default to the top-level inputs of the same name when omitted (explicit true/false on the group always wins, including false) — use to publish a group to only one registry regardless of the primary build''s registries. enable_gitops_artifacts defaults to true when omitted. require_build_identity defaults to the top-level input (itself true by default) when omitted (explicit true/false on the group wins) — set false on a group whose image has not adopted the build identity (e.g. a migrations image without a Go binary). force_full_matrix defaults to true, skipping change detection so the group builds/publishes every listed component in lockstep with the release version; set it to false to build only changed components. Empty = one build only (default).'
         type: string
         default: ''
       force_full_matrix:
@@ -536,7 +536,9 @@ jobs:
       cosign_initial_delay: ${{ inputs.cosign_initial_delay }}
       cosign_max_delay: ${{ inputs.cosign_max_delay }}
       continue_gitops_on_signing_failure: ${{ inputs.continue_gitops_on_signing_failure }}
-      require_build_identity: ${{ inputs.require_build_identity }}
+      # Unconditional: the primary image always proves its build identity. The input
+      # only sets the default for the extra_builds groups below.
+      require_build_identity: true
       # Deferred to the dispatch_helm job below. build.yml dispatches from inside
       # itself, which cannot see extra_build — a sibling job here — so the chart
       # would be bumped while the migrations image was still building.
