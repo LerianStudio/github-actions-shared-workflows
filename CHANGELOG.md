@@ -1,5 +1,21 @@
 # Github-actions-shared-workflows Changelog
 
+## [1.78.0](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.78.0)
+
+Features:
+- Migrate mirror uploads to the development bucket for the `go-release` workflow. (@fredcamaral)
+- Promote changes from `develop` to `main` for release. (@fredcamaral)
+
+Fixes:
+- Allow primary uploads to complete even if a mirror write fails in the `go-release` workflow. (@fredcamaral)
+
+Improvements:
+- Test `go-release` S3 upload steps using a fake AWS environment. (@fredcamaral)
+
+[Compare changes](https://github.com/LerianStudio/github-actions-shared-workflows/compare/v1.77.0...v1.78.0)
+
+---
+
 ## [1.77.0](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.77.0)
 
 Features:
