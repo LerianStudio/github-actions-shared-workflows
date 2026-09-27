@@ -309,6 +309,10 @@ on:
         description: 'JSON array of S3 upload entries run after build on tag push, each forwarded to s3-upload.yml. Each object: {"s3_bucket": "...", "file_pattern": "...", "s3_prefix": "...", "strip_prefix": "...", "flatten": true|false} (only s3_bucket and file_pattern are required; flatten defaults to true). Empty = no upload (default).'
         type: string
         default: ''
+      s3_upload_mirrors:
+        description: 'JSON object mapping an s3_uploads bucket to a second bucket that receives every file uploaded to it under the same key, one s3:PutObject per file in the given region: {"<s3_bucket>": {"bucket": "...", "region": "..."}}. A failed mirror write fails the job, like a failed upload. The default mirrors lerian-migration-files to lerian-development-migrations, the bucket the benedita tenant-manager reads.'
+        type: string
+        default: '{"lerian-migration-files":{"bucket":"lerian-development-migrations","region":"us-east-2"}}'
 
       # ----------------- Permission Manifest Publish (RI, permission-manifest-publish composite) -----------------
       run_manifest_publish:
@@ -702,6 +706,7 @@ jobs:
         if: steps.env.outputs.folder != ''
         env:
           S3_UPLOADS: ${{ inputs.s3_uploads }}
+          S3_UPLOAD_MIRRORS: ${{ inputs.s3_upload_mirrors }}
           FOLDER: ${{ steps.env.outputs.folder }}
           AWS_REGION: us-east-2
         run: |
@@ -709,22 +714,29 @@ jobs:
 
           upload_entry() {
             local BUCKET="$1" PATTERN="$2" PREFIX="$3" STRIP_PREFIX="$4" FLATTEN="$5"
-            local S3_PATH file DEST_PATH FILE_COUNT=0
+            local KEY_DIR MIRROR_BUCKET MIRROR_REGION TARGETS file DEST_PATH FILE_COUNT=0
             if [[ -n "$PREFIX" ]]; then
-              S3_PATH="s3://${BUCKET}/${FOLDER}/${PREFIX}/"
+              KEY_DIR="${FOLDER}/${PREFIX}/"
             else
-              S3_PATH="s3://${BUCKET}/${FOLDER}/"
+              KEY_DIR="${FOLDER}/"
             fi
-            echo "Uploading '${PATTERN}' -> ${S3_PATH} (flatten=${FLATTEN}, strip_prefix=${STRIP_PREFIX:-<none>})"
+            # The mirror bucket may grant s3:PutObject only: per-file cp, never sync or list.
+            MIRROR_BUCKET=$(jq -r --arg b "$BUCKET" '.[$b].bucket // ""' <<<"$S3_UPLOAD_MIRRORS")
+            MIRROR_REGION=$(jq -r --arg b "$BUCKET" '.[$b].region // ""' <<<"$S3_UPLOAD_MIRRORS")
+            TARGETS="s3://${BUCKET}/${KEY_DIR}${MIRROR_BUCKET:+ and s3://${MIRROR_BUCKET}/${KEY_DIR}}"
+            echo "Uploading '${PATTERN}' -> ${TARGETS} (flatten=${FLATTEN}, strip_prefix=${STRIP_PREFIX:-<none>})"
             shopt -s nullglob
             for file in $PATTERN; do
               if [[ "$FLATTEN" == "true" ]]; then
-                aws s3 cp "$file" "${S3_PATH}"
+                DEST_PATH=""
               elif [[ -n "$STRIP_PREFIX" ]]; then
                 DEST_PATH="${file#"$STRIP_PREFIX"/}"
-                aws s3 cp "$file" "${S3_PATH}${DEST_PATH}"
               else
-                aws s3 cp "$file" "${S3_PATH}${file}"
+                DEST_PATH="$file"
+              fi
+              aws s3 cp "$file" "s3://${BUCKET}/${KEY_DIR}${DEST_PATH}"
+              if [[ -n "$MIRROR_BUCKET" ]]; then
+                aws s3 cp "$file" "s3://${MIRROR_BUCKET}/${KEY_DIR}${DEST_PATH}" --region "$MIRROR_REGION"
               fi
               FILE_COUNT=$((FILE_COUNT + 1))
             done
@@ -733,7 +745,7 @@ jobs:
               echo "::error::No files matched pattern: ${PATTERN}"
               return 1
             fi
-            echo "::notice::Uploaded ${FILE_COUNT} file(s) to ${S3_PATH}"
+            echo "::notice::Uploaded ${FILE_COUNT} file(s) to ${TARGETS}"
           }
 
           assume_role() {
