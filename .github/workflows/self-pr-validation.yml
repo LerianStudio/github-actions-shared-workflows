@@ -76,7 +76,8 @@ jobs:
         run: python3 src/validate/breaking-change-guard/test-workflow.py
 
   # ----------------- go-release Workflow Shape Tests -----------------
-  # Asserts the per-group boolean overrides go-release.yml forwards for extra_builds.
+  # Asserts the per-group boolean overrides go-release.yml forwards for extra_builds,
+  # and runs the s3_upload steps against a fake aws (mirror bucket, failure path).
   go-release-workflow-tests:
     name: go-release Workflow Shape Tests
     runs-on: ${{ vars.GENERAL_RUNNERS || 'blacksmith-4vcpu-ubuntu-2404' }}
@@ -93,6 +94,9 @@ jobs:
 
       - name: Run go-release per-group override tests
         run: bash tests/go-release/test-workflow.sh
+
+      - name: Run go-release S3 upload and mirror tests
+        run: bash tests/go-release/test-s3-upload.sh
 
   # ----------------- Build Identity Verification Tests -----------------
   # The build.yml verification step decides whether a service image may be published,
