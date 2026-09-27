@@ -1,5 +1,17 @@
 # Github-actions-shared-workflows Changelog
 
+## [1.77.0](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.77.0)
+
+Features:
+- Require compiled build identity on every primary image in the Go release workflow. (@fredcamaral)
+
+Fixes:
+- Merge changes from `develop` to `main` in the release workflow. (@fredcamaral)
+
+[Compare changes](https://github.com/LerianStudio/github-actions-shared-workflows/compare/v1.76.0...v1.77.0)
+
+---
+
 ## [1.76.0](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.76.0)
 
 Features:
