@@ -88,6 +88,7 @@ A third layout needs `release_single_app: true`: **one semantic-release tag for 
 | `kustomize_version` | Version of kustomize CLI to install (used only when `gitops_layout=kustomize`) | string | `v5.4.3` |
 | `argocd_app_name_template` | Template for the ArgoCD application name. Placeholders `{server}`, `{app}`, `{env}`. For kustomize layouts without env split use e.g. `{server}-{app}` | string | `{server}-{app}-{env}` |
 | `s3_uploads` | JSON array of S3 upload entries run after build on tag push (see [S3 migrations upload](#s3-migrations-upload)) | string | `''` |
+| `s3_upload_mirrors` | JSON object mapping an `s3_uploads` bucket to a second bucket that receives every file uploaded to it under the same key (see [Mirror bucket](#mirror-bucket)) | string | `{"lerian-migration-files":{"bucket":"lerian-development-migrations","region":"us-east-2"}}` |
 | `run_manifest_publish` | Publish this service's own `permissions.yaml` to the shared Access-Manager RI catalog in S3 on tag push (see [Permission manifest publish](#permission-manifest-publish-ri)) | boolean | `true` |
 | `manifest_publish_environment` | GitHub Environment to scope the manifest publish job to, putting the `AWS_INIT_DATA_ROLE_ARN` assume-role behind that environment's protection rules. Empty keeps the job unscoped | string | `''` |
 | `enable_apidog_e2e` | Run the ApiDog E2E test job on tag push after a successful gitops-update | boolean | `false` |
@@ -193,6 +194,12 @@ carries it: for a `@tier-N` consumer that is the tier promotion, for a fixed
 Set `s3_uploads` to a JSON array to upload files (e.g. SQL migrations) to S3 on tag push, after `build` succeeds. All entries are processed sequentially inside a single `s3_upload` job (this avoids a GitHub Actions limitation where a `matrix` over a reusable-workflow `uses:` call is not instantiated in a nested reusable-workflow context), independent of the gitops update (it reads repo files, not build artifacts). Per-entry keys: `s3_bucket` (required), `file_pattern` (required), `s3_prefix` (optional), `strip_prefix` (optional — removes that prefix from the source path so keys land under `s3_prefix` directly), `flatten` (optional, defaults to `true`; set `false` to preserve the directory structure), and `aws_role_arn` (optional — see per-entry role below). The target environment folder is auto-detected from the tag (`-beta` → development, `-rc` → staging, `vX.Y.Z` → production).
 
 By default the job assumes the `AWS_MIGRATIONS_ROLE_ARN` secret via OIDC (region `us-east-2`); map it explicitly in the caller.
+
+### Mirror bucket
+
+Every file an entry uploads to a bucket named in `s3_upload_mirrors` is also written to that entry's mirror bucket, under the same `{env}/{s3_prefix}/` key and with the same credentials, one `aws s3 cp` (`s3:PutObject`) per file in the mirror's `region` (the job region when omitted). The mirror is never listed, synced or deleted from. A failed primary write stops the job at once, as before. A failed mirror write is reported as an error and the remaining uploads continue, so the primary bucket always receives every file; the job then fails. No other job depends on `s3_upload`, so the image build, the Helm dispatch and the GitOps update proceed either way.
+
+The default mirrors `lerian-migration-files` (production tenant-manager, devops account) to `lerian-development-migrations` (benedita tenant-manager, development account), so every migration release reaches both without a caller change.
 
 ### Per-entry IAM role
 
