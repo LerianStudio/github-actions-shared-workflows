@@ -310,7 +310,7 @@ on:
         type: string
         default: ''
       s3_upload_mirrors:
-        description: 'JSON object mapping an s3_uploads bucket to a second bucket that receives every file uploaded to it under the same key, one s3:PutObject per file in the given region: {"<s3_bucket>": {"bucket": "...", "region": "..."}}. A failed mirror write fails the job, like a failed upload. The default mirrors lerian-migration-files to lerian-development-migrations, the bucket the benedita tenant-manager reads.'
+        description: 'JSON object mapping an s3_uploads bucket to a mirror bucket: {"<s3_bucket>": {"bucket": "...", "region": "..."}}. See docs/go-release.md, Mirror bucket.'
         type: string
         default: '{"lerian-migration-files":{"bucket":"lerian-development-migrations","region":"us-east-2"}}'
 
@@ -711,6 +711,8 @@ jobs:
           AWS_REGION: us-east-2
         run: |
           set -euo pipefail
+          # A denied mirror write must not stop the primary uploads: record it, fail at the end.
+          MIRROR_FAILURES=$(mktemp)
 
           upload_entry() {
             local BUCKET="$1" PATTERN="$2" PREFIX="$3" STRIP_PREFIX="$4" FLATTEN="$5"
@@ -722,7 +724,7 @@ jobs:
             fi
             # The mirror bucket may grant s3:PutObject only: per-file cp, never sync or list.
             MIRROR_BUCKET=$(jq -r --arg b "$BUCKET" '.[$b].bucket // ""' <<<"$S3_UPLOAD_MIRRORS")
-            MIRROR_REGION=$(jq -r --arg b "$BUCKET" '.[$b].region // ""' <<<"$S3_UPLOAD_MIRRORS")
+            MIRROR_REGION=$(jq -r --arg b "$BUCKET" '.[$b].region // env.AWS_REGION' <<<"$S3_UPLOAD_MIRRORS")
             TARGETS="s3://${BUCKET}/${KEY_DIR}${MIRROR_BUCKET:+ and s3://${MIRROR_BUCKET}/${KEY_DIR}}"
             echo "Uploading '${PATTERN}' -> ${TARGETS} (flatten=${FLATTEN}, strip_prefix=${STRIP_PREFIX:-<none>})"
             shopt -s nullglob
@@ -735,8 +737,10 @@ jobs:
                 DEST_PATH="$file"
               fi
               aws s3 cp "$file" "s3://${BUCKET}/${KEY_DIR}${DEST_PATH}"
-              if [[ -n "$MIRROR_BUCKET" ]]; then
-                aws s3 cp "$file" "s3://${MIRROR_BUCKET}/${KEY_DIR}${DEST_PATH}" --region "$MIRROR_REGION"
+              if [[ -n "$MIRROR_BUCKET" ]] &&
+                ! aws s3 cp "$file" "s3://${MIRROR_BUCKET}/${KEY_DIR}${DEST_PATH}" --region "$MIRROR_REGION"; then
+                echo "::error::Mirror write failed: ${file} -> s3://${MIRROR_BUCKET}/${KEY_DIR}${DEST_PATH}"
+                echo "$file" >>"$MIRROR_FAILURES"
               fi
               FILE_COUNT=$((FILE_COUNT + 1))
             done
@@ -763,6 +767,10 @@ jobs:
 
           if ! PARSED_ENTRIES=$(printf '%s' "$S3_UPLOADS" | jq -c 'if type == "array" then .[] else error("s3_uploads must be a JSON array") end'); then
             echo "::error::s3_uploads must be a valid JSON array."
+            exit 1
+          fi
+          if ! printf '%s' "$S3_UPLOAD_MIRRORS" | jq -e 'type == "object"' >/dev/null; then
+            echo "::error::s3_upload_mirrors must be a JSON object."
             exit 1
           fi
           mapfile -t ENTRIES < <(printf '%s' "$PARSED_ENTRIES")
@@ -803,6 +811,11 @@ jobs:
               upload_entry "$BUCKET" "$PATTERN" "$PREFIX" "$STRIP_PREFIX" "$FLATTEN"
             fi
           done
+
+          if [[ -s "$MIRROR_FAILURES" ]]; then
+            echo "::error::$(wc -l <"$MIRROR_FAILURES") mirror write(s) failed; every primary upload completed."
+            exit 1
+          fi
 
   # ----------------- Permission Manifest Publish (RI, tag push, opt-in) -----------------
   # Upstream half of the Access-Manager "Inversão de Responsabilidade": on a tag push

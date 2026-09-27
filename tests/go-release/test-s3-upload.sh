@@ -1,10 +1,8 @@
 #!/usr/bin/env bash
 
-# Runs the s3_upload job's two shell steps from go-release.yml as written (tag ->
-# folder, then the upload) against a fake `aws` that records its arguments, with the
-# workflow's own s3_upload_mirrors default. Asserts every lerian-migration-files write
-# is repeated into the mirror bucket under the same key, other buckets are not
-# mirrored, and a failed mirror write fails the step. No AWS is called.
+# Runs the s3_upload job's shell steps from go-release.yml as written against a fake
+# `aws` that records its arguments: migrations reach both buckets under one key, and a
+# denied mirror write fails the step only after every primary write landed. No AWS.
 
 set -euo pipefail
 
@@ -44,12 +42,12 @@ printf 'aws %s\n' "$*" >>"${AWS_LOG}"
 [[ -z "${AWS_FAIL_ON:-}" || "$*" != *"${AWS_FAIL_ON}"* ]]
 EOF
 chmod +x "${WORK_DIR}/bin/aws"
-touch "${WORK_DIR}/repo/db/migrations/000001_init.up.sql" "${WORK_DIR}/repo/db/migrations/000001_init.down.sql" \
-  "${WORK_DIR}/repo/init/init_data.json"
+touch "${WORK_DIR}/repo/db/migrations/"{1,2,3}.sql "${WORK_DIR}/repo/init/init_data.json"
 
-# Runs both steps for a tag and compares the recorded aws calls with the expected ones.
+# Runs both steps for a tag and compares the exit status (0 or nonzero) and the
+# recorded aws calls with the expected ones.
 assert_calls() {
-  local label=$1 tag=$2 uploads=$3 expected=$4 folder status=0
+  local label=$1 tag=$2 uploads=$3 want=$4 expected=$5 folder status=0
   : >"${WORK_DIR}/aws.log"
   : >"${WORK_DIR}/output"
   GITHUB_REF="refs/tags/${tag}" GITHUB_OUTPUT="${WORK_DIR}/output" bash "${WORK_DIR}/folder.sh" >/dev/null
@@ -57,32 +55,46 @@ assert_calls() {
   (cd "${WORK_DIR}/repo" && PATH="${WORK_DIR}/bin:${PATH}" AWS_LOG="${WORK_DIR}/aws.log" FOLDER="${folder}" \
     S3_UPLOADS="${uploads}" S3_UPLOAD_MIRRORS="${MIRRORS}" AWS_REGION=us-east-2 \
     bash "${WORK_DIR}/upload.sh" >/dev/null 2>&1) || status=$?
-  if [[ "${expected}" == fail ]]; then
-    [[ ${status} -ne 0 ]] && { PASSED=$((PASSED + 1)); printf 'ok - %s\n' "${label}"; return; }
-  elif [[ ${status} -eq 0 && "$(cat "${WORK_DIR}/aws.log")" == "${expected}" ]]; then
-    PASSED=$((PASSED + 1)); printf 'ok - %s\n' "${label}"; return
+  if [[ ${status} -ne 0 ]]; then status=nonzero; fi
+  if [[ "${status}" == "${want}" && "$(cat "${WORK_DIR}/aws.log")" == "${expected}" ]]; then
+    PASSED=$((PASSED + 1))
+    printf 'ok - %s\n' "${label}"
+  else
+    FAILED=$((FAILED + 1))
+    printf 'not ok - %s (exit %s), recorded:\n%s\n' "${label}" "${status}" "$(cat "${WORK_DIR}/aws.log")" >&2
   fi
-  FAILED=$((FAILED + 1))
-  printf 'not ok - %s (exit %s), recorded:\n%s\n' "${label}" "${status}" "$(cat "${WORK_DIR}/aws.log")" >&2
 }
 
-MIGRATIONS='{"s3_bucket":"lerian-migration-files","file_pattern":"db/migrations/*.sql","s3_prefix":"svc/mod/postgresql"'
+MIGRATIONS='{"s3_bucket":"lerian-migration-files","file_pattern":"db/migrations/*.sql","s3_prefix":"svc/pg"'
+P=s3://lerian-migration-files
+M=s3://lerian-development-migrations
 
 assert_calls 'beta: migrations land in both buckets, init data only in its own' v1.2.0-beta.3 \
-  "[${MIGRATIONS},\"strip_prefix\":\"db/migrations\",\"flatten\":false},{\"s3_bucket\":\"lerian-casdoor-init-data\",\"file_pattern\":\"init/*.json\"}]" \
-  "aws s3 cp db/migrations/000001_init.down.sql s3://lerian-migration-files/development/svc/mod/postgresql/000001_init.down.sql
-aws s3 cp db/migrations/000001_init.down.sql s3://lerian-development-migrations/development/svc/mod/postgresql/000001_init.down.sql --region us-east-2
-aws s3 cp db/migrations/000001_init.up.sql s3://lerian-migration-files/development/svc/mod/postgresql/000001_init.up.sql
-aws s3 cp db/migrations/000001_init.up.sql s3://lerian-development-migrations/development/svc/mod/postgresql/000001_init.up.sql --region us-east-2
+  "[${MIGRATIONS},\"strip_prefix\":\"db/migrations\",\"flatten\":false},{\"s3_bucket\":\"lerian-casdoor-init-data\",\"file_pattern\":\"init/*.json\"}]" 0 \
+  "aws s3 cp db/migrations/1.sql ${P}/development/svc/pg/1.sql
+aws s3 cp db/migrations/1.sql ${M}/development/svc/pg/1.sql --region us-east-2
+aws s3 cp db/migrations/2.sql ${P}/development/svc/pg/2.sql
+aws s3 cp db/migrations/2.sql ${M}/development/svc/pg/2.sql --region us-east-2
+aws s3 cp db/migrations/3.sql ${P}/development/svc/pg/3.sql
+aws s3 cp db/migrations/3.sql ${M}/development/svc/pg/3.sql --region us-east-2
 aws s3 cp init/init_data.json s3://lerian-casdoor-init-data/development/"
 
-assert_calls 'rc: a flattened migrations entry is mirrored into staging' v1.2.0-rc.1 "[${MIGRATIONS}}]" \
-  "aws s3 cp db/migrations/000001_init.down.sql s3://lerian-migration-files/staging/svc/mod/postgresql/
-aws s3 cp db/migrations/000001_init.down.sql s3://lerian-development-migrations/staging/svc/mod/postgresql/ --region us-east-2
-aws s3 cp db/migrations/000001_init.up.sql s3://lerian-migration-files/staging/svc/mod/postgresql/
-aws s3 cp db/migrations/000001_init.up.sql s3://lerian-development-migrations/staging/svc/mod/postgresql/ --region us-east-2"
+assert_calls 'rc: a flattened migrations entry is mirrored into staging' v1.2.0-rc.1 "[${MIGRATIONS}}]" 0 \
+  "aws s3 cp db/migrations/1.sql ${P}/staging/svc/pg/
+aws s3 cp db/migrations/1.sql ${M}/staging/svc/pg/ --region us-east-2
+aws s3 cp db/migrations/2.sql ${P}/staging/svc/pg/
+aws s3 cp db/migrations/2.sql ${M}/staging/svc/pg/ --region us-east-2
+aws s3 cp db/migrations/3.sql ${P}/staging/svc/pg/
+aws s3 cp db/migrations/3.sql ${M}/staging/svc/pg/ --region us-east-2"
 
-AWS_FAIL_ON=lerian-development-migrations assert_calls 'a failed mirror write fails the step' v1.2.0 "[${MIGRATIONS}}]" fail
+AWS_FAIL_ON=lerian-development-migrations assert_calls \
+  'production: a denied mirror still lets every primary write land, then fails the step' v1.2.0 "[${MIGRATIONS}}]" nonzero \
+  "aws s3 cp db/migrations/1.sql ${P}/production/svc/pg/
+aws s3 cp db/migrations/1.sql ${M}/production/svc/pg/ --region us-east-2
+aws s3 cp db/migrations/2.sql ${P}/production/svc/pg/
+aws s3 cp db/migrations/2.sql ${M}/production/svc/pg/ --region us-east-2
+aws s3 cp db/migrations/3.sql ${P}/production/svc/pg/
+aws s3 cp db/migrations/3.sql ${M}/production/svc/pg/ --region us-east-2"
 
 printf '\n%d passed, %d failed\n' "${PASSED}" "${FAILED}"
 [[ ${FAILED} -eq 0 ]]

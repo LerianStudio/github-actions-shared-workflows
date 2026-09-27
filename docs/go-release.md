@@ -197,7 +197,7 @@ By default the job assumes the `AWS_MIGRATIONS_ROLE_ARN` secret via OIDC (region
 
 ### Mirror bucket
 
-Every file an entry uploads to a bucket named in `s3_upload_mirrors` is also written to that entry's mirror bucket, under the same `{env}/{s3_prefix}/` key and with the same credentials, one `aws s3 cp` (`s3:PutObject`) per file in the mirror's `region`. The mirror is never listed, synced or deleted from. A failed mirror write fails the `s3_upload` job, like a failed upload; no other job depends on `s3_upload`, so the image build, the Helm dispatch and the GitOps update proceed either way.
+Every file an entry uploads to a bucket named in `s3_upload_mirrors` is also written to that entry's mirror bucket, under the same `{env}/{s3_prefix}/` key and with the same credentials, one `aws s3 cp` (`s3:PutObject`) per file in the mirror's `region` (the job region when omitted). The mirror is never listed, synced or deleted from. A failed primary write stops the job at once, as before. A failed mirror write is reported as an error and the remaining uploads continue, so the primary bucket always receives every file; the job then fails. No other job depends on `s3_upload`, so the image build, the Helm dispatch and the GitOps update proceed either way.
 
 The default mirrors `lerian-migration-files` (production tenant-manager, devops account) to `lerian-development-migrations` (benedita tenant-manager, development account), so every migration release reaches both without a caller change.
 
