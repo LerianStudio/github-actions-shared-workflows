@@ -174,6 +174,34 @@ jobs:
 
 All three are pinned by commit SHA with the version in a trailing comment, as third-party actions require.
 
+## Persistent runner plugin isolation
+
+Before the installer or any Helm command, the composite creates a fresh empty
+plugin directory with `mktemp -d` under `RUNNER_TEMP` and exports `HELM_PLUGINS`
+through `GITHUB_ENV`. Each invocation gets its own directory, including repeated
+calls in the same job. The runner clears temporary files between jobs; the
+composite never deletes or modifies plugins in the runner's persistent home.
+Only the plugin path changes: registry authentication, `HELM_REGISTRY_CONFIG`,
+and other Helm cache/config settings are preserved.
+
+This is separate from `helm-plugins: ""`, which still disables installation.
+Two pre-existing directories declaring the same plugin name can make Helm fail
+even on `version`, `registry login` or `pull`. Skipping installation alone does
+not prevent Helm from loading those broken plugins. The pinned
+`helmfile/helmfile-action` inherits `HELM_PLUGINS` and forwards `process.env` to
+helmfile; it does not reset the plugin path.
+
+Run the offline regression suite with:
+
+```sh
+python3 src/deploy/gitops-chart-update/test.py
+```
+
+The tests execute the shipped Bash step against duplicate-plugin fixtures,
+check repeated invocation isolation and failure handling, preserve registry and
+output state, and verify ordering before every Helm/helmfile step. They run in
+`self-pr-validation.yml` and gate its review check.
+
 ## Required permissions
 
 ```yaml

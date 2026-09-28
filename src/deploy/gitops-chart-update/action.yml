@@ -133,6 +133,16 @@ runs:
         persist-credentials: false
 
     # ----------------- Tooling -----------------
+    # Helm loads installed plugins even for unrelated commands. Skipping plugin
+    # installation cannot bypass duplicate names already in a persistent HOME.
+    # Isolate before the installer or any Helm call; never clean the shared cache.
+    - name: Isolate Helm plugins
+      shell: bash
+      run: |
+        set -euo pipefail
+        plugins_dir=$(mktemp -d "${RUNNER_TEMP}/gitops-chart-update-helm-plugins.XXXXXX")
+        printf 'HELM_PLUGINS=%s\n' "$plugins_dir" >> "$GITHUB_ENV"
+
     # The maintained action instead of curl piped into sudo tar: the archive was
     # installed with no checksum or signature, so a replaced asset would have
     # executed as root the moment the render gate invoked helmfile.

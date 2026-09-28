@@ -27,6 +27,11 @@ LerianStudio/<name>-gitops
 
 Full behaviour — routing table, gates, inputs and outputs — is documented in the composite: [`src/deploy/gitops-chart-update/README.md`](../src/deploy/gitops-chart-update/README.md).
 
+The composite disables plugin installation and isolates `HELM_PLUGINS` in a fresh
+empty `RUNNER_TEMP` directory before any Helm/helmfile call. Persistent runner
+plugins are left untouched; registry authentication and public outputs are
+unchanged. See [plugin isolation and regression tests](../src/deploy/gitops-chart-update/README.md#persistent-runner-plugin-isolation).
+
 ## Inputs
 
 | Input | Description | Required | Default |

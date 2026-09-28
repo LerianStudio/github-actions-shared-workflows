@@ -251,6 +251,21 @@ jobs:
       - name: Run non-doc-changes classification tests
         run: python3 src/config/non-doc-changes/test.py
 
+  # ----------------- GitOps Chart Update Tests -----------------
+  gitops-chart-update-tests:
+    name: GitOps Chart Update Tests
+    runs-on: ${{ vars.GENERAL_RUNNERS || 'blacksmith-4vcpu-ubuntu-2404' }}
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
+        with:
+          persist-credentials: false
+
+      - name: Run GitOps chart plugin isolation tests
+        run: python3 src/deploy/gitops-chart-update/test.py
+
   # ----------------- YAML Lint -----------------
   yamllint:
     name: YAML Lint
@@ -520,6 +535,7 @@ jobs:
       - prerelease-check-tests
       - socket-app-gate-tests
       - non-doc-changes-tests
+      - gitops-chart-update-tests
       - yamllint
       - actionlint
       - pinned-actions
