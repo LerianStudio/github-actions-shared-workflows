@@ -41,8 +41,9 @@ jobs:
 
 ## Secrets
 
-`MANAGE_TOKEN` is declared in the `workflow_call` contract, so a caller can
-pass it by name instead of inheriting everything:
+`MANAGE_TOKEN` is declared in the `workflow_call` contract, so a caller can pass
+it by name. `secrets: inherit` works too, but it hands this workflow every secret
+the caller holds — naming the one secret is what keeps the others out:
 
 ```yaml
     secrets:

@@ -480,6 +480,9 @@ code from the pull request never see the write ones:
 | Coverage | `contents: read`, `pull-requests: write` | Posts the coverage comment; reads the artifact, runs no branch code |
 | Everything else | `contents: read` | Lint, Tests, Build, Integration Tests, Custom Checks and Test Determinism run Makefile targets from the branch |
 
+Security keeps its write scope because the SARIF upload needs it, but it no
+longer keeps the module credential — see below.
+
 ## Private Go modules
 
 When `go_private_modules` is set, `MANAGE_TOKEN` authenticates the module
@@ -487,15 +490,21 @@ fetch. The credential is never written to the runner's global git
 configuration: it goes into a file under `$RUNNER_TEMP` that `GIT_CONFIG_GLOBAL`
 points at.
 
-In the jobs that run Makefile targets — Tests, Build, Integration Tests, Custom
-Checks and Test Determinism — the file is created, used by a `go mod download`
-that warms the module cache, and deleted at the end of that same step, before
-any code from the pull request runs. Those targets then resolve their
-dependencies from the warm cache.
+Every job treats it the same way: the file is created, used to `go mod download`
+each module at or below the working directory, and deleted at the end of that
+same step. Nothing that runs afterwards — Makefile target, linter, test binary —
+shares the filesystem with the credential; the targets resolve their
+dependencies from the warm module cache instead.
+
+Lint and Security are no exception, even though neither runs the branch's tests.
+Both probe the Makefile with `make -n`, and GNU make expands `$(shell ...)`
+while parsing: a probe alone is enough for a Makefile to read whatever the job
+still holds.
 
 The practical consequence: a Makefile target that resolves a *new* private
 dependency on its own (`go get`, `go mod tidy` reaching the network) fails,
-because by then there is no credential. Declare dependencies in `go.mod` so the
+because by then there is no credential. Declare dependencies in `go.mod` — every
+module under the working directory is prefetched, nested ones included — so the
 prefetch covers them.
 
 ## Related Workflows

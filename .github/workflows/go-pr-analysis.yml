@@ -243,21 +243,37 @@ jobs:
           go-version: ${{ inputs.go_version }}
           cache: true
 
-      # The credential stays out of the runner's global git configuration: it
-      # lives in a file under RUNNER_TEMP that GIT_CONFIG_GLOBAL points at for
-      # the rest of the job. This job analyses the pull request's code without
-      # executing it, which is why the credential may outlive the step here,
-      # unlike the jobs that run Makefile targets. MANAGE_TOKEN goes through env
-      # rather than being interpolated into the script text: an interpolated
-      # secret is not masked if the shell traces the command, and it is what
-      # CodeQL/zizmor flag as template-injection.
-      - name: Configure private Go modules
+      # The credential is confined to this step: it is written to a git config
+      # file under RUNNER_TEMP, used only to populate the module cache, and
+      # removed before any code from the pull request runs. Every job here
+      # reaches the branch's Makefile sooner or later, and `make -n` is not the
+      # escape hatch it looks like: GNU make expands `$(shell ...)` while
+      # parsing, so a probe run alone is enough for the Makefile to read
+      # whatever the job still holds. MANAGE_TOKEN goes through env rather than
+      # being interpolated into the script text: an interpolated secret is not
+      # masked if the shell traces the command, and it is what CodeQL/zizmor
+      # flag as template-injection.
+      - name: Fetch private Go modules
         if: inputs.go_private_modules != ''
+        working-directory: ${{ matrix.app.working_dir }}
         run: |
           set -euo pipefail
-          git config --file "$RUNNER_TEMP/gitconfig-private-modules" \
+          export GIT_CONFIG_GLOBAL="$RUNNER_TEMP/gitconfig-private-modules"
+          trap 'rm -f "$GIT_CONFIG_GLOBAL"' EXIT
+          git config --file "$GIT_CONFIG_GLOBAL" \
             url."https://${MANAGE_TOKEN}@github.com/".insteadOf "https://github.com/"
-          echo "GIT_CONFIG_GLOBAL=$RUNNER_TEMP/gitconfig-private-modules" >> "$GITHUB_ENV"
+          # Every module at or below the working directory, not just a go.mod at
+          # its root: a Makefile target may drive nested modules or a workspace,
+          # and once this step ends there is no credential left to fetch with.
+          mapfile -t MODULES < <(find . -name go.mod -not -path '*/vendor/*' | sort)
+          if [[ ${#MODULES[@]} -eq 0 ]]; then
+            echo "::notice::No go.mod under $PWD; nothing to prefetch."
+          fi
+          for module in "${MODULES[@]}"; do
+            echo "::group::go mod download in $(dirname "$module")"
+            (cd "$(dirname "$module")" && go mod download)
+            echo "::endgroup::"
+          done
         env:
           GOPRIVATE: ${{ inputs.go_private_modules }}
           MANAGE_TOKEN: ${{ secrets.MANAGE_TOKEN }}
@@ -357,21 +373,37 @@ jobs:
           go-version: ${{ inputs.go_version }}
           cache: true
 
-      # The credential stays out of the runner's global git configuration: it
-      # lives in a file under RUNNER_TEMP that GIT_CONFIG_GLOBAL points at for
-      # the rest of the job. This job analyses the pull request's code without
-      # executing it, which is why the credential may outlive the step here,
-      # unlike the jobs that run Makefile targets. MANAGE_TOKEN goes through env
-      # rather than being interpolated into the script text: an interpolated
-      # secret is not masked if the shell traces the command, and it is what
-      # CodeQL/zizmor flag as template-injection.
-      - name: Configure private Go modules
+      # The credential is confined to this step: it is written to a git config
+      # file under RUNNER_TEMP, used only to populate the module cache, and
+      # removed before any code from the pull request runs. Every job here
+      # reaches the branch's Makefile sooner or later, and `make -n` is not the
+      # escape hatch it looks like: GNU make expands `$(shell ...)` while
+      # parsing, so a probe run alone is enough for the Makefile to read
+      # whatever the job still holds. MANAGE_TOKEN goes through env rather than
+      # being interpolated into the script text: an interpolated secret is not
+      # masked if the shell traces the command, and it is what CodeQL/zizmor
+      # flag as template-injection.
+      - name: Fetch private Go modules
         if: inputs.go_private_modules != ''
+        working-directory: ${{ matrix.app.working_dir }}
         run: |
           set -euo pipefail
-          git config --file "$RUNNER_TEMP/gitconfig-private-modules" \
+          export GIT_CONFIG_GLOBAL="$RUNNER_TEMP/gitconfig-private-modules"
+          trap 'rm -f "$GIT_CONFIG_GLOBAL"' EXIT
+          git config --file "$GIT_CONFIG_GLOBAL" \
             url."https://${MANAGE_TOKEN}@github.com/".insteadOf "https://github.com/"
-          echo "GIT_CONFIG_GLOBAL=$RUNNER_TEMP/gitconfig-private-modules" >> "$GITHUB_ENV"
+          # Every module at or below the working directory, not just a go.mod at
+          # its root: a Makefile target may drive nested modules or a workspace,
+          # and once this step ends there is no credential left to fetch with.
+          mapfile -t MODULES < <(find . -name go.mod -not -path '*/vendor/*' | sort)
+          if [[ ${#MODULES[@]} -eq 0 ]]; then
+            echo "::notice::No go.mod under $PWD; nothing to prefetch."
+          fi
+          for module in "${MODULES[@]}"; do
+            echo "::group::go mod download in $(dirname "$module")"
+            (cd "$(dirname "$module")" && go mod download)
+            echo "::endgroup::"
+          done
         env:
           GOPRIVATE: ${{ inputs.go_private_modules }}
           MANAGE_TOKEN: ${{ secrets.MANAGE_TOKEN }}
@@ -493,13 +525,14 @@ jobs:
 
       # The credential is confined to this step: it is written to a git config
       # file under RUNNER_TEMP, used only to populate the module cache, and
-      # removed before any code from the pull request runs — the Makefile
-      # targets below share the filesystem with whatever the PR brings. The
-      # module cache stays warm, so those targets resolve dependencies without
-      # a credential. MANAGE_TOKEN goes through env rather than being
-      # interpolated into the script text: an interpolated secret is not masked
-      # if the shell traces the command, and it is what CodeQL/zizmor flag as
-      # template-injection.
+      # removed before any code from the pull request runs. Every job here
+      # reaches the branch's Makefile sooner or later, and `make -n` is not the
+      # escape hatch it looks like: GNU make expands `$(shell ...)` while
+      # parsing, so a probe run alone is enough for the Makefile to read
+      # whatever the job still holds. MANAGE_TOKEN goes through env rather than
+      # being interpolated into the script text: an interpolated secret is not
+      # masked if the shell traces the command, and it is what CodeQL/zizmor
+      # flag as template-injection.
       - name: Fetch private Go modules
         if: inputs.go_private_modules != ''
         working-directory: ${{ matrix.app.working_dir }}
@@ -509,13 +542,18 @@ jobs:
           trap 'rm -f "$GIT_CONFIG_GLOBAL"' EXIT
           git config --file "$GIT_CONFIG_GLOBAL" \
             url."https://${MANAGE_TOKEN}@github.com/".insteadOf "https://github.com/"
-          # No go.mod here means there is nothing to prefetch — a working
-          # directory that only holds a Makefile driving other modules, for one.
-          if [[ -f go.mod ]]; then
-            go mod download
-          else
-            echo "::notice::No go.mod in $PWD; nothing to prefetch."
+          # Every module at or below the working directory, not just a go.mod at
+          # its root: a Makefile target may drive nested modules or a workspace,
+          # and once this step ends there is no credential left to fetch with.
+          mapfile -t MODULES < <(find . -name go.mod -not -path '*/vendor/*' | sort)
+          if [[ ${#MODULES[@]} -eq 0 ]]; then
+            echo "::notice::No go.mod under $PWD; nothing to prefetch."
           fi
+          for module in "${MODULES[@]}"; do
+            echo "::group::go mod download in $(dirname "$module")"
+            (cd "$(dirname "$module")" && go mod download)
+            echo "::endgroup::"
+          done
         env:
           GOPRIVATE: ${{ inputs.go_private_modules }}
           MANAGE_TOKEN: ${{ secrets.MANAGE_TOKEN }}
@@ -994,13 +1032,14 @@ jobs:
 
       # The credential is confined to this step: it is written to a git config
       # file under RUNNER_TEMP, used only to populate the module cache, and
-      # removed before any code from the pull request runs — the Makefile
-      # targets below share the filesystem with whatever the PR brings. The
-      # module cache stays warm, so those targets resolve dependencies without
-      # a credential. MANAGE_TOKEN goes through env rather than being
-      # interpolated into the script text: an interpolated secret is not masked
-      # if the shell traces the command, and it is what CodeQL/zizmor flag as
-      # template-injection.
+      # removed before any code from the pull request runs. Every job here
+      # reaches the branch's Makefile sooner or later, and `make -n` is not the
+      # escape hatch it looks like: GNU make expands `$(shell ...)` while
+      # parsing, so a probe run alone is enough for the Makefile to read
+      # whatever the job still holds. MANAGE_TOKEN goes through env rather than
+      # being interpolated into the script text: an interpolated secret is not
+      # masked if the shell traces the command, and it is what CodeQL/zizmor
+      # flag as template-injection.
       - name: Fetch private Go modules
         if: inputs.go_private_modules != ''
         working-directory: ${{ matrix.app.working_dir }}
@@ -1010,13 +1049,18 @@ jobs:
           trap 'rm -f "$GIT_CONFIG_GLOBAL"' EXIT
           git config --file "$GIT_CONFIG_GLOBAL" \
             url."https://${MANAGE_TOKEN}@github.com/".insteadOf "https://github.com/"
-          # No go.mod here means there is nothing to prefetch — a working
-          # directory that only holds a Makefile driving other modules, for one.
-          if [[ -f go.mod ]]; then
-            go mod download
-          else
-            echo "::notice::No go.mod in $PWD; nothing to prefetch."
+          # Every module at or below the working directory, not just a go.mod at
+          # its root: a Makefile target may drive nested modules or a workspace,
+          # and once this step ends there is no credential left to fetch with.
+          mapfile -t MODULES < <(find . -name go.mod -not -path '*/vendor/*' | sort)
+          if [[ ${#MODULES[@]} -eq 0 ]]; then
+            echo "::notice::No go.mod under $PWD; nothing to prefetch."
           fi
+          for module in "${MODULES[@]}"; do
+            echo "::group::go mod download in $(dirname "$module")"
+            (cd "$(dirname "$module")" && go mod download)
+            echo "::endgroup::"
+          done
         env:
           GOPRIVATE: ${{ inputs.go_private_modules }}
           MANAGE_TOKEN: ${{ secrets.MANAGE_TOKEN }}
@@ -1096,13 +1140,14 @@ jobs:
 
       # The credential is confined to this step: it is written to a git config
       # file under RUNNER_TEMP, used only to populate the module cache, and
-      # removed before any code from the pull request runs — the Makefile
-      # targets below share the filesystem with whatever the PR brings. The
-      # module cache stays warm, so those targets resolve dependencies without
-      # a credential. MANAGE_TOKEN goes through env rather than being
-      # interpolated into the script text: an interpolated secret is not masked
-      # if the shell traces the command, and it is what CodeQL/zizmor flag as
-      # template-injection.
+      # removed before any code from the pull request runs. Every job here
+      # reaches the branch's Makefile sooner or later, and `make -n` is not the
+      # escape hatch it looks like: GNU make expands `$(shell ...)` while
+      # parsing, so a probe run alone is enough for the Makefile to read
+      # whatever the job still holds. MANAGE_TOKEN goes through env rather than
+      # being interpolated into the script text: an interpolated secret is not
+      # masked if the shell traces the command, and it is what CodeQL/zizmor
+      # flag as template-injection.
       - name: Fetch private Go modules
         if: inputs.go_private_modules != ''
         working-directory: ${{ matrix.app.working_dir }}
@@ -1112,13 +1157,18 @@ jobs:
           trap 'rm -f "$GIT_CONFIG_GLOBAL"' EXIT
           git config --file "$GIT_CONFIG_GLOBAL" \
             url."https://${MANAGE_TOKEN}@github.com/".insteadOf "https://github.com/"
-          # No go.mod here means there is nothing to prefetch — a working
-          # directory that only holds a Makefile driving other modules, for one.
-          if [[ -f go.mod ]]; then
-            go mod download
-          else
-            echo "::notice::No go.mod in $PWD; nothing to prefetch."
+          # Every module at or below the working directory, not just a go.mod at
+          # its root: a Makefile target may drive nested modules or a workspace,
+          # and once this step ends there is no credential left to fetch with.
+          mapfile -t MODULES < <(find . -name go.mod -not -path '*/vendor/*' | sort)
+          if [[ ${#MODULES[@]} -eq 0 ]]; then
+            echo "::notice::No go.mod under $PWD; nothing to prefetch."
           fi
+          for module in "${MODULES[@]}"; do
+            echo "::group::go mod download in $(dirname "$module")"
+            (cd "$(dirname "$module")" && go mod download)
+            echo "::endgroup::"
+          done
         env:
           GOPRIVATE: ${{ inputs.go_private_modules }}
           MANAGE_TOKEN: ${{ secrets.MANAGE_TOKEN }}
@@ -1227,13 +1277,14 @@ jobs:
 
       # The credential is confined to this step: it is written to a git config
       # file under RUNNER_TEMP, used only to populate the module cache, and
-      # removed before any code from the pull request runs — the Makefile
-      # targets below share the filesystem with whatever the PR brings. The
-      # module cache stays warm, so those targets resolve dependencies without
-      # a credential. MANAGE_TOKEN goes through env rather than being
-      # interpolated into the script text: an interpolated secret is not masked
-      # if the shell traces the command, and it is what CodeQL/zizmor flag as
-      # template-injection.
+      # removed before any code from the pull request runs. Every job here
+      # reaches the branch's Makefile sooner or later, and `make -n` is not the
+      # escape hatch it looks like: GNU make expands `$(shell ...)` while
+      # parsing, so a probe run alone is enough for the Makefile to read
+      # whatever the job still holds. MANAGE_TOKEN goes through env rather than
+      # being interpolated into the script text: an interpolated secret is not
+      # masked if the shell traces the command, and it is what CodeQL/zizmor
+      # flag as template-injection.
       - name: Fetch private Go modules
         if: inputs.go_private_modules != ''
         working-directory: ${{ matrix.app.working_dir }}
@@ -1243,13 +1294,18 @@ jobs:
           trap 'rm -f "$GIT_CONFIG_GLOBAL"' EXIT
           git config --file "$GIT_CONFIG_GLOBAL" \
             url."https://${MANAGE_TOKEN}@github.com/".insteadOf "https://github.com/"
-          # No go.mod here means there is nothing to prefetch — a working
-          # directory that only holds a Makefile driving other modules, for one.
-          if [[ -f go.mod ]]; then
-            go mod download
-          else
-            echo "::notice::No go.mod in $PWD; nothing to prefetch."
+          # Every module at or below the working directory, not just a go.mod at
+          # its root: a Makefile target may drive nested modules or a workspace,
+          # and once this step ends there is no credential left to fetch with.
+          mapfile -t MODULES < <(find . -name go.mod -not -path '*/vendor/*' | sort)
+          if [[ ${#MODULES[@]} -eq 0 ]]; then
+            echo "::notice::No go.mod under $PWD; nothing to prefetch."
           fi
+          for module in "${MODULES[@]}"; do
+            echo "::group::go mod download in $(dirname "$module")"
+            (cd "$(dirname "$module")" && go mod download)
+            echo "::endgroup::"
+          done
         env:
           GOPRIVATE: ${{ inputs.go_private_modules }}
           MANAGE_TOKEN: ${{ secrets.MANAGE_TOKEN }}
@@ -1332,13 +1388,14 @@ jobs:
 
       # The credential is confined to this step: it is written to a git config
       # file under RUNNER_TEMP, used only to populate the module cache, and
-      # removed before any code from the pull request runs — the Makefile
-      # targets below share the filesystem with whatever the PR brings. The
-      # module cache stays warm, so those targets resolve dependencies without
-      # a credential. MANAGE_TOKEN goes through env rather than being
-      # interpolated into the script text: an interpolated secret is not masked
-      # if the shell traces the command, and it is what CodeQL/zizmor flag as
-      # template-injection.
+      # removed before any code from the pull request runs. Every job here
+      # reaches the branch's Makefile sooner or later, and `make -n` is not the
+      # escape hatch it looks like: GNU make expands `$(shell ...)` while
+      # parsing, so a probe run alone is enough for the Makefile to read
+      # whatever the job still holds. MANAGE_TOKEN goes through env rather than
+      # being interpolated into the script text: an interpolated secret is not
+      # masked if the shell traces the command, and it is what CodeQL/zizmor
+      # flag as template-injection.
       - name: Fetch private Go modules
         if: inputs.go_private_modules != ''
         working-directory: ${{ matrix.app.working_dir }}
@@ -1348,13 +1405,18 @@ jobs:
           trap 'rm -f "$GIT_CONFIG_GLOBAL"' EXIT
           git config --file "$GIT_CONFIG_GLOBAL" \
             url."https://${MANAGE_TOKEN}@github.com/".insteadOf "https://github.com/"
-          # No go.mod here means there is nothing to prefetch — a working
-          # directory that only holds a Makefile driving other modules, for one.
-          if [[ -f go.mod ]]; then
-            go mod download
-          else
-            echo "::notice::No go.mod in $PWD; nothing to prefetch."
+          # Every module at or below the working directory, not just a go.mod at
+          # its root: a Makefile target may drive nested modules or a workspace,
+          # and once this step ends there is no credential left to fetch with.
+          mapfile -t MODULES < <(find . -name go.mod -not -path '*/vendor/*' | sort)
+          if [[ ${#MODULES[@]} -eq 0 ]]; then
+            echo "::notice::No go.mod under $PWD; nothing to prefetch."
           fi
+          for module in "${MODULES[@]}"; do
+            echo "::group::go mod download in $(dirname "$module")"
+            (cd "$(dirname "$module")" && go mod download)
+            echo "::endgroup::"
+          done
         env:
           GOPRIVATE: ${{ inputs.go_private_modules }}
           MANAGE_TOKEN: ${{ secrets.MANAGE_TOKEN }}

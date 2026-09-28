@@ -127,8 +127,14 @@ jobs:
       days_before_close: ${{ inputs.pr_days_before_close }}
       operations_per_run: ${{ github.event_name == 'schedule' && inputs.pr_operations_per_run_schedule || inputs.pr_operations_per_run }}
       dry_run: ${{ inputs.dry_run }}
-    secrets:
-      MANAGE_TOKEN: ${{ secrets.MANAGE_TOKEN }}
+    # `inherit` rather than `MANAGE_TOKEN: ...` by name: the reference above is
+    # pinned to a release that predates the secret's declaration in that
+    # workflow, and naming a secret the called workflow does not declare fails
+    # the run before it starts. What `inherit` forwards from here is only as
+    # wide as what the caller handed over: pass MANAGE_TOKEN by name and this
+    # workflow holds only that, and only that reaches the child. Switch this to
+    # the named form once the pin moves past the release carrying the contract.
+    secrets: inherit
 
   # ----------------- Stale Issues -----------------
 
@@ -142,8 +148,14 @@ jobs:
       days_before_stale: ${{ inputs.issue_days_before_stale }}
       days_before_close: ${{ inputs.issue_days_before_close }}
       dry_run: ${{ inputs.dry_run }}
-    secrets:
-      MANAGE_TOKEN: ${{ secrets.MANAGE_TOKEN }}
+    # `inherit` rather than `MANAGE_TOKEN: ...` by name: the reference above is
+    # pinned to a release that predates the secret's declaration in that
+    # workflow, and naming a secret the called workflow does not declare fails
+    # the run before it starts. What `inherit` forwards from here is only as
+    # wide as what the caller handed over: pass MANAGE_TOKEN by name and this
+    # workflow holds only that, and only that reaches the child. Switch this to
+    # the named form once the pin moves past the release carrying the contract.
+    secrets: inherit
 
   # ----------------- Labels Sync -----------------
 

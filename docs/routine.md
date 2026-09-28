@@ -50,9 +50,11 @@ pass it by name and nothing else:
       MANAGE_TOKEN: ${{ secrets.MANAGE_TOKEN }}
 ```
 
-`secrets: inherit` also works and is no longer a blank cheque: with the secret
-declared, inheritance forwards only what the contract names. Omitting the
-secret entirely is valid too — the routines then run on `GITHUB_TOKEN`.
+`secrets: inherit` still works, but it is not equivalent: inheritance hands this
+workflow every secret available to the caller, whether or not the contract names
+it, and from here that reaches the routines it calls. Passing `MANAGE_TOKEN` by
+name is what keeps the rest of your secrets out. Omitting the secret entirely is
+valid too — the routines then run on `GITHUB_TOKEN`.
 
 | Secret | Required | Description |
 |---|---|---|
