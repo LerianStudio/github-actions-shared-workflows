@@ -133,6 +133,16 @@ runs:
         persist-credentials: false
 
     # ----------------- Tooling -----------------
+    # Persistent runners can already contain two plugins named diff. Merely
+    # skipping installation leaves those visible to every later Helm command.
+    # Use a fresh directory for this invocation, without deleting shared state.
+    - name: Isolate Helm plugins
+      shell: bash
+      run: |
+        set -euo pipefail
+        plugins=$(mktemp -d "${RUNNER_TEMP}/gitops-chart-plugins.XXXXXX")
+        echo "HELM_PLUGINS=$plugins" >> "$GITHUB_ENV"
+
     # The maintained action instead of curl piped into sudo tar: the archive was
     # installed with no checksum or signature, so a replaced asset would have
     # executed as root the moment the render gate invoked helmfile.
@@ -140,6 +150,10 @@ runs:
       uses: helmfile/helmfile-action@1f44bcb43e5fb17ecb2685d8b6081ec5f6aa5fcf # v2.4.7
       with:
         helmfile-args: --version
+        # Only lint/template are used below; neither needs helm-diff. Avoid the
+        # install path entirely, including its unverified-plugin fallback.
+        helm-plugins: ""
+        helmfile-auto-init: "false"
 
     # Into a virtualenv, not the interpreter. The self-hosted pool this runs on
     # is Debian, whose Python is externally managed (PEP 668), so a plain
