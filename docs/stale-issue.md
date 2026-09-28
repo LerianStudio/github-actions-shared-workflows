@@ -27,7 +27,8 @@ jobs:
     uses: LerianStudio/github-actions-shared-workflows/.github/workflows/stale-issue.yml@develop
     with:
       dry_run: true
-    secrets: inherit
+    secrets:
+      MANAGE_TOKEN: ${{ secrets.MANAGE_TOKEN }}
 ```
 
 ### Production (pinned)
@@ -36,8 +37,24 @@ jobs:
 jobs:
   stale-issue:
     uses: LerianStudio/github-actions-shared-workflows/.github/workflows/stale-issue.yml@tier-1
-    secrets: inherit
+    secrets:
+      MANAGE_TOKEN: ${{ secrets.MANAGE_TOKEN }}
 ```
+
+## Secrets
+
+`MANAGE_TOKEN` is declared in the `workflow_call` contract, so a caller can pass
+it by name. `secrets: inherit` works too, but it hands this workflow every secret
+the caller holds — naming the one secret is what keeps the others out:
+
+```yaml
+    secrets:
+      MANAGE_TOKEN: ${{ secrets.MANAGE_TOKEN }}
+```
+
+It is optional — without it the scan runs on the job's `GITHUB_TOKEN`, and the
+labels and comments are attributed to `github-actions[bot]` instead of the
+Lerian bot identity.
 
 ## Permissions required
 
