@@ -265,14 +265,34 @@ jobs:
           # Every module at or below the working directory, not just a go.mod at
           # its root: a Makefile target may drive nested modules or a workspace,
           # and once this step ends there is no credential left to fetch with.
-          mapfile -t MODULES < <(find . -name go.mod -not -path '*/vendor/*' | sort)
+          # The pruned directories are the ones the Go tool itself never walks,
+          # so nothing a target can build lives there — but fixtures do, and a
+          # deliberately broken one must not decide whether this job runs.
+          mapfile -t MODULES < <(
+            find . -mindepth 1 \
+              \( -name vendor -o -name testdata -o -name '.*' -o -name '_*' \) -prune \
+              -o -name go.mod -print | sort
+          )
           if [[ ${#MODULES[@]} -eq 0 ]]; then
             echo "::notice::No go.mod under $PWD; nothing to prefetch."
           fi
           for module in "${MODULES[@]}"; do
-            echo "::group::go mod download in $(dirname "$module")"
-            (cd "$(dirname "$module")" && go mod download)
-            echo "::endgroup::"
+            dir="$(dirname "$module")"
+            echo "::group::go mod download in $dir"
+            if (cd "$dir" && go mod download); then
+              echo "::endgroup::"
+            elif [[ "$dir" == "." ]]; then
+              # The module being analysed: nothing downstream can succeed.
+              echo "::endgroup::"
+              echo "::error::Could not prefetch the module at $PWD."
+              exit 1
+            else
+              # A nested module may be unbuildable on purpose. If a target does
+              # need it, that target fails with its own error, which says more
+              # than this step could.
+              echo "::endgroup::"
+              echo "::warning::Could not prefetch the nested module at $dir; continuing."
+            fi
           done
         env:
           GOPRIVATE: ${{ inputs.go_private_modules }}
@@ -395,14 +415,34 @@ jobs:
           # Every module at or below the working directory, not just a go.mod at
           # its root: a Makefile target may drive nested modules or a workspace,
           # and once this step ends there is no credential left to fetch with.
-          mapfile -t MODULES < <(find . -name go.mod -not -path '*/vendor/*' | sort)
+          # The pruned directories are the ones the Go tool itself never walks,
+          # so nothing a target can build lives there — but fixtures do, and a
+          # deliberately broken one must not decide whether this job runs.
+          mapfile -t MODULES < <(
+            find . -mindepth 1 \
+              \( -name vendor -o -name testdata -o -name '.*' -o -name '_*' \) -prune \
+              -o -name go.mod -print | sort
+          )
           if [[ ${#MODULES[@]} -eq 0 ]]; then
             echo "::notice::No go.mod under $PWD; nothing to prefetch."
           fi
           for module in "${MODULES[@]}"; do
-            echo "::group::go mod download in $(dirname "$module")"
-            (cd "$(dirname "$module")" && go mod download)
-            echo "::endgroup::"
+            dir="$(dirname "$module")"
+            echo "::group::go mod download in $dir"
+            if (cd "$dir" && go mod download); then
+              echo "::endgroup::"
+            elif [[ "$dir" == "." ]]; then
+              # The module being analysed: nothing downstream can succeed.
+              echo "::endgroup::"
+              echo "::error::Could not prefetch the module at $PWD."
+              exit 1
+            else
+              # A nested module may be unbuildable on purpose. If a target does
+              # need it, that target fails with its own error, which says more
+              # than this step could.
+              echo "::endgroup::"
+              echo "::warning::Could not prefetch the nested module at $dir; continuing."
+            fi
           done
         env:
           GOPRIVATE: ${{ inputs.go_private_modules }}
@@ -545,14 +585,34 @@ jobs:
           # Every module at or below the working directory, not just a go.mod at
           # its root: a Makefile target may drive nested modules or a workspace,
           # and once this step ends there is no credential left to fetch with.
-          mapfile -t MODULES < <(find . -name go.mod -not -path '*/vendor/*' | sort)
+          # The pruned directories are the ones the Go tool itself never walks,
+          # so nothing a target can build lives there — but fixtures do, and a
+          # deliberately broken one must not decide whether this job runs.
+          mapfile -t MODULES < <(
+            find . -mindepth 1 \
+              \( -name vendor -o -name testdata -o -name '.*' -o -name '_*' \) -prune \
+              -o -name go.mod -print | sort
+          )
           if [[ ${#MODULES[@]} -eq 0 ]]; then
             echo "::notice::No go.mod under $PWD; nothing to prefetch."
           fi
           for module in "${MODULES[@]}"; do
-            echo "::group::go mod download in $(dirname "$module")"
-            (cd "$(dirname "$module")" && go mod download)
-            echo "::endgroup::"
+            dir="$(dirname "$module")"
+            echo "::group::go mod download in $dir"
+            if (cd "$dir" && go mod download); then
+              echo "::endgroup::"
+            elif [[ "$dir" == "." ]]; then
+              # The module being analysed: nothing downstream can succeed.
+              echo "::endgroup::"
+              echo "::error::Could not prefetch the module at $PWD."
+              exit 1
+            else
+              # A nested module may be unbuildable on purpose. If a target does
+              # need it, that target fails with its own error, which says more
+              # than this step could.
+              echo "::endgroup::"
+              echo "::warning::Could not prefetch the nested module at $dir; continuing."
+            fi
           done
         env:
           GOPRIVATE: ${{ inputs.go_private_modules }}
@@ -1052,14 +1112,34 @@ jobs:
           # Every module at or below the working directory, not just a go.mod at
           # its root: a Makefile target may drive nested modules or a workspace,
           # and once this step ends there is no credential left to fetch with.
-          mapfile -t MODULES < <(find . -name go.mod -not -path '*/vendor/*' | sort)
+          # The pruned directories are the ones the Go tool itself never walks,
+          # so nothing a target can build lives there — but fixtures do, and a
+          # deliberately broken one must not decide whether this job runs.
+          mapfile -t MODULES < <(
+            find . -mindepth 1 \
+              \( -name vendor -o -name testdata -o -name '.*' -o -name '_*' \) -prune \
+              -o -name go.mod -print | sort
+          )
           if [[ ${#MODULES[@]} -eq 0 ]]; then
             echo "::notice::No go.mod under $PWD; nothing to prefetch."
           fi
           for module in "${MODULES[@]}"; do
-            echo "::group::go mod download in $(dirname "$module")"
-            (cd "$(dirname "$module")" && go mod download)
-            echo "::endgroup::"
+            dir="$(dirname "$module")"
+            echo "::group::go mod download in $dir"
+            if (cd "$dir" && go mod download); then
+              echo "::endgroup::"
+            elif [[ "$dir" == "." ]]; then
+              # The module being analysed: nothing downstream can succeed.
+              echo "::endgroup::"
+              echo "::error::Could not prefetch the module at $PWD."
+              exit 1
+            else
+              # A nested module may be unbuildable on purpose. If a target does
+              # need it, that target fails with its own error, which says more
+              # than this step could.
+              echo "::endgroup::"
+              echo "::warning::Could not prefetch the nested module at $dir; continuing."
+            fi
           done
         env:
           GOPRIVATE: ${{ inputs.go_private_modules }}
@@ -1160,14 +1240,34 @@ jobs:
           # Every module at or below the working directory, not just a go.mod at
           # its root: a Makefile target may drive nested modules or a workspace,
           # and once this step ends there is no credential left to fetch with.
-          mapfile -t MODULES < <(find . -name go.mod -not -path '*/vendor/*' | sort)
+          # The pruned directories are the ones the Go tool itself never walks,
+          # so nothing a target can build lives there — but fixtures do, and a
+          # deliberately broken one must not decide whether this job runs.
+          mapfile -t MODULES < <(
+            find . -mindepth 1 \
+              \( -name vendor -o -name testdata -o -name '.*' -o -name '_*' \) -prune \
+              -o -name go.mod -print | sort
+          )
           if [[ ${#MODULES[@]} -eq 0 ]]; then
             echo "::notice::No go.mod under $PWD; nothing to prefetch."
           fi
           for module in "${MODULES[@]}"; do
-            echo "::group::go mod download in $(dirname "$module")"
-            (cd "$(dirname "$module")" && go mod download)
-            echo "::endgroup::"
+            dir="$(dirname "$module")"
+            echo "::group::go mod download in $dir"
+            if (cd "$dir" && go mod download); then
+              echo "::endgroup::"
+            elif [[ "$dir" == "." ]]; then
+              # The module being analysed: nothing downstream can succeed.
+              echo "::endgroup::"
+              echo "::error::Could not prefetch the module at $PWD."
+              exit 1
+            else
+              # A nested module may be unbuildable on purpose. If a target does
+              # need it, that target fails with its own error, which says more
+              # than this step could.
+              echo "::endgroup::"
+              echo "::warning::Could not prefetch the nested module at $dir; continuing."
+            fi
           done
         env:
           GOPRIVATE: ${{ inputs.go_private_modules }}
@@ -1297,14 +1397,34 @@ jobs:
           # Every module at or below the working directory, not just a go.mod at
           # its root: a Makefile target may drive nested modules or a workspace,
           # and once this step ends there is no credential left to fetch with.
-          mapfile -t MODULES < <(find . -name go.mod -not -path '*/vendor/*' | sort)
+          # The pruned directories are the ones the Go tool itself never walks,
+          # so nothing a target can build lives there — but fixtures do, and a
+          # deliberately broken one must not decide whether this job runs.
+          mapfile -t MODULES < <(
+            find . -mindepth 1 \
+              \( -name vendor -o -name testdata -o -name '.*' -o -name '_*' \) -prune \
+              -o -name go.mod -print | sort
+          )
           if [[ ${#MODULES[@]} -eq 0 ]]; then
             echo "::notice::No go.mod under $PWD; nothing to prefetch."
           fi
           for module in "${MODULES[@]}"; do
-            echo "::group::go mod download in $(dirname "$module")"
-            (cd "$(dirname "$module")" && go mod download)
-            echo "::endgroup::"
+            dir="$(dirname "$module")"
+            echo "::group::go mod download in $dir"
+            if (cd "$dir" && go mod download); then
+              echo "::endgroup::"
+            elif [[ "$dir" == "." ]]; then
+              # The module being analysed: nothing downstream can succeed.
+              echo "::endgroup::"
+              echo "::error::Could not prefetch the module at $PWD."
+              exit 1
+            else
+              # A nested module may be unbuildable on purpose. If a target does
+              # need it, that target fails with its own error, which says more
+              # than this step could.
+              echo "::endgroup::"
+              echo "::warning::Could not prefetch the nested module at $dir; continuing."
+            fi
           done
         env:
           GOPRIVATE: ${{ inputs.go_private_modules }}
@@ -1408,14 +1528,34 @@ jobs:
           # Every module at or below the working directory, not just a go.mod at
           # its root: a Makefile target may drive nested modules or a workspace,
           # and once this step ends there is no credential left to fetch with.
-          mapfile -t MODULES < <(find . -name go.mod -not -path '*/vendor/*' | sort)
+          # The pruned directories are the ones the Go tool itself never walks,
+          # so nothing a target can build lives there — but fixtures do, and a
+          # deliberately broken one must not decide whether this job runs.
+          mapfile -t MODULES < <(
+            find . -mindepth 1 \
+              \( -name vendor -o -name testdata -o -name '.*' -o -name '_*' \) -prune \
+              -o -name go.mod -print | sort
+          )
           if [[ ${#MODULES[@]} -eq 0 ]]; then
             echo "::notice::No go.mod under $PWD; nothing to prefetch."
           fi
           for module in "${MODULES[@]}"; do
-            echo "::group::go mod download in $(dirname "$module")"
-            (cd "$(dirname "$module")" && go mod download)
-            echo "::endgroup::"
+            dir="$(dirname "$module")"
+            echo "::group::go mod download in $dir"
+            if (cd "$dir" && go mod download); then
+              echo "::endgroup::"
+            elif [[ "$dir" == "." ]]; then
+              # The module being analysed: nothing downstream can succeed.
+              echo "::endgroup::"
+              echo "::error::Could not prefetch the module at $PWD."
+              exit 1
+            else
+              # A nested module may be unbuildable on purpose. If a target does
+              # need it, that target fails with its own error, which says more
+              # than this step could.
+              echo "::endgroup::"
+              echo "::warning::Could not prefetch the nested module at $dir; continuing."
+            fi
           done
         env:
           GOPRIVATE: ${{ inputs.go_private_modules }}

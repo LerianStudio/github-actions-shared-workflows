@@ -27,7 +27,8 @@ jobs:
     uses: LerianStudio/github-actions-shared-workflows/.github/workflows/stale-issue.yml@develop
     with:
       dry_run: true
-    secrets: inherit
+    secrets:
+      MANAGE_TOKEN: ${{ secrets.MANAGE_TOKEN }}
 ```
 
 ### Production (pinned)
@@ -36,7 +37,8 @@ jobs:
 jobs:
   stale-issue:
     uses: LerianStudio/github-actions-shared-workflows/.github/workflows/stale-issue.yml@tier-1
-    secrets: inherit
+    secrets:
+      MANAGE_TOKEN: ${{ secrets.MANAGE_TOKEN }}
 ```
 
 ## Secrets

@@ -120,7 +120,8 @@ jobs:
       routine: ${{ inputs.routine || 'all' }}
       dry_run: ${{ inputs.dry_run || false }}
       merged_branch: ${{ github.head_ref }}
-    secrets: inherit
+    secrets:
+      MANAGE_TOKEN: ${{ secrets.MANAGE_TOKEN }}
 ```
 
 ### Customizing thresholds
@@ -137,7 +138,8 @@ jobs:
       issue_days_before_stale: 60
       workflow_runs_retention_days: 90
       merged_branch: ${{ github.head_ref }}
-    secrets: inherit
+    secrets:
+      MANAGE_TOKEN: ${{ secrets.MANAGE_TOKEN }}
 ```
 
 ### Adding extra protected branches
@@ -151,7 +153,8 @@ jobs:
     with:
       extra_protected_branches: "develop-*,feature-stable"
       merged_branch: ${{ github.head_ref }}
-    secrets: inherit
+    secrets:
+      MANAGE_TOKEN: ${{ secrets.MANAGE_TOKEN }}
 ```
 
 Use `protected_branches` to fully override the default (not recommended unless you really need to drop one of the standard patterns):
@@ -163,7 +166,8 @@ jobs:
     with:
       protected_branches: "main,trunk,prod-*"
       merged_branch: ${{ github.head_ref }}
-    secrets: inherit
+    secrets:
+      MANAGE_TOKEN: ${{ secrets.MANAGE_TOKEN }}
 ```
 
 ### Testing on a feature branch
@@ -176,7 +180,8 @@ jobs:
       routine: all
       dry_run: true
       merged_branch: ${{ github.head_ref }}
-    secrets: inherit
+    secrets:
+      MANAGE_TOKEN: ${{ secrets.MANAGE_TOKEN }}
 ```
 
 ## Notes

@@ -501,10 +501,16 @@ Both probe the Makefile with `make -n`, and GNU make expands `$(shell ...)`
 while parsing: a probe alone is enough for a Makefile to read whatever the job
 still holds.
 
+The prefetch walks the same tree the Go tool does: every module under the
+working directory, nested ones included, skipping `vendor`, `testdata` and
+`_`/`.`-prefixed directories, which Go itself never walks. A module that fails
+to download there is reported as a warning rather than failing the job — those
+directories hold fixtures, some broken on purpose — while a failure at the
+working directory's own module fails the step.
+
 The practical consequence: a Makefile target that resolves a *new* private
 dependency on its own (`go get`, `go mod tidy` reaching the network) fails,
-because by then there is no credential. Declare dependencies in `go.mod` — every
-module under the working directory is prefetched, nested ones included — so the
+because by then there is no credential. Declare dependencies in `go.mod` so the
 prefetch covers them.
 
 ## Related Workflows
