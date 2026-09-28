@@ -39,6 +39,20 @@ jobs:
     secrets: inherit
 ```
 
+## Secrets
+
+`MANAGE_TOKEN` is declared in the `workflow_call` contract, so a caller can
+pass it by name instead of inheriting everything:
+
+```yaml
+    secrets:
+      MANAGE_TOKEN: ${{ secrets.MANAGE_TOKEN }}
+```
+
+It is optional — without it the scan runs on the job's `GITHUB_TOKEN`, and the
+labels and comments are attributed to `github-actions[bot]` instead of the
+Lerian bot identity.
+
 ## Permissions required
 
 ```yaml

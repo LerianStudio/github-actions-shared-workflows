@@ -29,6 +29,16 @@ on:
         type: boolean
         default: false
 
+    secrets:
+      MANAGE_TOKEN:
+        description: >-
+          Token used to attribute the stale labels and comments to the Lerian
+          bot identity. Declared so a caller can pass it by name instead of
+          having to reach for `secrets: inherit`, which would expose every
+          repository and organization secret to this workflow. Optional: the
+          job falls back to its own GITHUB_TOKEN when it is absent.
+        required: false
+
 permissions:
   issues: write
 

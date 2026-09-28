@@ -42,12 +42,22 @@ The caller controls the triggers (schedule cron, push paths, pull_request types,
 
 ## Secrets
 
-Pass `secrets: inherit` from the caller. Underlying workflows use:
+`MANAGE_TOKEN` is declared in the `workflow_call` contract, so a caller can
+pass it by name and nothing else:
+
+```yaml
+    secrets:
+      MANAGE_TOKEN: ${{ secrets.MANAGE_TOKEN }}
+```
+
+`secrets: inherit` also works and is no longer a blank cheque: with the secret
+declared, inheritance forwards only what the contract names. Omitting the
+secret entirely is valid too — the routines then run on `GITHUB_TOKEN`.
 
 | Secret | Required | Description |
 |---|---|---|
 | `GITHUB_TOKEN` | No | Auto-injected; covers branch cleanup, label sync, workflow runs cleanup |
-| `MANAGE_TOKEN` | No | Preferred for stale PR/issue scans so the bot identity attributes the labels and comments. Falls back to `GITHUB_TOKEN` when absent. |
+| `MANAGE_TOKEN` | No | Preferred for stale PR/issue scans so the bot identity attributes the labels and comments. Falls back to `GITHUB_TOKEN` when absent. Only the stale routines receive it. |
 
 ## Permissions
 

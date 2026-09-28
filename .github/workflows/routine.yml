@@ -74,6 +74,17 @@ on:
         type: string
         default: ""
 
+    secrets:
+      MANAGE_TOKEN:
+        description: >-
+          Token used by the stale routines so their labels and comments are
+          attributed to the Lerian bot identity. Declared so a caller can pass
+          it by name: with nothing in this contract, `secrets: inherit` was the
+          only way to reach it, and that hands every repository and
+          organization secret to this workflow and to everything it calls.
+          Optional — the routines fall back to their own GITHUB_TOKEN.
+        required: false
+
 permissions:
   contents: write
   pull-requests: write
@@ -91,7 +102,6 @@ jobs:
       merged_branch: ${{ inputs.merged_branch }}
       protected_branches: ${{ inputs.extra_protected_branches != '' && format('{0},{1}', inputs.protected_branches, inputs.extra_protected_branches) || inputs.protected_branches }}
       dry_run: false
-    secrets: inherit
 
   branch_cleanup_stale:
     name: Clean stale branches
@@ -103,7 +113,6 @@ jobs:
       stale_days: ${{ inputs.branch_stale_days }}
       protected_branches: ${{ inputs.extra_protected_branches != '' && format('{0},{1}', inputs.protected_branches, inputs.extra_protected_branches) || inputs.protected_branches }}
       dry_run: ${{ inputs.dry_run }}
-    secrets: inherit
 
   # ----------------- Stale PRs -----------------
 
@@ -118,7 +127,8 @@ jobs:
       days_before_close: ${{ inputs.pr_days_before_close }}
       operations_per_run: ${{ github.event_name == 'schedule' && inputs.pr_operations_per_run_schedule || inputs.pr_operations_per_run }}
       dry_run: ${{ inputs.dry_run }}
-    secrets: inherit
+    secrets:
+      MANAGE_TOKEN: ${{ secrets.MANAGE_TOKEN }}
 
   # ----------------- Stale Issues -----------------
 
@@ -132,7 +142,8 @@ jobs:
       days_before_stale: ${{ inputs.issue_days_before_stale }}
       days_before_close: ${{ inputs.issue_days_before_close }}
       dry_run: ${{ inputs.dry_run }}
-    secrets: inherit
+    secrets:
+      MANAGE_TOKEN: ${{ secrets.MANAGE_TOKEN }}
 
   # ----------------- Labels Sync -----------------
 
@@ -145,7 +156,6 @@ jobs:
     uses: LerianStudio/github-actions-shared-workflows/.github/workflows/labels-sync.yml@v1.28.12
     with:
       dry_run: ${{ inputs.dry_run }}
-    secrets: inherit
 
   # ----------------- Workflow Runs Cleanup -----------------
 
@@ -158,4 +168,3 @@ jobs:
     with:
       retention_days: ${{ inputs.workflow_runs_retention_days }}
       dry_run: ${{ inputs.dry_run }}
-    secrets: inherit

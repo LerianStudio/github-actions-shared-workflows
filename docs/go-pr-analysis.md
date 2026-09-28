@@ -143,7 +143,7 @@ Uses `secrets: inherit` pattern. Required secrets:
 
 | Secret | Description | Required When |
 |--------|-------------|---------------|
-| `MANAGE_TOKEN` | GitHub token for PR comments and private module access | Private modules or PR comments |
+| `MANAGE_TOKEN` | GitHub token for PR comments and private module access (see [Private Go modules](#private-go-modules) for how the credential is scoped) | Private modules or PR comments |
 | `SLACK_WEBHOOK_URL` | Slack webhook for notifications | Optional |
 
 ## Outputs
@@ -460,11 +460,43 @@ Precedence (first match wins): working-directory `.ignorecoverunit` → reposito
 
 ## Permissions Required
 
-The workflow requires these permissions:
-- `actions: read` - To let the gosec action read the workflow run for status/telemetry
-- `contents: read` - To checkout code
-- `pull-requests: write` - To post coverage comments
-- `security-events: write` - To upload SARIF results
+The caller still grants the full set — a reusable workflow can only narrow what
+the caller gave it, never widen it:
+
+```yaml
+permissions:
+  actions: read
+  contents: read
+  pull-requests: write
+  security-events: write
+```
+
+Inside the workflow those scopes are handed out per job, so the jobs that run
+code from the pull request never see the write ones:
+
+| Job | Permissions | Why |
+|---|---|---|
+| Security | `contents: read`, `actions: read`, `security-events: write` | Uploads the SARIF report as a code-scanning alert |
+| Coverage | `contents: read`, `pull-requests: write` | Posts the coverage comment; reads the artifact, runs no branch code |
+| Everything else | `contents: read` | Lint, Tests, Build, Integration Tests, Custom Checks and Test Determinism run Makefile targets from the branch |
+
+## Private Go modules
+
+When `go_private_modules` is set, `MANAGE_TOKEN` authenticates the module
+fetch. The credential is never written to the runner's global git
+configuration: it goes into a file under `$RUNNER_TEMP` that `GIT_CONFIG_GLOBAL`
+points at.
+
+In the jobs that run Makefile targets — Tests, Build, Integration Tests, Custom
+Checks and Test Determinism — the file is created, used by a `go mod download`
+that warms the module cache, and deleted at the end of that same step, before
+any code from the pull request runs. Those targets then resolve their
+dependencies from the warm cache.
+
+The practical consequence: a Makefile target that resolves a *new* private
+dependency on its own (`go get`, `go mod tidy` reaching the network) fails,
+because by then there is no credential. Declare dependencies in `go.mod` so the
+prefetch covers them.
 
 ## Related Workflows
 

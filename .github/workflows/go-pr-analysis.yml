@@ -171,11 +171,13 @@ on:
         required: false
         default: ''
 
+# Floor for every job: reading the code is all most of them need. Jobs that run
+# code from the pull request get nothing else, so a caller can keep granting the
+# write scopes the Security and Coverage jobs below require without handing them
+# to a Makefile target. A reusable workflow can only narrow what the caller
+# granted, never widen it, so raising a job here still needs the caller's grant.
 permissions:
-  actions: read
   contents: read
-  pull-requests: write
-  security-events: write
 
 jobs:
   # ============================================
@@ -241,12 +243,24 @@ jobs:
           go-version: ${{ inputs.go_version }}
           cache: true
 
+      # The credential stays out of the runner's global git configuration: it
+      # lives in a file under RUNNER_TEMP that GIT_CONFIG_GLOBAL points at for
+      # the rest of the job. This job analyses the pull request's code without
+      # executing it, which is why the credential may outlive the step here,
+      # unlike the jobs that run Makefile targets. MANAGE_TOKEN goes through env
+      # rather than being interpolated into the script text: an interpolated
+      # secret is not masked if the shell traces the command, and it is what
+      # CodeQL/zizmor flag as template-injection.
       - name: Configure private Go modules
         if: inputs.go_private_modules != ''
         run: |
-          git config --global url."https://${{ secrets.MANAGE_TOKEN }}@github.com/".insteadOf "https://github.com/"
+          set -euo pipefail
+          git config --file "$RUNNER_TEMP/gitconfig-private-modules" \
+            url."https://${MANAGE_TOKEN}@github.com/".insteadOf "https://github.com/"
+          echo "GIT_CONFIG_GLOBAL=$RUNNER_TEMP/gitconfig-private-modules" >> "$GITHUB_ENV"
         env:
           GOPRIVATE: ${{ inputs.go_private_modules }}
+          MANAGE_TOKEN: ${{ secrets.MANAGE_TOKEN }}
 
       - name: Install golangci-lint
         env:
@@ -301,6 +315,12 @@ jobs:
   # ============================================
   security:
     name: Security (${{ matrix.app.name }})
+    # Uploading SARIF writes a code-scanning alert; actions: read lets the
+    # upload resolve the run it belongs to on private repositories.
+    permissions:
+      contents: read
+      actions: read
+      security-events: write
     needs: detect-changes
     if: needs.detect-changes.outputs.has_changes == 'true' && inputs.enable_security
     runs-on: ${{ vars.GENERAL_RUNNERS || inputs.runner_type }}
@@ -337,12 +357,24 @@ jobs:
           go-version: ${{ inputs.go_version }}
           cache: true
 
+      # The credential stays out of the runner's global git configuration: it
+      # lives in a file under RUNNER_TEMP that GIT_CONFIG_GLOBAL points at for
+      # the rest of the job. This job analyses the pull request's code without
+      # executing it, which is why the credential may outlive the step here,
+      # unlike the jobs that run Makefile targets. MANAGE_TOKEN goes through env
+      # rather than being interpolated into the script text: an interpolated
+      # secret is not masked if the shell traces the command, and it is what
+      # CodeQL/zizmor flag as template-injection.
       - name: Configure private Go modules
         if: inputs.go_private_modules != ''
         run: |
-          git config --global url."https://${{ secrets.MANAGE_TOKEN }}@github.com/".insteadOf "https://github.com/"
+          set -euo pipefail
+          git config --file "$RUNNER_TEMP/gitconfig-private-modules" \
+            url."https://${MANAGE_TOKEN}@github.com/".insteadOf "https://github.com/"
+          echo "GIT_CONFIG_GLOBAL=$RUNNER_TEMP/gitconfig-private-modules" >> "$GITHUB_ENV"
         env:
           GOPRIVATE: ${{ inputs.go_private_modules }}
+          MANAGE_TOKEN: ${{ secrets.MANAGE_TOKEN }}
 
       - name: Detect Makefile sec target
         id: detect-make
@@ -459,12 +491,34 @@ jobs:
           go-version: ${{ inputs.go_version }}
           cache: true
 
-      - name: Configure private Go modules
+      # The credential is confined to this step: it is written to a git config
+      # file under RUNNER_TEMP, used only to populate the module cache, and
+      # removed before any code from the pull request runs — the Makefile
+      # targets below share the filesystem with whatever the PR brings. The
+      # module cache stays warm, so those targets resolve dependencies without
+      # a credential. MANAGE_TOKEN goes through env rather than being
+      # interpolated into the script text: an interpolated secret is not masked
+      # if the shell traces the command, and it is what CodeQL/zizmor flag as
+      # template-injection.
+      - name: Fetch private Go modules
         if: inputs.go_private_modules != ''
+        working-directory: ${{ matrix.app.working_dir }}
         run: |
-          git config --global url."https://${{ secrets.MANAGE_TOKEN }}@github.com/".insteadOf "https://github.com/"
+          set -euo pipefail
+          export GIT_CONFIG_GLOBAL="$RUNNER_TEMP/gitconfig-private-modules"
+          trap 'rm -f "$GIT_CONFIG_GLOBAL"' EXIT
+          git config --file "$GIT_CONFIG_GLOBAL" \
+            url."https://${MANAGE_TOKEN}@github.com/".insteadOf "https://github.com/"
+          # No go.mod here means there is nothing to prefetch — a working
+          # directory that only holds a Makefile driving other modules, for one.
+          if [[ -f go.mod ]]; then
+            go mod download
+          else
+            echo "::notice::No go.mod in $PWD; nothing to prefetch."
+          fi
         env:
           GOPRIVATE: ${{ inputs.go_private_modules }}
+          MANAGE_TOKEN: ${{ secrets.MANAGE_TOKEN }}
 
       - name: Detect Makefile test target
         id: detect-make
@@ -602,6 +656,11 @@ jobs:
   # ============================================
   coverage:
     name: Coverage (${{ matrix.app.name }})
+    # Posts the coverage comment on the pull request. This job reads the test
+    # artifact and the coverage profile; it never runs code from the branch.
+    permissions:
+      contents: read
+      pull-requests: write
     needs: [detect-changes, tests]
     if: needs.detect-changes.outputs.has_changes == 'true' && inputs.enable_coverage
     runs-on: ${{ inputs.coverage_runner_type || vars.GENERAL_RUNNERS || inputs.runner_type }}
@@ -618,13 +677,6 @@ jobs:
         with:
           go-version: ${{ inputs.go_version }}
           cache: true
-
-      - name: Configure private Go modules
-        if: inputs.go_private_modules != ''
-        run: |
-          git config --global url."https://${{ secrets.MANAGE_TOKEN }}@github.com/".insteadOf "https://github.com/"
-        env:
-          GOPRIVATE: ${{ inputs.go_private_modules }}
 
       - name: Download coverage artifact
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
@@ -940,12 +992,34 @@ jobs:
           go-version: ${{ inputs.go_version }}
           cache: true
 
-      - name: Configure private Go modules
+      # The credential is confined to this step: it is written to a git config
+      # file under RUNNER_TEMP, used only to populate the module cache, and
+      # removed before any code from the pull request runs — the Makefile
+      # targets below share the filesystem with whatever the PR brings. The
+      # module cache stays warm, so those targets resolve dependencies without
+      # a credential. MANAGE_TOKEN goes through env rather than being
+      # interpolated into the script text: an interpolated secret is not masked
+      # if the shell traces the command, and it is what CodeQL/zizmor flag as
+      # template-injection.
+      - name: Fetch private Go modules
         if: inputs.go_private_modules != ''
+        working-directory: ${{ matrix.app.working_dir }}
         run: |
-          git config --global url."https://${{ secrets.MANAGE_TOKEN }}@github.com/".insteadOf "https://github.com/"
+          set -euo pipefail
+          export GIT_CONFIG_GLOBAL="$RUNNER_TEMP/gitconfig-private-modules"
+          trap 'rm -f "$GIT_CONFIG_GLOBAL"' EXIT
+          git config --file "$GIT_CONFIG_GLOBAL" \
+            url."https://${MANAGE_TOKEN}@github.com/".insteadOf "https://github.com/"
+          # No go.mod here means there is nothing to prefetch — a working
+          # directory that only holds a Makefile driving other modules, for one.
+          if [[ -f go.mod ]]; then
+            go mod download
+          else
+            echo "::notice::No go.mod in $PWD; nothing to prefetch."
+          fi
         env:
           GOPRIVATE: ${{ inputs.go_private_modules }}
+          MANAGE_TOKEN: ${{ secrets.MANAGE_TOKEN }}
 
       - name: Detect Makefile build target
         id: detect-make
@@ -1020,12 +1094,34 @@ jobs:
           go-version: ${{ inputs.go_version }}
           cache: true
 
-      - name: Configure private Go modules
+      # The credential is confined to this step: it is written to a git config
+      # file under RUNNER_TEMP, used only to populate the module cache, and
+      # removed before any code from the pull request runs — the Makefile
+      # targets below share the filesystem with whatever the PR brings. The
+      # module cache stays warm, so those targets resolve dependencies without
+      # a credential. MANAGE_TOKEN goes through env rather than being
+      # interpolated into the script text: an interpolated secret is not masked
+      # if the shell traces the command, and it is what CodeQL/zizmor flag as
+      # template-injection.
+      - name: Fetch private Go modules
         if: inputs.go_private_modules != ''
+        working-directory: ${{ matrix.app.working_dir }}
         run: |
-          git config --global url."https://${{ secrets.MANAGE_TOKEN }}@github.com/".insteadOf "https://github.com/"
+          set -euo pipefail
+          export GIT_CONFIG_GLOBAL="$RUNNER_TEMP/gitconfig-private-modules"
+          trap 'rm -f "$GIT_CONFIG_GLOBAL"' EXIT
+          git config --file "$GIT_CONFIG_GLOBAL" \
+            url."https://${MANAGE_TOKEN}@github.com/".insteadOf "https://github.com/"
+          # No go.mod here means there is nothing to prefetch — a working
+          # directory that only holds a Makefile driving other modules, for one.
+          if [[ -f go.mod ]]; then
+            go mod download
+          else
+            echo "::notice::No go.mod in $PWD; nothing to prefetch."
+          fi
         env:
           GOPRIVATE: ${{ inputs.go_private_modules }}
+          MANAGE_TOKEN: ${{ secrets.MANAGE_TOKEN }}
 
       # ----------------- Service Container & Test Environment -----------------
       - name: Parse integration configuration
@@ -1129,13 +1225,31 @@ jobs:
           go-version: ${{ inputs.go_version }}
           cache: true
 
-      # MANAGE_TOKEN goes through env rather than being interpolated into the
-      # script text: an interpolated secret is not masked if the shell traces the
-      # command, and it is what CodeQL/zizmor flag as template-injection.
-      - name: Configure private Go modules
+      # The credential is confined to this step: it is written to a git config
+      # file under RUNNER_TEMP, used only to populate the module cache, and
+      # removed before any code from the pull request runs — the Makefile
+      # targets below share the filesystem with whatever the PR brings. The
+      # module cache stays warm, so those targets resolve dependencies without
+      # a credential. MANAGE_TOKEN goes through env rather than being
+      # interpolated into the script text: an interpolated secret is not masked
+      # if the shell traces the command, and it is what CodeQL/zizmor flag as
+      # template-injection.
+      - name: Fetch private Go modules
         if: inputs.go_private_modules != ''
+        working-directory: ${{ matrix.app.working_dir }}
         run: |
-          git config --global url."https://${MANAGE_TOKEN}@github.com/".insteadOf "https://github.com/"
+          set -euo pipefail
+          export GIT_CONFIG_GLOBAL="$RUNNER_TEMP/gitconfig-private-modules"
+          trap 'rm -f "$GIT_CONFIG_GLOBAL"' EXIT
+          git config --file "$GIT_CONFIG_GLOBAL" \
+            url."https://${MANAGE_TOKEN}@github.com/".insteadOf "https://github.com/"
+          # No go.mod here means there is nothing to prefetch — a working
+          # directory that only holds a Makefile driving other modules, for one.
+          if [[ -f go.mod ]]; then
+            go mod download
+          else
+            echo "::notice::No go.mod in $PWD; nothing to prefetch."
+          fi
         env:
           GOPRIVATE: ${{ inputs.go_private_modules }}
           MANAGE_TOKEN: ${{ secrets.MANAGE_TOKEN }}
@@ -1216,12 +1330,34 @@ jobs:
           go-version: ${{ inputs.go_version }}
           cache: true
 
-      - name: Configure private Go modules
+      # The credential is confined to this step: it is written to a git config
+      # file under RUNNER_TEMP, used only to populate the module cache, and
+      # removed before any code from the pull request runs — the Makefile
+      # targets below share the filesystem with whatever the PR brings. The
+      # module cache stays warm, so those targets resolve dependencies without
+      # a credential. MANAGE_TOKEN goes through env rather than being
+      # interpolated into the script text: an interpolated secret is not masked
+      # if the shell traces the command, and it is what CodeQL/zizmor flag as
+      # template-injection.
+      - name: Fetch private Go modules
         if: inputs.go_private_modules != ''
+        working-directory: ${{ matrix.app.working_dir }}
         run: |
-          git config --global url."https://${{ secrets.MANAGE_TOKEN }}@github.com/".insteadOf "https://github.com/"
+          set -euo pipefail
+          export GIT_CONFIG_GLOBAL="$RUNNER_TEMP/gitconfig-private-modules"
+          trap 'rm -f "$GIT_CONFIG_GLOBAL"' EXIT
+          git config --file "$GIT_CONFIG_GLOBAL" \
+            url."https://${MANAGE_TOKEN}@github.com/".insteadOf "https://github.com/"
+          # No go.mod here means there is nothing to prefetch — a working
+          # directory that only holds a Makefile driving other modules, for one.
+          if [[ -f go.mod ]]; then
+            go mod download
+          else
+            echo "::notice::No go.mod in $PWD; nothing to prefetch."
+          fi
         env:
           GOPRIVATE: ${{ inputs.go_private_modules }}
+          MANAGE_TOKEN: ${{ secrets.MANAGE_TOKEN }}
 
       - name: Run tests ${{ inputs.test_determinism_runs }} times
         working-directory: ${{ matrix.app.working_dir }}
