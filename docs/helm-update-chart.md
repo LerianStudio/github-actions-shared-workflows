@@ -7,7 +7,7 @@
 
 Reusable workflow that consumes the dispatch payload produced by [dispatch-helm](dispatch-helm.md) and opens a PR on the Helm chart repository with the new component versions.
 
-For every component it updates `values.yaml` (`<values_key>.image.tag`), sets `Chart.yaml` `appVersion` to the highest component version, appends newly detected environment variables to the component `configmap.yaml` or `secret.yaml`, and optionally refreshes the README compatibility matrix. It does not push chart updates directly to the base branch — the result is always a PR. The one write outside a PR is seeding a new legacy chart line branch (see below).
+For every component it updates the image tag in `values.yaml` — `<values_key>.image.tag` for the usual nested layout, or the root `image.tag` for a chart annotated `lerian.studio/chart-type: single-service` that keeps its image at the values root (a stray top-level `<values_key>:` block from older runs is removed) — sets `Chart.yaml` `appVersion` to the highest component version, appends newly detected environment variables to the component `configmap.yaml` or `secret.yaml`, and optionally refreshes the README compatibility matrix. It does not push chart updates directly to the base branch — the result is always a PR. The one write outside a PR is seeding a new legacy chart line branch (see below).
 
 When the payload is flagged as a legacy patch, the PR is routed to a **chart line branch** instead of the mainline branch.
 

@@ -145,6 +145,7 @@ apps:
     # Provisioned by Severino (app-provisioning automation)
     - billing-worker
     - br-pcr
+    - br-sfn-sims
     - finance-hub
     - lerian-clients-dev
     - plugin-br-ted-lerian
@@ -375,6 +376,7 @@ clusters:
       # Provisioned by Severino (app-provisioning automation)
       - billing-worker
       - br-pcr
+      - br-sfn-sims
       - finance-hub
       - lerian-clients-dev
       - plugin-br-ted-lerian

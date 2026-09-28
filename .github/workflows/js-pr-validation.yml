@@ -610,7 +610,7 @@ jobs:
     secrets: inherit
 
   frontend-analysis-gate:
-    name: Frontend Analysis
+    name: ${{ inputs.run_frontend_analysis && 'Frontend Analysis' || 'Frontend Analysis (disabled)' }}
     needs: [changes, frontend-analysis]
     if: always()
     runs-on: ${{ vars.GENERAL_RUNNERS || inputs.runner_type }}
@@ -622,6 +622,7 @@ jobs:
         with:
           result: ${{ needs.changes.result != 'success' && needs.changes.result || needs.frontend-analysis.result }}
           label: Frontend Analysis
+          enabled: ${{ inputs.run_frontend_analysis }}
 
   # ----------------- Security Scan -----------------
   security:
@@ -631,6 +632,9 @@ jobs:
     uses: ./.github/workflows/pr-security-scan.yml
     with:
       enable_slack_notification: ${{ inputs.enable_slack_notification }}
+      # The `changes` job above already classified this pull request; the scan
+      # must not spend a second job and a second API call on the same verdict.
+      enable_doc_gate: false
       runner_type: ${{ inputs.runner_type }}
       security_scan_runner_type: ${{ inputs.security_scan_runner_type }}
       ignore_file: ${{ inputs.ignore_file }}
@@ -648,7 +652,7 @@ jobs:
     secrets: inherit
 
   security-gate:
-    name: Security
+    name: ${{ inputs.run_security && 'Security' || 'Security (disabled)' }}
     needs: [changes, security]
     if: always()
     runs-on: ${{ vars.GENERAL_RUNNERS || inputs.runner_type }}
@@ -660,6 +664,7 @@ jobs:
         with:
           result: ${{ needs.changes.result != 'success' && needs.changes.result || needs.security.result }}
           label: Security
+          enabled: ${{ inputs.run_security }}
 
   # ----------------- Socket Supply Chain -----------------
   socket:
@@ -818,7 +823,7 @@ jobs:
           echo "  Socket API Report: skipped (it would create a diff scan)"
 
   socket-gate:
-    name: Socket
+    name: ${{ inputs.run_socket && 'Socket' || 'Socket (disabled)' }}
     needs: [changes, socket]
     if: always()
     runs-on: ${{ vars.GENERAL_RUNNERS || inputs.runner_type }}
@@ -830,6 +835,7 @@ jobs:
         with:
           result: ${{ needs.changes.result != 'success' && needs.changes.result || needs.socket.result }}
           label: Socket
+          enabled: ${{ inputs.run_socket }}
 
   # ----------------- Org ruleset compatibility stubs -----------------
   # Go Analysis and Lib Version are required status checks in the Lerian org

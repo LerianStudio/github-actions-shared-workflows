@@ -16,6 +16,16 @@ Umbrella reusable workflow for JavaScript/TypeScript repositories. A caller refe
 
 The `frontend-analysis`, `security` and `socket` pipelines each have a `*-gate` aggregator job that exposes a single stable status-check name (`Frontend Analysis`, `Security`, `Socket`) for branch protection, regardless of the internal job names. All are gated by the change detector, so documentation-only PRs skip them (and the aggregators still report success). If the change detector (`changes`) job itself fails, the aggregators propagate that failure instead of passing.
 
+### Disabled pipelines rename their check
+
+A pipeline switched off by its caller flag (`run_frontend_analysis`, `run_security`, `run_socket`) leaves its aggregator with nothing to report. The gate still passes — disabling on purpose must not block the repository — but the job renames itself to `Frontend Analysis (disabled)`, `Security (disabled)` or `Socket (disabled)`, so the plain name is never published by a check that cannot fail.
+
+This distinguishes the two skips that used to look identical: a pipeline the caller turned off, versus one the change detector found nothing for. The second keeps its plain name and stays green — that is a real verdict.
+
+**Turning a flag off is therefore a branch-protection change.** A repository that requires `Security` and then sets `run_security: false` will see that check go missing, not green, and its pull requests stay pending until the name is removed from the required set.
+
+The `Go Analysis` and `Lib Version` stubs are unaffected: they are not flag-guarded, and exist only to satisfy the org-wide ruleset on a JS/TS repository.
+
 ## Inputs
 
 | Input | Description | Type | Default |
@@ -329,6 +339,8 @@ so the end-to-end suite and the scans continue to block it. See
 ## Branch protection
 
 Require the aggregator checks `Frontend Analysis`, `Security` and `Socket` (plus the PR metadata checks from `pr-validation.yml`). Breaking-change enforcement remains inside the existing `Blocking Checks` status; it does not add a branch-protection check. These names are stable even when the underlying analysis steps change.
+
+Require only the pipelines this repository actually runs: a flag set to `false` renames its check to `<name> (disabled)` (see [Disabled pipelines rename their check](#disabled-pipelines-rename-their-check)), and requiring the plain name then leaves every pull request pending.
 
 ## Related
 

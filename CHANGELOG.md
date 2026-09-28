@@ -1,5 +1,82 @@
 # Github-actions-shared-workflows Changelog
 
+## [1.78.0](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.78.0)
+
+Features:
+- Migrate mirror uploads to the development bucket for the `go-release` workflow. (@fredcamaral)
+- Promote changes from `develop` to `main` for release. (@fredcamaral)
+
+Fixes:
+- Allow primary uploads to complete even if a mirror write fails in the `go-release` workflow. (@fredcamaral)
+
+Improvements:
+- Test `go-release` S3 upload steps using a fake AWS environment. (@fredcamaral)
+
+[Compare changes](https://github.com/LerianStudio/github-actions-shared-workflows/compare/v1.77.0...v1.78.0)
+
+---
+
+## [1.77.0](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.77.0)
+
+Features:
+- Require compiled build identity on every primary image in the Go release workflow. (@fredcamaral)
+
+Fixes:
+- Merge changes from `develop` to `main` in the release workflow. (@fredcamaral)
+
+[Compare changes](https://github.com/LerianStudio/github-actions-shared-workflows/compare/v1.76.0...v1.77.0)
+
+---
+
+## [1.76.0](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.76.0)
+
+Features:
+- Allow repositories to declare they have no Lerian dependency, providing an opt-out mechanism. (@bedatty)
+- Introduce a `go-release` lane for binary releases, which can be opted into. (@bedatty)
+- Gate remaining reusable callers on non-documentation changes to improve workflow efficiency. (@bedatty)
+
+Fixes:
+- Correct the transition from `develop` to `main` in the release process. (@bedatty)
+- Use realistic invalid values in the opt-out test for `lib-version`. (@bedatty)
+- Restore the red suite and ensure only `"false"` is accepted as the opt-out value in `lib-version`. (@bedatty)
+- Stop classifying composite actions and truncated diffs as documentation in the `doc-gate`. (@bedatty)
+- Rename checks when a caller flag disables the pipeline to improve clarity. (@bedatty)
+- Ensure the `helm-update-chart` writes the root `image.tag` for single-service root-image charts. (@bedatty, @guimoreirar)
+- Report unreadable repositories as unknown, not outdated, in `lerian-lib-version`. (@bedatty)
+- Keep the `goreleaser` lane to one run per tag and drop the unauthenticated tag fetch while honoring `dry_run`. (@bedatty)
+- Ensure non-documentation changes never classify a workflow file as documentation and classify deleted files instead of dropping them. (@fredcamaral)
+- Honor an explicit `false` on per-group publish toggles in `go-release`. (@fredcamaral)
+
+Improvements:
+- Run the `go-release` workflow shape tests as part of self-PR validation. (@fredcamaral)
+- Assert that per-group boolean overrides honor an explicit `false` in `go-release`. (@fredcamaral)
+
+[Compare changes](https://github.com/LerianStudio/github-actions-shared-workflows/compare/v1.75.0...v1.76.0)
+
+---
+
+## [1.75.0](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.75.0)
+
+Features:
+
+- Verify the compiled build identity before pushing the image to ensure consistency and integrity. (@fredcamaral)
+- Normalize the release version and record the checkout revision to maintain a consistent release process. (@fredcamaral)
+
+Fixes:
+
+- Ensure the Results job fails when its verdict is false to enhance security checks. (@bedatty)
+- Harden the permission manifest publish trigger scope to improve security in the `go-release` process. (@bedatty)
+- Reject leading-zero version components in the publish gate to prevent invalid versioning in `go-release`. (@bedatty)
+- Align the CodeQL composite pins with the workflows to ensure security configurations are up-to-date. (@fredcamaral)
+
+Improvements:
+
+- Document the build identity contract to provide clarity on the build process. (@fredcamaral)
+
+[Compare changes](https://github.com/LerianStudio/github-actions-shared-workflows/compare/v1.74.2...v1.75.0)
+
+---
+
 ## [1.74.2](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.74.2)
 
 Fixes:

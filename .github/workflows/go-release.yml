@@ -115,6 +115,10 @@ on:
         description: 'When true, continue to GitOps artifact upload even if cosign signing fails after all retries. The image stays in the registry unsigned and a warning is emitted; manual signing is required afterwards. Forwarded to build.yml.'
         type: boolean
         default: false
+      require_build_identity:
+        description: 'Default for every extra_builds group that does not set its own require_build_identity: fail the group build when its Dockerfile does not declare ARG REVISION. The primary image always proves its compiled build identity, whatever this input says.'
+        type: boolean
+        default: true
       app_name_prefix:
         description: 'Prefix for app names in monorepo (e.g., "midaz" -> "midaz-agent")'
         type: string
@@ -164,7 +168,7 @@ on:
         type: string
         default: 'maintenance/*'
       extra_builds:
-        description: 'JSON array of additional build groups, each forwarded to build.yml with its own config (filter_paths, path_level, normalize_to_filter, app_name_overrides, build_context_from_working_dir, helm_*, tag_prefix, enable_dockerhub, enable_ghcr, enable_gitops_artifacts, force_full_matrix). Runs alongside the primary build on tag push; groups with enable_gitops_artifacts enabled (the default) feed the single gitops-update. A group with tag_prefix set only builds when the triggering tag starts with that prefix (e.g. a component with its own independent semver and tag scheme); omit tag_prefix to build on every tag push, as before. enable_dockerhub/enable_ghcr default to the top-level inputs of the same name when omitted (explicit true/false on the group always wins, including false) — use to publish a group to only one registry regardless of the primary build''s registries. enable_gitops_artifacts defaults to true when omitted. force_full_matrix defaults to true, skipping change detection so the group builds/publishes every listed component in lockstep with the release version; set it to false to build only changed components. Empty = one build only (default).'
+        description: 'JSON array of additional build groups, each forwarded to build.yml with its own config (filter_paths, path_level, normalize_to_filter, app_name_overrides, build_context_from_working_dir, helm_*, tag_prefix, enable_dockerhub, enable_ghcr, enable_gitops_artifacts, force_full_matrix, require_build_identity). Runs alongside the primary build on tag push; groups with enable_gitops_artifacts enabled (the default) feed the single gitops-update. A group with tag_prefix set only builds when the triggering tag starts with that prefix (e.g. a component with its own independent semver and tag scheme); omit tag_prefix to build on every tag push, as before. enable_dockerhub/enable_ghcr default to the top-level inputs of the same name when omitted (explicit true/false on the group always wins, including false) — use to publish a group to only one registry regardless of the primary build''s registries. enable_gitops_artifacts defaults to true when omitted. require_build_identity defaults to the top-level input (itself true by default) when omitted (explicit true/false on the group wins) — set false on a group whose image has not adopted the build identity (e.g. a migrations image without a Go binary). force_full_matrix defaults to true, skipping change detection so the group builds/publishes every listed component in lockstep with the release version; set it to false to build only changed components. Empty = one build only (default).'
         type: string
         default: ''
       force_full_matrix:
@@ -187,6 +191,28 @@ on:
         description: 'Behaviour when the target image tag already exists in an enabled registry, forwarded to build.yml for the primary build and every extra_builds group: "fail" (abort early, default), "skip" (skip build/push, still emit GitOps artifacts for an idempotent re-run), or "warn" (warn and build anyway). Set to "skip" when build_on_release_include_prerelease is on and the tag-push trigger might also fire for the same release, to make the second attempt a no-op instead of a hard failure.'
         type: string
         default: 'fail'
+
+      # ----------------- GoReleaser (binary lane, tag push, opt-in) -----------------
+      enable_goreleaser:
+        description: 'Publish binaries with GoReleaser from the repository .goreleaser.yml, instead of (or in addition to) container images. Runs on the same trigger as the container build — the tag push, or the same-run path when build_on_release is set — so the tag semantic-release just published is the one GoReleaser builds from. When this is true and both enable_dockerhub and enable_ghcr are false, the container build is skipped entirely, which is what a CLI-shaped repository without a Dockerfile wants.'
+        type: boolean
+        default: false
+      goreleaser_version:
+        description: 'GoReleaser version to install (forwarded to goreleaser/goreleaser-action). "latest" tracks the newest release; pin an exact version to freeze the binary layout.'
+        type: string
+        default: 'latest'
+      goreleaser_distribution:
+        description: 'GoReleaser distribution: goreleaser or goreleaser-pro. goreleaser-pro additionally requires the GORELEASER_KEY secret.'
+        type: string
+        default: 'goreleaser'
+      goreleaser_args:
+        description: 'Arguments passed to GoReleaser.'
+        type: string
+        default: 'release --clean'
+      goreleaser_go_version:
+        description: 'Go version used to build the binaries. Empty (the default) reads the version from the repository go.mod, so the build tracks the module without a second place to bump.'
+        type: string
+        default: ''
 
       # ----------------- GitOps Update (gitops-update.yml) -----------------
       enable_gitops_update:
@@ -283,12 +309,20 @@ on:
         description: 'JSON array of S3 upload entries run after build on tag push, each forwarded to s3-upload.yml. Each object: {"s3_bucket": "...", "file_pattern": "...", "s3_prefix": "...", "strip_prefix": "...", "flatten": true|false} (only s3_bucket and file_pattern are required; flatten defaults to true). Empty = no upload (default).'
         type: string
         default: ''
+      s3_upload_mirrors:
+        description: 'JSON object mapping an s3_uploads bucket to a mirror bucket: {"<s3_bucket>": {"bucket": "...", "region": "..."}}. See docs/go-release.md, Mirror bucket.'
+        type: string
+        default: '{"lerian-migration-files":{"bucket":"lerian-development-migrations","region":"us-east-2"}}'
 
       # ----------------- Permission Manifest Publish (RI, permission-manifest-publish composite) -----------------
       run_manifest_publish:
         description: 'Publish this service''s own permissions.yaml manifest to the shared Access-Manager RI catalog in S3 on tag push (upstream half of the Inversão de Responsabilidade). Auto-detects the manifest and no-ops when out of scope (no direct lib-auth dep) or absent. The job is continue-on-error, so a hiccup never blocks the release. Requires the AWS_INIT_DATA_ROLE_ARN secret to be mapped by the caller.'
         type: boolean
         default: true
+      manifest_publish_environment:
+        description: 'Name of a GitHub Environment to scope the manifest publish job to. Empty (default) keeps the job unscoped, exactly as before. Set it to put the AWS_INIT_DATA_ROLE_ARN assume-role behind the environment''s protection rules — deployment tag policies (only protected tags may publish) and, optionally, required reviewers.'
+        type: string
+        default: ''
       # ----------------- API Dog E2E (api-dog-e2e-tests.yml) -----------------
       enable_apidog_e2e:
         description: 'Run the ApiDog E2E test job on tag push after a successful gitops-update'
@@ -371,6 +405,8 @@ on:
     secrets:
       MANAGE_TOKEN:
         required: false
+      GORELEASER_KEY:
+        required: false
       SLACK_WEBHOOK_URL:
         required: false
       HELM_REPO_TOKEN:
@@ -437,6 +473,9 @@ jobs:
     uses: ./.github/workflows/release.yml
     with:
       runner_type: ${{ inputs.runner_type }}
+      # The `changes` job above already classified this push; release.yml must
+      # not spend a second job and a second API call reaching the same verdict.
+      enable_doc_gate: false
       publish_runner_type: ${{ inputs.release_runner_type }}
       semantic_version: ${{ inputs.semantic_version }}
       enable_changelog: ${{ inputs.enable_changelog }}
@@ -454,8 +493,15 @@ jobs:
   # ----------------- Build (tag push, or same-run stable release when build_on_release) -----------------
   build:
     needs: [release]
+    # The trailing registry clause only ever fires for a caller that opted into
+    # the GoReleaser lane: a binary-only repository (enable_goreleaser with both
+    # registries off) has no Dockerfile to build, so the container lane must not
+    # run at all. Every pre-existing caller has enable_goreleaser false and is
+    # therefore unaffected. update_gitops and s3_upload gate on build's
+    # has_builds output, so they stand down on their own from here.
     if: >-
       !cancelled() &&
+      (!inputs.enable_goreleaser || inputs.enable_dockerhub || inputs.enable_ghcr) &&
       (
         (github.ref_type == 'tag' &&
           (inputs.tag_prefix == '' || startsWith(github.ref_name, inputs.tag_prefix)) &&
@@ -494,6 +540,9 @@ jobs:
       cosign_initial_delay: ${{ inputs.cosign_initial_delay }}
       cosign_max_delay: ${{ inputs.cosign_max_delay }}
       continue_gitops_on_signing_failure: ${{ inputs.continue_gitops_on_signing_failure }}
+      # Unconditional: the primary image always proves its build identity. The input
+      # only sets the default for the extra_builds groups below.
+      require_build_identity: true
       # Deferred to the dispatch_helm job below. build.yml dispatches from inside
       # itself, which cannot see extra_build — a sibling job here — so the chart
       # would be bumped while the migrations image was still building.
@@ -510,6 +559,99 @@ jobs:
       dockerfile_name: ${{ inputs.dockerfile_name }}
       on_existing_tag: ${{ inputs.on_existing_tag }}
     secrets: inherit
+
+  # ----------------- GoReleaser (tag push, or same-run release when build_on_release) -----------------
+  # Binary lane for Go repositories that ship archives/packages instead of (or
+  # alongside) container images — a CLI, an installer-driven tool. Follows the
+  # build job's gate, so the two lanes can run together or separately depending
+  # on which registries the caller enabled; the artifacts come from the
+  # repository's own .goreleaser.yml.
+  #
+  # Two deliberate differences from the build gate, both because GoReleaser
+  # uploads assets to a GitHub Release and has no equivalent of build.yml's
+  # on_existing_tag escape hatch:
+  #   * with build_on_release_include_prerelease on, a beta/rc tag satisfies
+  #     BOTH the tag-push and the same-run branch path, so the tag push stops
+  #     being a prerelease path and the branch rescue is the single one;
+  #   * tag_prefix is applied to the same-run path too, against the tag
+  #     semantic-release computed, not only to the pushed tag.
+  #
+  # semantic-release has already created the GitHub Release for this tag by the
+  # time this runs, so the repository's .goreleaser.yml decides what happens to
+  # it (`release.mode`) — see docs/go-release.md.
+  goreleaser:
+    name: GoReleaser
+    needs: [release]
+    if: >-
+      !cancelled() && inputs.enable_goreleaser &&
+      (
+        (github.ref_type == 'tag' &&
+          (inputs.tag_prefix == '' || startsWith(github.ref_name, inputs.tag_prefix)) &&
+          (!inputs.build_on_release ||
+            (!inputs.build_on_release_include_prerelease &&
+              (contains(github.ref, '-beta.') || contains(github.ref, '-rc.'))))) ||
+        (inputs.build_on_release && github.ref_type == 'branch' &&
+          (inputs.tag_prefix == '' || startsWith(needs.release.outputs.new_release_git_tag, inputs.tag_prefix)) &&
+          needs.release.result == 'success' &&
+          needs.release.outputs.new_release_published == 'true' &&
+          (!contains(needs.release.outputs.new_release_version, '-') ||
+            (inputs.build_on_release_include_prerelease &&
+              (contains(needs.release.outputs.new_release_version, '-beta.') ||
+                contains(needs.release.outputs.new_release_version, '-rc.')))))
+      )
+    runs-on: ${{ inputs.build_runner_type || vars.GENERAL_RUNNERS || inputs.runner_type }}
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+        with:
+          # On the same-run path the workflow is still on the branch, so check
+          # out the tag semantic-release just pushed — GoReleaser derives the
+          # version from the tag at HEAD.
+          ref: ${{ github.ref_type == 'branch' && needs.release.outputs.new_release_git_tag || '' }}
+          # GoReleaser needs the full history and every tag to compute the
+          # changelog. fetch-depth: 0 already fetches both, so no extra `git
+          # fetch` step is needed — and with persist-credentials off there
+          # would be no token for one to authenticate with anyway.
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v6
+        with:
+          go-version: ${{ inputs.goreleaser_go_version }}
+          go-version-file: ${{ inputs.goreleaser_go_version == '' && 'go.mod' || '' }}
+          cache: true
+
+      # A dry run must not upload assets to the GitHub Release, so GoReleaser is
+      # not invoked at all — the resolved configuration is reported instead.
+      - name: Preview GoReleaser configuration (dry run)
+        if: inputs.dry_run
+        env:
+          GORELEASER_DISTRIBUTION: ${{ inputs.goreleaser_distribution }}
+          GORELEASER_VERSION: ${{ inputs.goreleaser_version }}
+          GORELEASER_ARGS: ${{ inputs.goreleaser_args }}
+          GORELEASER_GO_VERSION: ${{ inputs.goreleaser_go_version }}
+        run: |
+          set -euo pipefail
+          echo "::notice::dry_run — GoReleaser not executed. distribution=${GORELEASER_DISTRIBUTION} version=${GORELEASER_VERSION} args=${GORELEASER_ARGS} go_version=${GORELEASER_GO_VERSION:-<from go.mod>} ref=$(git describe --tags --always)"
+          if [[ -f .goreleaser.yml || -f .goreleaser.yaml ]]; then
+            echo "::notice::Found a GoReleaser config in the repository root."
+          else
+            echo "::warning::No .goreleaser.yml/.goreleaser.yaml in the repository root — a real run would fail unless the config path is passed through goreleaser_args."
+          fi
+
+      - name: Run GoReleaser
+        if: ${{ !inputs.dry_run }}
+        uses: goreleaser/goreleaser-action@f06c13b6b1a9625abc9e6e439d9c05a8f2190e94 # v7.2.3
+        with:
+          distribution: ${{ inputs.goreleaser_distribution }}
+          version: ${{ inputs.goreleaser_version }}
+          args: ${{ inputs.goreleaser_args }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.MANAGE_TOKEN || github.token }}
+          GORELEASER_KEY: ${{ secrets.GORELEASER_KEY }}
 
   # ----------------- S3 Upload (tag push, post-build, opt-in) -----------------
   s3_upload:
@@ -564,29 +706,41 @@ jobs:
         if: steps.env.outputs.folder != ''
         env:
           S3_UPLOADS: ${{ inputs.s3_uploads }}
+          S3_UPLOAD_MIRRORS: ${{ inputs.s3_upload_mirrors }}
           FOLDER: ${{ steps.env.outputs.folder }}
           AWS_REGION: us-east-2
         run: |
           set -euo pipefail
+          # A denied mirror write must not stop the primary uploads: record it, fail at the end.
+          MIRROR_FAILURES=$(mktemp)
 
           upload_entry() {
             local BUCKET="$1" PATTERN="$2" PREFIX="$3" STRIP_PREFIX="$4" FLATTEN="$5"
-            local S3_PATH file DEST_PATH FILE_COUNT=0
+            local KEY_DIR MIRROR_BUCKET MIRROR_REGION TARGETS file DEST_PATH FILE_COUNT=0
             if [[ -n "$PREFIX" ]]; then
-              S3_PATH="s3://${BUCKET}/${FOLDER}/${PREFIX}/"
+              KEY_DIR="${FOLDER}/${PREFIX}/"
             else
-              S3_PATH="s3://${BUCKET}/${FOLDER}/"
+              KEY_DIR="${FOLDER}/"
             fi
-            echo "Uploading '${PATTERN}' -> ${S3_PATH} (flatten=${FLATTEN}, strip_prefix=${STRIP_PREFIX:-<none>})"
+            # The mirror bucket may grant s3:PutObject only: per-file cp, never sync or list.
+            MIRROR_BUCKET=$(jq -r --arg b "$BUCKET" '.[$b].bucket // ""' <<<"$S3_UPLOAD_MIRRORS")
+            MIRROR_REGION=$(jq -r --arg b "$BUCKET" '.[$b].region // env.AWS_REGION' <<<"$S3_UPLOAD_MIRRORS")
+            TARGETS="s3://${BUCKET}/${KEY_DIR}${MIRROR_BUCKET:+ and s3://${MIRROR_BUCKET}/${KEY_DIR}}"
+            echo "Uploading '${PATTERN}' -> ${TARGETS} (flatten=${FLATTEN}, strip_prefix=${STRIP_PREFIX:-<none>})"
             shopt -s nullglob
             for file in $PATTERN; do
               if [[ "$FLATTEN" == "true" ]]; then
-                aws s3 cp "$file" "${S3_PATH}"
+                DEST_PATH=""
               elif [[ -n "$STRIP_PREFIX" ]]; then
                 DEST_PATH="${file#"$STRIP_PREFIX"/}"
-                aws s3 cp "$file" "${S3_PATH}${DEST_PATH}"
               else
-                aws s3 cp "$file" "${S3_PATH}${file}"
+                DEST_PATH="$file"
+              fi
+              aws s3 cp "$file" "s3://${BUCKET}/${KEY_DIR}${DEST_PATH}"
+              if [[ -n "$MIRROR_BUCKET" ]] &&
+                ! aws s3 cp "$file" "s3://${MIRROR_BUCKET}/${KEY_DIR}${DEST_PATH}" --region "$MIRROR_REGION"; then
+                echo "::error::Mirror write failed: ${file} -> s3://${MIRROR_BUCKET}/${KEY_DIR}${DEST_PATH}"
+                echo "$file" >>"$MIRROR_FAILURES"
               fi
               FILE_COUNT=$((FILE_COUNT + 1))
             done
@@ -595,7 +749,7 @@ jobs:
               echo "::error::No files matched pattern: ${PATTERN}"
               return 1
             fi
-            echo "::notice::Uploaded ${FILE_COUNT} file(s) to ${S3_PATH}"
+            echo "::notice::Uploaded ${FILE_COUNT} file(s) to ${TARGETS}"
           }
 
           assume_role() {
@@ -613,6 +767,10 @@ jobs:
 
           if ! PARSED_ENTRIES=$(printf '%s' "$S3_UPLOADS" | jq -c 'if type == "array" then .[] else error("s3_uploads must be a JSON array") end'); then
             echo "::error::s3_uploads must be a valid JSON array."
+            exit 1
+          fi
+          if ! printf '%s' "$S3_UPLOAD_MIRRORS" | jq -e 'type == "object"' >/dev/null; then
+            echo "::error::s3_upload_mirrors must be a JSON object."
             exit 1
           fi
           mapfile -t ENTRIES < <(printf '%s' "$PARSED_ENTRIES")
@@ -654,6 +812,11 @@ jobs:
             fi
           done
 
+          if [[ -s "$MIRROR_FAILURES" ]]; then
+            echo "::error::$(wc -l <"$MIRROR_FAILURES") mirror write(s) failed; every primary upload completed."
+            exit 1
+          fi
+
   # ----------------- Permission Manifest Publish (RI, tag push, opt-in) -----------------
   # Upstream half of the Access-Manager "Inversão de Responsabilidade": on a tag push
   # each in-scope Go service publishes its OWN permissions.yaml to the shared RI catalog
@@ -670,6 +833,12 @@ jobs:
       !cancelled() && github.ref_type == 'tag' && inputs.run_manifest_publish
     runs-on: ${{ inputs.runner_type }}
     continue-on-error: true
+    # Optional GitHub Environment gate. Empty (the default) leaves the job
+    # unscoped, as it has always been; when the caller names an environment the
+    # AWS_INIT_DATA_ROLE_ARN assume-role happens under that environment's
+    # protection rules, so a deployment tag policy can keep a stray tag from
+    # ever writing to the shared RI catalog.
+    environment: ${{ inputs.manifest_publish_environment }}
     permissions:
       id-token: write
       contents: read
@@ -692,17 +861,26 @@ jobs:
         run: |
           set -euo pipefail
           TAG="${GITHUB_REF#refs/tags/}"
-          if [[ "$TAG" == *-beta* ]]; then
+          # Strict semver, the shape semantic-release actually produces. The
+          # previous *-beta* / *-rc* globs matched any tag merely CONTAINING the
+          # marker, so an arbitrary tag could write to the shared RI catalog;
+          # only `production` was pinned. Anything off-pattern now falls through
+          # to the empty folder, which already skips the publish with a warning.
+          # NUM rejects leading zeroes, which semver forbids and which would
+          # otherwise let `v01.2.3` slip past the gate as a production tag.
+          NUM='(0|[1-9][0-9]*)'
+          CORE="v${NUM}\.${NUM}\.${NUM}"
+          if [[ "$TAG" =~ ^${CORE}-beta\.${NUM}$ ]]; then
             FOLDER="development"
-          elif [[ "$TAG" == *-rc* ]]; then
+          elif [[ "$TAG" =~ ^${CORE}-rc\.${NUM}$ ]]; then
             FOLDER="staging"
-          elif [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+          elif [[ "$TAG" =~ ^${CORE}$ ]]; then
             FOLDER="production"
           else
             FOLDER=""
           fi
           echo "folder=${FOLDER}" >> "$GITHUB_OUTPUT"
-          [[ -n "$FOLDER" ]] && echo "📁 Environment: ${FOLDER}" || echo "::warning::Tag '${TAG}' matched no environment — manifest publish skipped."
+          [[ -n "$FOLDER" ]] && echo "📁 Environment: ${FOLDER}" || echo "::warning::Tag '${TAG}' is not a release semver tag (vX.Y.Z, vX.Y.Z-beta.N, vX.Y.Z-rc.N) — manifest publish skipped."
 
       # ----------------- AWS credentials (guarded) -----------------
       # Skip on a dry-run (the composite previews with no AWS call) and when the
@@ -766,15 +944,16 @@ jobs:
       tag_prefix: ${{ matrix.group.tag_prefix }}
       runner_type: ${{ inputs.runner_type }}
       build_runner_type: ${{ inputs.build_runner_type }}
-      enable_dockerhub: ${{ (matrix.group.enable_dockerhub == null && inputs.enable_dockerhub == true) || matrix.group.enable_dockerhub == true }}
-      enable_ghcr: ${{ (matrix.group.enable_ghcr == null && inputs.enable_ghcr == true) || matrix.group.enable_ghcr == true }}
+      enable_dockerhub: ${{ matrix.group.enable_dockerhub == true || (toJSON(matrix.group.enable_dockerhub) == 'null' && inputs.enable_dockerhub == true) }}
+      enable_ghcr: ${{ matrix.group.enable_ghcr == true || (toJSON(matrix.group.enable_ghcr) == 'null' && inputs.enable_ghcr == true) }}
       dockerhub_org: ${{ inputs.dockerhub_org }}
       enable_cosign_sign: ${{ inputs.enable_cosign_sign }}
       cosign_max_attempts: ${{ inputs.cosign_max_attempts }}
       cosign_initial_delay: ${{ inputs.cosign_initial_delay }}
       cosign_max_delay: ${{ inputs.cosign_max_delay }}
       continue_gitops_on_signing_failure: ${{ inputs.continue_gitops_on_signing_failure }}
-      enable_gitops_artifacts: ${{ matrix.group.enable_gitops_artifacts == null && true || matrix.group.enable_gitops_artifacts }}
+      require_build_identity: ${{ matrix.group.require_build_identity == true || (toJSON(matrix.group.require_build_identity) == 'null' && inputs.require_build_identity == true) }}
+      enable_gitops_artifacts: ${{ matrix.group.enable_gitops_artifacts == true || toJSON(matrix.group.enable_gitops_artifacts) == 'null' }}
       filter_paths: ${{ matrix.group.filter_paths }}
       shared_paths: ${{ matrix.group.shared_paths || inputs.shared_paths }}
       path_level: ${{ matrix.group.path_level || inputs.path_level }}

@@ -6,7 +6,7 @@ inputs:
     description: GitHub token used for gh CLI access (needs read access to the repository contents and pull requests).
     required: true
   ignore-globs:
-    description: 'Space-separated glob patterns treated as documentation/meta. When every changed file matches one of these, the gate returns code=false.'
+    description: 'Space-separated glob patterns treated as documentation/meta. When every changed file matches one of these, the gate returns code=false. Files under .github/workflows/, .github/actions/ and .github/scripts/ always count as code, whatever the globs say.'
     required: false
     default: '*.md docs/* .github/* LICENSE* .gitignore .coderabbit.yml .coderabbit.yaml'
 
@@ -34,8 +34,14 @@ runs:
 
         # ----------------- Collect changed files -----------------
         if [ "$EVENT_NAME" = "pull_request" ] || [ "$EVENT_NAME" = "pull_request_target" ]; then
+          # Deletions count. A removed file is classified by its path like any
+          # other: a deleted `docs/x.md` is still documentation, a deleted `.go`
+          # file is a code change (its callers may no longer build, its tests no
+          # longer cover). Dropping removed files made a deletion-only pull
+          # request produce an empty list, and an empty list gates the pipeline
+          # off while the required check still reports green.
           if ! files=$(gh api "repos/${REPO}/pulls/${PR_NUMBER}/files" --paginate \
-              --jq '.[] | select(.status != "removed") | .filename'); then
+              --jq '.[].filename'); then
             echo "::error::Failed to list changed files for PR #${PR_NUMBER}"
             exit 1
           fi
@@ -45,10 +51,22 @@ runs:
             echo "code=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          if ! files=$(gh api "repos/${REPO}/compare/${BEFORE}...${AFTER}" --jq '.files[].filename'); then
+          # The compare endpoint returns at most 300 entries in `files`, and
+          # says so only by hitting that ceiling. A push with 400 changed files
+          # whose first 300 happen to be documentation would otherwise be
+          # classified as docs-only and silently skip the pipeline, so a
+          # truncated list is treated as what it is: not a verdict.
+          if ! compare=$(gh api "repos/${REPO}/compare/${BEFORE}...${AFTER}"); then
             echo "::error::Failed to fetch push diff ${BEFORE}...${AFTER}"
             exit 1
           fi
+          file_count=$(printf '%s' "$compare" | jq '.files | length')
+          if [ "$file_count" -ge 300 ]; then
+            echo "Compare returned $file_count files (API ceiling) — list may be truncated, assuming a code change."
+            echo "code=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          files=$(printf '%s' "$compare" | jq -r '.files[].filename')
         fi
 
         # ----------------- Match against ignore globs -----------------
@@ -56,6 +74,20 @@ runs:
         code=false
         while IFS= read -r file; do
           [ -z "$file" ] && continue
+          # Executable paths under .github are never documentation, whatever
+          # the globs say: the default `.github/*` glob is for CODEOWNERS,
+          # templates and bot config, and a PR that edits only the pipeline
+          # definition is the one PR that must run the pipeline it edits.
+          #
+          # These cases are load-bearing, not belt-and-braces. In a bash `case`
+          # pattern `*` DOES match `/` — unlike a GitHub `paths-ignore` filter,
+          # where it does not — so `.github/*` here swallows every nested path.
+          # Without these exceptions a push touching only a composite action or
+          # a pipeline helper script would be classified as documentation, and
+          # go unbuilt and unreleased.
+          case "$file" in
+            .github/workflows/*|.github/actions/*|.github/scripts/*) code=true; break ;;
+          esac
           ignored=false
           for glob in "${ignore_patterns[@]}"; do
             # shellcheck disable=SC2254
