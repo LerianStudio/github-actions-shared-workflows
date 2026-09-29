@@ -140,6 +140,12 @@ runs:
       uses: helmfile/helmfile-action@1f44bcb43e5fb17ecb2685d8b6081ec5f6aa5fcf # v2.4.7
       with:
         helmfile-args: --version
+        # Skip the default helm-diff plugin: this composite only runs
+        # --version, lint and template, none of which needs it. An empty value
+        # avoids unnecessary plugin downloads and installation. The pinned
+        # action already handles "plugin already exists" as a successful case.
+        # Revisit this setting if diff, apply or sync is added.
+        helm-plugins: ""
 
     # Into a virtualenv, not the interpreter. The self-hosted pool this runs on
     # is Debian, whose Python is externally managed (PEP 668), so a plain
