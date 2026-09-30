@@ -32,6 +32,7 @@ Mirrors the [`go-release`](./go-release.md) umbrella for Go services — providi
 | `dry_run` | Run semantic-release and build in dry-run mode (no tags/releases/images created); also skips the E2E test job entirely | boolean | `false` |
 | `ignore_globs` | Space-separated globs treated as docs/meta for the branch-push gate | string | `*.md docs/* .github/* LICENSE* .gitignore .coderabbit.yml .coderabbit.yaml` |
 | `semantic_version` | semantic-release version | string | `23.0.8` |
+| `changelog_release_branch` | Branch whose tags get a changelog. Empty derives it from the run: the branch that triggered the release, falling back to searching which branch contains the tag commit for tag-triggered runs. Set it only for layouts neither step can infer | string | `''` |
 | `filter_paths` | Path prefixes to filter (empty = single-app repo) | string | `''` |
 | `shared_paths` | Path patterns that trigger a release/build for all components | string | `''` |
 | `path_level` | Directory depth level to extract app name | string | `2` |

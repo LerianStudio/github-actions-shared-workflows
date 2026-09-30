@@ -88,6 +88,11 @@ on:
         required: false
         type: string
         default: ''
+      changelog_release_branch:
+        description: 'Branch whose tags get a changelog. Empty derives it from the run: the branch that triggered the release, falling back to searching which branch contains the tag commit for tag-triggered runs. Set it only for layouts neither step can infer.'
+        required: false
+        type: string
+        default: ''
 
       # ----------------- Release Announcement -----------------
       enable_release_announcement:
@@ -589,6 +594,7 @@ jobs:
           stable-releases-only: ${{ inputs.stable_releases_only }}
           openai-model: ${{ inputs.openai_model }}
           bot-ignore-list: ${{ inputs.changelog_bot_ignore_list }}
+          release-branch: ${{ inputs.changelog_release_branch }}
 
   # ----------------- Backmerge (post-changelog) -----------------
   # Runs the post-release backmerge (backmerge_source → backmerge_target) only

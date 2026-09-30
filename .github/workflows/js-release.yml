@@ -45,6 +45,10 @@ on:
         description: 'Only generate changelogs for stable releases (skip beta/rc/alpha tags)'
         type: boolean
         default: true
+      changelog_release_branch:
+        description: 'Branch whose tags get a changelog. Empty derives it from the run: the branch that triggered the release, falling back to searching which branch contains the tag commit for tag-triggered runs. Set it only for layouts neither step can infer.'
+        type: string
+        default: ''
       release_single_app:
         description: 'Force single-app mode for the release job even when filter_paths is set. Use for repos with one version tag but multiple Docker images.'
         type: boolean
@@ -366,6 +370,7 @@ jobs:
       enable_changelog: ${{ inputs.enable_changelog }}
       enable_major_tag: ${{ inputs.enable_major_tag }}
       stable_releases_only: ${{ inputs.stable_releases_only }}
+      changelog_release_branch: ${{ inputs.changelog_release_branch }}
       backmerge_enabled: ${{ inputs.backmerge_enabled }}
       backmerge_source: ${{ inputs.backmerge_source }}
       backmerge_target: ${{ inputs.backmerge_target }}
