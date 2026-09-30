@@ -1,5 +1,15 @@
 # Github-actions-shared-workflows Changelog
 
+## [1.78.2](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.78.2)
+
+Fixes:
+
+- Made the hotfix advisory the default setting instead of an opt-in option. (@bedatty)
+
+[Compare changes](https://github.com/LerianStudio/github-actions-shared-workflows/compare/v1.78.1...v1.78.2)
+
+---
+
 ## [1.78.1](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.78.1)
 
 Fixes:

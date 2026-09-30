@@ -408,13 +408,15 @@ class AdvisoryConditionTests(unittest.TestCase):
     def test_condition_is_exactly_the_documented_one(self):
         self.assertEqual(self.condition, EXPECTED_CONDITION)
 
-    def test_input_defaults_to_current_blocking_behaviour(self):
+    def test_input_defaults_to_advisory_for_hotfixes(self):
+        """On by default: a hotfix cannot wait for a library bump. Callers that
+        want an outdated library to block a hotfix too must opt out explicitly."""
         block = re.search(
             rf"^      {ADVISORY_INPUT}:\n(?:.*\n)*?        default: (\S+)$",
             GO_WORKFLOW, re.MULTILINE,
         )
         self.assertIsNotNone(block, f"{ADVISORY_INPUT} input not declared")
-        self.assertEqual(block.group(1), "false")
+        self.assertEqual(block.group(1), "true")
 
     def test_nested_workflow_input_defaults_to_blocking(self):
         block = re.search(
@@ -479,7 +481,7 @@ class DocumentationMatrixTests(unittest.TestCase):
     def test_section_documents_input_and_default(self):
         self.assertIn(ADVISORY_INPUT, self.section)
         self.assertIn("**Matching rule.**", self.section)
-        self.assertIn("`false` (default)", self.section)
+        self.assertIn("`true` (default)", self.section)
 
     def test_production_example_uses_a_tier_channel(self):
         for line in self.section.splitlines():

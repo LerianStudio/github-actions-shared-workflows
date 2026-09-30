@@ -335,14 +335,16 @@ on:
         description: >-
           Make an outdated Lerian library advisory instead of blocking on a `hotfix/*` -> `main`
           pull request, where bumping a library would push the change past its corrective scope.
-          The check still runs and still posts its report/comment; only the "behind latest stable"
-          verdict stops failing, so the stable `Lib Version` status check goes green and branch
-          protection needs no conditional. Every other source/target combination keeps the current
-          blocking behavior. Deliberately does NOT soften anything else: a missing go.mod, a go.mod
-          with no Lerian libraries, a change-detection failure or any other infrastructure failure
-          still fails the gate.
+          On by default: a hotfix is the one flow where the bump cannot wait for the library and
+          the library cannot wait for the hotfix. The check still runs and still posts its
+          report/comment; only the "behind latest stable" verdict stops failing, so the stable
+          `Lib Version` status check goes green and branch protection needs no conditional. Every
+          other source/target combination keeps the blocking behavior. Set to false to make even a
+          hotfix block on an outdated library. Deliberately does NOT soften anything else: a
+          missing go.mod, a go.mod with no Lerian libraries, a change-detection failure or any
+          other infrastructure failure still fails the gate.
         type: boolean
-        default: false
+        default: true
 
       # ----------------- Shared -----------------
       shared_paths:
@@ -543,7 +545,7 @@ jobs:
       check_indirect: ${{ inputs.lib_version_check_indirect }}
       comment_on_pr: ${{ inputs.lib_version_comment_on_pr }}
       require_lerian_libs: ${{ inputs.lib_version_require_lerian_libs }}
-      # Advisory only on the exact `hotfix/* -> main` path, and only when the caller opted in.
+      # Advisory only on the exact `hotfix/* -> main` path, unless the caller opted out.
       # `github.head_ref` is empty outside pull_request, so the match is false there.
       # Softening happens inside the check itself (see lerian-lib-version-check.yml), NOT in the
       # gate below: mapping a failed result to a pass at the gate would also swallow checkout
