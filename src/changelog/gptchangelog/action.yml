@@ -142,6 +142,15 @@ runs:
         CANDIDATE_LINES=""
 
         if [ -n "$RELEASE_BRANCH" ]; then
+          # A typo here is not harmless: the commit step pushes with
+          # `git push origin HEAD:$BASE_BRANCH`, which CREATES the branch when it does not
+          # exist. The changelog would land on a branch nobody reads and the step would
+          # report success. Fail loudly - a misconfigured override must not degrade into
+          # the silent skip this gate exists to prevent.
+          if ! git show-ref --verify --quiet "refs/remotes/origin/$RELEASE_BRANCH"; then
+            echo "❌ release-branch '$RELEASE_BRANCH' does not exist on origin"
+            exit 1
+          fi
           RELEASE_LINE="$RELEASE_BRANCH"
           echo "📌 Release line from release-branch input: $RELEASE_LINE"
         elif [[ "$GITHUB_REF" == refs/heads/* ]]; then
