@@ -55,6 +55,13 @@ outputs:
   apps-updated:
     description: Comma-separated list of apps whose CHANGELOGs were updated (empty if none)
     value: ${{ steps.generate.outputs.apps_updated }}
+  release-line:
+    description: |
+      Branch the stability gate resolved as this release's line, and the branch the
+      CHANGELOG commit was pushed to. Empty when the gate skipped. Callers that backmerge
+      afterwards must use this, not the default branch: a maintenance tag's changelog
+      lands on its own line.
+    value: ${{ steps.check-tag.outputs.release_line }}
 
 runs:
   using: composite

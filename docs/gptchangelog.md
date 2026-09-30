@@ -8,10 +8,15 @@ Reusable workflow for generating CHANGELOG.md using AI. Uses OpenRouter API (GPT
 - **Consolidated changelog**: Single CHANGELOG.md with sections per app (no overwrites)
 - **Monorepo support**: Automatic detection of changed components via filter_paths
 - **GitHub Release integration**: Automatically updates release notes per app tag
-- **GPG signing**: Signed commits for changelog PRs
+- **GPG signing**: Signed commits pushed to the release line
 - **Tag-based versioning**: Handles between-tags, first-tag, and no-tags scenarios
-- **Automatic PR creation**: Creates and optionally auto-merges changelog PRs
+- **Release-line aware**: Resolves which branch the tag belongs to (default branch, `main`/`master`, or a `maintenance/*` / `release/*` line) instead of assuming the default branch
+- **Backmerge**: Syncs the release line into `develop` after the CHANGELOG lands
 - **Slack notifications**: Automatic success/failure notifications
+
+> This workflow is a thin caller over the [`src/changelog/gptchangelog`](../src/changelog/gptchangelog/action.yml)
+> composite action, which holds the implementation. `release.yml` calls the same composite,
+> so both paths share one behaviour.
 
 ## Prerequisites
 
@@ -131,7 +136,6 @@ jobs:
         charts/control-plane
         charts/midaz
         charts/reporter
-      path_level: '2'
     secrets: inherit
 ```
 
@@ -195,10 +199,22 @@ jobs:
 |-------|------|---------|-------------|
 | `runner_type` | string | `blacksmith` | GitHub runner type |
 | `filter_paths` | string | `''` | Newline-separated list of path prefixes. If empty, single-app mode |
-| `path_level` | string | `2` | Directory depth for app name extraction |
 | `stable_releases_only` | boolean | `true` | Only generate changelogs for stable releases (skip beta/rc/alpha) |
 | `openai_model` | string | `openai/gpt-4o` | OpenRouter model for changelog generation |
-| `max_context_tokens` | string | `80000` | Maximum context tokens for API |
+| `changelog_release_branch` | string | `''` | Branch whose tags get a changelog. Empty resolves it from the run — see [Release line resolution](#release-line-resolution). A value that does not exist on origin fails the job |
+| `bot_ignore_list` | string | `''` | Extra space-separated login substrings to exclude from contributors. Logins ending in `[bot]` are always excluded |
+| `backmerge_enabled` | boolean | `true` | Backmerge the release line into `backmerge_target` after the CHANGELOG is committed |
+| `backmerge_target` | string | `develop` | Branch to backmerge the release line into. Skipped when it does not exist on origin |
+
+### Deprecated inputs
+
+Still accepted so existing callers keep working, but they have no effect:
+
+| Input | Why |
+|-------|-----|
+| `shared_paths` | App selection comes from which stable tags exist on the release line, not from changed files |
+| `path_level` | App names are the basename of each `filter_paths` entry |
+| `max_context_tokens` | Never wired to the API call, in this workflow or the composite |
 
 ## Secrets
 
@@ -221,12 +237,30 @@ All secrets are inherited via `secrets: inherit`. Required secrets in your repos
 
 Unlike traditional matrix-based approaches where each app generates its own changelog (causing overwrites), this workflow uses a **single-job consolidated approach**:
 
-1. **Detect all changed apps** via `changed-paths` action
-2. **Single job iterates** through all changed apps
-3. **Accumulates changelog entries** per app into one consolidated file
-4. **Creates one PR** with all changes
+1. **Resolve the release line** and check the tag is a stable release on it
+2. **Build the app list** — single-app mode, or one entry per `filter_paths` directory that has a stable tag on that line
+3. **Single job iterates** through every app, writing its `CHANGELOG.md` and updating its GitHub Release notes
+4. **Commits and pushes** the CHANGELOGs directly to the release line (GPG-signed, with rebase-retry on a push race)
 
-**Result:** One CHANGELOG.md at repo root with sections for each app that changed.
+**Result:** a per-app `CHANGELOG.md` in each app's folder, committed straight to the branch the release was cut from.
+
+> **Changed in the composite migration:** earlier versions of this workflow opened a
+> `release/update-changelog-*` PR and auto-merged it. The CHANGELOG commit now goes directly
+> to the release line, matching `release.yml`. If your default branch blocks direct pushes,
+> the push bot app needs bypass permission.
+
+### Release line resolution
+
+The tag's release line is resolved in three steps, first hit wins:
+
+1. `changelog_release_branch`, when the caller sets it
+2. the branch that triggered the run, for branch/`workflow_run` triggers
+3. for tag-triggered runs, the first of `<default branch>`, `main`, `master`, `maintenance/*`, `release/*` that contains the tag commit
+
+If none matches, the run skips with an explicit message rather than publishing an empty
+changelog. Earlier versions tested containment **only** against the default branch, which
+silently produced empty release notes on repositories that keep `develop` as the default and
+cut stable on `main`, and on any patch cut from an older minor.
 
 ### Version Range Detection
 
@@ -264,17 +298,13 @@ GPTChangelog organizes commits into these categories:
 
 ## Workflow Jobs
 
-### prepare
-- Detects changed paths (monorepo) or sets single-app mode
-- Outputs matrix for changelog generation job
-
 ### generate_changelog
-- Installs gptchangelog and dependencies
-- Iterates through all changed apps in a single job
-- Generates consolidated CHANGELOG.md with sections per app
-- Updates GitHub Release for each app's tag
-- Creates PR with changelog update (GPG-signed)
-- Auto-merges PR if possible
+- Calls the `src/changelog/gptchangelog` composite, which resolves the release line, builds
+  the app list, generates each `CHANGELOG.md`, updates the GitHub Release notes and pushes
+  the GPG-signed commit to the release line
+- Backmerges the release line into `backmerge_target` (default `develop`) via
+  `src/config/backmerge-sync`. Skipped when the target branch does not exist or when no
+  CHANGELOG was updated; a merge conflict opens a PR instead of failing the release
 
 ### notify
 - Sends Slack notification on completion
@@ -342,18 +372,24 @@ Add `SLACK_WEBHOOK_URL` secret for team notifications.
 **Solutions**:
 1. Verify `OPENROUTER_API_KEY` is set correctly
 2. Check API rate limits
-3. Try reducing `max_context_tokens`
-4. Ensure model name is valid (e.g., `openai/gpt-4o`)
+3. Ensure model name is valid (e.g., `openai/gpt-4o`)
 
 ### Monorepo changes not detected
 
 **Issue**: No apps in matrix for monorepo
 
 **Solutions**:
-1. Verify `filter_paths` matches your directory structure
-2. Check `path_level` is correct
-3. Ensure changes are in tracked paths
-4. Review changed-paths action output
+1. Verify `filter_paths` matches your directory structure and that each entry is an existing directory
+2. Check each app has a stable tag (`<app>-v*`) reachable from the release line — apps are selected by tag, not by changed files
+3. Review the stability gate output: if it reports the tag commit is on none of the lines searched, set `changelog_release_branch`
+
+### Release published with an empty changelog
+
+**Issue**: The job reports success but the release body is empty
+
+**Solution**: The stability gate did not resolve a release line. Check the `Check if tag is a
+stable release on a supported release line` step — it names the branches it searched. Set
+`changelog_release_branch` when the repository cuts stable somewhere it cannot infer.
 
 ## Examples
 
@@ -388,7 +424,6 @@ jobs:
         charts/control-plane
         charts/midaz
         charts/reporter
-      path_level: '2'
     secrets: inherit
 ```
 
@@ -408,7 +443,6 @@ jobs:
         services/api
         services/worker
         services/scheduler
-      path_level: '2'
     secrets: inherit
 ```
 
@@ -419,7 +453,6 @@ changelog:
   uses: LerianStudio/github-actions-shared-workflows/.github/workflows/gptchangelog.yml@tier-1
   with:
     openai_model: 'anthropic/claude-3.5-sonnet'
-    max_context_tokens: '128000'
   secrets: inherit
 ```
 
