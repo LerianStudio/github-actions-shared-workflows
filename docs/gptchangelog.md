@@ -356,14 +356,14 @@ Add `SLACK_WEBHOOK_URL` secret for team notifications.
 2. Check sed command output in logs
 3. Ensure CHANGELOG has standard version header format
 
-### PR not created
+### CHANGELOG commit rejected
 
-**Issue**: Changelog generated but PR fails
+**Issue**: Changelog generated but the push to the release line fails
 
 **Solutions**:
-1. Verify GitHub App has `contents: write` and `pull-requests: write` permissions
-2. Check if branch already exists
-3. Review PR creation step logs
+1. Verify the push bot GitHub App has `contents: write` and `pull-requests: write` permissions
+2. Check branch protection on the release line — the commit is pushed directly, so the app needs bypass permission (required reviews, required status checks, or a linear-history rule will all reject it)
+3. Review the `Commit changelog to the release line` step logs; it retries up to three times, rebasing onto the latest tip, before failing
 
 ### OpenRouter API errors
 

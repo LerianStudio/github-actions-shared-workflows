@@ -75,15 +75,24 @@ runs:
 
     - name: Sync with remote ref
       shell: bash
+      env:
+        # On `workflow_run`, GITHUB_REF/GITHUB_REF_NAME name the DEFAULT branch, not the
+        # branch the completed run was cut from. Empty for every other event.
+        WORKFLOW_RUN_BRANCH: ${{ github.event.workflow_run.head_branch }}
       run: |
         # shellcheck disable=SC2193
         if [[ "$GITHUB_REF" == refs/tags/* ]]; then
           echo "📌 Triggered by tag: $GITHUB_REF_NAME"
           echo "✅ Already at tag commit"
         else
-          echo "📌 Triggered by branch: $GITHUB_REF_NAME"
-          git fetch origin "$GITHUB_REF_NAME"
-          git reset --hard "origin/$GITHUB_REF_NAME"
+          SOURCE_BRANCH="${WORKFLOW_RUN_BRANCH:-$GITHUB_REF_NAME}"
+          if ! git check-ref-format --branch "$SOURCE_BRANCH" >/dev/null 2>&1; then
+            echo "❌ Invalid source branch: '$SOURCE_BRANCH'"
+            exit 1
+          fi
+          echo "📌 Triggered by branch: $SOURCE_BRANCH"
+          git fetch origin "$SOURCE_BRANCH"
+          git reset --hard "origin/$SOURCE_BRANCH"
         fi
 
     # ----------------- Stability Gate -----------------
@@ -94,6 +103,7 @@ runs:
         GH_TOKEN: ${{ inputs.github-token }}
         STABLE_RELEASES_ONLY: ${{ inputs.stable-releases-only }}
         RELEASE_BRANCH: ${{ inputs.release-branch }}
+        WORKFLOW_RUN_BRANCH: ${{ github.event.workflow_run.head_branch }}
       run: |
         if [[ "$GITHUB_REF" == refs/tags/* ]]; then
           TAG_NAME="${GITHUB_REF##*/}"
@@ -161,7 +171,10 @@ runs:
           RELEASE_LINE="$RELEASE_BRANCH"
           echo "📌 Release line from release-branch input: $RELEASE_LINE"
         elif [[ "$GITHUB_REF" == refs/heads/* ]]; then
-          RELEASE_LINE="$GITHUB_REF_NAME"
+          # Same caveat as the sync step: on `workflow_run` the ref names the default
+          # branch. Reading it here would resolve every such run to the default branch —
+          # the very premise this gate was rewritten to stop trusting.
+          RELEASE_LINE="${WORKFLOW_RUN_BRANCH:-$GITHUB_REF_NAME}"
           echo "📌 Release line from the branch that triggered the run: $RELEASE_LINE"
         else
           # Candidates in order: the default branch, the conventional stable lines, then the
@@ -609,7 +622,9 @@ runs:
           fi
           echo "📌 Triggered by tag, pushing to release line: $BASE_BRANCH"
         else
-          BASE_BRANCH="$GITHUB_REF_NAME"
+          # The gate already resolved this for branch and `workflow_run` triggers alike;
+          # GITHUB_REF_NAME is only a fallback for a run that skipped it.
+          BASE_BRANCH="${RELEASE_LINE:-$GITHUB_REF_NAME}"
           echo "📌 Pushing CHANGELOGs directly to: $BASE_BRANCH"
         fi
 

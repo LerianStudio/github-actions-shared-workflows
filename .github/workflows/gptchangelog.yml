@@ -121,6 +121,13 @@ jobs:
           RELEASE_LINE: ${{ steps.changelog.outputs.release-line }}
           TARGET_BRANCH: ${{ inputs.backmerge_target }}
         run: |
+          # `backmerge_target` is caller-supplied and reaches git unquoted-by-convention
+          # below; reject anything that is not a branch name before it gets there.
+          if ! git check-ref-format --branch "$TARGET_BRANCH" >/dev/null 2>&1; then
+            echo "❌ Invalid backmerge_target: '$TARGET_BRANCH'"
+            exit 1
+          fi
+
           SOURCE_BRANCH="$RELEASE_LINE"
           if [ -z "$SOURCE_BRANCH" ]; then
             SOURCE_BRANCH=$(gh repo view --json defaultBranchRef -q '.defaultBranchRef.name')
@@ -133,7 +140,10 @@ jobs:
             exit 0
           fi
 
-          if ! git ls-remote --exit-code --heads origin "$TARGET_BRANCH" >/dev/null 2>&1; then
+          # Full ref, not `--heads <pattern>`: ls-remote matches patterns against the TAIL
+          # of a ref name, so `develop` also matches `refs/heads/feature/develop` and the
+          # probe would wave through a branch backmerge-sync then fails to find.
+          if ! git ls-remote --exit-code origin "refs/heads/$TARGET_BRANCH" >/dev/null 2>&1; then
             echo "⚠️ No $TARGET_BRANCH branch on origin — skipping backmerge"
             echo "should_sync=false" >> "$GITHUB_OUTPUT"
             exit 0
@@ -162,7 +172,10 @@ jobs:
   notify:
     name: Notify
     needs: [generate_changelog]
-    if: always() && needs.generate_changelog.outputs.has_changes == 'true'
+    # `has_changes` is only published once the composite reaches its matrix step, so a job
+    # that dies earlier (app token, or the release-branch override failing the gate) would
+    # report nothing at all — which is precisely when the notification matters.
+    if: always() && (needs.generate_changelog.result == 'failure' || needs.generate_changelog.outputs.has_changes == 'true')
     uses: ./.github/workflows/slack-notify.yml
     with:
       status: ${{ needs.generate_changelog.result }}
