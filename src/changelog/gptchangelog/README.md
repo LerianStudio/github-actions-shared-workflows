@@ -23,6 +23,7 @@ Bot commits (any login ending in `[bot]` plus the entries in `bot-ignore-list`) 
 | `openrouter-api-key` | OpenRouter API key for GPT changelog generation | yes | — |
 | `filter-paths` | Newline-separated path prefixes for monorepo support. Empty = single-app mode. | no | `''` |
 | `stable-releases-only` | Skip beta/rc/alpha tags | no | `'true'` |
+| `release-branch` | Branch whose tags get a changelog. Empty derives it from the run: the branch that triggered the release, falling back to searching which branch contains the tag commit for tag-triggered runs. Set it only for layouts neither step can infer. | no | `''` |
 | `openai-model` | Model to use (OpenRouter format) | no | `'openai/gpt-4o'` |
 | `bot-ignore-list` | Additional space-separated GitHub login substrings to exclude. Logins ending in `[bot]` are always excluded. A built-in baseline (`dependabot renovate github-actions lerian-studio-midaz-push-bot semantic-release-bot`) is always applied; this value extends it. | no | `''` |
 
