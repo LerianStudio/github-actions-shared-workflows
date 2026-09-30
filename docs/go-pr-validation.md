@@ -51,7 +51,7 @@ This distinguishes the two skips that used to look identical: a pipeline the cal
 | `lib_version_check_indirect` | Also check transitive (indirect) Lerian deps | boolean | `false` |
 | `lib_version_comment_on_pr` | Post/update a sticky PR comment with the lib version table | boolean | `true` |
 | `lib_version_require_lerian_libs` | Fail when `go.mod` declares no `github.com/LerianStudio/*` dependency at all. Set to `false` in a repository that legitimately has none (a standard-library-only library, a template, a generator), so the rest of the check keeps running instead of turning `run_lib_version_check` off entirely | boolean | `true` |
-| `lib_version_non_blocking_for_hotfix_to_main` | Report an outdated Lerian library as advisory instead of blocking on `hotfix/*` → `main` PRs. See [Advisory lib version on hotfix PRs](#advisory-lib-version-on-hotfix-prs) | boolean | `false` |
+| `lib_version_non_blocking_for_hotfix_to_main` | Report an outdated Lerian library as advisory instead of blocking on `hotfix/*` → `main` PRs. On by default; set to `false` to block hotfixes too. See [Advisory lib version on hotfix PRs](#advisory-lib-version-on-hotfix-prs) | boolean | `true` |
 | `pr_title_types` | Allowed commit types (pipe-separated) | string | conventional set |
 | `pr_title_scopes` | Allowed scopes (pipe-separated, empty = any) | string | `''` |
 | `require_scope` | Require scope in PR title | boolean | `false` |
@@ -141,27 +141,27 @@ See [`src/validate/permission-manifest-nudge`](../src/validate/permission-manife
 
 `Lib Version` is a stable, blocking status check. On a `hotfix/*` → `main` pull request that is fine in principle and awkward in practice: bumping a Lerian library to clear the check expands the change past its corrective scope, and the bump may drag compatibility work that has no business riding a hotfix. Turning the check off (`run_lib_version_check: false`) or running the whole umbrella in `dry_run` both cost more than they buy — the first hides the information, the second weakens unrelated validations.
 
-`lib_version_non_blocking_for_hotfix_to_main: true` opts into a narrower exception:
+`lib_version_non_blocking_for_hotfix_to_main` encodes a narrower exception, and it is **on by default** — a hotfix is the one flow where the bump cannot wait for the library and the library cannot wait for the hotfix, so no caller has to opt in. A repository that wants an outdated library to block even a hotfix opts out:
 
 ```yaml
 jobs:
   validation:
     uses: LerianStudio/github-actions-shared-workflows/.github/workflows/go-pr-validation.yml@tier-1
     with:
-      lib_version_non_blocking_for_hotfix_to_main: true
+      lib_version_non_blocking_for_hotfix_to_main: false
 ```
 
-**Matching rule.** The exception applies only when all three hold: the input is `true`, `github.base_ref == 'main'`, and `github.head_ref` starts with `hotfix/`. Outside a `pull_request` event `head_ref` is empty, so nothing matches.
+**Matching rule.** The exception applies only when all three hold: the input is `true` (the default), `github.base_ref == 'main'`, and `github.head_ref` starts with `hotfix/`. Outside a `pull_request` event `head_ref` is empty, so nothing matches.
 
 | `lib_version_non_blocking_for_hotfix_to_main` | Head → base | Outdated Lerian lib | `Lib Version` check |
 |---|---|---|---|
-| `false` (default) | `hotfix/x` → `main` | yes | ❌ fails |
-| `false` (default) | any | yes | ❌ fails |
-| `true` | `hotfix/x` → `main` | yes | ✅ passes, reported as advisory |
-| `true` | `hotfix/x` → `main` | no | ✅ passes |
-| `true` | `hotfix/x` → `develop` | yes | ❌ fails |
-| `true` | `develop` → `main` | yes | ❌ fails |
-| `true` | `feat/x` → `main` | yes | ❌ fails |
+| `true` (default) | `hotfix/x` → `main` | yes | ✅ passes, reported as advisory |
+| `true` (default) | `hotfix/x` → `main` | no | ✅ passes |
+| `true` (default) | `hotfix/x` → `develop` | yes | ❌ fails |
+| `true` (default) | `develop` → `main` | yes | ❌ fails |
+| `true` (default) | `feat/x` → `main` | yes | ❌ fails |
+| `false` | `hotfix/x` → `main` | yes | ❌ fails |
+| `false` | any | yes | ❌ fails |
 
 **What it does not soften.** The exception is applied inside the check itself (`outdated_non_blocking` on `lerian-lib-version-check.yml`), not at the `Lib Version` aggregator — mapping a failed job result to a pass at the gate would also swallow real failures. So on a matching hotfix PR the gate still fails when:
 

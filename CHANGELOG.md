@@ -1,5 +1,24 @@
 # Github-actions-shared-workflows Changelog
 
+## [1.78.1](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.78.1)
+
+Fixes:
+
+- Corrected the release process by merging `develop` into `main`. (@bedatty)
+- Isolated Helm plugins on persistent runners to improve the `gitops-chart-update` process. (@bedatty, @gandalf-at-lerian)
+- Stopped installing the unused `helm-diff` plugin in the `gitops-chart-update` workflow. (@fredcamaral)
+- Enhanced security by ensuring pull request code does not have access to module credentials and write scopes. (@bedatty)
+- Allowed a broken fixture module to issue a warning instead of failing the job, improving security workflows. (@bedatty)
+- Dropped the module credential in every security-related job to enhance security. (@bedatty)
+
+Improvements:
+
+- Updated documentation to clarify the rationale behind not using certain Helm plugins in `gitops` workflows. (@fredcamaral)
+
+[Compare changes](https://github.com/LerianStudio/github-actions-shared-workflows/compare/v1.78.0...v1.78.1)
+
+---
+
 ## [1.78.0](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.78.0)
 
 Features:
