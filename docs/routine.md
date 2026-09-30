@@ -42,12 +42,24 @@ The caller controls the triggers (schedule cron, push paths, pull_request types,
 
 ## Secrets
 
-Pass `secrets: inherit` from the caller. Underlying workflows use:
+`MANAGE_TOKEN` is declared in the `workflow_call` contract, so a caller can
+pass it by name and nothing else:
+
+```yaml
+    secrets:
+      MANAGE_TOKEN: ${{ secrets.MANAGE_TOKEN }}
+```
+
+`secrets: inherit` still works, but it is not equivalent: inheritance hands this
+workflow every secret available to the caller, whether or not the contract names
+it, and from here that reaches the routines it calls. Passing `MANAGE_TOKEN` by
+name is what keeps the rest of your secrets out. Omitting the secret entirely is
+valid too — the routines then run on `GITHUB_TOKEN`.
 
 | Secret | Required | Description |
 |---|---|---|
 | `GITHUB_TOKEN` | No | Auto-injected; covers branch cleanup, label sync, workflow runs cleanup |
-| `MANAGE_TOKEN` | No | Preferred for stale PR/issue scans so the bot identity attributes the labels and comments. Falls back to `GITHUB_TOKEN` when absent. |
+| `MANAGE_TOKEN` | No | Preferred for stale PR/issue scans so the bot identity attributes the labels and comments. Falls back to `GITHUB_TOKEN` when absent. Only the stale routines receive it. |
 
 ## Permissions
 
@@ -108,7 +120,8 @@ jobs:
       routine: ${{ inputs.routine || 'all' }}
       dry_run: ${{ inputs.dry_run || false }}
       merged_branch: ${{ github.head_ref }}
-    secrets: inherit
+    secrets:
+      MANAGE_TOKEN: ${{ secrets.MANAGE_TOKEN }}
 ```
 
 ### Customizing thresholds
@@ -125,7 +138,8 @@ jobs:
       issue_days_before_stale: 60
       workflow_runs_retention_days: 90
       merged_branch: ${{ github.head_ref }}
-    secrets: inherit
+    secrets:
+      MANAGE_TOKEN: ${{ secrets.MANAGE_TOKEN }}
 ```
 
 ### Adding extra protected branches
@@ -139,7 +153,8 @@ jobs:
     with:
       extra_protected_branches: "develop-*,feature-stable"
       merged_branch: ${{ github.head_ref }}
-    secrets: inherit
+    secrets:
+      MANAGE_TOKEN: ${{ secrets.MANAGE_TOKEN }}
 ```
 
 Use `protected_branches` to fully override the default (not recommended unless you really need to drop one of the standard patterns):
@@ -151,7 +166,8 @@ jobs:
     with:
       protected_branches: "main,trunk,prod-*"
       merged_branch: ${{ github.head_ref }}
-    secrets: inherit
+    secrets:
+      MANAGE_TOKEN: ${{ secrets.MANAGE_TOKEN }}
 ```
 
 ### Testing on a feature branch
@@ -164,7 +180,8 @@ jobs:
       routine: all
       dry_run: true
       merged_branch: ${{ github.head_ref }}
-    secrets: inherit
+    secrets:
+      MANAGE_TOKEN: ${{ secrets.MANAGE_TOKEN }}
 ```
 
 ## Notes

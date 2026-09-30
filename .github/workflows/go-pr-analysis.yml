@@ -171,11 +171,13 @@ on:
         required: false
         default: ''
 
+# Floor for every job: reading the code is all most of them need. Jobs that run
+# code from the pull request get nothing else, so a caller can keep granting the
+# write scopes the Security and Coverage jobs below require without handing them
+# to a Makefile target. A reusable workflow can only narrow what the caller
+# granted, never widen it, so raising a job here still needs the caller's grant.
 permissions:
-  actions: read
   contents: read
-  pull-requests: write
-  security-events: write
 
 jobs:
   # ============================================
@@ -241,12 +243,60 @@ jobs:
           go-version: ${{ inputs.go_version }}
           cache: true
 
-      - name: Configure private Go modules
+      # The credential is confined to this step: it is written to a git config
+      # file under RUNNER_TEMP, used only to populate the module cache, and
+      # removed before any code from the pull request runs. Every job here
+      # reaches the branch's Makefile sooner or later, and `make -n` is not the
+      # escape hatch it looks like: GNU make expands `$(shell ...)` while
+      # parsing, so a probe run alone is enough for the Makefile to read
+      # whatever the job still holds. MANAGE_TOKEN goes through env rather than
+      # being interpolated into the script text: an interpolated secret is not
+      # masked if the shell traces the command, and it is what CodeQL/zizmor
+      # flag as template-injection.
+      - name: Fetch private Go modules
         if: inputs.go_private_modules != ''
+        working-directory: ${{ matrix.app.working_dir }}
         run: |
-          git config --global url."https://${{ secrets.MANAGE_TOKEN }}@github.com/".insteadOf "https://github.com/"
+          set -euo pipefail
+          export GIT_CONFIG_GLOBAL="$RUNNER_TEMP/gitconfig-private-modules"
+          trap 'rm -f "$GIT_CONFIG_GLOBAL"' EXIT
+          git config --file "$GIT_CONFIG_GLOBAL" \
+            url."https://${MANAGE_TOKEN}@github.com/".insteadOf "https://github.com/"
+          # Every module at or below the working directory, not just a go.mod at
+          # its root: a Makefile target may drive nested modules or a workspace,
+          # and once this step ends there is no credential left to fetch with.
+          # The pruned directories are the ones the Go tool itself never walks,
+          # so nothing a target can build lives there — but fixtures do, and a
+          # deliberately broken one must not decide whether this job runs.
+          mapfile -t MODULES < <(
+            find . -mindepth 1 \
+              \( -name vendor -o -name testdata -o -name '.*' -o -name '_*' \) -prune \
+              -o -name go.mod -print | sort
+          )
+          if [[ ${#MODULES[@]} -eq 0 ]]; then
+            echo "::notice::No go.mod under $PWD; nothing to prefetch."
+          fi
+          for module in "${MODULES[@]}"; do
+            dir="$(dirname "$module")"
+            echo "::group::go mod download in $dir"
+            if (cd "$dir" && go mod download); then
+              echo "::endgroup::"
+            elif [[ "$dir" == "." ]]; then
+              # The module being analysed: nothing downstream can succeed.
+              echo "::endgroup::"
+              echo "::error::Could not prefetch the module at $PWD."
+              exit 1
+            else
+              # A nested module may be unbuildable on purpose. If a target does
+              # need it, that target fails with its own error, which says more
+              # than this step could.
+              echo "::endgroup::"
+              echo "::warning::Could not prefetch the nested module at $dir; continuing."
+            fi
+          done
         env:
           GOPRIVATE: ${{ inputs.go_private_modules }}
+          MANAGE_TOKEN: ${{ secrets.MANAGE_TOKEN }}
 
       - name: Install golangci-lint
         env:
@@ -301,6 +351,12 @@ jobs:
   # ============================================
   security:
     name: Security (${{ matrix.app.name }})
+    # Uploading SARIF writes a code-scanning alert; actions: read lets the
+    # upload resolve the run it belongs to on private repositories.
+    permissions:
+      contents: read
+      actions: read
+      security-events: write
     needs: detect-changes
     if: needs.detect-changes.outputs.has_changes == 'true' && inputs.enable_security
     runs-on: ${{ vars.GENERAL_RUNNERS || inputs.runner_type }}
@@ -337,12 +393,60 @@ jobs:
           go-version: ${{ inputs.go_version }}
           cache: true
 
-      - name: Configure private Go modules
+      # The credential is confined to this step: it is written to a git config
+      # file under RUNNER_TEMP, used only to populate the module cache, and
+      # removed before any code from the pull request runs. Every job here
+      # reaches the branch's Makefile sooner or later, and `make -n` is not the
+      # escape hatch it looks like: GNU make expands `$(shell ...)` while
+      # parsing, so a probe run alone is enough for the Makefile to read
+      # whatever the job still holds. MANAGE_TOKEN goes through env rather than
+      # being interpolated into the script text: an interpolated secret is not
+      # masked if the shell traces the command, and it is what CodeQL/zizmor
+      # flag as template-injection.
+      - name: Fetch private Go modules
         if: inputs.go_private_modules != ''
+        working-directory: ${{ matrix.app.working_dir }}
         run: |
-          git config --global url."https://${{ secrets.MANAGE_TOKEN }}@github.com/".insteadOf "https://github.com/"
+          set -euo pipefail
+          export GIT_CONFIG_GLOBAL="$RUNNER_TEMP/gitconfig-private-modules"
+          trap 'rm -f "$GIT_CONFIG_GLOBAL"' EXIT
+          git config --file "$GIT_CONFIG_GLOBAL" \
+            url."https://${MANAGE_TOKEN}@github.com/".insteadOf "https://github.com/"
+          # Every module at or below the working directory, not just a go.mod at
+          # its root: a Makefile target may drive nested modules or a workspace,
+          # and once this step ends there is no credential left to fetch with.
+          # The pruned directories are the ones the Go tool itself never walks,
+          # so nothing a target can build lives there — but fixtures do, and a
+          # deliberately broken one must not decide whether this job runs.
+          mapfile -t MODULES < <(
+            find . -mindepth 1 \
+              \( -name vendor -o -name testdata -o -name '.*' -o -name '_*' \) -prune \
+              -o -name go.mod -print | sort
+          )
+          if [[ ${#MODULES[@]} -eq 0 ]]; then
+            echo "::notice::No go.mod under $PWD; nothing to prefetch."
+          fi
+          for module in "${MODULES[@]}"; do
+            dir="$(dirname "$module")"
+            echo "::group::go mod download in $dir"
+            if (cd "$dir" && go mod download); then
+              echo "::endgroup::"
+            elif [[ "$dir" == "." ]]; then
+              # The module being analysed: nothing downstream can succeed.
+              echo "::endgroup::"
+              echo "::error::Could not prefetch the module at $PWD."
+              exit 1
+            else
+              # A nested module may be unbuildable on purpose. If a target does
+              # need it, that target fails with its own error, which says more
+              # than this step could.
+              echo "::endgroup::"
+              echo "::warning::Could not prefetch the nested module at $dir; continuing."
+            fi
+          done
         env:
           GOPRIVATE: ${{ inputs.go_private_modules }}
+          MANAGE_TOKEN: ${{ secrets.MANAGE_TOKEN }}
 
       - name: Detect Makefile sec target
         id: detect-make
@@ -459,12 +563,60 @@ jobs:
           go-version: ${{ inputs.go_version }}
           cache: true
 
-      - name: Configure private Go modules
+      # The credential is confined to this step: it is written to a git config
+      # file under RUNNER_TEMP, used only to populate the module cache, and
+      # removed before any code from the pull request runs. Every job here
+      # reaches the branch's Makefile sooner or later, and `make -n` is not the
+      # escape hatch it looks like: GNU make expands `$(shell ...)` while
+      # parsing, so a probe run alone is enough for the Makefile to read
+      # whatever the job still holds. MANAGE_TOKEN goes through env rather than
+      # being interpolated into the script text: an interpolated secret is not
+      # masked if the shell traces the command, and it is what CodeQL/zizmor
+      # flag as template-injection.
+      - name: Fetch private Go modules
         if: inputs.go_private_modules != ''
+        working-directory: ${{ matrix.app.working_dir }}
         run: |
-          git config --global url."https://${{ secrets.MANAGE_TOKEN }}@github.com/".insteadOf "https://github.com/"
+          set -euo pipefail
+          export GIT_CONFIG_GLOBAL="$RUNNER_TEMP/gitconfig-private-modules"
+          trap 'rm -f "$GIT_CONFIG_GLOBAL"' EXIT
+          git config --file "$GIT_CONFIG_GLOBAL" \
+            url."https://${MANAGE_TOKEN}@github.com/".insteadOf "https://github.com/"
+          # Every module at or below the working directory, not just a go.mod at
+          # its root: a Makefile target may drive nested modules or a workspace,
+          # and once this step ends there is no credential left to fetch with.
+          # The pruned directories are the ones the Go tool itself never walks,
+          # so nothing a target can build lives there — but fixtures do, and a
+          # deliberately broken one must not decide whether this job runs.
+          mapfile -t MODULES < <(
+            find . -mindepth 1 \
+              \( -name vendor -o -name testdata -o -name '.*' -o -name '_*' \) -prune \
+              -o -name go.mod -print | sort
+          )
+          if [[ ${#MODULES[@]} -eq 0 ]]; then
+            echo "::notice::No go.mod under $PWD; nothing to prefetch."
+          fi
+          for module in "${MODULES[@]}"; do
+            dir="$(dirname "$module")"
+            echo "::group::go mod download in $dir"
+            if (cd "$dir" && go mod download); then
+              echo "::endgroup::"
+            elif [[ "$dir" == "." ]]; then
+              # The module being analysed: nothing downstream can succeed.
+              echo "::endgroup::"
+              echo "::error::Could not prefetch the module at $PWD."
+              exit 1
+            else
+              # A nested module may be unbuildable on purpose. If a target does
+              # need it, that target fails with its own error, which says more
+              # than this step could.
+              echo "::endgroup::"
+              echo "::warning::Could not prefetch the nested module at $dir; continuing."
+            fi
+          done
         env:
           GOPRIVATE: ${{ inputs.go_private_modules }}
+          MANAGE_TOKEN: ${{ secrets.MANAGE_TOKEN }}
 
       - name: Detect Makefile test target
         id: detect-make
@@ -602,6 +754,11 @@ jobs:
   # ============================================
   coverage:
     name: Coverage (${{ matrix.app.name }})
+    # Posts the coverage comment on the pull request. This job reads the test
+    # artifact and the coverage profile; it never runs code from the branch.
+    permissions:
+      contents: read
+      pull-requests: write
     needs: [detect-changes, tests]
     if: needs.detect-changes.outputs.has_changes == 'true' && inputs.enable_coverage
     runs-on: ${{ inputs.coverage_runner_type || vars.GENERAL_RUNNERS || inputs.runner_type }}
@@ -618,13 +775,6 @@ jobs:
         with:
           go-version: ${{ inputs.go_version }}
           cache: true
-
-      - name: Configure private Go modules
-        if: inputs.go_private_modules != ''
-        run: |
-          git config --global url."https://${{ secrets.MANAGE_TOKEN }}@github.com/".insteadOf "https://github.com/"
-        env:
-          GOPRIVATE: ${{ inputs.go_private_modules }}
 
       - name: Download coverage artifact
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
@@ -940,12 +1090,60 @@ jobs:
           go-version: ${{ inputs.go_version }}
           cache: true
 
-      - name: Configure private Go modules
+      # The credential is confined to this step: it is written to a git config
+      # file under RUNNER_TEMP, used only to populate the module cache, and
+      # removed before any code from the pull request runs. Every job here
+      # reaches the branch's Makefile sooner or later, and `make -n` is not the
+      # escape hatch it looks like: GNU make expands `$(shell ...)` while
+      # parsing, so a probe run alone is enough for the Makefile to read
+      # whatever the job still holds. MANAGE_TOKEN goes through env rather than
+      # being interpolated into the script text: an interpolated secret is not
+      # masked if the shell traces the command, and it is what CodeQL/zizmor
+      # flag as template-injection.
+      - name: Fetch private Go modules
         if: inputs.go_private_modules != ''
+        working-directory: ${{ matrix.app.working_dir }}
         run: |
-          git config --global url."https://${{ secrets.MANAGE_TOKEN }}@github.com/".insteadOf "https://github.com/"
+          set -euo pipefail
+          export GIT_CONFIG_GLOBAL="$RUNNER_TEMP/gitconfig-private-modules"
+          trap 'rm -f "$GIT_CONFIG_GLOBAL"' EXIT
+          git config --file "$GIT_CONFIG_GLOBAL" \
+            url."https://${MANAGE_TOKEN}@github.com/".insteadOf "https://github.com/"
+          # Every module at or below the working directory, not just a go.mod at
+          # its root: a Makefile target may drive nested modules or a workspace,
+          # and once this step ends there is no credential left to fetch with.
+          # The pruned directories are the ones the Go tool itself never walks,
+          # so nothing a target can build lives there — but fixtures do, and a
+          # deliberately broken one must not decide whether this job runs.
+          mapfile -t MODULES < <(
+            find . -mindepth 1 \
+              \( -name vendor -o -name testdata -o -name '.*' -o -name '_*' \) -prune \
+              -o -name go.mod -print | sort
+          )
+          if [[ ${#MODULES[@]} -eq 0 ]]; then
+            echo "::notice::No go.mod under $PWD; nothing to prefetch."
+          fi
+          for module in "${MODULES[@]}"; do
+            dir="$(dirname "$module")"
+            echo "::group::go mod download in $dir"
+            if (cd "$dir" && go mod download); then
+              echo "::endgroup::"
+            elif [[ "$dir" == "." ]]; then
+              # The module being analysed: nothing downstream can succeed.
+              echo "::endgroup::"
+              echo "::error::Could not prefetch the module at $PWD."
+              exit 1
+            else
+              # A nested module may be unbuildable on purpose. If a target does
+              # need it, that target fails with its own error, which says more
+              # than this step could.
+              echo "::endgroup::"
+              echo "::warning::Could not prefetch the nested module at $dir; continuing."
+            fi
+          done
         env:
           GOPRIVATE: ${{ inputs.go_private_modules }}
+          MANAGE_TOKEN: ${{ secrets.MANAGE_TOKEN }}
 
       - name: Detect Makefile build target
         id: detect-make
@@ -1020,12 +1218,60 @@ jobs:
           go-version: ${{ inputs.go_version }}
           cache: true
 
-      - name: Configure private Go modules
+      # The credential is confined to this step: it is written to a git config
+      # file under RUNNER_TEMP, used only to populate the module cache, and
+      # removed before any code from the pull request runs. Every job here
+      # reaches the branch's Makefile sooner or later, and `make -n` is not the
+      # escape hatch it looks like: GNU make expands `$(shell ...)` while
+      # parsing, so a probe run alone is enough for the Makefile to read
+      # whatever the job still holds. MANAGE_TOKEN goes through env rather than
+      # being interpolated into the script text: an interpolated secret is not
+      # masked if the shell traces the command, and it is what CodeQL/zizmor
+      # flag as template-injection.
+      - name: Fetch private Go modules
         if: inputs.go_private_modules != ''
+        working-directory: ${{ matrix.app.working_dir }}
         run: |
-          git config --global url."https://${{ secrets.MANAGE_TOKEN }}@github.com/".insteadOf "https://github.com/"
+          set -euo pipefail
+          export GIT_CONFIG_GLOBAL="$RUNNER_TEMP/gitconfig-private-modules"
+          trap 'rm -f "$GIT_CONFIG_GLOBAL"' EXIT
+          git config --file "$GIT_CONFIG_GLOBAL" \
+            url."https://${MANAGE_TOKEN}@github.com/".insteadOf "https://github.com/"
+          # Every module at or below the working directory, not just a go.mod at
+          # its root: a Makefile target may drive nested modules or a workspace,
+          # and once this step ends there is no credential left to fetch with.
+          # The pruned directories are the ones the Go tool itself never walks,
+          # so nothing a target can build lives there — but fixtures do, and a
+          # deliberately broken one must not decide whether this job runs.
+          mapfile -t MODULES < <(
+            find . -mindepth 1 \
+              \( -name vendor -o -name testdata -o -name '.*' -o -name '_*' \) -prune \
+              -o -name go.mod -print | sort
+          )
+          if [[ ${#MODULES[@]} -eq 0 ]]; then
+            echo "::notice::No go.mod under $PWD; nothing to prefetch."
+          fi
+          for module in "${MODULES[@]}"; do
+            dir="$(dirname "$module")"
+            echo "::group::go mod download in $dir"
+            if (cd "$dir" && go mod download); then
+              echo "::endgroup::"
+            elif [[ "$dir" == "." ]]; then
+              # The module being analysed: nothing downstream can succeed.
+              echo "::endgroup::"
+              echo "::error::Could not prefetch the module at $PWD."
+              exit 1
+            else
+              # A nested module may be unbuildable on purpose. If a target does
+              # need it, that target fails with its own error, which says more
+              # than this step could.
+              echo "::endgroup::"
+              echo "::warning::Could not prefetch the nested module at $dir; continuing."
+            fi
+          done
         env:
           GOPRIVATE: ${{ inputs.go_private_modules }}
+          MANAGE_TOKEN: ${{ secrets.MANAGE_TOKEN }}
 
       # ----------------- Service Container & Test Environment -----------------
       - name: Parse integration configuration
@@ -1129,13 +1375,57 @@ jobs:
           go-version: ${{ inputs.go_version }}
           cache: true
 
-      # MANAGE_TOKEN goes through env rather than being interpolated into the
-      # script text: an interpolated secret is not masked if the shell traces the
-      # command, and it is what CodeQL/zizmor flag as template-injection.
-      - name: Configure private Go modules
+      # The credential is confined to this step: it is written to a git config
+      # file under RUNNER_TEMP, used only to populate the module cache, and
+      # removed before any code from the pull request runs. Every job here
+      # reaches the branch's Makefile sooner or later, and `make -n` is not the
+      # escape hatch it looks like: GNU make expands `$(shell ...)` while
+      # parsing, so a probe run alone is enough for the Makefile to read
+      # whatever the job still holds. MANAGE_TOKEN goes through env rather than
+      # being interpolated into the script text: an interpolated secret is not
+      # masked if the shell traces the command, and it is what CodeQL/zizmor
+      # flag as template-injection.
+      - name: Fetch private Go modules
         if: inputs.go_private_modules != ''
+        working-directory: ${{ matrix.app.working_dir }}
         run: |
-          git config --global url."https://${MANAGE_TOKEN}@github.com/".insteadOf "https://github.com/"
+          set -euo pipefail
+          export GIT_CONFIG_GLOBAL="$RUNNER_TEMP/gitconfig-private-modules"
+          trap 'rm -f "$GIT_CONFIG_GLOBAL"' EXIT
+          git config --file "$GIT_CONFIG_GLOBAL" \
+            url."https://${MANAGE_TOKEN}@github.com/".insteadOf "https://github.com/"
+          # Every module at or below the working directory, not just a go.mod at
+          # its root: a Makefile target may drive nested modules or a workspace,
+          # and once this step ends there is no credential left to fetch with.
+          # The pruned directories are the ones the Go tool itself never walks,
+          # so nothing a target can build lives there — but fixtures do, and a
+          # deliberately broken one must not decide whether this job runs.
+          mapfile -t MODULES < <(
+            find . -mindepth 1 \
+              \( -name vendor -o -name testdata -o -name '.*' -o -name '_*' \) -prune \
+              -o -name go.mod -print | sort
+          )
+          if [[ ${#MODULES[@]} -eq 0 ]]; then
+            echo "::notice::No go.mod under $PWD; nothing to prefetch."
+          fi
+          for module in "${MODULES[@]}"; do
+            dir="$(dirname "$module")"
+            echo "::group::go mod download in $dir"
+            if (cd "$dir" && go mod download); then
+              echo "::endgroup::"
+            elif [[ "$dir" == "." ]]; then
+              # The module being analysed: nothing downstream can succeed.
+              echo "::endgroup::"
+              echo "::error::Could not prefetch the module at $PWD."
+              exit 1
+            else
+              # A nested module may be unbuildable on purpose. If a target does
+              # need it, that target fails with its own error, which says more
+              # than this step could.
+              echo "::endgroup::"
+              echo "::warning::Could not prefetch the nested module at $dir; continuing."
+            fi
+          done
         env:
           GOPRIVATE: ${{ inputs.go_private_modules }}
           MANAGE_TOKEN: ${{ secrets.MANAGE_TOKEN }}
@@ -1216,12 +1506,60 @@ jobs:
           go-version: ${{ inputs.go_version }}
           cache: true
 
-      - name: Configure private Go modules
+      # The credential is confined to this step: it is written to a git config
+      # file under RUNNER_TEMP, used only to populate the module cache, and
+      # removed before any code from the pull request runs. Every job here
+      # reaches the branch's Makefile sooner or later, and `make -n` is not the
+      # escape hatch it looks like: GNU make expands `$(shell ...)` while
+      # parsing, so a probe run alone is enough for the Makefile to read
+      # whatever the job still holds. MANAGE_TOKEN goes through env rather than
+      # being interpolated into the script text: an interpolated secret is not
+      # masked if the shell traces the command, and it is what CodeQL/zizmor
+      # flag as template-injection.
+      - name: Fetch private Go modules
         if: inputs.go_private_modules != ''
+        working-directory: ${{ matrix.app.working_dir }}
         run: |
-          git config --global url."https://${{ secrets.MANAGE_TOKEN }}@github.com/".insteadOf "https://github.com/"
+          set -euo pipefail
+          export GIT_CONFIG_GLOBAL="$RUNNER_TEMP/gitconfig-private-modules"
+          trap 'rm -f "$GIT_CONFIG_GLOBAL"' EXIT
+          git config --file "$GIT_CONFIG_GLOBAL" \
+            url."https://${MANAGE_TOKEN}@github.com/".insteadOf "https://github.com/"
+          # Every module at or below the working directory, not just a go.mod at
+          # its root: a Makefile target may drive nested modules or a workspace,
+          # and once this step ends there is no credential left to fetch with.
+          # The pruned directories are the ones the Go tool itself never walks,
+          # so nothing a target can build lives there — but fixtures do, and a
+          # deliberately broken one must not decide whether this job runs.
+          mapfile -t MODULES < <(
+            find . -mindepth 1 \
+              \( -name vendor -o -name testdata -o -name '.*' -o -name '_*' \) -prune \
+              -o -name go.mod -print | sort
+          )
+          if [[ ${#MODULES[@]} -eq 0 ]]; then
+            echo "::notice::No go.mod under $PWD; nothing to prefetch."
+          fi
+          for module in "${MODULES[@]}"; do
+            dir="$(dirname "$module")"
+            echo "::group::go mod download in $dir"
+            if (cd "$dir" && go mod download); then
+              echo "::endgroup::"
+            elif [[ "$dir" == "." ]]; then
+              # The module being analysed: nothing downstream can succeed.
+              echo "::endgroup::"
+              echo "::error::Could not prefetch the module at $PWD."
+              exit 1
+            else
+              # A nested module may be unbuildable on purpose. If a target does
+              # need it, that target fails with its own error, which says more
+              # than this step could.
+              echo "::endgroup::"
+              echo "::warning::Could not prefetch the nested module at $dir; continuing."
+            fi
+          done
         env:
           GOPRIVATE: ${{ inputs.go_private_modules }}
+          MANAGE_TOKEN: ${{ secrets.MANAGE_TOKEN }}
 
       - name: Run tests ${{ inputs.test_determinism_runs }} times
         working-directory: ${{ matrix.app.working_dir }}
