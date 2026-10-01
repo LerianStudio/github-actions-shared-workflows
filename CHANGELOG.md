@@ -1,5 +1,21 @@
 # Github-actions-shared-workflows Changelog
 
+## [1.79.0](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.79.0)
+
+Fixes:
+- Addressed an issue in the release process by merging changes from `develop` to `main`. (@bedatty)
+- Enhanced the Go PR analysis workflow by prefetching the module enclosing the working directory. (@augusto-draxx)
+- Resolved an issue in the changelog generation workflow to determine the release line from the run instead of the default branch. (@bedatty)
+- Implemented a failure condition in the changelog generation workflow when the release-branch override does not exist. (@bedatty)
+
+Improvements:
+- Refactored the changelog generation workflow to make the reusable workflow a caller of the composite. (@bedatty)
+- Addressed review findings related to the composite migration in the changelog generation workflow. (@bedatty)
+
+[Compare changes](https://github.com/LerianStudio/github-actions-shared-workflows/compare/v1.78.2...v1.79.0)
+
+---
+
 ## [1.78.2](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.78.2)
 
 Fixes:
