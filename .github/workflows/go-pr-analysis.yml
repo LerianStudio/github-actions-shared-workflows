@@ -273,18 +273,39 @@ jobs:
               \( -name vendor -o -name testdata -o -name '.*' -o -name '_*' \) -prune \
               -o -name go.mod -print | sort
           )
+          # The working directory may sit INSIDE a module rooted above it: a
+          # repository whose go.mod is at the root and whose apps live under
+          # components/<app>, each a package of that one module. The targets
+          # about to run resolve that enclosing module whatever lies below the
+          # working directory, and once this step ends there is no credential
+          # left to fetch with. So when the working directory is not a module
+          # root itself, the nearest go.mod up to the workspace root is the
+          # module being analysed, prefetched beside anything nested, and a
+          # failure there is fatal like one at the working directory itself.
+          ENCLOSING=""
+          if [[ ! -f ./go.mod ]]; then
+            dir="$PWD"
+            while [[ "$dir" != "${GITHUB_WORKSPACE%/}" && "$dir" != "/" ]]; do
+              dir="$(dirname "$dir")"
+              if [[ -f "$dir/go.mod" ]]; then
+                ENCLOSING="$dir/go.mod"
+                MODULES+=("$ENCLOSING")
+                break
+              fi
+            done
+          fi
           if [[ ${#MODULES[@]} -eq 0 ]]; then
-            echo "::notice::No go.mod under $PWD; nothing to prefetch."
+            echo "::notice::No go.mod under $PWD, nor enclosing it; nothing to prefetch."
           fi
           for module in "${MODULES[@]}"; do
             dir="$(dirname "$module")"
             echo "::group::go mod download in $dir"
             if (cd "$dir" && go mod download); then
               echo "::endgroup::"
-            elif [[ "$dir" == "." ]]; then
+            elif [[ "$dir" == "." || "$module" == "$ENCLOSING" ]]; then
               # The module being analysed: nothing downstream can succeed.
               echo "::endgroup::"
-              echo "::error::Could not prefetch the module at $PWD."
+              echo "::error::Could not prefetch the module at $dir."
               exit 1
             else
               # A nested module may be unbuildable on purpose. If a target does
@@ -423,18 +444,39 @@ jobs:
               \( -name vendor -o -name testdata -o -name '.*' -o -name '_*' \) -prune \
               -o -name go.mod -print | sort
           )
+          # The working directory may sit INSIDE a module rooted above it: a
+          # repository whose go.mod is at the root and whose apps live under
+          # components/<app>, each a package of that one module. The targets
+          # about to run resolve that enclosing module whatever lies below the
+          # working directory, and once this step ends there is no credential
+          # left to fetch with. So when the working directory is not a module
+          # root itself, the nearest go.mod up to the workspace root is the
+          # module being analysed, prefetched beside anything nested, and a
+          # failure there is fatal like one at the working directory itself.
+          ENCLOSING=""
+          if [[ ! -f ./go.mod ]]; then
+            dir="$PWD"
+            while [[ "$dir" != "${GITHUB_WORKSPACE%/}" && "$dir" != "/" ]]; do
+              dir="$(dirname "$dir")"
+              if [[ -f "$dir/go.mod" ]]; then
+                ENCLOSING="$dir/go.mod"
+                MODULES+=("$ENCLOSING")
+                break
+              fi
+            done
+          fi
           if [[ ${#MODULES[@]} -eq 0 ]]; then
-            echo "::notice::No go.mod under $PWD; nothing to prefetch."
+            echo "::notice::No go.mod under $PWD, nor enclosing it; nothing to prefetch."
           fi
           for module in "${MODULES[@]}"; do
             dir="$(dirname "$module")"
             echo "::group::go mod download in $dir"
             if (cd "$dir" && go mod download); then
               echo "::endgroup::"
-            elif [[ "$dir" == "." ]]; then
+            elif [[ "$dir" == "." || "$module" == "$ENCLOSING" ]]; then
               # The module being analysed: nothing downstream can succeed.
               echo "::endgroup::"
-              echo "::error::Could not prefetch the module at $PWD."
+              echo "::error::Could not prefetch the module at $dir."
               exit 1
             else
               # A nested module may be unbuildable on purpose. If a target does
@@ -593,18 +635,39 @@ jobs:
               \( -name vendor -o -name testdata -o -name '.*' -o -name '_*' \) -prune \
               -o -name go.mod -print | sort
           )
+          # The working directory may sit INSIDE a module rooted above it: a
+          # repository whose go.mod is at the root and whose apps live under
+          # components/<app>, each a package of that one module. The targets
+          # about to run resolve that enclosing module whatever lies below the
+          # working directory, and once this step ends there is no credential
+          # left to fetch with. So when the working directory is not a module
+          # root itself, the nearest go.mod up to the workspace root is the
+          # module being analysed, prefetched beside anything nested, and a
+          # failure there is fatal like one at the working directory itself.
+          ENCLOSING=""
+          if [[ ! -f ./go.mod ]]; then
+            dir="$PWD"
+            while [[ "$dir" != "${GITHUB_WORKSPACE%/}" && "$dir" != "/" ]]; do
+              dir="$(dirname "$dir")"
+              if [[ -f "$dir/go.mod" ]]; then
+                ENCLOSING="$dir/go.mod"
+                MODULES+=("$ENCLOSING")
+                break
+              fi
+            done
+          fi
           if [[ ${#MODULES[@]} -eq 0 ]]; then
-            echo "::notice::No go.mod under $PWD; nothing to prefetch."
+            echo "::notice::No go.mod under $PWD, nor enclosing it; nothing to prefetch."
           fi
           for module in "${MODULES[@]}"; do
             dir="$(dirname "$module")"
             echo "::group::go mod download in $dir"
             if (cd "$dir" && go mod download); then
               echo "::endgroup::"
-            elif [[ "$dir" == "." ]]; then
+            elif [[ "$dir" == "." || "$module" == "$ENCLOSING" ]]; then
               # The module being analysed: nothing downstream can succeed.
               echo "::endgroup::"
-              echo "::error::Could not prefetch the module at $PWD."
+              echo "::error::Could not prefetch the module at $dir."
               exit 1
             else
               # A nested module may be unbuildable on purpose. If a target does
@@ -1120,18 +1183,39 @@ jobs:
               \( -name vendor -o -name testdata -o -name '.*' -o -name '_*' \) -prune \
               -o -name go.mod -print | sort
           )
+          # The working directory may sit INSIDE a module rooted above it: a
+          # repository whose go.mod is at the root and whose apps live under
+          # components/<app>, each a package of that one module. The targets
+          # about to run resolve that enclosing module whatever lies below the
+          # working directory, and once this step ends there is no credential
+          # left to fetch with. So when the working directory is not a module
+          # root itself, the nearest go.mod up to the workspace root is the
+          # module being analysed, prefetched beside anything nested, and a
+          # failure there is fatal like one at the working directory itself.
+          ENCLOSING=""
+          if [[ ! -f ./go.mod ]]; then
+            dir="$PWD"
+            while [[ "$dir" != "${GITHUB_WORKSPACE%/}" && "$dir" != "/" ]]; do
+              dir="$(dirname "$dir")"
+              if [[ -f "$dir/go.mod" ]]; then
+                ENCLOSING="$dir/go.mod"
+                MODULES+=("$ENCLOSING")
+                break
+              fi
+            done
+          fi
           if [[ ${#MODULES[@]} -eq 0 ]]; then
-            echo "::notice::No go.mod under $PWD; nothing to prefetch."
+            echo "::notice::No go.mod under $PWD, nor enclosing it; nothing to prefetch."
           fi
           for module in "${MODULES[@]}"; do
             dir="$(dirname "$module")"
             echo "::group::go mod download in $dir"
             if (cd "$dir" && go mod download); then
               echo "::endgroup::"
-            elif [[ "$dir" == "." ]]; then
+            elif [[ "$dir" == "." || "$module" == "$ENCLOSING" ]]; then
               # The module being analysed: nothing downstream can succeed.
               echo "::endgroup::"
-              echo "::error::Could not prefetch the module at $PWD."
+              echo "::error::Could not prefetch the module at $dir."
               exit 1
             else
               # A nested module may be unbuildable on purpose. If a target does
@@ -1248,18 +1332,39 @@ jobs:
               \( -name vendor -o -name testdata -o -name '.*' -o -name '_*' \) -prune \
               -o -name go.mod -print | sort
           )
+          # The working directory may sit INSIDE a module rooted above it: a
+          # repository whose go.mod is at the root and whose apps live under
+          # components/<app>, each a package of that one module. The targets
+          # about to run resolve that enclosing module whatever lies below the
+          # working directory, and once this step ends there is no credential
+          # left to fetch with. So when the working directory is not a module
+          # root itself, the nearest go.mod up to the workspace root is the
+          # module being analysed, prefetched beside anything nested, and a
+          # failure there is fatal like one at the working directory itself.
+          ENCLOSING=""
+          if [[ ! -f ./go.mod ]]; then
+            dir="$PWD"
+            while [[ "$dir" != "${GITHUB_WORKSPACE%/}" && "$dir" != "/" ]]; do
+              dir="$(dirname "$dir")"
+              if [[ -f "$dir/go.mod" ]]; then
+                ENCLOSING="$dir/go.mod"
+                MODULES+=("$ENCLOSING")
+                break
+              fi
+            done
+          fi
           if [[ ${#MODULES[@]} -eq 0 ]]; then
-            echo "::notice::No go.mod under $PWD; nothing to prefetch."
+            echo "::notice::No go.mod under $PWD, nor enclosing it; nothing to prefetch."
           fi
           for module in "${MODULES[@]}"; do
             dir="$(dirname "$module")"
             echo "::group::go mod download in $dir"
             if (cd "$dir" && go mod download); then
               echo "::endgroup::"
-            elif [[ "$dir" == "." ]]; then
+            elif [[ "$dir" == "." || "$module" == "$ENCLOSING" ]]; then
               # The module being analysed: nothing downstream can succeed.
               echo "::endgroup::"
-              echo "::error::Could not prefetch the module at $PWD."
+              echo "::error::Could not prefetch the module at $dir."
               exit 1
             else
               # A nested module may be unbuildable on purpose. If a target does
@@ -1405,18 +1510,39 @@ jobs:
               \( -name vendor -o -name testdata -o -name '.*' -o -name '_*' \) -prune \
               -o -name go.mod -print | sort
           )
+          # The working directory may sit INSIDE a module rooted above it: a
+          # repository whose go.mod is at the root and whose apps live under
+          # components/<app>, each a package of that one module. The targets
+          # about to run resolve that enclosing module whatever lies below the
+          # working directory, and once this step ends there is no credential
+          # left to fetch with. So when the working directory is not a module
+          # root itself, the nearest go.mod up to the workspace root is the
+          # module being analysed, prefetched beside anything nested, and a
+          # failure there is fatal like one at the working directory itself.
+          ENCLOSING=""
+          if [[ ! -f ./go.mod ]]; then
+            dir="$PWD"
+            while [[ "$dir" != "${GITHUB_WORKSPACE%/}" && "$dir" != "/" ]]; do
+              dir="$(dirname "$dir")"
+              if [[ -f "$dir/go.mod" ]]; then
+                ENCLOSING="$dir/go.mod"
+                MODULES+=("$ENCLOSING")
+                break
+              fi
+            done
+          fi
           if [[ ${#MODULES[@]} -eq 0 ]]; then
-            echo "::notice::No go.mod under $PWD; nothing to prefetch."
+            echo "::notice::No go.mod under $PWD, nor enclosing it; nothing to prefetch."
           fi
           for module in "${MODULES[@]}"; do
             dir="$(dirname "$module")"
             echo "::group::go mod download in $dir"
             if (cd "$dir" && go mod download); then
               echo "::endgroup::"
-            elif [[ "$dir" == "." ]]; then
+            elif [[ "$dir" == "." || "$module" == "$ENCLOSING" ]]; then
               # The module being analysed: nothing downstream can succeed.
               echo "::endgroup::"
-              echo "::error::Could not prefetch the module at $PWD."
+              echo "::error::Could not prefetch the module at $dir."
               exit 1
             else
               # A nested module may be unbuildable on purpose. If a target does
@@ -1536,18 +1662,39 @@ jobs:
               \( -name vendor -o -name testdata -o -name '.*' -o -name '_*' \) -prune \
               -o -name go.mod -print | sort
           )
+          # The working directory may sit INSIDE a module rooted above it: a
+          # repository whose go.mod is at the root and whose apps live under
+          # components/<app>, each a package of that one module. The targets
+          # about to run resolve that enclosing module whatever lies below the
+          # working directory, and once this step ends there is no credential
+          # left to fetch with. So when the working directory is not a module
+          # root itself, the nearest go.mod up to the workspace root is the
+          # module being analysed, prefetched beside anything nested, and a
+          # failure there is fatal like one at the working directory itself.
+          ENCLOSING=""
+          if [[ ! -f ./go.mod ]]; then
+            dir="$PWD"
+            while [[ "$dir" != "${GITHUB_WORKSPACE%/}" && "$dir" != "/" ]]; do
+              dir="$(dirname "$dir")"
+              if [[ -f "$dir/go.mod" ]]; then
+                ENCLOSING="$dir/go.mod"
+                MODULES+=("$ENCLOSING")
+                break
+              fi
+            done
+          fi
           if [[ ${#MODULES[@]} -eq 0 ]]; then
-            echo "::notice::No go.mod under $PWD; nothing to prefetch."
+            echo "::notice::No go.mod under $PWD, nor enclosing it; nothing to prefetch."
           fi
           for module in "${MODULES[@]}"; do
             dir="$(dirname "$module")"
             echo "::group::go mod download in $dir"
             if (cd "$dir" && go mod download); then
               echo "::endgroup::"
-            elif [[ "$dir" == "." ]]; then
+            elif [[ "$dir" == "." || "$module" == "$ENCLOSING" ]]; then
               # The module being analysed: nothing downstream can succeed.
               echo "::endgroup::"
-              echo "::error::Could not prefetch the module at $PWD."
+              echo "::error::Could not prefetch the module at $dir."
               exit 1
             else
               # A nested module may be unbuildable on purpose. If a target does
