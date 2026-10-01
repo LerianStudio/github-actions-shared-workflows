@@ -120,6 +120,7 @@ is the correct setting.
 | `enable_doc_gate` | boolean | `true` | Skip the release when a branch push touches only documentation/meta files. Callers that already gate upstream (`go-release.yml`, `js-release.yml`) pass `false` |
 | `ignore_globs` | string | `*.md docs/* .github/* LICENSE* .gitignore .coderabbit.yml .coderabbit.yaml` | Globs treated as docs/meta by the gate. Files under `.github/workflows/`, `.github/actions/` and `.github/scripts/` always count as code |
 | `semantic_version` | string | `23.0.8` | Semantic release version to use |
+| `changelog_release_branch` | string | `''` | Branch whose tags get a changelog. Empty derives it from the run: the branch that triggered the release, falling back to searching which branch contains the tag commit for tag-triggered runs. Set it only for layouts neither step can infer |
 | `runner_type` | string | `firmino-lxc-runners` | GitHub runner type |
 | `publish_runner_type` | string | `''` | Optional runner override for the Release (publish) jobs only; empty falls back to `vars.GENERAL_RUNNERS`, then `runner_type` |
 | `backmerge_enabled` | boolean | `true` | Backmerge the release branch into the target branch after a successful release |
