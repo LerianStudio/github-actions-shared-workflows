@@ -32,6 +32,7 @@ A third layout needs `release_single_app: true`: **one semantic-release tag for 
 | `enable_changelog` | Generate CHANGELOG.md via GPT after a successful release | boolean | `false` |
 | `enable_major_tag` | Force-update the floating major tag (e.g. `v1`) | boolean | `false` |
 | `stable_releases_only` | Only generate changelogs for stable releases | boolean | `true` |
+| `changelog_release_branch` | Branch whose tags get a changelog. Empty derives it from the run: the branch that triggered the release, falling back to searching which branch contains the tag commit for tag-triggered runs. Set it only for layouts neither step can infer | string | `''` |
 | `enable_release_announcement` | Announce the published release to the repository Slack channel (see [release-workflow](release.md#release-announcement)) | boolean | `true` |
 | `announcement_product_name` | Product name displayed in the announcement. Empty → repository name | string | `''` |
 | `announcement_slack_channel` | Slack channel for the announcement. Empty → `RELEASE_SLACK_CHANNEL` repository variable; skipped when both are empty | string | `''` |
