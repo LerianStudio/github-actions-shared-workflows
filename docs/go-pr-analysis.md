@@ -508,6 +508,15 @@ to download there is reported as a warning rather than failing the job — those
 directories hold fixtures, some broken on purpose — while a failure at the
 working directory's own module fails the step.
 
+When the working directory is not a module root itself, the prefetch also
+looks **up**, to the nearest `go.mod` between the working directory and the
+workspace root, and downloads that module beside anything nested below. A
+repository whose module is at the root and whose apps live under
+`components/<app>` — each a package of that one module, with `filter_paths`
+naming the app directories — is the shape this covers: the targets about to
+run resolve the enclosing module, and a failure to download it fails the step
+like a failure at the working directory itself.
+
 The practical consequence: a Makefile target that resolves a *new* private
 dependency on its own (`go get`, `go mod tidy` reaching the network) fails,
 because by then there is no credential. Declare dependencies in `go.mod` so the
