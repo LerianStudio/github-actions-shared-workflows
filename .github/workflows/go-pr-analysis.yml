@@ -243,81 +243,16 @@ jobs:
           go-version: ${{ inputs.go_version }}
           cache: true
 
-      # The credential is confined to this step: it is written to a git config
-      # file under RUNNER_TEMP, used only to populate the module cache, and
-      # removed before any code from the pull request runs. Every job here
-      # reaches the branch's Makefile sooner or later, and `make -n` is not the
-      # escape hatch it looks like: GNU make expands `$(shell ...)` while
-      # parsing, so a probe run alone is enough for the Makefile to read
-      # whatever the job still holds. MANAGE_TOKEN goes through env rather than
-      # being interpolated into the script text: an interpolated secret is not
-      # masked if the shell traces the command, and it is what CodeQL/zizmor
-      # flag as template-injection.
+      # Credential-confined prefetch: the token lives only inside the composite
+      # step, which deletes it before any code from the pull request runs. See
+      # src/setup/go-private-modules/README.md.
       - name: Fetch private Go modules
         if: inputs.go_private_modules != ''
-        working-directory: ${{ matrix.app.working_dir }}
-        run: |
-          set -euo pipefail
-          export GIT_CONFIG_GLOBAL="$RUNNER_TEMP/gitconfig-private-modules"
-          trap 'rm -f "$GIT_CONFIG_GLOBAL"' EXIT
-          git config --file "$GIT_CONFIG_GLOBAL" \
-            url."https://${MANAGE_TOKEN}@github.com/".insteadOf "https://github.com/"
-          # Every module at or below the working directory, not just a go.mod at
-          # its root: a Makefile target may drive nested modules or a workspace,
-          # and once this step ends there is no credential left to fetch with.
-          # The pruned directories are the ones the Go tool itself never walks,
-          # so nothing a target can build lives there — but fixtures do, and a
-          # deliberately broken one must not decide whether this job runs.
-          mapfile -t MODULES < <(
-            find . -mindepth 1 \
-              \( -name vendor -o -name testdata -o -name '.*' -o -name '_*' \) -prune \
-              -o -name go.mod -print | sort
-          )
-          # The working directory may sit INSIDE a module rooted above it: a
-          # repository whose go.mod is at the root and whose apps live under
-          # components/<app>, each a package of that one module. The targets
-          # about to run resolve that enclosing module whatever lies below the
-          # working directory, and once this step ends there is no credential
-          # left to fetch with. So when the working directory is not a module
-          # root itself, the nearest go.mod up to the workspace root is the
-          # module being analysed, prefetched beside anything nested, and a
-          # failure there is fatal like one at the working directory itself.
-          ENCLOSING=""
-          if [[ ! -f ./go.mod ]]; then
-            dir="$PWD"
-            while [[ "$dir" != "${GITHUB_WORKSPACE%/}" && "$dir" != "/" ]]; do
-              dir="$(dirname "$dir")"
-              if [[ -f "$dir/go.mod" ]]; then
-                ENCLOSING="$dir/go.mod"
-                MODULES+=("$ENCLOSING")
-                break
-              fi
-            done
-          fi
-          if [[ ${#MODULES[@]} -eq 0 ]]; then
-            echo "::notice::No go.mod under $PWD, nor enclosing it; nothing to prefetch."
-          fi
-          for module in "${MODULES[@]}"; do
-            dir="$(dirname "$module")"
-            echo "::group::go mod download in $dir"
-            if (cd "$dir" && go mod download); then
-              echo "::endgroup::"
-            elif [[ "$dir" == "." || "$module" == "$ENCLOSING" ]]; then
-              # The module being analysed: nothing downstream can succeed.
-              echo "::endgroup::"
-              echo "::error::Could not prefetch the module at $dir."
-              exit 1
-            else
-              # A nested module may be unbuildable on purpose. If a target does
-              # need it, that target fails with its own error, which says more
-              # than this step could.
-              echo "::endgroup::"
-              echo "::warning::Could not prefetch the nested module at $dir; continuing."
-            fi
-          done
-        env:
-          GOPRIVATE: ${{ inputs.go_private_modules }}
-          MANAGE_TOKEN: ${{ secrets.MANAGE_TOKEN }}
+        uses: LerianStudio/github-actions-shared-workflows/src/setup/go-private-modules@v1
+        with:
+          go-private-modules: ${{ inputs.go_private_modules }}
+          manage-token: ${{ secrets.MANAGE_TOKEN }}
+          working-dir: ${{ matrix.app.working_dir }}
 
       - name: Install golangci-lint
         env:
@@ -414,81 +349,16 @@ jobs:
           go-version: ${{ inputs.go_version }}
           cache: true
 
-      # The credential is confined to this step: it is written to a git config
-      # file under RUNNER_TEMP, used only to populate the module cache, and
-      # removed before any code from the pull request runs. Every job here
-      # reaches the branch's Makefile sooner or later, and `make -n` is not the
-      # escape hatch it looks like: GNU make expands `$(shell ...)` while
-      # parsing, so a probe run alone is enough for the Makefile to read
-      # whatever the job still holds. MANAGE_TOKEN goes through env rather than
-      # being interpolated into the script text: an interpolated secret is not
-      # masked if the shell traces the command, and it is what CodeQL/zizmor
-      # flag as template-injection.
+      # Credential-confined prefetch: the token lives only inside the composite
+      # step, which deletes it before any code from the pull request runs. See
+      # src/setup/go-private-modules/README.md.
       - name: Fetch private Go modules
         if: inputs.go_private_modules != ''
-        working-directory: ${{ matrix.app.working_dir }}
-        run: |
-          set -euo pipefail
-          export GIT_CONFIG_GLOBAL="$RUNNER_TEMP/gitconfig-private-modules"
-          trap 'rm -f "$GIT_CONFIG_GLOBAL"' EXIT
-          git config --file "$GIT_CONFIG_GLOBAL" \
-            url."https://${MANAGE_TOKEN}@github.com/".insteadOf "https://github.com/"
-          # Every module at or below the working directory, not just a go.mod at
-          # its root: a Makefile target may drive nested modules or a workspace,
-          # and once this step ends there is no credential left to fetch with.
-          # The pruned directories are the ones the Go tool itself never walks,
-          # so nothing a target can build lives there — but fixtures do, and a
-          # deliberately broken one must not decide whether this job runs.
-          mapfile -t MODULES < <(
-            find . -mindepth 1 \
-              \( -name vendor -o -name testdata -o -name '.*' -o -name '_*' \) -prune \
-              -o -name go.mod -print | sort
-          )
-          # The working directory may sit INSIDE a module rooted above it: a
-          # repository whose go.mod is at the root and whose apps live under
-          # components/<app>, each a package of that one module. The targets
-          # about to run resolve that enclosing module whatever lies below the
-          # working directory, and once this step ends there is no credential
-          # left to fetch with. So when the working directory is not a module
-          # root itself, the nearest go.mod up to the workspace root is the
-          # module being analysed, prefetched beside anything nested, and a
-          # failure there is fatal like one at the working directory itself.
-          ENCLOSING=""
-          if [[ ! -f ./go.mod ]]; then
-            dir="$PWD"
-            while [[ "$dir" != "${GITHUB_WORKSPACE%/}" && "$dir" != "/" ]]; do
-              dir="$(dirname "$dir")"
-              if [[ -f "$dir/go.mod" ]]; then
-                ENCLOSING="$dir/go.mod"
-                MODULES+=("$ENCLOSING")
-                break
-              fi
-            done
-          fi
-          if [[ ${#MODULES[@]} -eq 0 ]]; then
-            echo "::notice::No go.mod under $PWD, nor enclosing it; nothing to prefetch."
-          fi
-          for module in "${MODULES[@]}"; do
-            dir="$(dirname "$module")"
-            echo "::group::go mod download in $dir"
-            if (cd "$dir" && go mod download); then
-              echo "::endgroup::"
-            elif [[ "$dir" == "." || "$module" == "$ENCLOSING" ]]; then
-              # The module being analysed: nothing downstream can succeed.
-              echo "::endgroup::"
-              echo "::error::Could not prefetch the module at $dir."
-              exit 1
-            else
-              # A nested module may be unbuildable on purpose. If a target does
-              # need it, that target fails with its own error, which says more
-              # than this step could.
-              echo "::endgroup::"
-              echo "::warning::Could not prefetch the nested module at $dir; continuing."
-            fi
-          done
-        env:
-          GOPRIVATE: ${{ inputs.go_private_modules }}
-          MANAGE_TOKEN: ${{ secrets.MANAGE_TOKEN }}
+        uses: LerianStudio/github-actions-shared-workflows/src/setup/go-private-modules@v1
+        with:
+          go-private-modules: ${{ inputs.go_private_modules }}
+          manage-token: ${{ secrets.MANAGE_TOKEN }}
+          working-dir: ${{ matrix.app.working_dir }}
 
       - name: Detect Makefile sec target
         id: detect-make
@@ -605,81 +475,16 @@ jobs:
           go-version: ${{ inputs.go_version }}
           cache: true
 
-      # The credential is confined to this step: it is written to a git config
-      # file under RUNNER_TEMP, used only to populate the module cache, and
-      # removed before any code from the pull request runs. Every job here
-      # reaches the branch's Makefile sooner or later, and `make -n` is not the
-      # escape hatch it looks like: GNU make expands `$(shell ...)` while
-      # parsing, so a probe run alone is enough for the Makefile to read
-      # whatever the job still holds. MANAGE_TOKEN goes through env rather than
-      # being interpolated into the script text: an interpolated secret is not
-      # masked if the shell traces the command, and it is what CodeQL/zizmor
-      # flag as template-injection.
+      # Credential-confined prefetch: the token lives only inside the composite
+      # step, which deletes it before any code from the pull request runs. See
+      # src/setup/go-private-modules/README.md.
       - name: Fetch private Go modules
         if: inputs.go_private_modules != ''
-        working-directory: ${{ matrix.app.working_dir }}
-        run: |
-          set -euo pipefail
-          export GIT_CONFIG_GLOBAL="$RUNNER_TEMP/gitconfig-private-modules"
-          trap 'rm -f "$GIT_CONFIG_GLOBAL"' EXIT
-          git config --file "$GIT_CONFIG_GLOBAL" \
-            url."https://${MANAGE_TOKEN}@github.com/".insteadOf "https://github.com/"
-          # Every module at or below the working directory, not just a go.mod at
-          # its root: a Makefile target may drive nested modules or a workspace,
-          # and once this step ends there is no credential left to fetch with.
-          # The pruned directories are the ones the Go tool itself never walks,
-          # so nothing a target can build lives there — but fixtures do, and a
-          # deliberately broken one must not decide whether this job runs.
-          mapfile -t MODULES < <(
-            find . -mindepth 1 \
-              \( -name vendor -o -name testdata -o -name '.*' -o -name '_*' \) -prune \
-              -o -name go.mod -print | sort
-          )
-          # The working directory may sit INSIDE a module rooted above it: a
-          # repository whose go.mod is at the root and whose apps live under
-          # components/<app>, each a package of that one module. The targets
-          # about to run resolve that enclosing module whatever lies below the
-          # working directory, and once this step ends there is no credential
-          # left to fetch with. So when the working directory is not a module
-          # root itself, the nearest go.mod up to the workspace root is the
-          # module being analysed, prefetched beside anything nested, and a
-          # failure there is fatal like one at the working directory itself.
-          ENCLOSING=""
-          if [[ ! -f ./go.mod ]]; then
-            dir="$PWD"
-            while [[ "$dir" != "${GITHUB_WORKSPACE%/}" && "$dir" != "/" ]]; do
-              dir="$(dirname "$dir")"
-              if [[ -f "$dir/go.mod" ]]; then
-                ENCLOSING="$dir/go.mod"
-                MODULES+=("$ENCLOSING")
-                break
-              fi
-            done
-          fi
-          if [[ ${#MODULES[@]} -eq 0 ]]; then
-            echo "::notice::No go.mod under $PWD, nor enclosing it; nothing to prefetch."
-          fi
-          for module in "${MODULES[@]}"; do
-            dir="$(dirname "$module")"
-            echo "::group::go mod download in $dir"
-            if (cd "$dir" && go mod download); then
-              echo "::endgroup::"
-            elif [[ "$dir" == "." || "$module" == "$ENCLOSING" ]]; then
-              # The module being analysed: nothing downstream can succeed.
-              echo "::endgroup::"
-              echo "::error::Could not prefetch the module at $dir."
-              exit 1
-            else
-              # A nested module may be unbuildable on purpose. If a target does
-              # need it, that target fails with its own error, which says more
-              # than this step could.
-              echo "::endgroup::"
-              echo "::warning::Could not prefetch the nested module at $dir; continuing."
-            fi
-          done
-        env:
-          GOPRIVATE: ${{ inputs.go_private_modules }}
-          MANAGE_TOKEN: ${{ secrets.MANAGE_TOKEN }}
+        uses: LerianStudio/github-actions-shared-workflows/src/setup/go-private-modules@v1
+        with:
+          go-private-modules: ${{ inputs.go_private_modules }}
+          manage-token: ${{ secrets.MANAGE_TOKEN }}
+          working-dir: ${{ matrix.app.working_dir }}
 
       - name: Detect Makefile test target
         id: detect-make
@@ -1153,81 +958,16 @@ jobs:
           go-version: ${{ inputs.go_version }}
           cache: true
 
-      # The credential is confined to this step: it is written to a git config
-      # file under RUNNER_TEMP, used only to populate the module cache, and
-      # removed before any code from the pull request runs. Every job here
-      # reaches the branch's Makefile sooner or later, and `make -n` is not the
-      # escape hatch it looks like: GNU make expands `$(shell ...)` while
-      # parsing, so a probe run alone is enough for the Makefile to read
-      # whatever the job still holds. MANAGE_TOKEN goes through env rather than
-      # being interpolated into the script text: an interpolated secret is not
-      # masked if the shell traces the command, and it is what CodeQL/zizmor
-      # flag as template-injection.
+      # Credential-confined prefetch: the token lives only inside the composite
+      # step, which deletes it before any code from the pull request runs. See
+      # src/setup/go-private-modules/README.md.
       - name: Fetch private Go modules
         if: inputs.go_private_modules != ''
-        working-directory: ${{ matrix.app.working_dir }}
-        run: |
-          set -euo pipefail
-          export GIT_CONFIG_GLOBAL="$RUNNER_TEMP/gitconfig-private-modules"
-          trap 'rm -f "$GIT_CONFIG_GLOBAL"' EXIT
-          git config --file "$GIT_CONFIG_GLOBAL" \
-            url."https://${MANAGE_TOKEN}@github.com/".insteadOf "https://github.com/"
-          # Every module at or below the working directory, not just a go.mod at
-          # its root: a Makefile target may drive nested modules or a workspace,
-          # and once this step ends there is no credential left to fetch with.
-          # The pruned directories are the ones the Go tool itself never walks,
-          # so nothing a target can build lives there — but fixtures do, and a
-          # deliberately broken one must not decide whether this job runs.
-          mapfile -t MODULES < <(
-            find . -mindepth 1 \
-              \( -name vendor -o -name testdata -o -name '.*' -o -name '_*' \) -prune \
-              -o -name go.mod -print | sort
-          )
-          # The working directory may sit INSIDE a module rooted above it: a
-          # repository whose go.mod is at the root and whose apps live under
-          # components/<app>, each a package of that one module. The targets
-          # about to run resolve that enclosing module whatever lies below the
-          # working directory, and once this step ends there is no credential
-          # left to fetch with. So when the working directory is not a module
-          # root itself, the nearest go.mod up to the workspace root is the
-          # module being analysed, prefetched beside anything nested, and a
-          # failure there is fatal like one at the working directory itself.
-          ENCLOSING=""
-          if [[ ! -f ./go.mod ]]; then
-            dir="$PWD"
-            while [[ "$dir" != "${GITHUB_WORKSPACE%/}" && "$dir" != "/" ]]; do
-              dir="$(dirname "$dir")"
-              if [[ -f "$dir/go.mod" ]]; then
-                ENCLOSING="$dir/go.mod"
-                MODULES+=("$ENCLOSING")
-                break
-              fi
-            done
-          fi
-          if [[ ${#MODULES[@]} -eq 0 ]]; then
-            echo "::notice::No go.mod under $PWD, nor enclosing it; nothing to prefetch."
-          fi
-          for module in "${MODULES[@]}"; do
-            dir="$(dirname "$module")"
-            echo "::group::go mod download in $dir"
-            if (cd "$dir" && go mod download); then
-              echo "::endgroup::"
-            elif [[ "$dir" == "." || "$module" == "$ENCLOSING" ]]; then
-              # The module being analysed: nothing downstream can succeed.
-              echo "::endgroup::"
-              echo "::error::Could not prefetch the module at $dir."
-              exit 1
-            else
-              # A nested module may be unbuildable on purpose. If a target does
-              # need it, that target fails with its own error, which says more
-              # than this step could.
-              echo "::endgroup::"
-              echo "::warning::Could not prefetch the nested module at $dir; continuing."
-            fi
-          done
-        env:
-          GOPRIVATE: ${{ inputs.go_private_modules }}
-          MANAGE_TOKEN: ${{ secrets.MANAGE_TOKEN }}
+        uses: LerianStudio/github-actions-shared-workflows/src/setup/go-private-modules@v1
+        with:
+          go-private-modules: ${{ inputs.go_private_modules }}
+          manage-token: ${{ secrets.MANAGE_TOKEN }}
+          working-dir: ${{ matrix.app.working_dir }}
 
       - name: Detect Makefile build target
         id: detect-make
@@ -1302,81 +1042,16 @@ jobs:
           go-version: ${{ inputs.go_version }}
           cache: true
 
-      # The credential is confined to this step: it is written to a git config
-      # file under RUNNER_TEMP, used only to populate the module cache, and
-      # removed before any code from the pull request runs. Every job here
-      # reaches the branch's Makefile sooner or later, and `make -n` is not the
-      # escape hatch it looks like: GNU make expands `$(shell ...)` while
-      # parsing, so a probe run alone is enough for the Makefile to read
-      # whatever the job still holds. MANAGE_TOKEN goes through env rather than
-      # being interpolated into the script text: an interpolated secret is not
-      # masked if the shell traces the command, and it is what CodeQL/zizmor
-      # flag as template-injection.
+      # Credential-confined prefetch: the token lives only inside the composite
+      # step, which deletes it before any code from the pull request runs. See
+      # src/setup/go-private-modules/README.md.
       - name: Fetch private Go modules
         if: inputs.go_private_modules != ''
-        working-directory: ${{ matrix.app.working_dir }}
-        run: |
-          set -euo pipefail
-          export GIT_CONFIG_GLOBAL="$RUNNER_TEMP/gitconfig-private-modules"
-          trap 'rm -f "$GIT_CONFIG_GLOBAL"' EXIT
-          git config --file "$GIT_CONFIG_GLOBAL" \
-            url."https://${MANAGE_TOKEN}@github.com/".insteadOf "https://github.com/"
-          # Every module at or below the working directory, not just a go.mod at
-          # its root: a Makefile target may drive nested modules or a workspace,
-          # and once this step ends there is no credential left to fetch with.
-          # The pruned directories are the ones the Go tool itself never walks,
-          # so nothing a target can build lives there — but fixtures do, and a
-          # deliberately broken one must not decide whether this job runs.
-          mapfile -t MODULES < <(
-            find . -mindepth 1 \
-              \( -name vendor -o -name testdata -o -name '.*' -o -name '_*' \) -prune \
-              -o -name go.mod -print | sort
-          )
-          # The working directory may sit INSIDE a module rooted above it: a
-          # repository whose go.mod is at the root and whose apps live under
-          # components/<app>, each a package of that one module. The targets
-          # about to run resolve that enclosing module whatever lies below the
-          # working directory, and once this step ends there is no credential
-          # left to fetch with. So when the working directory is not a module
-          # root itself, the nearest go.mod up to the workspace root is the
-          # module being analysed, prefetched beside anything nested, and a
-          # failure there is fatal like one at the working directory itself.
-          ENCLOSING=""
-          if [[ ! -f ./go.mod ]]; then
-            dir="$PWD"
-            while [[ "$dir" != "${GITHUB_WORKSPACE%/}" && "$dir" != "/" ]]; do
-              dir="$(dirname "$dir")"
-              if [[ -f "$dir/go.mod" ]]; then
-                ENCLOSING="$dir/go.mod"
-                MODULES+=("$ENCLOSING")
-                break
-              fi
-            done
-          fi
-          if [[ ${#MODULES[@]} -eq 0 ]]; then
-            echo "::notice::No go.mod under $PWD, nor enclosing it; nothing to prefetch."
-          fi
-          for module in "${MODULES[@]}"; do
-            dir="$(dirname "$module")"
-            echo "::group::go mod download in $dir"
-            if (cd "$dir" && go mod download); then
-              echo "::endgroup::"
-            elif [[ "$dir" == "." || "$module" == "$ENCLOSING" ]]; then
-              # The module being analysed: nothing downstream can succeed.
-              echo "::endgroup::"
-              echo "::error::Could not prefetch the module at $dir."
-              exit 1
-            else
-              # A nested module may be unbuildable on purpose. If a target does
-              # need it, that target fails with its own error, which says more
-              # than this step could.
-              echo "::endgroup::"
-              echo "::warning::Could not prefetch the nested module at $dir; continuing."
-            fi
-          done
-        env:
-          GOPRIVATE: ${{ inputs.go_private_modules }}
-          MANAGE_TOKEN: ${{ secrets.MANAGE_TOKEN }}
+        uses: LerianStudio/github-actions-shared-workflows/src/setup/go-private-modules@v1
+        with:
+          go-private-modules: ${{ inputs.go_private_modules }}
+          manage-token: ${{ secrets.MANAGE_TOKEN }}
+          working-dir: ${{ matrix.app.working_dir }}
 
       # ----------------- Service Container & Test Environment -----------------
       - name: Parse integration configuration
@@ -1480,81 +1155,16 @@ jobs:
           go-version: ${{ inputs.go_version }}
           cache: true
 
-      # The credential is confined to this step: it is written to a git config
-      # file under RUNNER_TEMP, used only to populate the module cache, and
-      # removed before any code from the pull request runs. Every job here
-      # reaches the branch's Makefile sooner or later, and `make -n` is not the
-      # escape hatch it looks like: GNU make expands `$(shell ...)` while
-      # parsing, so a probe run alone is enough for the Makefile to read
-      # whatever the job still holds. MANAGE_TOKEN goes through env rather than
-      # being interpolated into the script text: an interpolated secret is not
-      # masked if the shell traces the command, and it is what CodeQL/zizmor
-      # flag as template-injection.
+      # Credential-confined prefetch: the token lives only inside the composite
+      # step, which deletes it before any code from the pull request runs. See
+      # src/setup/go-private-modules/README.md.
       - name: Fetch private Go modules
         if: inputs.go_private_modules != ''
-        working-directory: ${{ matrix.app.working_dir }}
-        run: |
-          set -euo pipefail
-          export GIT_CONFIG_GLOBAL="$RUNNER_TEMP/gitconfig-private-modules"
-          trap 'rm -f "$GIT_CONFIG_GLOBAL"' EXIT
-          git config --file "$GIT_CONFIG_GLOBAL" \
-            url."https://${MANAGE_TOKEN}@github.com/".insteadOf "https://github.com/"
-          # Every module at or below the working directory, not just a go.mod at
-          # its root: a Makefile target may drive nested modules or a workspace,
-          # and once this step ends there is no credential left to fetch with.
-          # The pruned directories are the ones the Go tool itself never walks,
-          # so nothing a target can build lives there — but fixtures do, and a
-          # deliberately broken one must not decide whether this job runs.
-          mapfile -t MODULES < <(
-            find . -mindepth 1 \
-              \( -name vendor -o -name testdata -o -name '.*' -o -name '_*' \) -prune \
-              -o -name go.mod -print | sort
-          )
-          # The working directory may sit INSIDE a module rooted above it: a
-          # repository whose go.mod is at the root and whose apps live under
-          # components/<app>, each a package of that one module. The targets
-          # about to run resolve that enclosing module whatever lies below the
-          # working directory, and once this step ends there is no credential
-          # left to fetch with. So when the working directory is not a module
-          # root itself, the nearest go.mod up to the workspace root is the
-          # module being analysed, prefetched beside anything nested, and a
-          # failure there is fatal like one at the working directory itself.
-          ENCLOSING=""
-          if [[ ! -f ./go.mod ]]; then
-            dir="$PWD"
-            while [[ "$dir" != "${GITHUB_WORKSPACE%/}" && "$dir" != "/" ]]; do
-              dir="$(dirname "$dir")"
-              if [[ -f "$dir/go.mod" ]]; then
-                ENCLOSING="$dir/go.mod"
-                MODULES+=("$ENCLOSING")
-                break
-              fi
-            done
-          fi
-          if [[ ${#MODULES[@]} -eq 0 ]]; then
-            echo "::notice::No go.mod under $PWD, nor enclosing it; nothing to prefetch."
-          fi
-          for module in "${MODULES[@]}"; do
-            dir="$(dirname "$module")"
-            echo "::group::go mod download in $dir"
-            if (cd "$dir" && go mod download); then
-              echo "::endgroup::"
-            elif [[ "$dir" == "." || "$module" == "$ENCLOSING" ]]; then
-              # The module being analysed: nothing downstream can succeed.
-              echo "::endgroup::"
-              echo "::error::Could not prefetch the module at $dir."
-              exit 1
-            else
-              # A nested module may be unbuildable on purpose. If a target does
-              # need it, that target fails with its own error, which says more
-              # than this step could.
-              echo "::endgroup::"
-              echo "::warning::Could not prefetch the nested module at $dir; continuing."
-            fi
-          done
-        env:
-          GOPRIVATE: ${{ inputs.go_private_modules }}
-          MANAGE_TOKEN: ${{ secrets.MANAGE_TOKEN }}
+        uses: LerianStudio/github-actions-shared-workflows/src/setup/go-private-modules@v1
+        with:
+          go-private-modules: ${{ inputs.go_private_modules }}
+          manage-token: ${{ secrets.MANAGE_TOKEN }}
+          working-dir: ${{ matrix.app.working_dir }}
 
       # Every target runs even if an earlier one fails, so one PR surfaces every
       # broken guard instead of only the first. CUSTOM_CHECKS is passed via env
@@ -1632,81 +1242,16 @@ jobs:
           go-version: ${{ inputs.go_version }}
           cache: true
 
-      # The credential is confined to this step: it is written to a git config
-      # file under RUNNER_TEMP, used only to populate the module cache, and
-      # removed before any code from the pull request runs. Every job here
-      # reaches the branch's Makefile sooner or later, and `make -n` is not the
-      # escape hatch it looks like: GNU make expands `$(shell ...)` while
-      # parsing, so a probe run alone is enough for the Makefile to read
-      # whatever the job still holds. MANAGE_TOKEN goes through env rather than
-      # being interpolated into the script text: an interpolated secret is not
-      # masked if the shell traces the command, and it is what CodeQL/zizmor
-      # flag as template-injection.
+      # Credential-confined prefetch: the token lives only inside the composite
+      # step, which deletes it before any code from the pull request runs. See
+      # src/setup/go-private-modules/README.md.
       - name: Fetch private Go modules
         if: inputs.go_private_modules != ''
-        working-directory: ${{ matrix.app.working_dir }}
-        run: |
-          set -euo pipefail
-          export GIT_CONFIG_GLOBAL="$RUNNER_TEMP/gitconfig-private-modules"
-          trap 'rm -f "$GIT_CONFIG_GLOBAL"' EXIT
-          git config --file "$GIT_CONFIG_GLOBAL" \
-            url."https://${MANAGE_TOKEN}@github.com/".insteadOf "https://github.com/"
-          # Every module at or below the working directory, not just a go.mod at
-          # its root: a Makefile target may drive nested modules or a workspace,
-          # and once this step ends there is no credential left to fetch with.
-          # The pruned directories are the ones the Go tool itself never walks,
-          # so nothing a target can build lives there — but fixtures do, and a
-          # deliberately broken one must not decide whether this job runs.
-          mapfile -t MODULES < <(
-            find . -mindepth 1 \
-              \( -name vendor -o -name testdata -o -name '.*' -o -name '_*' \) -prune \
-              -o -name go.mod -print | sort
-          )
-          # The working directory may sit INSIDE a module rooted above it: a
-          # repository whose go.mod is at the root and whose apps live under
-          # components/<app>, each a package of that one module. The targets
-          # about to run resolve that enclosing module whatever lies below the
-          # working directory, and once this step ends there is no credential
-          # left to fetch with. So when the working directory is not a module
-          # root itself, the nearest go.mod up to the workspace root is the
-          # module being analysed, prefetched beside anything nested, and a
-          # failure there is fatal like one at the working directory itself.
-          ENCLOSING=""
-          if [[ ! -f ./go.mod ]]; then
-            dir="$PWD"
-            while [[ "$dir" != "${GITHUB_WORKSPACE%/}" && "$dir" != "/" ]]; do
-              dir="$(dirname "$dir")"
-              if [[ -f "$dir/go.mod" ]]; then
-                ENCLOSING="$dir/go.mod"
-                MODULES+=("$ENCLOSING")
-                break
-              fi
-            done
-          fi
-          if [[ ${#MODULES[@]} -eq 0 ]]; then
-            echo "::notice::No go.mod under $PWD, nor enclosing it; nothing to prefetch."
-          fi
-          for module in "${MODULES[@]}"; do
-            dir="$(dirname "$module")"
-            echo "::group::go mod download in $dir"
-            if (cd "$dir" && go mod download); then
-              echo "::endgroup::"
-            elif [[ "$dir" == "." || "$module" == "$ENCLOSING" ]]; then
-              # The module being analysed: nothing downstream can succeed.
-              echo "::endgroup::"
-              echo "::error::Could not prefetch the module at $dir."
-              exit 1
-            else
-              # A nested module may be unbuildable on purpose. If a target does
-              # need it, that target fails with its own error, which says more
-              # than this step could.
-              echo "::endgroup::"
-              echo "::warning::Could not prefetch the nested module at $dir; continuing."
-            fi
-          done
-        env:
-          GOPRIVATE: ${{ inputs.go_private_modules }}
-          MANAGE_TOKEN: ${{ secrets.MANAGE_TOKEN }}
+        uses: LerianStudio/github-actions-shared-workflows/src/setup/go-private-modules@v1
+        with:
+          go-private-modules: ${{ inputs.go_private_modules }}
+          manage-token: ${{ secrets.MANAGE_TOKEN }}
+          working-dir: ${{ matrix.app.working_dir }}
 
       - name: Run tests ${{ inputs.test_determinism_runs }} times
         working-directory: ${{ matrix.app.working_dir }}
