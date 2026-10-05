@@ -9,7 +9,7 @@ Fails the build when one workflow in this repository calls another and does not 
 
 ## Why it exists
 
-`secrets: inherit` hands the called workflow **every secret the caller repository holds**, and the called workflow passes that same bundle down to anything it calls in turn. For a chain like `go-pr-validation` → `pr-security-scan`, the credentials reaching the scan are everything the consuming repository owns, not the five secrets the scan uses. That is CWE-732, and it is why the umbrellas forward by name.
+`secrets: inherit` hands the called workflow **every secret the caller repository holds** — not the subset it declares, and not the subset it uses. Forwarding is per call, so the bundle only travels further if the next call inherits too; in practice it did, at every hop. For a chain like `go-pr-validation` → `pr-security-scan`, each link inherited, so the credentials reaching the scan were everything the consuming repository owns rather than the five secrets the scan uses. That is CWE-732, and it is why the umbrellas now forward by name — which also stops the bundle at the first hop.
 
 The failure mode on the other side is quieter and is the real reason this check is automated. A secret that is declared but not forwarded resolves to the **empty string** — no error, no warning. The job runs, the step that needed it takes its "credential absent" branch, and the pipeline stays green while the feature it guards does nothing. This check found exactly that in `release.yml`, which declared a Discord webhook path and never forwarded `DISCORD_WEBHOOK_URL` to `release-notification`.
 
@@ -28,6 +28,12 @@ A callee that declares **no** secrets is skipped entirely: it depends on inherit
 - name: Workflow Secrets Contract
   uses: LerianStudio/github-actions-shared-workflows/src/lint/workflow-secrets-contract@v1
 ```
+
+## How it reads a workflow
+
+`check.py` parses each file with `yaml.compose()` and walks the job mappings, rather than scanning lines. Three shapes are the reason: a trailing comment after `uses:`, a `secrets:` key written *before* `uses:` (YAML mappings are unordered), and a job with no `secrets:` key at all — the quietest violation of the three, and the one a line scanner is most likely to walk straight past. `test.py` covers each of them, plus the accepted shapes, so a regression in the parser fails a test instead of silently narrowing what the lint sees.
+
+Run the tests with `python3 src/lint/workflow-secrets-contract/test.py`; CI runs them on every self-PR.
 
 ## Inputs
 
