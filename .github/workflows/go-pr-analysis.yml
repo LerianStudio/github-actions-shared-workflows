@@ -170,6 +170,13 @@ on:
         type: string
         required: false
         default: ''
+    secrets:
+      MANAGE_TOKEN:
+        description: Token for private module access and PR operations. Falls back to GITHUB_TOKEN where a job can work without it.
+        required: false
+      SLACK_WEBHOOK_URL:
+        description: Slack webhook for pipeline notifications. Absent disables the notification, it does not fail the job.
+        required: false
 
 # Floor for every job: reading the code is all most of them need. Jobs that run
 # code from the pull request get nothing else, so a caller can keep granting the
