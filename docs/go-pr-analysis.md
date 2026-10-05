@@ -486,9 +486,10 @@ longer keeps the module credential — see below.
 ## Private Go modules
 
 When `go_private_modules` is set, `MANAGE_TOKEN` authenticates the module
-fetch. The credential is never written to the runner's global git
-configuration: it goes into a file under `$RUNNER_TEMP` that `GIT_CONFIG_GLOBAL`
-points at.
+fetch. Every job delegates it to the same composite action,
+[`go-private-modules`](../src/setup/go-private-modules/README.md). The
+credential is never written to the runner's global git configuration: it goes
+into a file under `$RUNNER_TEMP` that `GIT_CONFIG_GLOBAL` points at.
 
 Every job treats it the same way: the file is created, used to `go mod download`
 each module at or below the working directory, and deleted at the end of that
@@ -516,6 +517,18 @@ repository whose module is at the root and whose apps live under
 naming the app directories — is the shape this covers: the targets about to
 run resolve the enclosing module, and a failure to download it fails the step
 like a failure at the working directory itself.
+
+That reach upwards has a cost worth knowing about before you read the job
+durations. In the one-module-at-the-root layout, `go mod download` on the
+enclosing module pulls the dependencies of the **whole repository**, not only
+those of the app named by `filter_paths`. It is unavoidable — that module is
+what the targets resolve, and once the step ends there is no credential left to
+fetch with — and it is the right trade, but the prefetch there is noticeably
+slower than in the module-per-app layout, where each app's `go.mod` bounds what
+gets downloaded. Jobs do not share that cost within a run — each runs on its own
+runner, and `actions/setup-go` only saves its cache once a job ends — so on a
+cold cache every job of the run pays it, in parallel. Later runs restore the
+saved cache and the prefetch is cheap.
 
 The practical consequence: a Makefile target that resolves a *new* private
 dependency on its own (`go get`, `go mod tidy` reaching the network) fails,
