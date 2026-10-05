@@ -188,6 +188,32 @@ class WorkflowSecretsContractTests(unittest.TestCase):
         self.assertEqual(result.returncode, 1)
         self.assertIn("must be forwarded by name", result.stdout)
 
+    def test_the_dollar_prefix_form_is_still_matched(self):
+        """`$/` is GitHub's recommended same-repository form on github.com."""
+        result = self.run_check("""\
+            name: Caller
+            on: [push]
+            jobs:
+              call:
+                uses: $/.github/workflows/callee.yml
+                secrets: inherit
+            """)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("must be forwarded by name", result.stdout)
+
+    def test_a_full_forward_with_the_dollar_prefix_passes(self):
+        result = self.run_check("""\
+            name: Caller
+            on: [push]
+            jobs:
+              call:
+                uses: $/.github/workflows/callee.yml
+                secrets:
+                  MANAGE_TOKEN: ${{ secrets.MANAGE_TOKEN }}
+                  SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+            """)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
     def test_a_later_job_does_not_mask_an_earlier_violation(self):
         result = self.run_check("""\
             name: Caller

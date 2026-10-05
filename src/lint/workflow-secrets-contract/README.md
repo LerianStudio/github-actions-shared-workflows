@@ -33,6 +33,8 @@ A callee that declares **no** secrets is skipped entirely: it depends on inherit
 
 `check.py` parses each file with `yaml.compose()` and walks the job mappings, rather than scanning lines. Three shapes are the reason: a trailing comment after `uses:`, a `secrets:` key written *before* `uses:` (YAML mappings are unordered), and a job with no `secrets:` key at all — the quietest violation of the three, and the one a line scanner is most likely to walk straight past. `test.py` covers each of them, plus the accepted shapes, so a regression in the parser fails a test instead of silently narrowing what the lint sees.
 
+Both documented local-call prefixes are recognised: `./.github/workflows/…` and `$/.github/workflows/…`, the latter being GitHub's recommended same-repository form on github.com (it takes no `@ref`, and is unavailable on GitHub Enterprise Server). A call this pattern fails to recognise is a call the lint skips in silence, so the match is deliberately kept independent of `workflows-dir`, which only resolves paths on disk.
+
 Run the tests with `python3 src/lint/workflow-secrets-contract/test.py`; CI runs them on every self-PR.
 
 ## Inputs
