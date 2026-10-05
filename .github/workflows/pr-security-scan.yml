@@ -156,6 +156,22 @@ on:
         type: string
         required: false
         default: ''
+    secrets:
+      MANAGE_TOKEN:
+        description: Token for private module access and PR operations. Falls back to GITHUB_TOKEN where a job can work without it.
+        required: false
+      SLACK_WEBHOOK_URL:
+        description: Slack webhook for pipeline notifications. Absent disables the notification, it does not fail the job.
+        required: false
+      DOCKER_USERNAME:
+        description: Docker Hub user for authenticated image pulls, which raises the anonymous rate limit.
+        required: false
+      DOCKERHUB_IMAGE_PULL_TOKEN:
+        description: Docker Hub token paired with DOCKER_USERNAME.
+        required: false
+      NPMRC_TOKEN:
+        description: Token written into .npmrc so the image build can reach the GitHub npm registry.
+        required: false
 
 permissions:
   actions: read         # Required for CodeQL status reporting
