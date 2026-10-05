@@ -525,8 +525,10 @@ those of the app named by `filter_paths`. It is unavoidable — that module is
 what the targets resolve, and once the step ends there is no credential left to
 fetch with — and it is the right trade, but the prefetch there is noticeably
 slower than in the module-per-app layout, where each app's `go.mod` bounds what
-gets downloaded. The module cache absorbs the difference across jobs; the first
-job of a run pays it.
+gets downloaded. Jobs do not share that cost within a run — each runs on its own
+runner, and `actions/setup-go` only saves its cache once a job ends — so on a
+cold cache every job of the run pays it, in parallel. Later runs restore the
+saved cache and the prefetch is cheap.
 
 The practical consequence: a Makefile target that resolves a *new* private
 dependency on its own (`go get`, `go mod tidy` reaching the network) fails,
