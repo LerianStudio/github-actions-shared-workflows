@@ -1,5 +1,21 @@
 # Github-actions-shared-workflows Changelog
 
+## [1.80.0](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.80.0)
+
+Fixes:
+- Merge changes from the `develop` branch to the `main` branch. (@bedatty)
+
+Improvements:
+- Extract the private-module prefetch into a composite within the Go PR analysis workflow. (@bedatty)
+- Correct the module-cache claim in the prefetch-cost note within the Go PR analysis documentation. (@bedatty)
+- Update the `codeql-action` in the security composites to `v4.38.2`. (@bedatty)
+- Bump `fgrosse/go-coverage-report` from `1.3.1` to `1.5.0` in the Go tooling group. (@bedatty)
+- Update the GitHub security group with four updates across one directory. (@bedatty)
+
+[Compare changes](https://github.com/LerianStudio/github-actions-shared-workflows/compare/v1.79.0...v1.80.0)
+
+---
+
 ## [1.79.0](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.79.0)
 
 Fixes:
