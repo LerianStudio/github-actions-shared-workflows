@@ -288,6 +288,16 @@ jobs:
         with:
           persist-credentials: false
 
+      # test.py shells out to check.py, which imports yaml. Without this the
+      # job depends on the runner image happening to ship PyYAML — and the
+      # failure would be misleading: the cases asserting exit 1 would still
+      # pass, since an ImportError exits 1 too.
+      - name: Install dependencies
+        run: |
+          if ! python3 -c "import yaml" 2>/dev/null; then
+            sudo apt-get install -y --no-install-recommends python3-yaml
+          fi
+
       - name: Run workflow-secrets-contract tests
         run: python3 src/lint/workflow-secrets-contract/test.py
 

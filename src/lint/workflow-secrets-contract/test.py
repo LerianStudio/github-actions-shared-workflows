@@ -45,13 +45,15 @@ jobs:
 
 
 class WorkflowSecretsContractTests(unittest.TestCase):
-    def run_check(self, caller, callee=CALLEE_WITH_CONTRACT):
+    def run_check(self, caller, callee=CALLEE_WITH_CONTRACT,
+                  callee_name="callee.yml", absolute_dir=False):
         with tempfile.TemporaryDirectory() as tmp:
             workflows = Path(tmp) / ".github" / "workflows"
             workflows.mkdir(parents=True)
-            (workflows / "callee.yml").write_text(callee)
+            (workflows / callee_name).write_text(callee)
             (workflows / "caller.yml").write_text(textwrap.dedent(caller))
-            env = dict(os.environ, WORKFLOWS_DIR=".github/workflows")
+            env = dict(os.environ, WORKFLOWS_DIR=(
+                str(workflows) if absolute_dir else ".github/workflows"))
             return subprocess.run(
                 ["python3", str(CHECK)],
                 cwd=tmp, env=env, capture_output=True, text=True,
@@ -157,6 +159,32 @@ class WorkflowSecretsContractTests(unittest.TestCase):
                 secrets: inherit
                 uses: ./.github/workflows/callee.yml
             """)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("must be forwarded by name", result.stdout)
+
+    def test_a_mixed_case_filename_is_still_matched(self):
+        """`Callee.yml` is a valid workflow name; it must not slip through."""
+        result = self.run_check("""\
+            name: Caller
+            on: [push]
+            jobs:
+              call:
+                uses: ./.github/workflows/Callee.yml
+                secrets: inherit
+            """, callee_name="Callee.yml")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("must be forwarded by name", result.stdout)
+
+    def test_an_absolute_workflows_dir_still_matches_local_calls(self):
+        """`uses:` is repository-relative regardless of where files are read from."""
+        result = self.run_check("""\
+            name: Caller
+            on: [push]
+            jobs:
+              call:
+                uses: ./.github/workflows/callee.yml
+                secrets: inherit
+            """, absolute_dir=True)
         self.assertEqual(result.returncode, 1)
         self.assertIn("must be forwarded by name", result.stdout)
 

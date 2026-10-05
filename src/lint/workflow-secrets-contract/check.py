@@ -48,7 +48,13 @@ def declared(name):
         return None
     return list((call.get('secrets') or {}))
 
-LOCAL_RE = re.compile(r'^\./' + re.escape(workflows_dir) + r'/([a-z0-9._-]+)\.ya?ml$')
+# GitHub spells a local call relative to the repository root, always under
+# ./.github/workflows/, whatever directory this script was pointed at to read
+# the files. Deriving the pattern from workflows_dir coupled the two: an
+# absolute --workflows-dir made it match nothing, and the check would skip
+# every call instead of failing. Filenames keep their case — `Callee.yml` is a
+# valid workflow and must not slip through either.
+LOCAL_RE = re.compile(r'^\./\.github/workflows/([^/\\]+)\.ya?ml$')
 
 def entries(node):
     """(key, value_node, key_line) for a YAML mapping node."""
