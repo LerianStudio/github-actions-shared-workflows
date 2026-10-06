@@ -81,9 +81,12 @@ runs:
         REPO: ${{ github.repository }}
       run: |
         RELEASE_JSON=$(gh release view "$RELEASE_TAG" --repo "$REPO" --json name,body,url)
+        # The name becomes a one-line embed title, so line breaks are folded
+        # into spaces; left in, they would split the GITHUB_OUTPUT record.
+        NAME=$(jq -r '(.name // "") | gsub("[\r\n]+"; " ") | gsub("^ +| +$"; "")' <<< "$RELEASE_JSON")
         DELIMITER="EOF_$(openssl rand -hex 16)"
         {
-          echo "name=$(jq -r '.name // ""' <<< "$RELEASE_JSON" | grep . || echo "$RELEASE_TAG")"
+          echo "name=${NAME:-$RELEASE_TAG}"
           echo "url=$(jq -r '.url' <<< "$RELEASE_JSON")"
           echo "body<<$DELIMITER"
           jq -r '.body // ""' <<< "$RELEASE_JSON"
