@@ -19,6 +19,7 @@ Composite action that sends a release notification to a Discord channel via webh
 | `footer-timestamp` | Show timestamp in embed footer | No | `true` |
 | `skip-beta` | Skip notification for beta releases | No | `true` |
 | `dry-run` | Preview changes without sending the notification | No | `false` |
+| `github-token` | Token used to read the release when the run was not triggered by a `release` event | No | `github.token` |
 
 ## Usage
 
@@ -64,4 +65,4 @@ jobs:
 
 ## Permissions required
 
-No special permissions required beyond the webhook URL secret.
+`contents: read` on the repository, used to fetch the release by tag (the run may be triggered by `push` rather than `release`), plus the webhook URL secret.

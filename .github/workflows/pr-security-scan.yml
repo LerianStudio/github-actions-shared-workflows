@@ -403,11 +403,17 @@ jobs:
           changed-paths: ${{ steps.extract-paths.outputs.paths }}
 
       # ----------------- CodeQL Analysis -----------------
+      # init, autobuild and analyze must come from the same codeql-action release:
+      # init writes a config the other two refuse to read when versions differ.
+      # Pinned inline rather than called through `src/security/codeql-*@v1` so a
+      # caller on an older release of this workflow never mixes its pinned
+      # autobuild with whatever `v1` points at today (issue #866).
       - name: Initialize CodeQL
         if: steps.codeql-config.outputs.skip != 'true'
-        uses: LerianStudio/github-actions-shared-workflows/src/security/codeql-init@v1
+        uses: github/codeql-action/init@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4.38.2
         with:
           languages: ${{ inputs.codeql_languages }}
+          queries: security-extended
           config-file: ${{ steps.codeql-config.outputs.config-file }}
 
       - name: Configure private Go modules access
@@ -424,9 +430,10 @@ jobs:
 
       - name: Perform CodeQL Analysis
         if: steps.codeql-config.outputs.skip != 'true'
-        uses: LerianStudio/github-actions-shared-workflows/src/security/codeql-analyze@v1
+        uses: github/codeql-action/analyze@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4.38.2
         with:
           category: '/language:${{ inputs.codeql_languages }}'
+          output: '../results'
           upload: ${{ inputs.codeql_upload_sarif }}
 
       # ----------------- Results & Security Gate -----------------

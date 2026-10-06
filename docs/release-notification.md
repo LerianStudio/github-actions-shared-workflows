@@ -9,8 +9,9 @@ Reusable workflow that sends release notifications to Discord and Slack. Resolve
 
 The [release workflow](release.md) calls this workflow directly from its
 `announce_release` job (Slack only), so most repositories do not need a standalone caller —
-see [Release Announcement](release.md#release-announcement). A dedicated caller with
-`on: release` is still required for Discord.
+see [Release Announcement](release.md#release-announcement). Discord is off by
+default: a caller must pass `enable_discord: true` and the `DISCORD_WEBHOOK_URL`
+secret to announce there.
 
 ## Architecture
 
@@ -27,6 +28,7 @@ release-notification.yml
 | `product_name` | `string` | Yes | — | Product name displayed in notifications |
 | `slack_channel` | `string` | No | `""` | Slack channel name |
 | `release_tag` | `string` | No | `""` | Release tag to announce. When empty, resolves from the release event and then from the latest release |
+| `enable_discord` | `boolean` | No | `false` | Send the Discord announcement (also requires `DISCORD_WEBHOOK_URL`) |
 | `discord_color` | `string` | No | `2105893` | Discord embed color (decimal) |
 | `discord_username` | `string` | No | `Release Changelog` | Bot username in Discord |
 | `discord_content` | `string` | No | `""` | Discord message content (e.g. role mentions) |
@@ -88,7 +90,7 @@ Leave the variable undefined (or empty) to keep announcing every tag.
 |---|---|---|
 | `APP_ID` | Yes | GitHub App ID for authentication |
 | `APP_PRIVATE_KEY` | Yes | GitHub App private key |
-| `DISCORD_WEBHOOK_URL` | No | Discord webhook URL (skipped if empty) |
+| `DISCORD_WEBHOOK_URL` | No | Discord webhook URL (used only with `enable_discord: true`) |
 | `SLACK_WEBHOOK_URL` | No | Slack webhook URL (skipped if empty) |
 
 ## Usage
@@ -108,6 +110,7 @@ jobs:
     with:
       product_name: "Midaz"
       slack_channel: "lerian-product-release"
+      enable_discord: true
       discord_content: "<@&1346912737380274176>"
     secrets:
       APP_ID: ${{ secrets.LERIAN_STUDIO_MIDAZ_PUSH_BOT_APP_ID }}
@@ -124,6 +127,7 @@ jobs:
     uses: LerianStudio/github-actions-shared-workflows/.github/workflows/release-notification.yml@tier-1
     with:
       product_name: "MyProduct"
+      enable_discord: true
       discord_content: "<@&ROLE_ID>"
     secrets:
       APP_ID: ${{ secrets.APP_ID }}

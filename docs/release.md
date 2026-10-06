@@ -179,10 +179,10 @@ release in the repository.
 
 ### Discord
 
-Discord is intentionally not wired into this job. The underlying action
-(`SethCohen/github-releases-to-discord`) reads the `release` event payload, which is absent
-on the `push` event that drives this workflow. Keep Discord announcements on a dedicated
-caller workflow that triggers `release-notification.yml` with `on: release`.
+Discord is intentionally not wired into this job: `release-notification.yml` keeps it off
+by default, and this job forwards `DISCORD_WEBHOOK_URL` but never enables it. Repositories
+that want Discord announcements call `release-notification.yml` from a dedicated workflow
+with `enable_discord: true`.
 
 > Repositories that already announce releases through a separate `on: release` workflow will
 > get two messages once this job is active. Remove the standalone Slack announcement there,

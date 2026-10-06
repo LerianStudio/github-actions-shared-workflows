@@ -17,6 +17,11 @@ on:
         required: false
         type: string
         default: ""
+      enable_discord:
+        description: Send the Discord announcement. Off by default; also requires the DISCORD_WEBHOOK_URL secret.
+        required: false
+        type: boolean
+        default: false
       discord_color:
         description: Discord embed color (decimal)
         required: false
@@ -76,6 +81,11 @@ on:
         required: false
         type: string
         default: ""
+      enable_discord:
+        description: Send the Discord announcement. Off by default; also requires the DISCORD_WEBHOOK_URL secret.
+        required: false
+        type: boolean
+        default: false
       discord_color:
         description: Discord embed color (decimal)
         required: false
@@ -223,6 +233,7 @@ jobs:
           DISCORD_USERNAME: ${{ inputs.discord_username }}
           DISCORD_CONTENT: ${{ inputs.discord_content }}
           SKIP_BETA_DISCORD: ${{ inputs.skip_beta_discord }}
+          DISCORD_ENABLED: ${{ inputs.enable_discord }}
           TAG_TYPE: ${{ steps.classify.outputs.tag_type }}
           ALLOWED_TAG_TYPES: ${{ steps.classify.outputs.allowed_types }}
           NOTIFY_TAG: ${{ steps.classify.outputs.notify }}
@@ -232,7 +243,7 @@ jobs:
         run: |
           DISCORD_STATE="not set"
           ENABLE_DISCORD=false
-          if [[ -n "$DISCORD_WEBHOOK_URL" && "$NOTIFY_TAG" == "true" ]]; then
+          if [[ -n "$DISCORD_WEBHOOK_URL" && "$DISCORD_ENABLED" == "true" && "$NOTIFY_TAG" == "true" ]]; then
             DISCORD_STATE="configured"
             ENABLE_DISCORD=true
           elif [[ -n "$DISCORD_WEBHOOK_URL" ]]; then
@@ -255,6 +266,7 @@ jobs:
           echo "  tag_type         : $TAG_TYPE"
           echo "  allowed_tag_types: ${ALLOWED_TAG_TYPES:-<any>}"
           echo "  notify_tag       : $NOTIFY_TAG"
+          echo "  discord_enabled  : $DISCORD_ENABLED"
           echo "  discord_webhook  : $DISCORD_STATE"
           echo "  discord_color    : $DISCORD_COLOR"
           echo "  discord_username : $DISCORD_USERNAME"
@@ -268,7 +280,7 @@ jobs:
           echo "  enable_slack     : $ENABLE_SLACK"
 
       - name: Discord notification
-        if: ${{ env.DISCORD_WEBHOOK_URL != '' && steps.classify.outputs.notify == 'true' }}
+        if: ${{ inputs.enable_discord && env.DISCORD_WEBHOOK_URL != '' && steps.classify.outputs.notify == 'true' }}
         uses: LerianStudio/github-actions-shared-workflows/src/notify/discord-release@v1
         with:
           webhook-url: ${{ secrets.DISCORD_WEBHOOK_URL }}
@@ -278,6 +290,7 @@ jobs:
           content: ${{ inputs.discord_content }}
           skip-beta: ${{ inputs.skip_beta_discord }}
           dry-run: ${{ inputs.dry_run }}
+          github-token: ${{ steps.app-token.outputs.token }}
 
       - name: Slack notification
         if: ${{ env.SLACK_WEBHOOK_URL != '' && inputs.slack_channel != '' && steps.classify.outputs.notify == 'true' }}
