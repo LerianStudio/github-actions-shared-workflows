@@ -1,5 +1,20 @@
 # Github-actions-shared-workflows Changelog
 
+## [1.81.0](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.81.0)
+
+Features:
+- Merge changes from `develop` to `main` to prepare for a new release. (@bedatty)
+
+Fixes:
+- Forward secrets by name instead of inheriting them wholesale to enhance security. (@bedatty)
+- Recognize the `$/` local-call prefix in the contract lint to improve security checks. (@bedatty)
+- Decouple the local-call pattern from the scan directory to refine security measures. (@bedatty)
+- Parse workflows as YAML in the secrets contract lint to ensure accurate security analysis. (@bedatty)
+
+[Compare changes](https://github.com/LerianStudio/github-actions-shared-workflows/compare/v1.80.0...v1.81.0)
+
+---
+
 ## [1.80.0](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.80.0)
 
 Fixes:
