@@ -1,5 +1,18 @@
 # Github-actions-shared-workflows Changelog
 
+## [1.81.1](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.81.1)
+
+Fixes:
+
+- Merged changes from `develop` to `main` to ensure the latest updates are reflected in the main branch. (@bedatty)
+- Updated the release notification workflow to keep Discord notifications off by default and resolve releases by tag. This change was addressed in two separate commits. (@bedatty)
+- Modified the release notification workflow to consolidate the release name into a single output line for clarity. (@bedatty)
+- Updated the pull request security scan workflow by pinning `codeql` initialization and analysis inline to ensure consistent behavior. This change was addressed in two separate commits. (@bedatty)
+
+[Compare changes](https://github.com/LerianStudio/github-actions-shared-workflows/compare/v1.81.0...v1.81.1)
+
+---
+
 ## [1.81.0](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.81.0)
 
 Features:
