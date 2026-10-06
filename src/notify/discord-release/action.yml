@@ -32,6 +32,10 @@ inputs:
     description: Preview changes without sending the notification
     required: false
     default: "false"
+  github-token:
+    description: Token used to read the release when the run was not triggered by a release event
+    required: false
+    default: ${{ github.token }}
 
 runs:
   using: composite
@@ -62,17 +66,44 @@ runs:
         echo "  is_beta      : ${{ steps.beta.outputs.is_beta }}"
 
     # ----------------- Notification -----------------
+    # The action reads the release from the event payload, which only exists on
+    # `release` events. Callers like the release umbrella run on `push`, so the
+    # release is fetched by tag and handed over explicitly.
+    - name: Resolve release details
+      id: release
+      if: >-
+        inputs.dry-run != 'true'
+        && !(inputs.skip-beta == 'true' && steps.beta.outputs.is_beta == 'true')
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+        RELEASE_TAG: ${{ inputs.release-tag }}
+        REPO: ${{ github.repository }}
+      run: |
+        RELEASE_JSON=$(gh release view "$RELEASE_TAG" --repo "$REPO" --json name,body,url)
+        DELIMITER="EOF_$(openssl rand -hex 16)"
+        {
+          echo "name=$(jq -r '.name // ""' <<< "$RELEASE_JSON" | grep . || echo "$RELEASE_TAG")"
+          echo "url=$(jq -r '.url' <<< "$RELEASE_JSON")"
+          echo "body<<$DELIMITER"
+          jq -r '.body // ""' <<< "$RELEASE_JSON"
+          echo "$DELIMITER"
+        } >> "$GITHUB_OUTPUT"
+
     - name: Send Discord notification
       if: >-
         inputs.dry-run != 'true'
         && !(inputs.skip-beta == 'true' && steps.beta.outputs.is_beta == 'true')
-      uses: SethCohen/github-releases-to-discord@v1.16.2
+      uses: SethCohen/github-releases-to-discord@24d166886aee4646d448c8a389ff9e1ebcab3682 # v1.20.0
       with:
         webhook_url: ${{ inputs.webhook-url }}
         color: ${{ inputs.color }}
         username: ${{ inputs.username }}
         content: ${{ inputs.content }}
         footer_timestamp: ${{ inputs.footer-timestamp }}
+        release_name: ${{ steps.release.outputs.name }}
+        release_body: ${{ steps.release.outputs.body }}
+        release_html_url: ${{ steps.release.outputs.url }}
 
     - name: Skipped (beta release)
       if: >-
