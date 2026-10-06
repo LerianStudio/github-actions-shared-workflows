@@ -746,6 +746,7 @@ jobs:
       APP_ID: ${{ secrets.LERIAN_STUDIO_MIDAZ_PUSH_BOT_APP_ID }}
       APP_PRIVATE_KEY: ${{ secrets.LERIAN_STUDIO_MIDAZ_PUSH_BOT_PRIVATE_KEY }}
       SLACK_WEBHOOK_URL: ${{ secrets.RELEASE_WEBHOOK_URL || secrets.RELEASE_WEBHOOK_NOTIFICATION_URL }}
+      DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
 
   # Slack notification
   notify:

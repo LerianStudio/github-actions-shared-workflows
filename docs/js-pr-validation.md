@@ -161,8 +161,18 @@ Caller triggers must include the five activity types in the usage example. `edit
 | `MANAGE_TOKEN` | Token for PR operations and private package access | No |
 | `SLACK_WEBHOOK_URL` | Slack webhook for pipeline notifications | No |
 | `SOCKET_SECURITY_API_KEY` | Socket API token for the Socket API Report step. Scopes: `full-scans:list`, `diff-scans:list`, `diff-scans:create`. Absent, that step skips with a notice and the other Socket layers keep working | No |
+| `DOCKER_USERNAME` | Docker Hub user for authenticated image pulls in the security scan | No |
+| `DOCKERHUB_IMAGE_PULL_TOKEN` | Docker Hub token paired with `DOCKER_USERNAME` | No |
+| `NPMRC_TOKEN` | Token written into `.npmrc` so the scan's image build reaches the GitHub npm registry | No |
 
-All other secrets required by the underlying primitives (e.g. `DOCKER_USERNAME`, `DOCKERHUB_IMAGE_PULL_TOKEN`, `NPMRC_TOKEN`) are forwarded automatically via `secrets: inherit`.
+The last three used to be undeclared, reaching the security scan only because
+`secrets: inherit` carried them. They are part of the declared contract now, and
+each nested job is forwarded only what it declares rather than the whole set the
+calling repository holds. Callers keep passing `secrets: inherit`; a caller that
+prefers a named mapping should pass all six, since an unforwarded secret resolves
+to an empty string and disables its feature without failing the build. The
+[`workflow-secrets-contract`](../src/lint/workflow-secrets-contract/README.md)
+lint fails CI on that drift.
 
 ## Usage
 
