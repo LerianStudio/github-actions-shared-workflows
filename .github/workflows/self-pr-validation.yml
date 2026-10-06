@@ -31,7 +31,9 @@ jobs:
       enforce_source_branches: true
       allowed_source_branches: "develop|hotfix/*"
       target_branches_for_source_check: "main"
-    secrets: inherit
+    secrets:
+      MANAGE_TOKEN: ${{ secrets.MANAGE_TOKEN }}
+      SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
 
   # ----------------- Changed Files Detection -----------------
   changed-files:
@@ -274,6 +276,31 @@ jobs:
       - name: Run non-doc-changes classification tests
         run: python3 src/config/non-doc-changes/test.py
 
+  # ----------------- Workflow Secrets Contract Tests -----------------
+  workflow-secrets-contract-tests:
+    name: Workflow Secrets Contract Tests
+    runs-on: ${{ vars.GENERAL_RUNNERS || 'blacksmith-4vcpu-ubuntu-2404' }}
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+        with:
+          persist-credentials: false
+
+      # test.py shells out to check.py, which imports yaml. Without this the
+      # job depends on the runner image happening to ship PyYAML — and the
+      # failure would be misleading: the cases asserting exit 1 would still
+      # pass, since an ImportError exits 1 too.
+      - name: Install dependencies
+        run: |
+          if ! python3 -c "import yaml" 2>/dev/null; then
+            sudo apt-get install -y --no-install-recommends python3-yaml
+          fi
+
+      - name: Run workflow-secrets-contract tests
+        run: python3 src/lint/workflow-secrets-contract/test.py
+
   # ----------------- YAML Lint -----------------
   yamllint:
     name: YAML Lint
@@ -329,6 +356,21 @@ jobs:
 
       - name: CodeQL Action Version Check
         uses: ./src/lint/codeql-action-version-check
+
+  # ----------------- Workflow Secrets Contract -----------------
+  # Global like the CodeQL version check above, not gated on changed files: a
+  # violation can be introduced by editing the *called* workflow — adding a
+  # secret to its contract leaves every caller short one — so a run that only
+  # looked at the diff would miss it.
+  workflow-secrets-contract:
+    name: Workflow Secrets Contract
+    runs-on: ${{ vars.GENERAL_RUNNERS || 'blacksmith-4vcpu-ubuntu-2404' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+
+      - name: Workflow Secrets Contract Lint
+        uses: ./src/lint/workflow-secrets-contract
 
   # ----------------- Markdown Link Check -----------------
   markdown-link-check:
@@ -547,6 +589,8 @@ jobs:
       - actionlint
       - pinned-actions
       - codeql-action-versions
+      - workflow-secrets-contract
+      - workflow-secrets-contract-tests
       - markdown-link-check
       - typos
       - shellcheck
@@ -576,4 +620,5 @@ jobs:
       head_sha: ${{ github.event.pull_request.head.sha }}
       review_base_branches: develop
       review_head_patterns: hotfix/*
-    secrets: inherit
+    secrets:
+      MANAGE_TOKEN: ${{ secrets.MANAGE_TOKEN }}
