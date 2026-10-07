@@ -1,5 +1,52 @@
 # Github-actions-shared-workflows Changelog
 
+## [1.81.0](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.81.0)
+
+Features:
+- Merge changes from `develop` to `main` to prepare for a new release. (@bedatty)
+
+Fixes:
+- Forward secrets by name instead of inheriting them wholesale to enhance security. (@bedatty)
+- Recognize the `$/` local-call prefix in the contract lint to improve security checks. (@bedatty)
+- Decouple the local-call pattern from the scan directory to refine security measures. (@bedatty)
+- Parse workflows as YAML in the secrets contract lint to ensure accurate security analysis. (@bedatty)
+
+[Compare changes](https://github.com/LerianStudio/github-actions-shared-workflows/compare/v1.80.0...v1.81.0)
+
+---
+
+## [1.80.0](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.80.0)
+
+Fixes:
+- Merge changes from the `develop` branch to the `main` branch. (@bedatty)
+
+Improvements:
+- Extract the private-module prefetch into a composite within the Go PR analysis workflow. (@bedatty)
+- Correct the module-cache claim in the prefetch-cost note within the Go PR analysis documentation. (@bedatty)
+- Update the `codeql-action` in the security composites to `v4.38.2`. (@bedatty)
+- Bump `fgrosse/go-coverage-report` from `1.3.1` to `1.5.0` in the Go tooling group. (@bedatty)
+- Update the GitHub security group with four updates across one directory. (@bedatty)
+
+[Compare changes](https://github.com/LerianStudio/github-actions-shared-workflows/compare/v1.79.0...v1.80.0)
+
+---
+
+## [1.79.0](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.79.0)
+
+Fixes:
+- Addressed an issue in the release process by merging changes from `develop` to `main`. (@bedatty)
+- Enhanced the Go PR analysis workflow by prefetching the module enclosing the working directory. (@augusto-draxx)
+- Resolved an issue in the changelog generation workflow to determine the release line from the run instead of the default branch. (@bedatty)
+- Implemented a failure condition in the changelog generation workflow when the release-branch override does not exist. (@bedatty)
+
+Improvements:
+- Refactored the changelog generation workflow to make the reusable workflow a caller of the composite. (@bedatty)
+- Addressed review findings related to the composite migration in the changelog generation workflow. (@bedatty)
+
+[Compare changes](https://github.com/LerianStudio/github-actions-shared-workflows/compare/v1.78.2...v1.79.0)
+
+---
+
 ## [1.78.2](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.78.2)
 
 Fixes:

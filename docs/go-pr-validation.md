@@ -176,11 +176,35 @@ The matrix above is enforced by [`src/validate/lerian-lib-version/test.py`](../s
 
 ## Secrets
 
-| Secret | Description | Required |
-|--------|-------------|----------|
-| `MANAGE_TOKEN` | Token for private Go module access and PR operations | No |
-| `SLACK_WEBHOOK_URL` | Slack webhook for pipeline notifications | No |
-| `LERIAN_LIB_READ_TOKEN` | Read token for private Lerian libs in the lib version check (falls back to `GITHUB_TOKEN`) | No |
+| Secret | Description | Consumed by | Required |
+|--------|-------------|-------------|----------|
+| `MANAGE_TOKEN` | Token for private Go module access and PR operations | every job | No |
+| `SLACK_WEBHOOK_URL` | Slack webhook for pipeline notifications | metadata, Go analysis, security | No |
+| `LERIAN_LIB_READ_TOKEN` | Read token for private Lerian libs in the lib version check (falls back to `GITHUB_TOKEN`) | lib version check | No |
+| `DOCKER_USERNAME` | Docker Hub user for authenticated image pulls, which raises the anonymous rate limit | security scan | No |
+| `DOCKERHUB_IMAGE_PULL_TOKEN` | Docker Hub token paired with `DOCKER_USERNAME` | security scan | No |
+| `NPMRC_TOKEN` | Token written into `.npmrc` so the scan's image build reaches the GitHub npm registry | security scan | No |
+
+Every secret is optional: absent, the step that needs it takes its credential-free
+path. `GITHUB_TOKEN` is not listed because it is injected automatically and cannot
+be declared — the security scan uses it only as a fallback for `MANAGE_TOKEN`.
+
+### How they reach the nested workflows
+
+Callers pass `secrets: inherit`, which is still the supported contract. Inside
+this workflow, each nested job is then forwarded **only the secrets it declares** —
+the security scan gets five, the metadata job two, the CodeRabbit gate one. A job
+no longer sees the whole set of secrets the calling repository happens to hold.
+
+The six above are what the chain actually consumes, verified end to end. An
+earlier review of a caller proposed a narrower list of three; adopting it would
+have silently dropped the Docker Hub credentials and the npm token, since an
+unforwarded secret resolves to an empty string rather than failing. The
+[`workflow-secrets-contract`](../src/lint/workflow-secrets-contract/README.md)
+lint now fails CI on exactly that drift.
+
+Callers wanting to replace `inherit` with a named mapping should pass all six;
+omitting one disables the corresponding feature quietly.
 
 ## Usage
 

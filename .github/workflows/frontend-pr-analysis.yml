@@ -239,6 +239,13 @@ on:
         description: 'Install Playwright browsers (Chromium) before running custom_checks. Only enable if at least one of your custom_checks scripts drives a browser (e.g. a Playwright-based smoke test) — most repo-specific guard scripts do not need this and installing browsers unconditionally wastes CI time/bandwidth.'
         type: boolean
         default: false
+    secrets:
+      MANAGE_TOKEN:
+        description: Token for private module access and PR operations. Falls back to GITHUB_TOKEN where a job can work without it.
+        required: false
+      SLACK_WEBHOOK_URL:
+        description: Slack webhook for pipeline notifications. Absent disables the notification, it does not fail the job.
+        required: false
 
 permissions:
   contents: read

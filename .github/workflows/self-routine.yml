@@ -50,4 +50,5 @@ jobs:
       merged_branch: ${{ github.head_ref }}
       protected_branches: ${{ inputs.protected_branches || 'main,master,develop,release-candidate,hotfix/*,tier-*' }}
       extra_protected_branches: ${{ inputs.extra_protected_branches || '' }}
-    secrets: inherit
+    secrets:
+      MANAGE_TOKEN: ${{ secrets.MANAGE_TOKEN }}

@@ -380,6 +380,15 @@ on:
         required: false
       LERIAN_LIB_READ_TOKEN:
         required: false
+      DOCKER_USERNAME:
+        description: Docker Hub user for authenticated image pulls in the security scan, which raises the anonymous rate limit.
+        required: false
+      DOCKERHUB_IMAGE_PULL_TOKEN:
+        description: Docker Hub token paired with DOCKER_USERNAME.
+        required: false
+      NPMRC_TOKEN:
+        description: Token written into .npmrc so the security scan's image build can reach the GitHub npm registry.
+        required: false
 
 permissions:
   actions: read
@@ -412,7 +421,9 @@ jobs:
       automation_only_source_patterns: ${{ inputs.automation_only_source_patterns }}
       automation_source_actors: ${{ inputs.automation_source_actors }}
       require_verified_commits: ${{ inputs.require_verified_commits }}
-    secrets: inherit
+    secrets:
+      MANAGE_TOKEN: ${{ secrets.MANAGE_TOKEN }}
+      SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
 
   # ----------------- Change Detection (gate) -----------------
   # `edited` must stay in this list. When this job is skipped, the *-gate
@@ -478,7 +489,9 @@ jobs:
       custom_checks: ${{ inputs.custom_checks }}
       system_packages: ${{ inputs.system_packages }}
       shared_paths: ${{ inputs.shared_paths }}
-    secrets: inherit
+    secrets:
+      MANAGE_TOKEN: ${{ secrets.MANAGE_TOKEN }}
+      SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
 
   go-analysis-gate:
     name: ${{ inputs.run_go_analysis && 'Go Analysis' || 'Go Analysis (disabled)' }}
@@ -518,7 +531,12 @@ jobs:
       monorepo_type: ${{ inputs.monorepo_type }}
       frontend_folder: ${{ inputs.frontend_folder }}
       trivy_skip_dirs: ${{ inputs.trivy_skip_dirs }}
-    secrets: inherit
+    secrets:
+      MANAGE_TOKEN: ${{ secrets.MANAGE_TOKEN }}
+      SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+      DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
+      DOCKERHUB_IMAGE_PULL_TOKEN: ${{ secrets.DOCKERHUB_IMAGE_PULL_TOKEN }}
+      NPMRC_TOKEN: ${{ secrets.NPMRC_TOKEN }}
 
   security-gate:
     name: ${{ inputs.run_security && 'Security' || 'Security (disabled)' }}
@@ -552,7 +570,9 @@ jobs:
       # errors and change-detection failures, which must stay blocking.
       outdated_non_blocking: ${{ inputs.lib_version_non_blocking_for_hotfix_to_main && github.base_ref == 'main' && startsWith(github.head_ref, 'hotfix/') }}
       dry_run: ${{ inputs.dry_run }}
-    secrets: inherit
+    secrets:
+      LERIAN_LIB_READ_TOKEN: ${{ secrets.LERIAN_LIB_READ_TOKEN }}
+      MANAGE_TOKEN: ${{ secrets.MANAGE_TOKEN }}
 
   lib-version-gate:
     name: ${{ inputs.run_lib_version_check && 'Lib Version' || 'Lib Version (disabled)' }}
@@ -674,4 +694,5 @@ jobs:
       review_head_patterns: ${{ inputs.coderabbit_review_head_patterns }}
       label: ${{ inputs.coderabbit_gate_label }}
       dry_run: ${{ inputs.dry_run }}
-    secrets: inherit
+    secrets:
+      MANAGE_TOKEN: ${{ secrets.MANAGE_TOKEN }}

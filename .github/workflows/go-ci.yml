@@ -170,7 +170,7 @@ jobs:
           name: coverage-report
 
       - name: Go Coverage Comment
-        uses: fgrosse/go-coverage-report@e432de98ee94a276e8f666d25bfd76347665f75b  # v1.3.1
+        uses: fgrosse/go-coverage-report@c4bf7e78d1379325814b4dd42d80e526082e788b  # v1.5.0
         with:
           coverage-artifact-name: coverage-report
           coverage-file-name: coverage.txt
