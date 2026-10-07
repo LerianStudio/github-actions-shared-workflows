@@ -500,6 +500,15 @@ on:
       # layers keep working token-free.
       SOCKET_SECURITY_API_KEY:
         required: false
+      DOCKER_USERNAME:
+        description: Docker Hub user for authenticated image pulls in the security scan, which raises the anonymous rate limit.
+        required: false
+      DOCKERHUB_IMAGE_PULL_TOKEN:
+        description: Docker Hub token paired with DOCKER_USERNAME.
+        required: false
+      NPMRC_TOKEN:
+        description: Token written into .npmrc so the security scan's image build can reach the GitHub npm registry.
+        required: false
 
 permissions:
   actions: read
@@ -532,7 +541,9 @@ jobs:
       automation_only_source_patterns: ${{ inputs.automation_only_source_patterns }}
       automation_source_actors: ${{ inputs.automation_source_actors }}
       require_verified_commits: ${{ inputs.require_verified_commits }}
-    secrets: inherit
+    secrets:
+      MANAGE_TOKEN: ${{ secrets.MANAGE_TOKEN }}
+      SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
 
   # ----------------- Change Detection (gate) -----------------
   changes:
@@ -607,7 +618,9 @@ jobs:
       enable_custom_checks: ${{ inputs.enable_custom_checks }}
       custom_checks: ${{ inputs.custom_checks }}
       custom_checks_needs_browsers: ${{ inputs.custom_checks_needs_browsers }}
-    secrets: inherit
+    secrets:
+      MANAGE_TOKEN: ${{ secrets.MANAGE_TOKEN }}
+      SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
 
   frontend-analysis-gate:
     name: ${{ inputs.run_frontend_analysis && 'Frontend Analysis' || 'Frontend Analysis (disabled)' }}
@@ -649,7 +662,12 @@ jobs:
       shared_paths: ${{ inputs.security_shared_paths }}
       path_level: ${{ format('{0}', inputs.path_level) }}
       normalize_to_filter: ${{ inputs.normalize_to_filter }}
-    secrets: inherit
+    secrets:
+      MANAGE_TOKEN: ${{ secrets.MANAGE_TOKEN }}
+      SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+      DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
+      DOCKERHUB_IMAGE_PULL_TOKEN: ${{ secrets.DOCKERHUB_IMAGE_PULL_TOKEN }}
+      NPMRC_TOKEN: ${{ secrets.NPMRC_TOKEN }}
 
   security-gate:
     name: ${{ inputs.run_security && 'Security' || 'Security (disabled)' }}
@@ -942,4 +960,5 @@ jobs:
       review_head_patterns: ${{ inputs.coderabbit_review_head_patterns }}
       label: ${{ inputs.coderabbit_gate_label }}
       dry_run: ${{ inputs.dry_run }}
-    secrets: inherit
+    secrets:
+      MANAGE_TOKEN: ${{ secrets.MANAGE_TOKEN }}

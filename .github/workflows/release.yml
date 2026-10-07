@@ -724,10 +724,9 @@ jobs:
   # repository. Routing is per-repo: the channel comes from
   # announcement_slack_channel or the RELEASE_SLACK_CHANNEL variable, and the
   # webhook from the RELEASE_WEBHOOK_URL (or legacy
-  # RELEASE_WEBHOOK_NOTIFICATION_URL) repository secret. Discord is not wired
-  # here because SethCohen/github-releases-to-discord reads the `release` event
-  # payload, which is absent on the push event that drives this workflow —
-  # Discord announcements stay on release-notification.yml with on: release.
+  # RELEASE_WEBHOOK_NOTIFICATION_URL) repository secret. Discord is off by
+  # default in release-notification.yml and is not enabled here; its webhook is
+  # still forwarded because the secrets contract requires every declared secret.
   announce_release:
     name: Announce Release
     needs: [publish_release, publish_release_status, generate_changelog, backmerge, update_major_tag, enforce_latest]
@@ -746,6 +745,7 @@ jobs:
       APP_ID: ${{ secrets.LERIAN_STUDIO_MIDAZ_PUSH_BOT_APP_ID }}
       APP_PRIVATE_KEY: ${{ secrets.LERIAN_STUDIO_MIDAZ_PUSH_BOT_PRIVATE_KEY }}
       SLACK_WEBHOOK_URL: ${{ secrets.RELEASE_WEBHOOK_URL || secrets.RELEASE_WEBHOOK_NOTIFICATION_URL }}
+      DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
 
   # Slack notification
   notify:

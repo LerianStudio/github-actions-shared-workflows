@@ -1,0 +1,24 @@
+name: Workflow Secrets Contract Lint
+description: Fail when a local workflow call relies on secrets inheritance, or forwards less than the called workflow declares.
+
+inputs:
+  workflows-dir:
+    description: Directory holding the workflows to inspect.
+    required: false
+    default: .github/workflows
+
+runs:
+  using: composite
+  steps:
+    - name: Install dependencies
+      shell: bash
+      run: |
+        if ! python3 -c "import yaml" 2>/dev/null; then
+          sudo apt-get install -y --no-install-recommends python3-yaml
+        fi
+
+    - name: Validate the secrets contract of local workflow calls
+      shell: bash
+      env:
+        WORKFLOWS_DIR: ${{ inputs.workflows-dir }}
+      run: python3 "$GITHUB_ACTION_PATH/check.py"
