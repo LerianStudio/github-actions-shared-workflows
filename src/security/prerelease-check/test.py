@@ -121,6 +121,27 @@ require (
 
 GO_MOD_PIN = "github.com/emersion/go-imap/v2 v2.0.0-beta.8"
 
+# A package shipping a beta of *itself*: the top-level "version" is the artifact
+# this repo produces, not a dependency it consumes.
+PACKAGE_JSON_SELF_BETA = """{
+  "name": "example",
+  "version": "2.0.0-beta.1",
+  "dependencies": {
+    "react": "19.0.0"
+  }
+}
+"""
+
+PACKAGE_JSON_SELF_BETA_AND_DEP = """{
+  "name": "example",
+  "version": "2.0.0-beta.1",
+  "dependencies": {
+    "@lerianstudio/sindarian-ui": "2.0.0-beta.6",
+    "react": "19.0.0"
+  }
+}
+"""
+
 
 class ScanRunner:
     """Runs the extracted scan step against a throwaway workspace."""
@@ -227,6 +248,59 @@ class AllowFileTests(unittest.TestCase):
         self.runner.write(".prerelease-allow", escaped + "\n")
         result = self.runner.run()
         self.assertEqual(self.runner.findings_count(result), 0, self._debug(result))
+
+    # ----------------- package.json: the package's own version -----------------
+
+    def test_own_top_level_version_is_not_a_finding(self):
+        """A repo shipping a beta of itself is not pinning an unstable dependency.
+
+        Regression (#871): the scan grepped the whole file, so the package's own
+        top-level `"version"` was reported as a pre-release pin and hard-failed
+        the gate on blocking branches for the entire beta cycle.
+        """
+        self.runner.write("package.json", PACKAGE_JSON_SELF_BETA)
+        result = self.runner.run(TARGET_BRANCH="main")
+        self.assertEqual(self.runner.findings_count(result), 0, self._debug(result))
+
+    def test_own_version_is_skipped_while_dependency_pins_still_block(self):
+        """Dropping the self-version must not disarm the scan around it."""
+        self.runner.write("package.json", PACKAGE_JSON_SELF_BETA_AND_DEP)
+        result = self.runner.run(TARGET_BRANCH="main")
+        self.assertEqual(self.runner.findings_count(result), 1, self._debug(result))
+        self.assertIn(PACKAGE_JSON_PIN.split(":")[0], result.step_summary, self._debug(result))
+        self.assertNotIn('"version"', result.step_summary, self._debug(result))
+
+    def test_a_dependency_sharing_the_self_version_still_blocks(self):
+        """Only the `"version"` key is exempt — not every line carrying its value."""
+        self.runner.write(
+            "package.json",
+            """{
+  "name": "example",
+  "version": "2.0.0-beta.6",
+  "dependencies": {
+    "@lerianstudio/sindarian-ui": "2.0.0-beta.6"
+  }
+}
+""",
+        )
+        result = self.runner.run(TARGET_BRANCH="main")
+        self.assertEqual(self.runner.findings_count(result), 1, self._debug(result))
+
+    def test_a_dependency_named_version_is_unaffected_by_a_stable_package(self):
+        """With no pre-release self-version, nothing is exempted."""
+        self.runner.write(
+            "package.json",
+            """{
+  "name": "example",
+  "version": "1.4.2",
+  "dependencies": {
+    "@lerianstudio/sindarian-ui": "2.0.0-beta.6"
+  }
+}
+""",
+        )
+        result = self.runner.run()
+        self.assertEqual(self.runner.findings_count(result), 1, self._debug(result))
 
     # ----------------- go.mod: unchanged behaviour -----------------
 
