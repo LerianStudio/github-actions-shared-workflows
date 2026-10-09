@@ -157,7 +157,8 @@ clean up.
 
 When the guard fires, publish that release by hand with the notes of the last prerelease
 on the promoted channel (for example the last `-rc.N`), or narrow what the notes cover in
-`.releaserc`. Set `release_notes_max_chars: 0` to turn the check off.
+`.releaserc`. Set `release_notes_max_chars: 0` to turn the check off. Any other non-whole or
+negative value fails the step rather than silently disabling it.
 
 ## Release Announcement
 

@@ -459,15 +459,33 @@ jobs:
       # the whole history. Checking the dry-run notes stops the run before any
       # tag exists, so a failure here leaves nothing behind to clean up.
       - name: Guard against oversized release notes
-        if: |
-          steps.semantic_dry.outputs.new_release_published == 'true' &&
-          inputs.release_notes_max_chars > 0
+        # The input is validated here rather than in the `if:` above, so a bad
+        # value fails loudly instead of quietly turning the guard off.
+        if: steps.semantic_dry.outputs.new_release_published == 'true'
         env:
           NOTES: ${{ steps.semantic_dry.outputs.new_release_notes }}
           MAX_CHARS: ${{ inputs.release_notes_max_chars }}
           NEXT_VERSION: ${{ steps.semantic_dry.outputs.new_release_version }}
         run: |
-          size="$(printf '%s' "$NOTES" | wc -m | tr -d '[:space:]')"
+          # A character limit is a whole number. Anything else — a fraction, a
+          # negative, the exponent notation GitHub can produce when it renders a
+          # large `number` input as a string — is a configuration mistake, and
+          # `test -le` would report it as oversized notes instead.
+          case "$MAX_CHARS" in
+            '' | *[!0-9]*)
+              echo "::error::release_notes_max_chars must be a non-negative whole number (got '${MAX_CHARS}')"
+              exit 1
+              ;;
+          esac
+
+          if [ "$MAX_CHARS" -eq 0 ]; then
+            echo "Release notes size check disabled (release_notes_max_chars=0)"
+            exit 0
+          fi
+
+          # Without a UTF-8 locale `wc -m` counts bytes, and notes with accents
+          # or emoji would measure larger than the API counts them.
+          size="$(printf '%s' "$NOTES" | LC_ALL=C.UTF-8 wc -m | tr -d '[:space:]')"
           echo "Release notes for v${NEXT_VERSION}: ${size} characters (limit ${MAX_CHARS})"
 
           if [ "$size" -le "$MAX_CHARS" ]; then
