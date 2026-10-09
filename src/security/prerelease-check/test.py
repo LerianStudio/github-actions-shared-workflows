@@ -121,6 +121,27 @@ require (
 
 GO_MOD_PIN = "github.com/emersion/go-imap/v2 v2.0.0-beta.8"
 
+# A package shipping a beta of *itself*: the top-level "version" is the artifact
+# this repo produces, not a dependency it consumes.
+PACKAGE_JSON_SELF_BETA = """{
+  "name": "example",
+  "version": "2.0.0-beta.1",
+  "dependencies": {
+    "react": "19.0.0"
+  }
+}
+"""
+
+PACKAGE_JSON_SELF_BETA_AND_DEP = """{
+  "name": "example",
+  "version": "2.0.0-beta.1",
+  "dependencies": {
+    "@lerianstudio/sindarian-ui": "2.0.0-beta.6",
+    "react": "19.0.0"
+  }
+}
+"""
+
 
 class ScanRunner:
     """Runs the extracted scan step against a throwaway workspace."""
@@ -226,6 +247,135 @@ class AllowFileTests(unittest.TestCase):
         escaped = PACKAGE_JSON_PIN.replace('"', '\\"')
         self.runner.write(".prerelease-allow", escaped + "\n")
         result = self.runner.run()
+        self.assertEqual(self.runner.findings_count(result), 0, self._debug(result))
+
+    # ----------------- package.json: the package's own version -----------------
+
+    def test_own_top_level_version_is_not_a_finding(self):
+        """A repo shipping a beta of itself is not pinning an unstable dependency.
+
+        Regression (#871): the scan grepped the whole file, so the package's own
+        top-level `"version"` was reported as a pre-release pin and hard-failed
+        the gate on blocking branches for the entire beta cycle.
+        """
+        self.runner.write("package.json", PACKAGE_JSON_SELF_BETA)
+        result = self.runner.run(TARGET_BRANCH="main")
+        self.assertEqual(self.runner.findings_count(result), 0, self._debug(result))
+
+    def test_own_version_is_skipped_while_dependency_pins_still_block(self):
+        """Dropping the self-version must not disarm the scan around it."""
+        self.runner.write("package.json", PACKAGE_JSON_SELF_BETA_AND_DEP)
+        result = self.runner.run(TARGET_BRANCH="main")
+        self.assertEqual(self.runner.findings_count(result), 1, self._debug(result))
+        self.assertIn(PACKAGE_JSON_PIN.split(":")[0], result.step_summary, self._debug(result))
+        self.assertNotIn('"version"', result.step_summary, self._debug(result))
+
+    def test_a_dependency_sharing_the_self_version_still_blocks(self):
+        """Only the `"version"` key is exempt — not every line carrying its value."""
+        self.runner.write(
+            "package.json",
+            """{
+  "name": "example",
+  "version": "2.0.0-beta.6",
+  "dependencies": {
+    "@lerianstudio/sindarian-ui": "2.0.0-beta.6"
+  }
+}
+""",
+        )
+        result = self.runner.run(TARGET_BRANCH="main")
+        self.assertEqual(self.runner.findings_count(result), 1, self._debug(result))
+
+    def test_a_dependency_named_version_is_unaffected_by_a_stable_package(self):
+        """With no pre-release self-version, nothing is exempted."""
+        self.runner.write(
+            "package.json",
+            """{
+  "name": "example",
+  "version": "1.4.2",
+  "dependencies": {
+    "@lerianstudio/sindarian-ui": "2.0.0-beta.6"
+  }
+}
+""",
+        )
+        result = self.runner.run()
+        self.assertEqual(self.runner.findings_count(result), 1, self._debug(result))
+
+    def test_a_dependency_literally_named_version_disables_the_exemption(self):
+        """`version` is a real npm package: an ambiguous line must not be silenced.
+
+        When the package depends on `version` *and* pins it at the same value as
+        its own, the two lines are indistinguishable by content, so the exemption
+        is dropped and both are reported rather than risking a false negative.
+        """
+        self.runner.write(
+            "package.json",
+            """{
+  "name": "example",
+  "version": "2.0.0-beta.1",
+  "dependencies": {
+    "version": "2.0.0-beta.1"
+  }
+}
+""",
+        )
+        result = self.runner.run(TARGET_BRANCH="main")
+        self.assertEqual(self.runner.findings_count(result), 2, self._debug(result))
+
+    def test_an_ambiguous_version_in_resolutions_disables_the_exemption(self):
+        """`resolutions` is reached by the line scan, so it must disarm it too."""
+        self.runner.write(
+            "package.json",
+            """{
+  "name": "example",
+  "version": "2.0.0-beta.1",
+  "resolutions": {
+    "version": "2.0.0-beta.1"
+  }
+}
+""",
+        )
+        result = self.runner.run(TARGET_BRANCH="main")
+        self.assertEqual(self.runner.findings_count(result), 2, self._debug(result))
+
+    def test_an_ambiguous_version_nested_in_overrides_disables_the_exemption(self):
+        """`overrides` nests arbitrarily — the guard walks paths, not a section list."""
+        self.runner.write(
+            "package.json",
+            """{
+  "name": "example",
+  "version": "2.0.0-beta.1",
+  "overrides": {
+    "some-package": {
+      "version": "2.0.0-beta.1"
+    }
+  }
+}
+""",
+        )
+        result = self.runner.run(TARGET_BRANCH="main")
+        self.assertEqual(self.runner.findings_count(result), 2, self._debug(result))
+
+    def test_an_unrelated_nested_version_does_not_disable_the_exemption(self):
+        """Only a nested `version` equal to the package's own is ambiguous."""
+        self.runner.write(
+            "package.json",
+            """{
+  "name": "example",
+  "version": "2.0.0-beta.1",
+  "overrides": {
+    "some-package": {
+      "version": "3.1.0"
+    }
+  },
+  "dependencies": {
+    "react": "19.0.0"
+  }
+}
+""",
+        )
+        result = self.runner.run(TARGET_BRANCH="main")
         self.assertEqual(self.runner.findings_count(result), 0, self._debug(result))
 
     # ----------------- go.mod: unchanged behaviour -----------------
