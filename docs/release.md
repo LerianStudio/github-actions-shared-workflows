@@ -133,7 +133,31 @@ is the correct setting.
 | `enable_release_announcement` | boolean | `true` | Announce the published release to the repository Slack channel after a successful release |
 | `announcement_product_name` | string | `''` | Product name displayed in the announcement. Defaults to the repository name |
 | `announcement_slack_channel` | string | `''` | Slack channel that receives the announcement. Defaults to the `RELEASE_SLACK_CHANNEL` repository variable; the announcement is skipped when both are empty |
+| `release_notes_max_chars` | number | `125000` | Fail the release before any tag is created when the generated release notes are longer than this. Matches the GitHub Releases API limit — see [Oversized release notes](#oversized-release-notes). `0` disables the check |
 | `environment_name` | string | `''` | Overrides the per-channel deployment environment for this run. Empty keeps `stable`/`rc`/`beta` by ref — see [Deployment Environments](#deployment-environments) |
+
+## Oversized Release Notes
+
+The GitHub Releases API rejects a release body longer than 125 000 characters.
+semantic-release only discovers that in its `publish` step, which runs **after** the
+tag has been created and pushed — so the failure leaves the repository half-released:
+the tag fires the caller's tag-push build and reaches production, while the GitHub
+Release, the changelog, the announcement and the backmerge are all skipped. With the
+stable tag never reaching `backmerge_target`, the prerelease guard then fails every
+later push to that branch until someone backmerges by hand.
+
+The case that hits this is the **first stable release of a repository with a long
+prerelease history**: with no previous stable tag, `@semantic-release/release-notes-generator`
+builds the notes from the whole history.
+
+To prevent it, the release job runs semantic-release in dry-run mode on every branch
+and measures the notes it would publish. Over `release_notes_max_chars`, the run fails
+there — before the real semantic-release step, so no tag exists and there is nothing to
+clean up.
+
+When the guard fires, publish that release by hand with the notes of the last prerelease
+on the promoted channel (for example the last `-rc.N`), or narrow what the notes cover in
+`.releaserc`. Set `release_notes_max_chars: 0` to turn the check off.
 
 ## Release Announcement
 
