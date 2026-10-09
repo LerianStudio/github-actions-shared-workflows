@@ -119,7 +119,7 @@ runs:
               # a repo shipping a beta of itself ("version": "2.0.0-beta.1") is
               # not consuming an unstable dependency, and flagging it hard-fails
               # the gate on blocking branches for the whole beta cycle. Resolve
-              # it with jq and drop the line that declares it. An unparseable
+              # it with jq and drop the line that declares it. An unparsable
               # package.json leaves SELF_VERSION empty, which keeps the previous
               # behaviour (fail towards reporting, never towards silence).
               SELF_VERSION=$(jq -r '.version // empty' "$base/package.json" 2>/dev/null || true)
