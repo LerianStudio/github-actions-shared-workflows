@@ -302,6 +302,27 @@ class AllowFileTests(unittest.TestCase):
         result = self.runner.run()
         self.assertEqual(self.runner.findings_count(result), 1, self._debug(result))
 
+    def test_a_dependency_literally_named_version_disables_the_exemption(self):
+        """`version` is a real npm package: an ambiguous line must not be silenced.
+
+        When the package depends on `version` *and* pins it at the same value as
+        its own, the two lines are indistinguishable by content, so the exemption
+        is dropped and both are reported rather than risking a false negative.
+        """
+        self.runner.write(
+            "package.json",
+            """{
+  "name": "example",
+  "version": "2.0.0-beta.1",
+  "dependencies": {
+    "version": "2.0.0-beta.1"
+  }
+}
+""",
+        )
+        result = self.runner.run(TARGET_BRANCH="main")
+        self.assertEqual(self.runner.findings_count(result), 2, self._debug(result))
+
     # ----------------- go.mod: unchanged behaviour -----------------
 
     def test_go_mod_entry_still_matches(self):

@@ -123,6 +123,13 @@ runs:
               # package.json leaves SELF_VERSION empty, which keeps the previous
               # behaviour (fail towards reporting, never towards silence).
               SELF_VERSION=$(jq -r '.version // empty' "$base/package.json" 2>/dev/null || true)
+              # `version` is also a real npm package name. If it is depended on,
+              # a "version": "<self version>" line is ambiguous, so the exemption
+              # is dropped entirely rather than risk silencing a genuine pin —
+              # the scan reports both lines, as it did before this exemption.
+              if [ -n "$SELF_VERSION" ] && [ "$(jq -r '[.dependencies,.devDependencies,.peerDependencies,.optionalDependencies] | map(select(type=="object")) | add // {} | has("version")' "$base/package.json" 2>/dev/null || echo false)" = "true" ]; then
+                SELF_VERSION=""
+              fi
               while IFS= read -r match; do
                 if [ -n "$SELF_VERSION" ]; then
                   LINE_CONTENT=$(printf '%s' "${match#*:}" | sed 's/^[[:space:]]*//')
