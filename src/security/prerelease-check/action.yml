@@ -123,11 +123,15 @@ runs:
               # package.json leaves SELF_VERSION empty, which keeps the previous
               # behaviour (fail towards reporting, never towards silence).
               SELF_VERSION=$(jq -r '.version // empty' "$base/package.json" 2>/dev/null || true)
-              # `version` is also a real npm package name. If it is depended on,
-              # a "version": "<self version>" line is ambiguous, so the exemption
-              # is dropped entirely rather than risk silencing a genuine pin —
-              # the scan reports both lines, as it did before this exemption.
-              if [ -n "$SELF_VERSION" ] && [ "$(jq -r '[.dependencies,.devDependencies,.peerDependencies,.optionalDependencies] | map(select(type=="object")) | add // {} | has("version")' "$base/package.json" 2>/dev/null || echo false)" = "true" ]; then
+              # `version` is also a real npm package name. A nested
+              # "version": "<self version>" — a dependency block, but also
+              # `resolutions` or a recursive `overrides` entry — is byte-identical
+              # to the package's own line, so the exemption is dropped entirely
+              # rather than risk silencing a genuine pin; the scan then reports
+              # both lines, as it did before this exemption existed. The probe
+              # walks every path instead of enumerating sections, so a block the
+              # line scan reaches cannot be missed here.
+              if [ -n "$SELF_VERSION" ] && [ "$(jq -r --arg v "$SELF_VERSION" 'any(paths(scalars) as $p | select(($p | .[-1]) == "version" and ($p | length) > 1) | getpath($p); . == $v)' "$base/package.json" 2>/dev/null || echo true)" = "true" ]; then
                 SELF_VERSION=""
               fi
               while IFS= read -r match; do

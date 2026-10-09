@@ -323,6 +323,61 @@ class AllowFileTests(unittest.TestCase):
         result = self.runner.run(TARGET_BRANCH="main")
         self.assertEqual(self.runner.findings_count(result), 2, self._debug(result))
 
+    def test_an_ambiguous_version_in_resolutions_disables_the_exemption(self):
+        """`resolutions` is reached by the line scan, so it must disarm it too."""
+        self.runner.write(
+            "package.json",
+            """{
+  "name": "example",
+  "version": "2.0.0-beta.1",
+  "resolutions": {
+    "version": "2.0.0-beta.1"
+  }
+}
+""",
+        )
+        result = self.runner.run(TARGET_BRANCH="main")
+        self.assertEqual(self.runner.findings_count(result), 2, self._debug(result))
+
+    def test_an_ambiguous_version_nested_in_overrides_disables_the_exemption(self):
+        """`overrides` nests arbitrarily — the guard walks paths, not a section list."""
+        self.runner.write(
+            "package.json",
+            """{
+  "name": "example",
+  "version": "2.0.0-beta.1",
+  "overrides": {
+    "some-package": {
+      "version": "2.0.0-beta.1"
+    }
+  }
+}
+""",
+        )
+        result = self.runner.run(TARGET_BRANCH="main")
+        self.assertEqual(self.runner.findings_count(result), 2, self._debug(result))
+
+    def test_an_unrelated_nested_version_does_not_disable_the_exemption(self):
+        """Only a nested `version` equal to the package's own is ambiguous."""
+        self.runner.write(
+            "package.json",
+            """{
+  "name": "example",
+  "version": "2.0.0-beta.1",
+  "overrides": {
+    "some-package": {
+      "version": "3.1.0"
+    }
+  },
+  "dependencies": {
+    "react": "19.0.0"
+  }
+}
+""",
+        )
+        result = self.runner.run(TARGET_BRANCH="main")
+        self.assertEqual(self.runner.findings_count(result), 0, self._debug(result))
+
     # ----------------- go.mod: unchanged behaviour -----------------
 
     def test_go_mod_entry_still_matches(self):
