@@ -151,7 +151,8 @@ prerelease history**: with no previous stable tag, `@semantic-release/release-no
 builds the notes from the whole history.
 
 To prevent it, the release job runs semantic-release in dry-run mode on every branch
-and measures the notes it would publish. Over `release_notes_max_chars`, the run fails
+and measures the notes it would publish, counting Unicode code points so the
+verdict does not depend on the publish runner's locale. Over `release_notes_max_chars`, the run fails
 there — before the real semantic-release step, so no tag exists and there is nothing to
 clean up.
 

@@ -483,9 +483,12 @@ jobs:
             exit 0
           fi
 
-          # Without a UTF-8 locale `wc -m` counts bytes, and notes with accents
-          # or emoji would measure larger than the API counts them.
-          size="$(printf '%s' "$NOTES" | LC_ALL=C.UTF-8 wc -m | tr -d '[:space:]')"
+          # Counted with node, already installed above, rather than `wc -m`:
+          # the caller picks the runner, and on one without the C.UTF-8 locale
+          # `wc -m` silently falls back to counting bytes, so notes with accents
+          # or emoji would measure larger than the API counts them. Spreading
+          # the string iterates code points, which is what the API limit counts.
+          size="$(node -e 'process.stdout.write(String([...(process.env.NOTES || "")].length))')"
           echo "Release notes for v${NEXT_VERSION}: ${size} characters (limit ${MAX_CHARS})"
 
           if [ "$size" -le "$MAX_CHARS" ]; then
