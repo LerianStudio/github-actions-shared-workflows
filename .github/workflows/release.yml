@@ -147,6 +147,11 @@ on:
         required: false
         type: boolean
         default: false
+      release_notes_max_chars:
+        description: 'Fail the release before any tag is created when the generated release notes exceed this many characters. The GitHub Releases API rejects a body over 125000 characters, and semantic-release only hits that limit in its `publish` step — after the tag is already pushed, which leaves the repository with a tag, a deployed build and no Release, changelog or backmerge. The check runs on the dry-run notes, so an oversized body stops the run with nothing published. Set to 0 to disable.'
+        required: false
+        type: number
+        default: 125000
       environment_name:
         description: 'Overrides the per-channel deployment environment for this run. Empty (default) keeps `stable` on main, `rc` on release-candidate and `beta` on anything else. Pass a value only when a ref needs its own environment, scoping it with a condition in the caller so the channel split still applies to every other ref (see docs/release.md, Deployment Environments). The environment lives in your repository; if it has a deployment branch policy that does not allow this ref, the job fails, which is the intended behaviour.'
         required: false
@@ -410,8 +415,11 @@ jobs:
 
       - name: Determine next version (dry-run)
         id: semantic_dry
+        # Runs on every branch, not just the prerelease lines: the oversized
+        # release notes guard below needs the notes before the real run creates
+        # the tag. `pre_sync` only ever runs on a prerelease branch, so on a
+        # stable branch both conditions are vacuously true.
         if: |
-          steps.classify.outputs.is_prerelease == 'true' &&
           steps.pre_sync.outputs.action != 'pr-opened' &&
           steps.pre_sync.outputs.action != 'pr-existing'
         uses: cycjimmy/semantic-release-action@b12c8f6015dc215fe37bc154d4ad456dd3833c90 # v6
@@ -428,12 +436,72 @@ jobs:
 
       - name: Guard against stale prerelease
         id: guard
-        if: steps.semantic_dry.outputs.new_release_published == 'true'
+        # The dry-run above also runs on stable branches now; this guard only
+        # ever applied to the prerelease lines, so it keeps its own condition.
+        if: |
+          steps.classify.outputs.is_prerelease == 'true' &&
+          steps.semantic_dry.outputs.new_release_published == 'true'
         uses: LerianStudio/github-actions-shared-workflows/src/config/prerelease-guard@v1
         with:
           calculated-version: ${{ steps.semantic_dry.outputs.new_release_version }}
           source-branch: ${{ inputs.backmerge_source }}
           target-branch: ${{ github.ref_name }}
+
+      # The Releases API rejects a body over 125000 characters. semantic-release
+      # only finds out in `publish`, which runs *after* the tag is created and
+      # pushed: the tag triggers the caller's build and deploy, while the
+      # Release, the changelog, the announcement and the backmerge are all
+      # skipped. The target branch then never gets the stable tag, so the
+      # prerelease guard above fails every later push to it.
+      #
+      # The first stable release of a repository with a long prerelease history
+      # is the case that hits this: with no previous stable tag the notes cover
+      # the whole history. Checking the dry-run notes stops the run before any
+      # tag exists, so a failure here leaves nothing behind to clean up.
+      - name: Guard against oversized release notes
+        # The input is validated here rather than in the `if:` above, so a bad
+        # value fails loudly instead of quietly turning the guard off.
+        if: steps.semantic_dry.outputs.new_release_published == 'true'
+        env:
+          NOTES: ${{ steps.semantic_dry.outputs.new_release_notes }}
+          MAX_CHARS: ${{ inputs.release_notes_max_chars }}
+          NEXT_VERSION: ${{ steps.semantic_dry.outputs.new_release_version }}
+        run: |
+          # A character limit is a whole number. Anything else — a fraction, a
+          # negative, the exponent notation GitHub can produce when it renders a
+          # large `number` input as a string — is a configuration mistake, and
+          # `test -le` would report it as oversized notes instead.
+          case "$MAX_CHARS" in
+            '' | *[!0-9]*)
+              echo "::error::release_notes_max_chars must be a non-negative whole number (got '${MAX_CHARS}')"
+              exit 1
+              ;;
+          esac
+
+          if [ "$MAX_CHARS" -eq 0 ]; then
+            echo "Release notes size check disabled (release_notes_max_chars=0)"
+            exit 0
+          fi
+
+          # Counted with node, already installed above, rather than `wc -m`:
+          # the caller picks the runner, and on one without the C.UTF-8 locale
+          # `wc -m` silently falls back to counting bytes, so notes with accents
+          # or emoji would measure larger than the API counts them. Spreading
+          # the string iterates code points, which is what the API limit counts.
+          size="$(node -e 'process.stdout.write(String([...(process.env.NOTES || "")].length))')"
+          echo "Release notes for v${NEXT_VERSION}: ${size} characters (limit ${MAX_CHARS})"
+
+          if [ "$size" -le "$MAX_CHARS" ]; then
+            exit 0
+          fi
+
+          printf '::error::%s%s%s%s%s\n' \
+            "Release notes for v${NEXT_VERSION} are ${size} characters, over the ${MAX_CHARS} limit. " \
+            "The GitHub Releases API would reject them in the publish step, after the tag had already been created and pushed. This run stopped before that: no tag, no release, nothing to clean up.%0A" \
+            "This is usually the first stable release of a repository with a long prerelease history: with no previous stable tag, the notes cover every commit.%0A" \
+            "To unblock it, publish this release by hand with the notes of the last prerelease on the promoted channel, or narrow what the notes cover in .releaserc.%0A" \
+            "Set release_notes_max_chars to 0 to disable this check."
+          exit 1
 
       - name: Semantic Release
         uses: cycjimmy/semantic-release-action@b12c8f6015dc215fe37bc154d4ad456dd3833c90 # v6
