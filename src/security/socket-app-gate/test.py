@@ -70,10 +70,11 @@ print(now)
 '''
 
 
-def check(name, conclusion: str | None = "success", status="completed", app="socket-security"):
+def check(name, conclusion: str | None = "success", status="completed", app="socket-security",
+          title="fixture"):
     return {"name": name, "status": status, "conclusion": conclusion,
             "app": {"slug": app}, "details_url": "https://socket.dev/dashboard/report",
-            "output": {"title": "fixture", "summary": "fixture result"}}
+            "output": {"title": title, "summary": "fixture result"}}
 
 
 def snapshot(*checks, later_page_error=False):
@@ -90,13 +91,13 @@ class SocketAppGateTests(unittest.TestCase):
             if not shutil.which(command):
                 raise RuntimeError(f"required test command missing: {command}")
 
-    def execute(self, snapshots, timeout=8):
-        wait, evaluate, verdict, calls = self._execute(snapshots, timeout)
+    def execute(self, snapshots, timeout=8, pr_number=""):
+        wait, evaluate, verdict, calls = self._execute(snapshots, timeout, pr_number)
         self.assertEqual(wait.returncode, 0, wait.stdout + wait.stderr)
         assert evaluate is not None and verdict is not None
         return wait, evaluate, verdict, calls
 
-    def _execute(self, snapshots, timeout=8):
+    def _execute(self, snapshots, timeout=8, pr_number=""):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             binaries = root / "bin"
@@ -127,7 +128,7 @@ class SocketAppGateTests(unittest.TestCase):
             self.assertIsInstance(raw, list, "pages must become one result array")
             env.update(RAW_FILE=values["raw_file"], TIMED_OUT=values["timed_out"],
                        FAIL_ON_FINDINGS="true", ON_INCONCLUSIVE="block", ON_MISSING_APP="warn",
-                       FINDINGS_FILE=str(root / "findings.json"))
+                       PR_NUMBER=pr_number, FINDINGS_FILE=str(root / "findings.json"))
             evaluate = subprocess.run(["bash", "-e", "-o", "pipefail", "-c",
                                        run_body("Evaluate Socket App verdict")], env=env,
                                       capture_output=True, text=True, timeout=10)
@@ -198,6 +199,66 @@ class SocketAppGateTests(unittest.TestCase):
         self.assertNotEqual(evaluate.returncode, 0)
         self.assertEqual(verdict["verdict"], "findings")
         self.assertEqual(len(verdict["checks"]), 2)
+
+    # ----------------- Sibling pull requests on one head SHA -----------------
+
+    def test_alerts_titled_for_another_pull_request_do_not_decide(self):
+        """The issue #870 case: a backmerge PR owns the only Alerts run on the SHA."""
+        _, evaluate, verdict, _ = self.execute(
+            [snapshot(check("Project Report"),
+                      check("Pull Request Alerts", "neutral",
+                            title="Pull Request #1348 Alerts: Skipped"))],
+            pr_number="1350")
+        self.assertEqual(evaluate.returncode, 0, evaluate.stdout + evaluate.stderr)
+        self.assertEqual(verdict["verdict"], "pass")
+        self.assertEqual([c["name"] for c in verdict["checks"]], ["Project Report"])
+        self.assertEqual([c["name"] for c in verdict["ignoredChecks"]], ["Pull Request Alerts"])
+        self.assertIn("::notice::Ignoring", evaluate.stdout)
+
+    def test_alerts_titled_for_this_pull_request_still_block(self):
+        _, evaluate, verdict, _ = self.execute(
+            [snapshot(check("Project Report"),
+                      check("Pull Request Alerts", "neutral",
+                            title="Pull Request #1348 Alerts: Skipped"))],
+            pr_number="1348")
+        self.assertNotEqual(evaluate.returncode, 0)
+        self.assertEqual(verdict["verdict"], "inconclusive")
+        self.assertEqual(verdict["ignoredChecks"], [])
+
+    def test_adverse_check_owned_by_another_pull_request_is_ignored(self):
+        _, evaluate, verdict, _ = self.execute(
+            [snapshot(check("Project Report"),
+                      check("Pull Request Alerts", "failure",
+                            title="Pull Request #1348 Alerts: 3 issues"))],
+            pr_number="1350")
+        self.assertEqual(evaluate.returncode, 0, evaluate.stdout + evaluate.stderr)
+        self.assertEqual(verdict["verdict"], "pass")
+
+    def test_untitled_adverse_check_still_blocks(self):
+        """A title that names no pull request is never attributed elsewhere."""
+        _, evaluate, verdict, _ = self.execute(
+            [snapshot(check("Project Report", "failure", title="Project Report: 3 issues"))],
+            pr_number="1350")
+        self.assertNotEqual(evaluate.returncode, 0)
+        self.assertEqual(verdict["verdict"], "findings")
+
+    def test_only_foreign_checks_is_inconclusive_not_missing(self):
+        _, evaluate, verdict, _ = self.execute(
+            [snapshot(check("Pull Request Alerts", "neutral",
+                            title="Pull Request #1348 Alerts: Skipped"))],
+            pr_number="1350")
+        self.assertNotEqual(evaluate.returncode, 0)
+        self.assertEqual(verdict["verdict"], "inconclusive")
+        self.assertEqual(verdict["checks"], [])
+        self.assertIn("published for another pull request", evaluate.stdout)
+
+    def test_empty_pull_request_number_keeps_legacy_behaviour(self):
+        _, evaluate, verdict, _ = self.execute(
+            [snapshot(check("Pull Request Alerts", "neutral",
+                            title="Pull Request #1348 Alerts: Skipped"))])
+        self.assertNotEqual(evaluate.returncode, 0)
+        self.assertEqual(verdict["verdict"], "inconclusive")
+        self.assertEqual(verdict["ignoredChecks"], [])
 
 
 if __name__ == "__main__":
