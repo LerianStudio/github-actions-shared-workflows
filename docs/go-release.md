@@ -7,7 +7,7 @@
 
 Umbrella reusable workflow for Go **service** repositories (deployable apps that ship as container images). A caller references this single workflow and it drives the full release pipeline, branching on the pushed ref:
 
-- **Branch push** → change gate (`src/config/non-doc-changes`) → semantic release (`release.yml`). Documentation-only pushes skip the release.
+- **Branch push** → change gate (`src/config/non-doc-changes`) → semantic release (`release.yml`). Documentation-only pushes skip the release, and so do pushes that touch only `.github/workflows/`, `.github/actions/` or `.github/scripts/` unless `release_on_workflow_changes` is on.
 - **Tag push** → container build & push (`build.yml`) → GitOps update (`gitops-update.yml`), gated on the build actually producing images. Optionally, in the same step of the pipeline, a GoReleaser run that publishes binaries (see [GoReleaser binary lane](#goreleaser-binary-lane)).
 
 ### Repository layouts
@@ -28,6 +28,7 @@ A third layout needs `release_single_app: true`: **one semantic-release tag for 
 | `release_runner_type` | Optional runner override for the Release (publish) jobs only (forwarded to release.yml as `publish_runner_type`); empty falls back to `vars.GENERAL_RUNNERS`, then `runner_type` | string | `''` |
 | `dry_run` | Preview mode for **permission-manifest publishing only** — forwarded to `permission-manifest-publish`, which logs the target key + `aws s3 cp` command without calling AWS. The other release jobs (release/build/gitops) have no full-workflow preview yet. | boolean | `false` |
 | `ignore_globs` | Space-separated globs treated as docs/meta for the branch-push gate | string | `*.md docs/* .github/* LICENSE* .gitignore .coderabbit.yml .coderabbit.yaml` |
+| `release_on_workflow_changes` | Release when a branch push touches only `.github/workflows/`, `.github/actions/` or `.github/scripts/`. Off by default: a pipeline edit ships byte-identical code, so releasing it only moves GitOps tags and writes a changelog entry for a CI tweak | boolean | `false` |
 | `semantic_version` | semantic-release version | string | `23.0.8` |
 | `enable_changelog` | Generate CHANGELOG.md via GPT after a successful release | boolean | `false` |
 | `enable_major_tag` | Force-update the floating major tag (e.g. `v1`) | boolean | `false` |

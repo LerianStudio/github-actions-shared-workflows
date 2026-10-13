@@ -27,6 +27,10 @@ on:
         description: 'Space-separated glob patterns treated as docs/meta; when only these change on a branch push, the release is skipped.'
         type: string
         default: '*.md docs/* .github/* LICENSE* .gitignore .coderabbit.yml .coderabbit.yaml'
+      release_on_workflow_changes:
+        description: 'Release when a branch push touches only .github/workflows/, .github/actions/ or .github/scripts/. Off by default: a pipeline edit ships byte-identical code, and releasing it moves GitOps tags and writes a changelog entry for a CI tweak. Turn it on in a repository whose released artifact lives under .github/ (one that publishes composite actions, say).'
+        type: boolean
+        default: false
 
       # ----------------- Release (release.yml) -----------------
       semantic_version:
@@ -347,6 +351,7 @@ jobs:
         with:
           github-token: ${{ github.token }}
           ignore-globs: ${{ inputs.ignore_globs }}
+          workflow-paths-are-code: ${{ inputs.release_on_workflow_changes }}
 
   # ----------------- Release (branch push) -----------------
   release:
