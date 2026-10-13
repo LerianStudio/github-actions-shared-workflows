@@ -261,6 +261,26 @@ jobs:
           GIT_COMMITTER_NAME: ${{ secrets.LERIAN_CI_CD_USER_NAME }}
           GIT_COMMITTER_EMAIL: ${{ secrets.LERIAN_CI_CD_USER_EMAIL }}
 
+      # `cycjimmy/semantic-release-action` installs its own dependencies in its
+      # entrypoint, and the entrypoint ends in `run().catch(console.error)`: a
+      # failing `npm ci` is printed and the process still exits 0, so the step
+      # is green with semantic-release never started. The action's first task
+      # sets `new_release_published` to `false`, so an empty output is the
+      # signature of "never ran" — `false` is the legitimate "nothing to
+      # release". Without this check the two are indistinguishable, and a
+      # release that silently did not happen looks exactly like one that
+      # correctly did not happen.
+      - name: Verify Semantic Release ran
+        if: |
+          steps.semantic.outcome == 'success' &&
+          steps.semantic.outputs.new_release_published == ''
+        run: |
+          printf '::error::%s%s%s\n' \
+            "semantic-release never started: the action could not install its own dependencies and exited successfully anyway. The npm error is in the step log above.%0A" \
+            "No version was released. This is not the same as having nothing to release — the tool never ran.%0A" \
+            "Re-run the job. If it keeps happening, the runner cannot reach the npm registry."
+          exit 1
+
       # ----------------- Detect release via git tag -----------------
       - name: Detect if release was published
         if: ${{ !inputs.dry_run && always() && steps.semantic.outcome == 'failure' }}
