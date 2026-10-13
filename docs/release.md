@@ -161,6 +161,24 @@ on the promoted channel (for example the last `-rc.N`), or narrow what the notes
 `.releaserc`. Set `release_notes_max_chars: 0` to turn the check off. Any other non-whole or
 negative value fails the step rather than silently disabling it.
 
+## Semantic Release That Never Started
+
+`cycjimmy/semantic-release-action` installs its own dependencies in its entrypoint,
+and that entrypoint ends in `run().catch(console.error)`: when the install fails —
+a transient `npm ci` timeout against the npm registry, for example — the error is
+printed and the process still exits `0`. The step is green, semantic-release never
+ran, and every output is empty.
+
+Empty is what tells the two cases apart. The action's first task sets
+`new_release_published` to `false`, so `false` means "nothing to release" (a
+legitimate outcome) while an empty value means the tool never started. Both the
+dry-run step and the real `Semantic Release` step are followed by a check that fails
+the job on the empty case, instead of letting it report a successful run that
+published nothing.
+
+When it fires, re-run the job: the same commits usually release immediately. If it
+keeps happening, the runner cannot reach the npm registry.
+
 ## Release Announcement
 
 After a successful release, the `announce_release` job calls
@@ -403,6 +421,7 @@ plugins:
 6. **Initialize package.json**: Create if doesn't exist
 7. **Install Plugins**: Install semantic-release plugins
 8. **Run Semantic Release**: Calculate version and create release using `.releaserc.yml`
+9. **Verify it ran**: Fail the job when the action exited without starting semantic-release — see [Semantic Release That Never Started](#semantic-release-that-never-started)
 
 ## GPG Signing
 

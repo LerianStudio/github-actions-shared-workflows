@@ -434,6 +434,26 @@ jobs:
           GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
 
+      # `cycjimmy/semantic-release-action` installs its own dependencies in its
+      # entrypoint, and the entrypoint ends in `run().catch(console.error)`: a
+      # failing `npm ci` is printed and the process still exits 0, so the step
+      # is green with semantic-release never started. The action's first task
+      # sets `new_release_published` to `false`, so an empty output is the
+      # signature of "never ran" — `false` is the legitimate "nothing to
+      # release". Without this check the two are indistinguishable, and a
+      # release that silently did not happen looks exactly like one that
+      # correctly did not happen.
+      - name: Verify the dry-run ran
+        if: |
+          steps.semantic_dry.outcome == 'success' &&
+          steps.semantic_dry.outputs.new_release_published == ''
+        run: |
+          printf '::error::%s%s%s\n' \
+            "semantic-release never started in the dry-run step: the action could not install its own dependencies and exited successfully anyway. The npm error is in the step log above.%0A" \
+            "Nothing was tagged or published, and the release guards below never got a version to check.%0A" \
+            "Re-run the job. If it keeps happening, the runner cannot reach the npm registry."
+          exit 1
+
       - name: Guard against stale prerelease
         id: guard
         # The dry-run above also runs on stable branches now; this guard only
@@ -523,6 +543,26 @@ jobs:
           GIT_COMMITTER_NAME: ${{ secrets.LERIAN_CI_CD_USER_NAME }}
           GIT_COMMITTER_EMAIL: ${{ secrets.LERIAN_CI_CD_USER_EMAIL }}
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      # `cycjimmy/semantic-release-action` installs its own dependencies in its
+      # entrypoint, and the entrypoint ends in `run().catch(console.error)`: a
+      # failing `npm ci` is printed and the process still exits 0, so the step
+      # is green with semantic-release never started. The action's first task
+      # sets `new_release_published` to `false`, so an empty output is the
+      # signature of "never ran" — `false` is the legitimate "nothing to
+      # release". Without this check the two are indistinguishable, and a
+      # release that silently did not happen looks exactly like one that
+      # correctly did not happen.
+      - name: Verify Semantic Release ran
+        if: |
+          steps.semantic.outcome == 'success' &&
+          steps.semantic.outputs.new_release_published == ''
+        run: |
+          printf '::error::%s%s%s\n' \
+            "semantic-release never started: the action could not install its own dependencies and exited successfully anyway. The npm error is in the step log above.%0A" \
+            "No version was released. This is not the same as having nothing to release — the tool never ran.%0A" \
+            "Re-run the job. If it keeps happening, the runner cannot reach the npm registry."
+          exit 1
 
       # ----------------- Backmerge -----------------
       # The post-release backmerge (backmerge_source → backmerge_target) is NOT

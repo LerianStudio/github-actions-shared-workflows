@@ -229,10 +229,28 @@ Runs semantic-release for each app in the matrix:
 7. Initialize clean `package.json` and `.releaserc.json`
 8. Install semantic-release plugins
 9. Run semantic-release
+10. Verify semantic-release actually ran — see [Semantic release that never started](#semantic-release-that-never-started)
 
 ### notify
 
 Sends Slack notification with release status. Skipped when no changes are detected or when the commit triggers a skip.
+
+## Semantic Release That Never Started
+
+`cycjimmy/semantic-release-action` installs its own dependencies in its entrypoint,
+and that entrypoint ends in `run().catch(console.error)`: when the install fails —
+a transient `npm ci` timeout against the npm registry, for example — the error is
+printed and the process still exits `0`. The step is green, semantic-release never
+ran, and every output is empty.
+
+Empty is what tells the two cases apart. The action's first task sets
+`new_release_published` to `false`, so `false` means "nothing to release" (a
+legitimate outcome) while an empty value means the tool never started. The
+`Semantic Release` step is followed by a check that fails the job on the empty case,
+instead of letting it report a successful run that published nothing.
+
+When it fires, re-run the job: the same commits usually release immediately. If it
+keeps happening, the runner cannot reach the npm registry.
 
 ## Semantic Release Plugins
 
