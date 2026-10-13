@@ -39,6 +39,11 @@ It also classifies the release: when the tag being dispatched was cut from a mai
 
 ## Environment variable detection
 
+A component that carries its own `env_file` / `detect_env_changes` (one that came
+from a `build.yml` artifact, see below) is read with those; the inputs are the
+fallback for every other component. That is what lets one dispatch serve build
+groups configured differently.
+
 With `detect_env_changes` on, each component's `<path>/<env_file>` is diffed
 against the previous release and the variables added since then travel in the
 payload. The lookup is relative to the component path, so a repository whose
@@ -61,8 +66,8 @@ be merged through `outputs`.
 With `components_artifact_pattern` set, this workflow downloads the matching
 artifacts **from the current run**, reads every `*.json` in them, and merges the
 entries into `components_json` before building the payload. Each file is a
-component object (`{"name": ..., "working_dir": ...}`) — the shape
-`build.yml` writes with `emit_component_artifact: true`.
+component object (`{"name", "working_dir", "env_file", "detect_env_changes"}`) —
+the shape `build.yml` writes with `emit_component_artifact: true`.
 
 - A name already present in `components_json` wins; the artifacts only add what
   the caller could not see.

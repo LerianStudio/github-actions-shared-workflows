@@ -1071,11 +1071,18 @@ jobs:
         env:
           APP_NAME: ${{ matrix.app.name }}
           WORKING_DIR: ${{ matrix.app.working_dir }}
+          # Carried per component, not left to the dispatching job's own inputs:
+          # the caller can set these per extra_builds group, and the central
+          # dispatch has no way back to which group an image came from.
+          ENV_FILE: ${{ inputs.helm_env_file }}
+          DETECT_ENV: ${{ inputs.helm_detect_env_changes }}
         run: |
           set -euo pipefail
           mkdir -p helm-components
           jq -n --arg name "$APP_NAME" --arg dir "$WORKING_DIR" \
-            '{name: $name, working_dir: $dir}' > "helm-components/${APP_NAME}.json"
+            --arg env_file "$ENV_FILE" --argjson detect "$DETECT_ENV" \
+            '{name: $name, working_dir: $dir, env_file: $env_file, detect_env_changes: $detect}' \
+            > "helm-components/${APP_NAME}.json"
           echo "Created artifact: helm-components/${APP_NAME}.json"
 
       - name: Upload Helm component artifact

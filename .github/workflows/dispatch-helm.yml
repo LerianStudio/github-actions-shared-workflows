@@ -313,7 +313,10 @@ jobs:
             v "Raw components_json: $RAW_COMPONENTS"
 
             # Normalize to use 'path' field (convert working_dir to path if needed)
-            COMPONENTS_JSON=$(echo "$RAW_COMPONENTS" | jq -c '[.[] | {name: .name, path: (.path // .working_dir // null), version: (.version // null)}]')
+            # env_file/detect_env_changes are per component when they come from a
+            # build artifact: the caller can set them per build group, and this job
+            # cannot tell which group an image came from.
+            COMPONENTS_JSON=$(echo "$RAW_COMPONENTS" | jq -c '[.[] | {name: .name, path: (.path // .working_dir // null), version: (.version // null), env_file: (.env_file // null), detect_env_changes: (if .detect_env_changes == null then null else .detect_env_changes end)}]')
             v "Normalized components: $COMPONENTS_JSON"
           fi
 
@@ -342,6 +345,7 @@ jobs:
           HAS_NEW_ENV_VARS=false
           ENV_FILES_FOUND=0
           ENV_FILES_MISSING=""
+          ENV_DETECT_RAN=false
 
           # Process each component
           for row in $(echo "$COMPONENTS_JSON" | jq -c '.[]'); do
@@ -379,10 +383,21 @@ jobs:
             VERSION="$COMP_VERSION"
             v "  Version: $VERSION"
 
-            # Detect new env vars
+            # Detect new env vars. A component that carries its own settings (it
+            # came from a build artifact) is read with those; the inputs are the
+            # fallback for every other caller.
+            COMP_ENV_FILE=$(echo "$row" | jq -r '.env_file // empty')
+            # `// empty` would swallow an explicit false — it is falsy in jq — and
+            # silently turn detection back on for a component that opted out.
+            COMP_DETECT=$(echo "$row" | jq -r 'if .detect_env_changes == null then empty else (.detect_env_changes | tostring) end')
+            [ -n "$COMP_ENV_FILE" ] || COMP_ENV_FILE="$ENV_FILE"
+            [ -n "$COMP_DETECT" ] || COMP_DETECT="$DETECT_ENV"
+
             ENV_VARS_JSON="{}"
-            if [ "$DETECT_ENV" = "true" ]; then
-              FULL_ENV_FILE="${COMP_PATH}/${ENV_FILE}"
+            if [ "$COMP_DETECT" = "true" ]; then
+              FULL_ENV_FILE="${COMP_PATH}/${COMP_ENV_FILE}"
+
+              ENV_DETECT_RAN=true
 
               if [ -f "$FULL_ENV_FILE" ]; then
                 ENV_FILES_FOUND=$((ENV_FILES_FOUND + 1))
@@ -434,7 +449,7 @@ jobs:
                 fi
               else
                 ENV_FILES_MISSING="${ENV_FILES_MISSING} ${FULL_ENV_FILE}"
-                v "  No ${ENV_FILE} at ${COMP_PATH}, nothing to detect"
+                v "  No ${COMP_ENV_FILE} at ${COMP_PATH}, nothing to detect"
               fi
             fi
 
@@ -456,8 +471,8 @@ jobs:
           # example env somewhere else (config/.env.example) — env_file points at it.
           # Warned once per run, and only in that all-or-nothing case: a repository
           # where some components legitimately have no env file is not misconfigured.
-          if [ "$DETECT_ENV" = "true" ] && [ "$ENV_FILES_FOUND" -eq 0 ] && [ -n "$ENV_FILES_MISSING" ]; then
-            echo "::warning::detect_env_changes is on, but no '$(clean "$ENV_FILE")' was found for any component (looked at:$(clean "$ENV_FILES_MISSING")). No environment variables will be reported to the chart. Point env_file at the file this repository actually uses, or turn detect_env_changes off."
+          if [ "$ENV_DETECT_RAN" = "true" ] && [ "$ENV_FILES_FOUND" -eq 0 ] && [ -n "$ENV_FILES_MISSING" ]; then
+            echo "::warning::Env detection is on, but no example env file was found for any component (looked at:$(clean "$ENV_FILES_MISSING")). No environment variables will be reported to the chart. Point env_file at the file this repository actually uses, or turn detect_env_changes off."
           fi
 
           v "Processed components: $PROCESSED_COMPONENTS"

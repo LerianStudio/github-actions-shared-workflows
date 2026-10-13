@@ -408,7 +408,11 @@ When `emit_component_artifact: true`, each pushed image also leaves a small JSON
 file on the run describing the component it belongs to:
 
 **Artifact pattern:** `helm-components-{app_name}`, containing
-`{app_name}.json` with `{"name": ..., "working_dir": ...}`.
+`{app_name}.json` with `{"name", "working_dir", "env_file", "detect_env_changes"}`.
+
+The env settings travel with the component on purpose: the caller can set them
+per build group, and the job that dispatches centrally has no way back to which
+group an image came from.
 
 It exists for one case: the images of a single chart built by jobs that are
 **siblings** in the caller. A matrix job's outputs keep only one leg's value, so

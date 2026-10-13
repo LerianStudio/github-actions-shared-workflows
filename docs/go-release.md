@@ -313,8 +313,11 @@ Extra builds run on tag push (beta/rc, and stable when `build_on_release` is off
 > at the file the repository actually uses — the value is resolved relative to
 > each component's path, so a component built from the repo root reaches
 > `config/.env.example` as `helm_env_file: config/.env.example` — or turn
-> `helm_detect_env_changes` off. A run where detection is on and **no** component has the file warns once,
-> instead of passing silently.
+> `helm_detect_env_changes` off. A run where detection is on and **no** component
+> has the file warns once, instead of passing silently. A per-group
+> `helm_env_file` / `helm_detect_env_changes` is honoured in the central dispatch
+> too: each group's images carry their own setting in the component artifact, so
+> groups whose example env lives in different places still share one dispatch.
 
 > **Independently-tagged component** — a group with `tag_prefix` set (e.g. `matcher-mcp-v`) only builds when the triggering tag starts with that prefix, letting a component with its own semantic-release line and tag scheme (decoupled from the app's `vX.Y.Z`) share this workflow without building on every unrelated tag push. Set the top-level `tag_prefix` input too (e.g. `v`), so the *primary* build also ignores that component's tags — otherwise a `matcher-mcp-v1.2.3` push would still trigger the primary app build.
 
