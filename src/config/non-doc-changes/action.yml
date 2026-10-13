@@ -6,9 +6,13 @@ inputs:
     description: GitHub token used for gh CLI access (needs read access to the repository contents and pull requests).
     required: true
   ignore-globs:
-    description: 'Space-separated glob patterns treated as documentation/meta. When every changed file matches one of these, the gate returns code=false. Files under .github/workflows/, .github/actions/ and .github/scripts/ always count as code, whatever the globs say.'
+    description: 'Space-separated glob patterns treated as documentation/meta. When every changed file matches one of these, the gate returns code=false. Files under .github/workflows/, .github/actions/ and .github/scripts/ count as code whatever the globs say, unless workflow-paths-are-code is false.'
     required: false
     default: '*.md docs/* .github/* LICENSE* .gitignore .coderabbit.yml .coderabbit.yaml'
+  workflow-paths-are-code:
+    description: 'When true (the default), files under .github/workflows/, .github/actions/ and .github/scripts/ are classified as code before the globs are applied. Set to false to classify them by the globs like any other path — what release callers want, so that a push touching only the pipeline definition does not cut a release.'
+    required: false
+    default: 'true'
 
 outputs:
   code:
@@ -24,6 +28,7 @@ runs:
       env:
         GH_TOKEN: ${{ inputs.github-token }}
         IGNORE_GLOBS: ${{ inputs.ignore-globs }}
+        WORKFLOW_PATHS_ARE_CODE: ${{ inputs.workflow-paths-are-code }}
         EVENT_NAME: ${{ github.event_name }}
         REPO: ${{ github.repository }}
         PR_NUMBER: ${{ github.event.pull_request.number }}
@@ -31,6 +36,18 @@ runs:
         AFTER: ${{ github.sha }}
       run: |
         set -euo pipefail
+
+        # A typo here would not fail, it would decide. Read as true it releases
+        # on every pipeline edit; read as false it stops releasing on real code
+        # under .github/. Neither default is safe enough to guess at, so an
+        # unrecognised value is an error rather than a silent verdict.
+        case "$WORKFLOW_PATHS_ARE_CODE" in
+          true|false) ;;
+          *)
+            echo "::error::workflow-paths-are-code must be 'true' or 'false', got '${WORKFLOW_PATHS_ARE_CODE}'"
+            exit 1
+            ;;
+        esac
 
         # ----------------- Collect changed files -----------------
         if [ "$EVENT_NAME" = "pull_request" ] || [ "$EVENT_NAME" = "pull_request_target" ]; then
@@ -74,20 +91,27 @@ runs:
         code=false
         while IFS= read -r file; do
           [ -z "$file" ] && continue
-          # Executable paths under .github are never documentation, whatever
-          # the globs say: the default `.github/*` glob is for CODEOWNERS,
-          # templates and bot config, and a PR that edits only the pipeline
-          # definition is the one PR that must run the pipeline it edits.
+          # Executable paths under .github are not documentation: the default
+          # `.github/*` glob is for CODEOWNERS, templates and bot config, and a
+          # PR that edits only the pipeline definition is the one PR that must
+          # run the pipeline it edits.
           #
           # These cases are load-bearing, not belt-and-braces. In a bash `case`
           # pattern `*` DOES match `/` — unlike a GitHub `paths-ignore` filter,
           # where it does not — so `.github/*` here swallows every nested path.
           # Without these exceptions a push touching only a composite action or
           # a pipeline helper script would be classified as documentation, and
-          # go unbuilt and unreleased.
-          case "$file" in
-            .github/workflows/*|.github/actions/*|.github/scripts/*) code=true; break ;;
-          esac
+          # go unbuilt and untested.
+          #
+          # Validation wants that. Release does not: shipping an unchanged
+          # artifact because someone edited a workflow moves GitOps tags and
+          # writes a changelog entry for a CI tweak. Release callers therefore
+          # pass workflow-paths-are-code=false and let the globs decide.
+          if [ "$WORKFLOW_PATHS_ARE_CODE" = true ]; then
+            case "$file" in
+              .github/workflows/*|.github/actions/*|.github/scripts/*) code=true; break ;;
+            esac
+          fi
           ignored=false
           for glob in "${ignore_patterns[@]}"; do
             # shellcheck disable=SC2254
