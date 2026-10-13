@@ -258,6 +258,15 @@ jobs:
 
     steps:
       # ----------------- Setup -----------------
+      # Checkout comes first so a registry login failure cannot leave the
+      # workspace empty: events that do not carry organisation secrets
+      # (Dependabot pull requests, for one) resolve the pull token to an empty
+      # string and the login below fails. With the code already on disk the
+      # filesystem scan - the one that reads go.mod/package-lock.json, and the
+      # scan that matters for a dependency bump - still runs and reports.
+      - name: Checkout Repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+
       # Only the image-scan path reads the registry, via the Docker build below
       # pulling the Dockerfile's base image. The filesystem scan runs the Trivy
       # binary, so unguarded this step fails the whole job for a caller with no
@@ -270,9 +279,6 @@ jobs:
           registry: ${{ inputs.docker_registry }}
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKERHUB_IMAGE_PULL_TOKEN }}
-
-      - name: Checkout Repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
 
       - name: Set up Docker Buildx
         if: inputs.enable_docker_scan
