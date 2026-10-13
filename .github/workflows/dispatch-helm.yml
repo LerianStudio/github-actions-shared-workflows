@@ -69,6 +69,10 @@ on:
         description: 'JSON array of components (alternative to paths_matrix): [{"name":"backend","version":"1.0.0"},...]'
         type: string
         required: false
+      components_artifact_pattern:
+        description: 'Artifact name pattern (e.g. "helm-components-*") whose JSON files carry extra components to merge into components_json, downloaded from THIS run. For a caller whose images are built by sibling jobs it cannot merge through outputs (go-release.yml: build + extra_builds): each build.yml leg uploads its components with emit_component_artifact, and this collects them so one dispatch carries every image of the chart. Empty = only components_json is used, as before. Entries already in components_json win on name collision.'
+        type: string
+        default: ''
       components_base_path:
         description: 'Base path for components (default: components)'
         type: string
@@ -182,6 +186,59 @@ jobs:
             echo "version_line=${VERSION_LINE}"
           } >> "$GITHUB_OUTPUT"
 
+      # ----------------- Component Artifacts (optional) -----------------
+      # The images of one chart can be built by jobs that are siblings in the
+      # caller: a matrix job's outputs keep a single leg's value, so the component
+      # lists cannot be merged through outputs. Each leg leaves its own artifact on
+      # the run instead and they are reassembled here, after every build finished.
+      - name: Download component artifacts
+        if: inputs.components_artifact_pattern != ''
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          pattern: ${{ inputs.components_artifact_pattern }}
+          path: .helm-components
+          merge-multiple: true
+          # Only this run's artifacts, and no failure when the pattern matches
+          # nothing (no extra build ran) — components_json alone is then used.
+          run-id: ${{ github.run_id }}
+          if-no-artifact-found: ignore
+
+      - name: Merge component artifacts into components_json
+        id: merge_components
+        if: inputs.components_artifact_pattern != ''
+        env:
+          RAW_COMPONENTS: ${{ inputs.components_json }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          set -euo pipefail
+          v() { [ "$DRY_RUN" = "true" ] && printf '%s\n' "$*"; return 0; }
+
+          BASE="${RAW_COMPONENTS:-[]}"
+          EXTRA='[]'
+          if [ -d .helm-components ]; then
+            # cat into a single jq -s: a per-file invocation would emit one array
+            # per batch once there are enough files for find/xargs to split.
+            EXTRA=$(find .helm-components -type f -name '*.json' -exec cat {} + \
+              | jq -c -s '[.[] | select(.name != null and .name != "")]')
+            EXTRA="${EXTRA:-[]}"
+          fi
+
+          # components_json wins on name collision: it is the caller's explicit
+          # payload, the artifacts only add what it could not see.
+          MERGED=$(jq -c -n --argjson base "$BASE" --argjson extra "$EXTRA" \
+            '$base + [$extra[] | select(.name as $n | ($base | map(.name) | index($n)) | not)]')
+
+          v "Base components:   $BASE"
+          v "Artifact components: $EXTRA"
+          v "Merged components: $MERGED"
+          echo "Merged $(echo "$BASE" | jq 'length') caller component(s) with $(echo "$EXTRA" | jq 'length') from artifacts."
+
+          {
+            echo "components_json<<EOF"
+            echo "$MERGED"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
       # ----------------- Payload Preparation -----------------
       - name: Process all components
         id: process
@@ -196,7 +253,7 @@ jobs:
           RAW_INPUT_VERSION: ${{ inputs.version }}
           PATHS_MATRIX: ${{ inputs.paths_matrix }}
           PATH_MAPPING: ${{ inputs.path_mapping }}
-          RAW_COMPONENTS: ${{ inputs.components_json }}
+          RAW_COMPONENTS: ${{ steps.merge_components.outputs.components_json || inputs.components_json }}
           EVENT_BEFORE: ${{ github.event.before }}
           CURRENT_TAG: ${{ github.ref_name }}
           HELM_REPOSITORY: ${{ inputs.helm_repository }}

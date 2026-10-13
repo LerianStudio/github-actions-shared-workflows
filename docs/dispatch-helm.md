@@ -21,6 +21,7 @@ It also classifies the release: when the tag being dispatched was cut from a mai
 | `paths_matrix` | Raw paths matrix from the changed-paths action. Use with `path_mapping`. | no | — |
 | `path_mapping` | JSON mapping of paths to app names | no | — |
 | `components_json` | JSON array of components — alternative to `paths_matrix` | no | — |
+| `components_artifact_pattern` | Artifact name pattern (e.g. `helm-components-*`) whose JSON files are merged into `components_json`, downloaded from the current run. See [Merging components from artifacts](#merging-components-from-artifacts). | no | `''` |
 | `components_base_path` | Base path for components in the source repository | no | `components` |
 | `env_file` | Env example file relative to the component path | no | `.env.example` |
 | `detect_env_changes` | Detect environment variables added since the previous release | no | `true` |
@@ -35,6 +36,30 @@ It also classifies the release: when the tag being dispatched was cut from a mai
 | Secret | Description | Required |
 |---|---|---|
 | `helm_repo_token` | Token scoped to the Helm repository with `Actions: read and write`. That is the only permission the dispatch needs — a classic token with full `repo` scope also works but grants far more than required. | yes |
+
+## Merging components from artifacts
+
+`components_json` covers the case where the caller knows every component in one
+place. It does not cover a chart whose images are built by **sibling jobs** — a
+matrix job's outputs keep a single leg's value, so those component lists cannot
+be merged through `outputs`.
+
+With `components_artifact_pattern` set, this workflow downloads the matching
+artifacts **from the current run**, reads every `*.json` in them, and merges the
+entries into `components_json` before building the payload. Each file is a
+component object (`{"name": ..., "working_dir": ...}`) — the shape
+`build.yml` writes with `emit_component_artifact: true`.
+
+- A name already present in `components_json` wins; the artifacts only add what
+  the caller could not see.
+- A pattern that matches nothing is not an error — the dispatch proceeds with
+  `components_json` alone.
+- Empty (the default) skips the download entirely, so nothing changes for
+  callers that do not use it.
+
+This is how `go-release.yml` sends the primary build and every `extra_builds`
+group in a single dispatch: one `values_key_mappings` covers all of them, and the
+chart is bumped once, after every image has been pushed.
 
 ## Payload
 

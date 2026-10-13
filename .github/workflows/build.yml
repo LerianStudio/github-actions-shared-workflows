@@ -103,6 +103,10 @@ on:
         description: 'Enable GitOps artifacts upload for downstream gitops-update workflow'
         type: boolean
         default: false
+      emit_component_artifact:
+        description: 'Upload a helm-components-<app> artifact ({"name","working_dir"}) for every image this run pushes. For a caller that defers the Helm dispatch to a job of its own (go-release.yml): sibling build jobs cannot merge their matrices through outputs, so each one leaves its components on the run and the dispatch job collects them with components_artifact_pattern. Off by default — it only costs an upload when someone downstream reads it.'
+        type: boolean
+        default: false
       # Helm dispatch configuration
       enable_helm_dispatch:
         description: 'Enable dispatching to Helm repository for chart updates'
@@ -1057,6 +1061,29 @@ jobs:
         with:
           name: gitops-tags-${{ matrix.app.name }}
           path: gitops-tags/
+
+      # ----------------- Helm Component Artifact -----------------
+      # Same position as the GitOps artifact above on purpose: both only run once
+      # the image for this matrix leg is pushed, so a component reaches the chart
+      # payload only after the image it names exists.
+      - name: Create Helm component artifact
+        if: inputs.emit_component_artifact
+        env:
+          APP_NAME: ${{ matrix.app.name }}
+          WORKING_DIR: ${{ matrix.app.working_dir }}
+        run: |
+          set -euo pipefail
+          mkdir -p helm-components
+          jq -n --arg name "$APP_NAME" --arg dir "$WORKING_DIR" \
+            '{name: $name, working_dir: $dir}' > "helm-components/${APP_NAME}.json"
+          echo "Created artifact: helm-components/${APP_NAME}.json"
+
+      - name: Upload Helm component artifact
+        if: inputs.emit_component_artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: helm-components-${{ matrix.app.name }}
+          path: helm-components/
 
   # Slack notification
   notify:

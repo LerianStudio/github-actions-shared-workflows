@@ -557,6 +557,10 @@ jobs:
       # itself, which cannot see extra_build — a sibling job here — so the chart
       # would be bumped while the migrations image was still building.
       enable_helm_dispatch: false
+      # Leave this build's components on the run for dispatch_helm to collect,
+      # the same way the extra_builds groups below do, so one dispatch carries
+      # every image of the chart. Only when that dispatch actually happens.
+      emit_component_artifact: ${{ inputs.enable_helm_dispatch && inputs.helm_chart != '' }}
       helm_chart: ${{ inputs.helm_chart }}
       helm_repository: ${{ inputs.helm_repository }}
       helm_detect_env_changes: ${{ inputs.helm_detect_env_changes }}
@@ -975,6 +979,12 @@ jobs:
       build_context_from_working_dir: ${{ matrix.group.build_context_from_working_dir || false }}
       docker_build_args: ${{ matrix.group.docker_build_args }}
       enable_helm_dispatch: ${{ matrix.group.enable_helm_dispatch || false }}
+      # This group's images join the central dispatch_helm payload, so the
+      # top-level helm_values_key_mappings covers them and the chart is bumped
+      # once, after every image exists. A group that dispatches on its own
+      # (its chart is a different one) stays out of that payload instead of
+      # being published twice.
+      emit_component_artifact: ${{ inputs.enable_helm_dispatch && inputs.helm_chart != '' && matrix.group.enable_helm_dispatch != true }}
       helm_chart: ${{ matrix.group.helm_chart }}
       helm_repository: ${{ inputs.helm_repository }}
       helm_detect_env_changes: ${{ toJSON(matrix.group.helm_detect_env_changes) == 'true' || (toJSON(matrix.group.helm_detect_env_changes) != 'false' && inputs.helm_detect_env_changes) }}
@@ -1030,6 +1040,10 @@ jobs:
       chart: ${{ inputs.helm_chart }}
       version: ${{ github.ref_name }}
       components_json: ${{ needs.build.outputs.matrix }}
+      # The primary matrix reaches this job through outputs; the extra_builds
+      # groups cannot (a matrix job's outputs keep one leg's value), so they
+      # arrive as artifacts each build.yml leg left on the run.
+      components_artifact_pattern: helm-components-*
       detect_env_changes: ${{ inputs.helm_detect_env_changes }}
       values_key_mappings: ${{ inputs.helm_values_key_mappings }}
       legacy_patch_detection: ${{ inputs.helm_legacy_patch_detection }}

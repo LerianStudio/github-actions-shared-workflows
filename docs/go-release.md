@@ -282,6 +282,29 @@ Set `extra_builds` to a JSON array of build groups. Each group runs a parallel `
 
 Extra builds run on tag push (beta/rc, and stable when `build_on_release` is off). When `build_on_release` is `true`, every extra-build group *without its own `tag_prefix`* also builds in the stable semantic-release run on the branch — the same path the primary build uses — so a stable release whose tag lands on a `[skip ci]` commit still publishes all extra images (they are not left behind on the suppressed tag push). With `build_on_release_include_prerelease` also `true`, the same branch-rescue path additionally covers beta/rc releases, not just stable. A group with `tag_prefix` set is excluded from that branch-rescue run (its `tag_prefix` is only applied on an actual tag push) — it keeps building solely on its own independently-tagged pushes, per the note below.
 
+> **Helm chart with extra images** — the central `dispatch_helm` job carries the
+> primary build **and** every `extra_builds` group, so one top-level
+> `helm_values_key_mappings` maps all of them and the chart is bumped **once**,
+> after every image has been pushed. Do not repeat `enable_helm_dispatch` /
+> `helm_chart` / `helm_values_key_mappings` per group for the same chart: a group
+> that dispatches on its own does so from inside its `build.yml` run, which
+> cannot see its sibling builds — that is the race the central job exists to
+> remove, and it bumps the chart once per component instead of once per release.
+> Keep a group-level `enable_helm_dispatch: true` only when that group targets a
+> **different** chart; such a group is then left out of the central payload
+> rather than published twice.
+>
+> ```yaml
+> enable_helm_dispatch: true
+> helm_chart: plugin-br-pix-jd
+> helm_values_key_mappings: '{"plugin-br-pix-jd": "api", "plugin-br-pix-jd-worker": "worker", "plugin-br-pix-jd-migrations": "migrations"}'
+> extra_builds: |
+>   [
+>     {"filter_paths": "cmd/worker", "app_name_overrides": "cmd/worker:plugin-br-pix-jd-worker"},
+>     {"filter_paths": "migrations-image", "app_name_overrides": "migrations-image:plugin-br-pix-jd-migrations", "require_build_identity": false}
+>   ]
+> ```
+
 > **Independently-tagged component** — a group with `tag_prefix` set (e.g. `matcher-mcp-v`) only builds when the triggering tag starts with that prefix, letting a component with its own semantic-release line and tag scheme (decoupled from the app's `vX.Y.Z`) share this workflow without building on every unrelated tag push. Set the top-level `tag_prefix` input too (e.g. `v`), so the *primary* build also ignores that component's tags — otherwise a `matcher-mcp-v1.2.3` push would still trigger the primary app build.
 
 > **Important** — `update_gitops` downloads artifacts by `gitops_artifact_pattern` (default `gitops-tags-<repo-name>*`). When an extra build produces an image whose name does **not** start with the repo name (e.g. `mock-btg-server`), set `gitops_artifact_pattern` to a wildcard that captures every image (e.g. `gitops-tags-*`), otherwise that image's tag artifact is skipped.
