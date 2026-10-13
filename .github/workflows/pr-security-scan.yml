@@ -266,6 +266,11 @@ jobs:
       # scan that matters for a dependency bump - still runs and reports.
       - name: Checkout Repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+        with:
+          # No step in this job runs git, and the image build below takes `.` as
+          # its context on most callers - a persisted token would ride into the
+          # build context for nothing.
+          persist-credentials: false
 
       # Only the image-scan path reads the registry, via the Docker build below
       # pulling the Dockerfile's base image. The filesystem scan runs the Trivy
