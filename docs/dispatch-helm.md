@@ -37,6 +37,20 @@ It also classifies the release: when the tag being dispatched was cut from a mai
 |---|---|---|
 | `helm_repo_token` | Token scoped to the Helm repository with `Actions: read and write`. That is the only permission the dispatch needs — a classic token with full `repo` scope also works but grants far more than required. | yes |
 
+## Environment variable detection
+
+With `detect_env_changes` on, each component's `<path>/<env_file>` is diffed
+against the previous release and the variables added since then travel in the
+payload. The lookup is relative to the component path, so a repository whose
+example env lives elsewhere — `config/.env.example`, or one file at the root —
+must point `env_file` at it; the default finds nothing there.
+
+A run where detection is on and **no** component has the file emits a single
+warning naming the paths it looked at, rather than reporting no new variables as
+if there were none. Components that legitimately have no env file alongside ones
+that do are not warned about — that is a normal repository shape, not a
+misconfiguration.
+
 ## Merging components from artifacts
 
 `components_json` covers the case where the caller knows every component in one

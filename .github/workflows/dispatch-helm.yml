@@ -340,6 +340,8 @@ jobs:
           PROCESSED_COMPONENTS="["
           FIRST=true
           HAS_NEW_ENV_VARS=false
+          ENV_FILES_FOUND=0
+          ENV_FILES_MISSING=""
 
           # Process each component
           for row in $(echo "$COMPONENTS_JSON" | jq -c '.[]'); do
@@ -383,6 +385,7 @@ jobs:
               FULL_ENV_FILE="${COMP_PATH}/${ENV_FILE}"
 
               if [ -f "$FULL_ENV_FILE" ]; then
+                ENV_FILES_FOUND=$((ENV_FILES_FOUND + 1))
                 CURRENT_VARS=$(grep -E "^[A-Z_][A-Z0-9_]*=" "$FULL_ENV_FILE" | cut -d'=' -f1 | sort || echo "")
 
                 PREVIOUS_VARS=""
@@ -429,6 +432,9 @@ jobs:
                   done
                   v "  New env vars: $NEW_VARS"
                 fi
+              else
+                ENV_FILES_MISSING="${ENV_FILES_MISSING} ${FULL_ENV_FILE}"
+                v "  No ${ENV_FILE} at ${COMP_PATH}, nothing to detect"
               fi
             fi
 
@@ -444,6 +450,15 @@ jobs:
           done
 
           PROCESSED_COMPONENTS="${PROCESSED_COMPONENTS}]"
+
+          # Env detection is on, yet not a single component has the file it reads:
+          # the feature is silently inert, usually because the repository keeps its
+          # example env somewhere else (config/.env.example) — env_file points at it.
+          # Warned once per run, and only in that all-or-nothing case: a repository
+          # where some components legitimately have no env file is not misconfigured.
+          if [ "$DETECT_ENV" = "true" ] && [ "$ENV_FILES_FOUND" -eq 0 ] && [ -n "$ENV_FILES_MISSING" ]; then
+            echo "::warning::detect_env_changes is on, but no '$(clean "$ENV_FILE")' was found for any component (looked at:$(clean "$ENV_FILES_MISSING")). No environment variables will be reported to the chart. Point env_file at the file this repository actually uses, or turn detect_env_changes off."
+          fi
 
           v "Processed components: $PROCESSED_COMPONENTS"
           echo "has_new_env_vars=$HAS_NEW_ENV_VARS" >> "$GITHUB_OUTPUT"
