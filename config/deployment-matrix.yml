@@ -146,7 +146,6 @@ apps:
     - billing-worker
     - br-pcr
     - br-sfn-sims
-    - devops-istio-repo
     - finance-hub
     - lerian-clients-dev
     - plugin-br-ted-lerian
@@ -378,7 +377,6 @@ clusters:
       - billing-worker
       - br-pcr
       - br-sfn-sims
-      - devops-istio-repo
       - finance-hub
       - lerian-clients-dev
       - plugin-br-ted-lerian
