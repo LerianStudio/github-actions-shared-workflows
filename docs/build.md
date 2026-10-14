@@ -111,6 +111,7 @@ jobs:
 | `app_name_prefix` | string | `''` | Prefix for app names in monorepo |
 | `build_context` | string | `.` | Docker build context |
 | `enable_gitops_artifacts` | boolean | `false` | Upload artifacts for gitops-update workflow |
+| `emit_component_artifact` | boolean | `false` | Upload a `helm-components-{app_name}` artifact (`{"name","working_dir"}`) for every image pushed, so a caller that runs the Helm dispatch from a job of its own can merge the components of sibling build jobs. See [Component artifacts](#component-artifacts) |
 | `force_full_matrix` | boolean | `true` | Build all `filter_paths` components on every run regardless of what changed. Set `false` to build only changed components |
 | `force_multiplatform` | boolean | `false` | Force multi-platform build (amd64+arm64) even for beta/rc tags |
 | `enable_cosign_sign` | boolean | `true` | Sign images with cosign keyless (OIDC) signing. Requires `id-token: write` in caller |
@@ -400,6 +401,30 @@ When `enable_gitops_artifacts: true`:
 3. Can be consumed by `gitops-update.yml` workflow
 
 **Artifact pattern:** `gitops-tags-{app_name}`
+
+## Component artifacts
+
+When `emit_component_artifact: true`, each pushed image also leaves a small JSON
+file on the run describing the component it belongs to:
+
+**Artifact pattern:** `helm-components-{app_name}`, containing
+`{app_name}.json` with `{"name", "working_dir", "env_file", "detect_env_changes"}`.
+
+The env settings travel with the component on purpose: the caller can set them
+per build group, and the job that dispatches centrally has no way back to which
+group an image came from.
+
+It exists for one case: the images of a single chart built by jobs that are
+**siblings** in the caller. A matrix job's outputs keep only one leg's value, so
+those component lists cannot be merged through `outputs`. Each leg leaves its
+artifact here instead, and the caller's dispatch job collects them with
+`dispatch-helm.yml`'s `components_artifact_pattern` — one dispatch, after every
+image exists, carrying all of them.
+
+`go-release.yml` wires this automatically for its `build` and `extra_builds`
+jobs whenever `enable_helm_dispatch` is on; a caller of `build.yml` that
+dispatches from inside the workflow (`enable_helm_dispatch: true` here) does not
+need it, because that dispatch already sees its own full matrix.
 
 ## Helm Dispatch
 

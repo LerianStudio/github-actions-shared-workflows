@@ -40,6 +40,16 @@ done
 assert_line 'extra_builds group enable_gitops_artifacts honors an explicit false and defaults to true' \
   "      enable_gitops_artifacts: \${{ matrix.group.enable_gitops_artifacts == true || toJSON(matrix.group.enable_gitops_artifacts) == 'null' }}"
 
+# A group that dispatches to a chart of its own must stay out of the central
+# dispatch_helm payload, or its images would be published twice.
+assert_line 'extra_builds group leaves the central helm payload when it dispatches on its own' \
+  "      emit_component_artifact: \${{ inputs.enable_helm_dispatch && inputs.helm_chart != '' && matrix.group.enable_helm_dispatch != true }}"
+
+# The extra groups reach dispatch_helm as artifacts, not outputs: a matrix job's
+# outputs keep a single leg's value.
+assert_line 'dispatch_helm collects the component artifacts the build legs leave on the run' \
+  "      components_artifact_pattern: helm-components-*"
+
 if grep -nE 'matrix\.group\.[a-z_]+ *[!=]= *null' "${RELEASE_WORKFLOW}" >&2; then
   FAILED=$((FAILED + 1))
   printf 'not ok - no per-group comparison against null (coerces an explicit false): see lines above\n' >&2

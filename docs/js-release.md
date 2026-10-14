@@ -7,7 +7,7 @@
 
 Umbrella reusable workflow for JavaScript/TypeScript **service** repositories (deployable apps that ship as container images). A caller references this single workflow and it drives the full release pipeline, branching on the pushed ref:
 
-- **Branch push** → change gate (`src/config/non-doc-changes`) → semantic release (`release.yml`). Documentation-only pushes skip the release.
+- **Branch push** → change gate (`src/config/non-doc-changes`) → semantic release (`release.yml`). Documentation-only pushes skip the release, and so do pushes that touch only `.github/workflows/`, `.github/actions/` or `.github/scripts/` unless `release_on_workflow_changes` is on.
 - **Tag push** → container build & push (`typescript-build.yml`) → GitOps update (`gitops-update.yml`), gated on the build actually producing images.
 
 Mirrors the [`go-release`](./go-release.md) umbrella for Go services — providing the same single-caller DX for Next.js frontends, NestJS backends, and any JS/TS service that ships a Docker image.
@@ -31,6 +31,7 @@ Mirrors the [`go-release`](./go-release.md) umbrella for Go services — providi
 | `release_runner_type` | Optional runner override for the Release (publish) jobs only (forwarded to release.yml as `publish_runner_type`); empty falls back to `vars.GENERAL_RUNNERS`, then `runner_type` | string | `''` |
 | `dry_run` | Run semantic-release and build in dry-run mode (no tags/releases/images created); also skips the E2E test job entirely | boolean | `false` |
 | `ignore_globs` | Space-separated globs treated as docs/meta for the branch-push gate | string | `*.md docs/* .github/* LICENSE* .gitignore .coderabbit.yml .coderabbit.yaml` |
+| `release_on_workflow_changes` | Release when a branch push touches only `.github/workflows/`, `.github/actions/` or `.github/scripts/`. Off by default: a pipeline edit ships byte-identical code, so releasing it only moves GitOps tags and writes a changelog entry for a CI tweak | boolean | `false` |
 | `semantic_version` | semantic-release version | string | `23.0.8` |
 | `changelog_release_branch` | Branch whose tags get a changelog. Empty derives it from the run: the branch that triggered the release, falling back to searching which branch contains the tag commit for tag-triggered runs. Set it only for layouts neither step can infer | string | `''` |
 | `filter_paths` | Path prefixes to filter (empty = single-app repo) | string | `''` |

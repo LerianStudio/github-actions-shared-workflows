@@ -31,6 +31,10 @@ on:
         description: 'Space-separated glob patterns treated as docs/meta; when only these change on a branch push, the release is skipped.'
         type: string
         default: '*.md docs/* .github/* LICENSE* .gitignore .coderabbit.yml .coderabbit.yaml'
+      release_on_workflow_changes:
+        description: 'Release when a branch push touches only .github/workflows/, .github/actions/ or .github/scripts/. Off by default: a pipeline edit ships byte-identical code, and releasing it moves GitOps tags and writes a changelog entry for a CI tweak. Turn it on in a repository whose released artifact lives under .github/ (one that publishes composite actions, say).'
+        type: boolean
+        default: false
 
       # ----------------- Release (release.yml) -----------------
       semantic_version:
@@ -159,6 +163,10 @@ on:
         description: 'Detect new environment variables for Helm during dispatch'
         type: boolean
         default: true
+      helm_env_file:
+        description: 'Example env file read by helm_detect_env_changes, relative to each component path (per-group override via matrix.group.helm_env_file). Set it when the repository keeps its example env somewhere other than <component>/.env.example (e.g. config/.env.example) — otherwise detection finds nothing and no variable reaches the chart.'
+        type: string
+        default: '.env.example'
       helm_values_key_mappings:
         description: 'JSON mapping of component names to values.yaml keys (e.g., {"my-app": "api"})'
         type: string
@@ -463,6 +471,7 @@ jobs:
         with:
           github-token: ${{ github.token }}
           ignore-globs: ${{ inputs.ignore_globs }}
+          workflow-paths-are-code: ${{ inputs.release_on_workflow_changes }}
 
   # ----------------- Release (branch push) -----------------
   release:
@@ -552,9 +561,14 @@ jobs:
       # itself, which cannot see extra_build — a sibling job here — so the chart
       # would be bumped while the migrations image was still building.
       enable_helm_dispatch: false
+      # Leave this build's components on the run for dispatch_helm to collect,
+      # the same way the extra_builds groups below do, so one dispatch carries
+      # every image of the chart. Only when that dispatch actually happens.
+      emit_component_artifact: ${{ inputs.enable_helm_dispatch && inputs.helm_chart != '' }}
       helm_chart: ${{ inputs.helm_chart }}
       helm_repository: ${{ inputs.helm_repository }}
       helm_detect_env_changes: ${{ inputs.helm_detect_env_changes }}
+      helm_env_file: ${{ inputs.helm_env_file }}
       helm_values_key_mappings: ${{ inputs.helm_values_key_mappings }}
       helm_legacy_patch_detection: ${{ inputs.helm_legacy_patch_detection }}
       helm_legacy_branch_patterns: ${{ inputs.helm_legacy_branch_patterns }}
@@ -970,9 +984,16 @@ jobs:
       build_context_from_working_dir: ${{ matrix.group.build_context_from_working_dir || false }}
       docker_build_args: ${{ matrix.group.docker_build_args }}
       enable_helm_dispatch: ${{ matrix.group.enable_helm_dispatch || false }}
+      # This group's images join the central dispatch_helm payload, so the
+      # top-level helm_values_key_mappings covers them and the chart is bumped
+      # once, after every image exists. A group that dispatches on its own
+      # (its chart is a different one) stays out of that payload instead of
+      # being published twice.
+      emit_component_artifact: ${{ inputs.enable_helm_dispatch && inputs.helm_chart != '' && matrix.group.enable_helm_dispatch != true }}
       helm_chart: ${{ matrix.group.helm_chart }}
       helm_repository: ${{ inputs.helm_repository }}
       helm_detect_env_changes: ${{ toJSON(matrix.group.helm_detect_env_changes) == 'true' || (toJSON(matrix.group.helm_detect_env_changes) != 'false' && inputs.helm_detect_env_changes) }}
+      helm_env_file: ${{ matrix.group.helm_env_file || inputs.helm_env_file }}
       helm_values_key_mappings: ${{ matrix.group.helm_values_key_mappings }}
       helm_legacy_patch_detection: ${{ toJSON(matrix.group.helm_legacy_patch_detection) == 'true' || (toJSON(matrix.group.helm_legacy_patch_detection) != 'false' && inputs.helm_legacy_patch_detection) }}
       helm_legacy_branch_patterns: ${{ matrix.group.helm_legacy_branch_patterns || inputs.helm_legacy_branch_patterns }}
@@ -1001,10 +1022,12 @@ jobs:
   # own defaults and only production releases ever dispatched. Stated literally
   # rather than referencing inputs that do not exist on this workflow.
   #
-  # target_ref, components_base_path and env_file are omitted for the same reason:
-  # go-release does not expose them either, and dispatch-helm.yml's defaults are
-  # identical to build.yml's (main / components / .env.example), so leaving them
-  # out reproduces the previous behaviour exactly.
+  # target_ref and components_base_path are omitted for the same reason: go-release
+  # does not expose them either, and dispatch-helm.yml's defaults are identical to
+  # build.yml's (main / components), so leaving them out reproduces the previous
+  # behaviour exactly. env_file used to be omitted too — until a repository whose
+  # example env lives outside the component path (config/.env.example) got no
+  # detection at all, so helm_env_file now carries it through.
   #
   # is_release comes from the build outputs so the two cannot drift apart.
   dispatch_helm:
@@ -1025,7 +1048,12 @@ jobs:
       chart: ${{ inputs.helm_chart }}
       version: ${{ github.ref_name }}
       components_json: ${{ needs.build.outputs.matrix }}
+      # The primary matrix reaches this job through outputs; the extra_builds
+      # groups cannot (a matrix job's outputs keep one leg's value), so they
+      # arrive as artifacts each build.yml leg left on the run.
+      components_artifact_pattern: helm-components-*
       detect_env_changes: ${{ inputs.helm_detect_env_changes }}
+      env_file: ${{ inputs.helm_env_file }}
       values_key_mappings: ${{ inputs.helm_values_key_mappings }}
       legacy_patch_detection: ${{ inputs.helm_legacy_patch_detection }}
       legacy_branch_patterns: ${{ inputs.helm_legacy_branch_patterns }}

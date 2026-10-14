@@ -58,7 +58,8 @@ class NonDocChangesTests(unittest.TestCase):
             if not shutil.which(command):
                 raise RuntimeError(f"required test command missing: {command}")
 
-    def detect(self, payload, globs=DEFAULT_GLOBS, event="pull_request", before=None, after="head"):
+    def detect(self, payload, globs=DEFAULT_GLOBS, event="pull_request", before=None, after="head",
+               workflow_paths_are_code="true", expect_failure=False):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             binaries = root / "bin"
@@ -75,9 +76,13 @@ class NonDocChangesTests(unittest.TestCase):
                    "IGNORE_GLOBS": globs, "EVENT_NAME": event,
                    "REPO": "example/service", "PR_NUMBER": "42",
                    "BEFORE": before or "0" * 40, "AFTER": after,
+                   "WORKFLOW_PATHS_ARE_CODE": workflow_paths_are_code,
                    "FIXTURE_JSON": str(fixture)}
             completed = subprocess.run(["bash", "-c", run_body("Detect non-doc changes")],
                                        env=env, capture_output=True, text=True, timeout=30)
+            if expect_failure:
+                self.assertNotEqual(completed.returncode, 0, completed.stdout + completed.stderr)
+                return completed.stdout + completed.stderr
             self.assertEqual(completed.returncode, 0, completed.stdout + completed.stderr)
             values = dict(line.split("=", 1) for line in output.read_text().splitlines())
             return values["code"]
@@ -132,6 +137,46 @@ class NonDocChangesTests(unittest.TestCase):
         self.assertEqual(self.detect(pr_files((".github/CODEOWNERS", "modified"),
                                               (".github/dependabot.yml", "modified"),
                                               (".github/ISSUE_TEMPLATE/bug.yml", "modified"))), "false")
+
+    # ---- workflow-paths-are-code=false: the release caller's reading ----
+    #
+    # A push that touches only the pipeline definition ships byte-identical
+    # code. Releasing it moves GitOps tags in every environment following the
+    # branch and writes a changelog entry for an internal CI tweak, so release
+    # callers turn the exception off and let `.github/*` do its job.
+
+    def test_workflow_file_is_documentation_when_the_exception_is_off(self):
+        self.assertEqual(self.detect(pr_files((".github/workflows/release.yml", "modified")),
+                                     workflow_paths_are_code="false"), "false")
+
+    def test_composite_action_is_documentation_when_the_exception_is_off(self):
+        self.assertEqual(self.detect(pr_files((".github/actions/setup/action.yml", "modified")),
+                                     workflow_paths_are_code="false"), "false")
+
+    def test_pipeline_script_is_documentation_when_the_exception_is_off(self):
+        self.assertEqual(self.detect(pr_files((".github/scripts/release.sh", "modified")),
+                                     workflow_paths_are_code="false"), "false")
+
+    def test_workflow_change_alongside_code_still_releases(self):
+        self.assertEqual(self.detect(pr_files((".github/workflows/release.yml", "modified"),
+                                              ("internal/ledger/entry.go", "modified")),
+                                     workflow_paths_are_code="false"), "true")
+
+    def test_exception_off_still_honours_a_glob_set_that_omits_dot_github(self):
+        """Turning the exception off defers to the globs; it does not force docs."""
+        self.assertEqual(self.detect(pr_files((".github/workflows/release.yml", "modified")),
+                                     globs="*.md docs/*", workflow_paths_are_code="false"), "true")
+
+    # ---- the flag decides; it never guesses ----
+
+    def test_unrecognised_flag_value_fails_the_step(self):
+        output = self.detect(pr_files(("main.go", "modified")),
+                             workflow_paths_are_code="yes", expect_failure=True)
+        self.assertIn("workflow-paths-are-code", output)
+
+    def test_empty_flag_value_fails_the_step(self):
+        self.detect(pr_files(("main.go", "modified")),
+                    workflow_paths_are_code="", expect_failure=True)
 
     # ---- push events keep their own path ----
 
