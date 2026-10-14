@@ -7,7 +7,7 @@
 
 Umbrella reusable workflow for Go **service** repositories (deployable apps that ship as container images). A caller references this single workflow and it drives the full release pipeline, branching on the pushed ref:
 
-- **Branch push** → change gate (`src/config/non-doc-changes`) → semantic release (`release.yml`). Documentation-only pushes skip the release.
+- **Branch push** → change gate (`src/config/non-doc-changes`) → semantic release (`release.yml`). Documentation-only pushes skip the release, and so do pushes that touch only `.github/workflows/`, `.github/actions/` or `.github/scripts/` unless `release_on_workflow_changes` is on.
 - **Tag push** → container build & push (`build.yml`) → GitOps update (`gitops-update.yml`), gated on the build actually producing images. Optionally, in the same step of the pipeline, a GoReleaser run that publishes binaries (see [GoReleaser binary lane](#goreleaser-binary-lane)).
 
 ### Repository layouts
@@ -28,6 +28,7 @@ A third layout needs `release_single_app: true`: **one semantic-release tag for 
 | `release_runner_type` | Optional runner override for the Release (publish) jobs only (forwarded to release.yml as `publish_runner_type`); empty falls back to `vars.GENERAL_RUNNERS`, then `runner_type` | string | `''` |
 | `dry_run` | Preview mode for **permission-manifest publishing only** — forwarded to `permission-manifest-publish`, which logs the target key + `aws s3 cp` command without calling AWS. The other release jobs (release/build/gitops) have no full-workflow preview yet. | boolean | `false` |
 | `ignore_globs` | Space-separated globs treated as docs/meta for the branch-push gate | string | `*.md docs/* .github/* LICENSE* .gitignore .coderabbit.yml .coderabbit.yaml` |
+| `release_on_workflow_changes` | Release when a branch push touches only `.github/workflows/`, `.github/actions/` or `.github/scripts/`. Off by default: a pipeline edit ships byte-identical code, so releasing it only moves GitOps tags and writes a changelog entry for a CI tweak | boolean | `false` |
 | `semantic_version` | semantic-release version | string | `23.0.8` |
 | `enable_changelog` | Generate CHANGELOG.md via GPT after a successful release | boolean | `false` |
 | `enable_major_tag` | Force-update the floating major tag (e.g. `v1`) | boolean | `false` |
@@ -56,6 +57,7 @@ A third layout needs `release_single_app: true`: **one semantic-release tag for 
 | `enable_helm_dispatch` | Dispatch to the Helm repository for chart updates after build | boolean | `false` |
 | `helm_chart` | Helm chart name to update (required when `enable_helm_dispatch`) | string | `''` |
 | `helm_detect_env_changes` | Detect new environment variables for Helm during dispatch | boolean | `true` |
+| `helm_env_file` | Example env file `helm_detect_env_changes` reads, relative to each component path. Set it when the repository keeps its example env elsewhere (e.g. `config/.env.example`) — otherwise detection finds nothing. Per-group override: `helm_env_file` | string | `.env.example` |
 | `helm_values_key_mappings` | JSON mapping of component names to values.yaml keys | string | `''` |
 | `extra_builds` | JSON array of additional build groups, each forwarded to `build.yml` with its own config; all feed the single gitops-update (see [Multiple build groups](#multiple-build-groups)) | string | `''` |
 | `dockerfile_name` | Dockerfile name for the primary build and every `extra_builds` group (per-group override via the group's own `dockerfile_name`); forwarded to `build.yml`, which resolves the path as `{working_dir}/{dockerfile_name}` | string | `'Dockerfile'` |
@@ -277,9 +279,45 @@ jobs:
 
 By default `go-release` runs **one** `build.yml` call (driven by the top-level `filter_paths`/`app_name_*`/`build_context_from_working_dir` inputs) before the single `update_gitops`. Some repos ship images that need **different build configs in the same release** — e.g. an app + workers built from the repo root, plus a tool/mock image built with `build_context_from_working_dir: true`. These cannot be merged into one `build.yml` call.
 
-Set `extra_builds` to a JSON array of build groups. Each group runs a parallel `build.yml` matrix leg alongside the primary build, and groups with `enable_gitops_artifacts` enabled (the default) upload their GitOps tag artifacts into the same run, so the single `update_gitops` aggregates all of them. Per-group keys (all optional except `filter_paths`): `filter_paths`, `shared_paths`, `path_level`, `normalize_to_filter` (defaults to `true`; set `false` to disable normalizing changed paths to their filter path), `app_name`, `app_name_prefix`, `app_name_overrides`, `build_context_from_working_dir`, `docker_build_args`, `dockerfile_name` (defaults to the top-level `dockerfile_name`; set to build a non-default Dockerfile such as `Dockerfile.mcp` for that group), `enable_dockerhub`/`enable_ghcr` (default to the top-level inputs of the same name when omitted; an explicit `true`/`false` on the group always wins — use to publish a group to only one registry regardless of what the primary build uses), `enable_gitops_artifacts` (defaults to `true`), `require_build_identity` (defaults to the top-level `require_build_identity`, itself `true` by default, when omitted; an explicit `true`/`false` on the group always wins — set `false` on a group whose image has not adopted the [build identity](#build-identity), such as a migrations image without a Go binary), `enable_helm_dispatch`, `helm_chart`, `helm_detect_env_changes`, `helm_values_key_mappings`, `tag_prefix`, `force_full_matrix` (defaults to `true`, so every listed component builds/publishes in lockstep with the release version; set `false` to build only changed components). Cosign/runner settings are inherited from the top-level inputs.
+Set `extra_builds` to a JSON array of build groups. Each group runs a parallel `build.yml` matrix leg alongside the primary build, and groups with `enable_gitops_artifacts` enabled (the default) upload their GitOps tag artifacts into the same run, so the single `update_gitops` aggregates all of them. Per-group keys (all optional except `filter_paths`): `filter_paths`, `shared_paths`, `path_level`, `normalize_to_filter` (defaults to `true`; set `false` to disable normalizing changed paths to their filter path), `app_name`, `app_name_prefix`, `app_name_overrides`, `build_context_from_working_dir`, `docker_build_args`, `dockerfile_name` (defaults to the top-level `dockerfile_name`; set to build a non-default Dockerfile such as `Dockerfile.mcp` for that group), `enable_dockerhub`/`enable_ghcr` (default to the top-level inputs of the same name when omitted; an explicit `true`/`false` on the group always wins — use to publish a group to only one registry regardless of what the primary build uses), `enable_gitops_artifacts` (defaults to `true`), `require_build_identity` (defaults to the top-level `require_build_identity`, itself `true` by default, when omitted; an explicit `true`/`false` on the group always wins — set `false` on a group whose image has not adopted the [build identity](#build-identity), such as a migrations image without a Go binary), `enable_helm_dispatch`, `helm_chart`, `helm_detect_env_changes`, `helm_env_file` (defaults to the top-level `helm_env_file`), `helm_values_key_mappings`, `tag_prefix`, `force_full_matrix` (defaults to `true`, so every listed component builds/publishes in lockstep with the release version; set `false` to build only changed components). Cosign/runner settings are inherited from the top-level inputs.
 
 Extra builds run on tag push (beta/rc, and stable when `build_on_release` is off). When `build_on_release` is `true`, every extra-build group *without its own `tag_prefix`* also builds in the stable semantic-release run on the branch — the same path the primary build uses — so a stable release whose tag lands on a `[skip ci]` commit still publishes all extra images (they are not left behind on the suppressed tag push). With `build_on_release_include_prerelease` also `true`, the same branch-rescue path additionally covers beta/rc releases, not just stable. A group with `tag_prefix` set is excluded from that branch-rescue run (its `tag_prefix` is only applied on an actual tag push) — it keeps building solely on its own independently-tagged pushes, per the note below.
+
+> **Helm chart with extra images** — the central `dispatch_helm` job carries the
+> primary build **and** every `extra_builds` group, so one top-level
+> `helm_values_key_mappings` maps all of them and the chart is bumped **once**,
+> after every image has been pushed. Do not repeat `enable_helm_dispatch` /
+> `helm_chart` / `helm_values_key_mappings` per group for the same chart: a group
+> that dispatches on its own does so from inside its `build.yml` run, which
+> cannot see its sibling builds — that is the race the central job exists to
+> remove, and it bumps the chart once per component instead of once per release.
+> Keep a group-level `enable_helm_dispatch: true` only when that group targets a
+> **different** chart; such a group is then left out of the central payload
+> rather than published twice.
+>
+> ```yaml
+> enable_helm_dispatch: true
+> helm_chart: plugin-br-pix-jd
+> helm_values_key_mappings: '{"plugin-br-pix-jd": "api", "plugin-br-pix-jd-worker": "worker", "plugin-br-pix-jd-migrations": "migrations"}'
+> extra_builds: |
+>   [
+>     {"filter_paths": "cmd/worker", "app_name_overrides": "cmd/worker:plugin-br-pix-jd-worker"},
+>     {"filter_paths": "migrations-image", "app_name_overrides": "migrations-image:plugin-br-pix-jd-migrations", "require_build_identity": false}
+>   ]
+> ```
+
+> **Env detection reads `<component>/.env.example`** — `helm_detect_env_changes`
+> looks for that file under each component's path. A repository that keeps its
+> example env somewhere else (`config/.env.example`, a single file at the root)
+> finds nothing there, and no variable reaches the chart. Point `helm_env_file`
+> at the file the repository actually uses — the value is resolved relative to
+> each component's path, so a component built from the repo root reaches
+> `config/.env.example` as `helm_env_file: config/.env.example` — or turn
+> `helm_detect_env_changes` off. A run where detection is on and **no** component
+> has the file warns once, instead of passing silently. A per-group
+> `helm_env_file` / `helm_detect_env_changes` is honoured in the central dispatch
+> too: each group's images carry their own setting in the component artifact, so
+> groups whose example env lives in different places still share one dispatch.
 
 > **Independently-tagged component** — a group with `tag_prefix` set (e.g. `matcher-mcp-v`) only builds when the triggering tag starts with that prefix, letting a component with its own semantic-release line and tag scheme (decoupled from the app's `vX.Y.Z`) share this workflow without building on every unrelated tag push. Set the top-level `tag_prefix` input too (e.g. `v`), so the *primary* build also ignores that component's tags — otherwise a `matcher-mcp-v1.2.3` push would still trigger the primary app build.
 

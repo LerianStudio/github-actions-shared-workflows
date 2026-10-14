@@ -16,6 +16,7 @@ The App already does the dependency-graph analysis and posts `Socket Security: P
 | `github-token` | Token used to read check runs on the commit | **Yes** | — |
 | `commit-sha` | Commit whose check runs are inspected. Must be the PR **head** SHA, not the merge SHA | **Yes** | — |
 | `app-slug` | GitHub App slug that owns the checks | No | `socket-security` |
+| `pull-request-number` | Pull request being decided; check runs titled for a different one are ignored | No | the triggering PR |
 | `timeout-seconds` | How long to wait for the checks to complete | No | `300` |
 | `poll-interval-seconds` | Delay between polls | No | `15` |
 | `fail-on-findings` | Fail when a check concludes adversely | No | `true` |
@@ -37,7 +38,7 @@ The App already does the dependency-graph analysis and posts `Socket Security: P
 |---|---|---|
 | `pass` | Every App check completed with a non-adverse conclusion | Passes |
 | `findings` | A check concluded `failure`, `action_required`, `cancelled` or `timed_out` | **Fails** (`fail-on-findings`) |
-| `inconclusive` | Checks exist but concluded `neutral`/`skipped`, or the wait timed out | **Fails** (`on-inconclusive`) |
+| `inconclusive` | Checks exist but concluded `neutral`/`skipped`, the wait timed out, or every check on the SHA belongs to another pull request | **Fails** (`on-inconclusive`) |
 | `missing` | The App published no checks on this commit | Warns (`on-missing-app`) |
 
 `inconclusive` and `missing` are deliberately separate. They look similar and mean opposite things:
@@ -50,6 +51,16 @@ The App already does the dependency-graph analysis and posts `Socket Security: P
 An unreadable check-runs API returns no checks, which would be classified as `missing` and merely warn — so a job without the `checks: read` scope would pass silently while gating nothing. The action therefore treats a non-zero `gh` exit as a hard error naming the likely cause, instead of folding it into an empty result.
 
 Each poll follows all check-run pages and combines them into one array before filtering by App. Socket checks beyond the first 100 results therefore participate in both the stable-set check and the verdict. An API failure on any page aborts the poll; a partial result is never accepted as a clean verdict.
+
+### A sibling pull request on the same head SHA
+
+Two pull requests can share one head SHA — an automated backmerge opened on the release-candidate head is the usual way it happens. The App then publishes a single `Pull Request Alerts` run for that SHA, titled for whichever pull request it processed first (`Pull Request #1348 Alerts: Skipped`). Read by SHA alone, that `neutral` verdict — meant for the *other* pull request, and unclearable here, since `check-runs/<id>/rerequest` answers 404 to a user token — would decide this one.
+
+The gate therefore splits the set on the pull request the title names. A run is ignored only when its title *proves* it belongs elsewhere: a check whose title names no pull request (`Project Report`) still decides here, and every ignored run is listed as a `::notice::` and kept under `ignoredChecks` in the findings file. Pass `pull-request-number` to enable this; leaving it empty disables the filter.
+
+If *every* App check on the SHA turns out to belong to another pull request, the verdict is `inconclusive`, not `missing` — nothing judged this pull request, and `missing` only warns.
+
+What this does not change: the wait still blocks until the other pull request's runs complete. A sibling run that never finishes still times out into `inconclusive`.
 
 For the same reason the caller must grant `checks: read`. The `js-pr-validation` umbrella declares it at both workflow and job level, but a caller that pins its own `permissions:` block has to include it: a reusable workflow's permissions are intersected with the caller's, never expanded.
 
