@@ -50,25 +50,12 @@ jobs:
       runner_type: ubuntu-latest
       enable_changelog: ${{ github.ref == 'refs/heads/main' }}
       enable_major_tag: ${{ github.ref == 'refs/heads/main' }}
-      # This repository's released artifact IS .github/workflows/, so the
-      # default `.github/*` glob would classify a push touching only reusable
-      # workflows as meta and skip its release. Callers keep that default (a
-      # pipeline edit ships them byte-identical code); here the glob names only
-      # what is meta in THIS repository: the self-* workflows and the .github
-      # config files, plus everything the trigger's paths-ignore drops, so a push
-      # mixing those with docs is skipped by the gate as well. release_on_
-      # workflow_changes stays false on purpose: true would count self-*
-      # workflows as code too. A new meta file under .github/ that is not listed
-      # here errs towards cutting a release, never towards skipping one.
-      ignore_globs: >-
-        *.md docs/* LICENSE* .gitignore .coderabbit.yml .coderabbit.yaml
-        *.env *.txt
-        config/deployment-matrix.yml config/version-propagation.yml
-        config/tier-promotion.yml
-        .github/workflows/self-*
-        .github/CODEOWNERS .github/ISSUE_TEMPLATE/* .github/actionlint.yml
-        .github/dependabot.yml .github/labeler.yml .github/labels.yml
-        .github/markdown-link-check-config.json .github/pull_request_template.md
+      # The doc gate is for callers, whose pipeline edits ship byte-identical
+      # code. This repository publishes only workflows and composites, so every
+      # change that reaches this job is releasable; what must not release (docs,
+      # self-* workflows, the controller matrices) is already dropped by the
+      # trigger's paths-ignore above.
+      enable_doc_gate: false
     secrets: inherit
 
   # The `propagate-version` job that rewrote `@vX.Y.Z` pins in each downstream
