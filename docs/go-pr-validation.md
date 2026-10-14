@@ -47,6 +47,7 @@ This distinguishes the two skips that used to look identical: a pipeline the cal
 | `run_lib_version_check` | Run the Lerian library version check | boolean | `true` |
 | `run_manifest_nudge` | Run the **non-blocking** Access-Manager RI nudge: warns via a sticky PR comment when a `lib-auth` repo has no `permissions.yaml`. Never fails or blocks the PR. | boolean | `true` |
 | `ignore_globs` | Space-separated globs treated as docs/meta for the change gate | string | `*.md docs/* .github/* LICENSE* .gitignore .coderabbit.yml .coderabbit.yaml` |
+| `analyze_on_workflow_changes` | Run the analysis, security and lib version pipelines when a pull request touches only `.github/workflows/`, `.github/actions/` or `.github/scripts/` (plus `ignore_globs` paths). On by default; set `false` in a repository whose analysis exercises nothing under `.github/`, so a pipeline-only pull request runs PR metadata and skips the rest. When `false`, those paths are classified by `ignore_globs` like any other: the default `.github/*` covers them, but an `ignore_globs` override must keep `.github/*` (or list the paths) for the skip to happen | boolean | `true` |
 | `lib_version_go_mod_path` | Path to go.mod for the Lerian lib check | string | `go.mod` |
 | `lib_version_check_indirect` | Also check transitive (indirect) Lerian deps | boolean | `false` |
 | `lib_version_comment_on_pr` | Post/update a sticky PR comment with the lib version table | boolean | `true` |

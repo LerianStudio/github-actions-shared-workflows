@@ -68,6 +68,10 @@ on:
         description: 'Space-separated glob patterns treated as docs/meta; when only these change, the analysis and security pipelines are skipped.'
         type: string
         default: '*.md docs/* .github/* LICENSE* .gitignore .coderabbit.yml .coderabbit.yaml'
+      analyze_on_workflow_changes:
+        description: 'Run the analysis, security and lib version pipelines when a pull request touches only .github/workflows/, .github/actions/ or .github/scripts/ (plus ignore_globs paths). On by default: a pull request editing the pipeline runs it. Set false in a repository whose analysis exercises nothing under .github/ (a Go service with no composite actions or scripts of its own), so a pipeline-only pull request runs PR metadata and skips the rest. When false, those paths are classified by ignore_globs like any other: the default .github/* covers them, but an ignore_globs override must keep .github/* (or list the paths) for the skip to happen.'
+        type: boolean
+        default: true
 
       # ----------------- PR metadata (pr-validation.yml) -----------------
       pr_title_types:
@@ -446,6 +450,7 @@ jobs:
         with:
           github-token: ${{ github.token }}
           ignore-globs: ${{ inputs.ignore_globs }}
+          workflow-paths-are-code: ${{ inputs.analyze_on_workflow_changes && 'true' || 'false' }}
 
   # ----------------- Go Analysis -----------------
   go-analysis:
