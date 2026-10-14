@@ -117,6 +117,7 @@ apps:
     - br-ccs
     - br-sisbajud
     - br-sfn
+    - br-spi                      # benedita; SPI/Pix rail of br-sfn (applications/<env>/br-spi), beta tags only
     - br-consignado-gw
     - streaming-hub
 
@@ -356,6 +357,7 @@ clusters:
       - br-ccs
       - br-sisbajud
       - br-sfn
+      - br-spi
       - br-consignado-gw
       - mock-btg-server
       - br-spi-mock-bacen
