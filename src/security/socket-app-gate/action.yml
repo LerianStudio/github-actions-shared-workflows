@@ -12,6 +12,13 @@ inputs:
     description: 'GitHub App slug that owns the checks to gate on'
     required: false
     default: 'socket-security'
+  pull-request-number:
+    description: >-
+      Pull request this gate is deciding for. Check runs whose title attributes them to a
+      different pull request on the same head SHA are ignored. Defaults to the pull request
+      that triggered the workflow; empty disables the filter.
+    required: false
+    default: ''
   timeout-seconds:
     description: 'How long to wait for the App checks to complete before giving up'
     required: false
@@ -153,19 +160,45 @@ runs:
         RAW_FILE: ${{ steps.wait.outputs.raw_file }}
         TIMED_OUT: ${{ steps.wait.outputs.timed_out }}
         APP_SLUG: ${{ inputs.app-slug }}
+        PR_NUMBER: ${{ inputs.pull-request-number || github.event.pull_request.number }}
         FAIL_ON_FINDINGS: ${{ inputs.fail-on-findings }}
         ON_INCONCLUSIVE: ${{ inputs.on-inconclusive }}
         ON_MISSING_APP: ${{ inputs.on-missing-app }}
         FINDINGS_FILE: ${{ inputs.findings-file }}
       run: |
-        TOTAL=$(jq 'length' "$RAW_FILE")
+        # Two pull requests can share one head SHA — an automated backmerge sitting on
+        # the release-candidate head is the usual way it happens. The App then publishes
+        # a single "Pull Request Alerts" run for that SHA, titled for whichever pull
+        # request it processed first, and a "Skipped" verdict meant for that other pull
+        # request would decide this one. Split the set on the pull request the title
+        # names: a run is only ignored when its title proves it belongs elsewhere, so a
+        # check with no pull request in its title (Project Report) still decides here.
+        OWN_FILE="$RUNNER_TEMP/socket-app-own.json"
+        FOREIGN_FILE="$RUNNER_TEMP/socket-app-foreign.json"
+        jq --arg pr "$PR_NUMBER" \
+           'def owner: (.title // "") | capture("pull request #(?<n>[0-9]+)"; "i").n? // null;
+            [.[] | select($pr == "" or (owner | . == null or . == $pr))]' "$RAW_FILE" > "$OWN_FILE"
+        jq --arg pr "$PR_NUMBER" \
+           'def owner: (.title // "") | capture("pull request #(?<n>[0-9]+)"; "i").n? // null;
+            [.[] | select($pr != "" and (owner | . != null and . != $pr))]' "$RAW_FILE" > "$FOREIGN_FILE"
+
+        FOREIGN=$(jq 'length' "$FOREIGN_FILE")
+        # Never drop a check silently: an ignored adverse run is exactly the thing
+        # someone will need to see when this gate is wrong about which PR it served.
+        if [ "$FOREIGN" -gt 0 ]; then
+          while IFS= read -r line; do
+            echo "::notice::Ignoring '$line' — that check run belongs to another pull request on this SHA."
+          done < <(jq -r '.[] | "\(.name): \(.title) [\(.conclusion // "-")]"' "$FOREIGN_FILE")
+        fi
+
+        TOTAL=$(jq 'length' "$OWN_FILE")
         # failure/action_required/cancelled/timed_out are real adverse verdicts.
         # neutral/skipped mean the App declined to judge — on this repo that is
         # what an un-mergeable pull request produces, and it must not read as clean.
         BAD=$(jq '[.[] | select(.conclusion == "failure" or .conclusion == "action_required"
-                                or .conclusion == "cancelled" or .conclusion == "timed_out")] | length' "$RAW_FILE")
-        UNDECIDED=$(jq '[.[] | select(.conclusion == "neutral" or .conclusion == "skipped")] | length' "$RAW_FILE")
-        REPORT_URL=$(jq -r '[.[] | select(.url != null and (.url | test("dashboard")))] | .[0].url // ""' "$RAW_FILE")
+                                or .conclusion == "cancelled" or .conclusion == "timed_out")] | length' "$OWN_FILE")
+        UNDECIDED=$(jq '[.[] | select(.conclusion == "neutral" or .conclusion == "skipped")] | length' "$OWN_FILE")
+        REPORT_URL=$(jq -r '[.[] | select(.url != null and (.url | test("dashboard")))] | .[0].url // ""' "$OWN_FILE")
 
         # TIMED_OUT is tested before TOTAL: a deadline that expires with no checks
         # yet published is not evidence the App is uninstalled, and `missing`
@@ -175,6 +208,11 @@ runs:
         if [ "$BAD" -gt 0 ]; then
           VERDICT=findings
         elif [ "$TIMED_OUT" = "true" ]; then
+          VERDICT=inconclusive
+        elif [ "$TOTAL" -eq 0 ] && [ "$FOREIGN" -gt 0 ]; then
+          # Every App check on this SHA was published for another pull request, so
+          # nothing here judged this one. That is an absent verdict, not an absent
+          # App — classifying it as `missing` would only warn and go green.
           VERDICT=inconclusive
         elif [ "$TOTAL" -eq 0 ]; then
           VERDICT=missing
@@ -189,9 +227,11 @@ runs:
         echo "findings_file=$FINDINGS_FILE" >> "$GITHUB_OUTPUT"
 
         jq --arg verdict "$VERDICT" --arg app "$APP_SLUG" --arg url "$REPORT_URL" \
+           --arg pr "$PR_NUMBER" --slurpfile ignored "$FOREIGN_FILE" \
            --argjson timedOut "$([ "$TIMED_OUT" = "true" ] && echo true || echo false)" \
-           '{app: $app, verdict: $verdict, reportUrl: $url, timedOut: $timedOut, checks: .}' \
-           "$RAW_FILE" > "$FINDINGS_FILE"
+           '{app: $app, pullRequest: $pr, verdict: $verdict, reportUrl: $url,
+             timedOut: $timedOut, checks: ., ignoredChecks: $ignored[0]}' \
+           "$OWN_FILE" > "$FINDINGS_FILE"
 
         case "$VERDICT" in
           pass)
@@ -206,9 +246,15 @@ runs:
             echo "::warning::$MSG Install-time protection still applies via Socket Firewall."
             ;;
           inconclusive)
-            MSG="Socket App reached no verdict ($UNDECIDED neutral/skipped check(s), timed out: $TIMED_OUT). This is not the same as clean."
+            HINT="Resolve the cause (a conflicted pull request is the common one) and re-run."
+            if [ "$TOTAL" -eq 0 ] && [ "$FOREIGN" -gt 0 ]; then
+              MSG="The only '$APP_SLUG' check(s) on this SHA were published for another pull request, so none of them judged this one."
+              HINT="Push this pull request onto a head SHA it does not share with another one."
+            else
+              MSG="Socket App reached no verdict ($UNDECIDED neutral/skipped check(s), timed out: $TIMED_OUT). This is not the same as clean."
+            fi
             if [ "$ON_INCONCLUSIVE" = "block" ]; then
-              echo "::error::$MSG Resolve the cause (a conflicted pull request is the common one) and re-run."
+              echo "::error::$MSG $HINT"
               exit 1
             fi
             echo "::warning::$MSG"
