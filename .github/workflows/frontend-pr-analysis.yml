@@ -289,12 +289,21 @@ jobs:
           MATRIX: ${{ steps.changed-paths.outputs.matrix }}
         run: |
           set -euo pipefail
+          # https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax#jobsjob_idstrategymatrix
+          max_matrix_jobs=256
           if ! [[ "$SHARDS" =~ ^[1-9][0-9]*$ ]]; then
             echo "::error::custom_checks_shards must be a positive integer, got '$SHARDS'"
             exit 1
           fi
-          # https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax#jobsjob_idstrategymatrix
-          max_matrix_jobs=256
+          # Compare digit counts first so Bash arithmetic never sees a value that could wrap.
+          if (( ${#SHARDS} > ${#max_matrix_jobs} )); then
+            echo "::error::custom_checks_shards must be at most $max_matrix_jobs, got '$SHARDS'"
+            exit 1
+          fi
+          if (( SHARDS > max_matrix_jobs )); then
+            echo "::error::custom_checks_shards must be at most $max_matrix_jobs, got '$SHARDS'"
+            exit 1
+          fi
           apps=0
           if [[ -n "${MATRIX:-}" ]]; then
             apps=$(jq 'length' <<< "$MATRIX")
