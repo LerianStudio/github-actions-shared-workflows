@@ -88,16 +88,21 @@ major tag, announce) honours it through conditions that already existed.
 
 Two boundaries matter:
 
-- **Executable paths under `.github` always count as code**, whatever
-  `ignore_globs` says: `.github/workflows/`, `.github/actions/` and
-  `.github/scripts/` are hardcoded exceptions in the classifier. This is not
-  belt-and-braces — in the bash `case` the classifier uses, `*` *does* match
-  `/`, so the `.github/*` entry in the default list would otherwise swallow
-  every nested path, and a push touching only a composite action would go
-  unreleased. (A GitHub `paths-ignore` filter behaves the opposite way, where
-  `*` does not match `/`. Same text, different semantics — do not carry an
-  intuition from one to the other.) What `.github/*` is there for is
-  `CODEOWNERS`, `dependabot.yml`, issue templates and bot config.
+- **Executable paths under `.github` do not release, by default.**
+  `.github/workflows/`, `.github/actions/` and `.github/scripts/` are special
+  cases in the classifier, and this workflow turns them off: a push that edits
+  only the pipeline ships byte-identical code, so releasing it would publish
+  new images, move GitOps tags in every environment following the branch and
+  add a changelog entry for a CI tweak. With the exception off, those paths are
+  classified by `ignore_globs` like any other file — and the default list's
+  `.github/*` entry covers them, because in the bash `case` the classifier uses
+  `*` *does* match `/`. (A GitHub `paths-ignore` filter behaves the opposite
+  way, where `*` does not match `/`. Same text, different semantics — do not
+  carry an intuition from one to the other.) Set
+  `release_on_workflow_changes: true` in a repository whose released artifact
+  lives under `.github/` — one that publishes composite actions to others. The
+  PR-validation and CI umbrellas keep the exception on: the PR that edits a
+  pipeline is the one PR that must run it.
 - **A diff the classifier cannot read in full is not a verdict.** The compare
   endpoint caps its file list at 300 entries, so a push at that ceiling is
   treated as code and released. Likewise, a gate step that errors does not fail
@@ -118,7 +123,8 @@ is the correct setting.
 | Input | Type | Default | Description |
 |-------|------|---------|-------------|
 | `enable_doc_gate` | boolean | `true` | Skip the release when a branch push touches only documentation/meta files. Callers that already gate upstream (`go-release.yml`, `js-release.yml`) pass `false` |
-| `ignore_globs` | string | `*.md docs/* .github/* LICENSE* .gitignore .coderabbit.yml .coderabbit.yaml` | Globs treated as docs/meta by the gate. Files under `.github/workflows/`, `.github/actions/` and `.github/scripts/` always count as code |
+| `ignore_globs` | string | `*.md docs/* .github/* LICENSE* .gitignore .coderabbit.yml .coderabbit.yaml` | Globs treated as docs/meta by the gate |
+| `release_on_workflow_changes` | boolean | `false` | Release when a branch push touches only `.github/workflows/`, `.github/actions/` or `.github/scripts/`. Turn it on only where the released artifact lives under `.github/` |
 | `semantic_version` | string | `23.0.8` | Semantic release version to use |
 | `changelog_release_branch` | string | `''` | Branch whose tags get a changelog. Empty derives it from the run: the branch that triggered the release, falling back to searching which branch contains the tag commit for tag-triggered runs. Set it only for layouts neither step can infer |
 | `runner_type` | string | `firmino-lxc-runners` | GitHub runner type |
@@ -133,7 +139,51 @@ is the correct setting.
 | `enable_release_announcement` | boolean | `true` | Announce the published release to the repository Slack channel after a successful release |
 | `announcement_product_name` | string | `''` | Product name displayed in the announcement. Defaults to the repository name |
 | `announcement_slack_channel` | string | `''` | Slack channel that receives the announcement. Defaults to the `RELEASE_SLACK_CHANNEL` repository variable; the announcement is skipped when both are empty |
+| `release_notes_max_chars` | number | `125000` | Fail the release before any tag is created when the generated release notes are longer than this. Matches the GitHub Releases API limit — see [Oversized release notes](#oversized-release-notes). `0` disables the check |
 | `environment_name` | string | `''` | Overrides the per-channel deployment environment for this run. Empty keeps `stable`/`rc`/`beta` by ref — see [Deployment Environments](#deployment-environments) |
+
+## Oversized Release Notes
+
+The GitHub Releases API rejects a release body longer than 125 000 characters.
+semantic-release only discovers that in its `publish` step, which runs **after** the
+tag has been created and pushed — so the failure leaves the repository half-released:
+the tag fires the caller's tag-push build and reaches production, while the GitHub
+Release, the changelog, the announcement and the backmerge are all skipped. With the
+stable tag never reaching `backmerge_target`, the prerelease guard then fails every
+later push to that branch until someone backmerges by hand.
+
+The case that hits this is the **first stable release of a repository with a long
+prerelease history**: with no previous stable tag, `@semantic-release/release-notes-generator`
+builds the notes from the whole history.
+
+To prevent it, the release job runs semantic-release in dry-run mode on every branch
+and measures the notes it would publish, counting Unicode code points so the
+verdict does not depend on the publish runner's locale. Over `release_notes_max_chars`, the run fails
+there — before the real semantic-release step, so no tag exists and there is nothing to
+clean up.
+
+When the guard fires, publish that release by hand with the notes of the last prerelease
+on the promoted channel (for example the last `-rc.N`), or narrow what the notes cover in
+`.releaserc`. Set `release_notes_max_chars: 0` to turn the check off. Any other non-whole or
+negative value fails the step rather than silently disabling it.
+
+## Semantic Release That Never Started
+
+`cycjimmy/semantic-release-action` installs its own dependencies in its entrypoint,
+and that entrypoint ends in `run().catch(console.error)`: when the install fails —
+a transient `npm ci` timeout against the npm registry, for example — the error is
+printed and the process still exits `0`. The step is green, semantic-release never
+ran, and every output is empty.
+
+Empty is what tells the two cases apart. The action's first task sets
+`new_release_published` to `false`, so `false` means "nothing to release" (a
+legitimate outcome) while an empty value means the tool never started. Both the
+dry-run step and the real `Semantic Release` step are followed by a check that fails
+the job on the empty case, instead of letting it report a successful run that
+published nothing.
+
+When it fires, re-run the job: the same commits usually release immediately. If it
+keeps happening, the runner cannot reach the npm registry.
 
 ## Release Announcement
 
@@ -377,6 +427,7 @@ plugins:
 6. **Initialize package.json**: Create if doesn't exist
 7. **Install Plugins**: Install semantic-release plugins
 8. **Run Semantic Release**: Calculate version and create release using `.releaserc.yml`
+9. **Verify it ran**: Fail the job when the action exited without starting semantic-release — see [Semantic Release That Never Started](#semantic-release-that-never-started)
 
 ## GPG Signing
 

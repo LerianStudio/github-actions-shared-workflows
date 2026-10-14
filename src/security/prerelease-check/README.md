@@ -40,6 +40,8 @@ For all file types, only known pre-release keywords (`alpha`, `beta`, `rc`, `dev
 | `package.json` | `"[~^<>=]*X.Y.Z-(alpha\|beta\|rc\|dev\|...)"` | `"^2.0.0-beta.1"`, `"~1.0.0-rc.3"`, `"<2.0.0-beta.1"` | `"2.0.0"` |
 | `Dockerfile`, `*.dockerfile`, `Dockerfile.*` | `:X.Y.Z-(alpha\|beta\|rc\|dev\|...)` | `golang:1.21.0-beta1` | `golang:1.21.0`, `python:3.12-slim`, `node:20-alpine` |
 
+For `package.json`, the package's **own** top-level `version` is never reported: it identifies the artifact the repository produces, not a dependency it consumes, so a repo in a legitimate beta cycle is not blocked by its own version string. Every dependency pin in the file is still scanned. If the file cannot be parsed, nothing is exempted.
+
 ## Overriding the pattern
 
 The regex is fixed in the action but overridable through the `prerelease-pattern` input, wired from an organization (or repository) variable so the policy can be tuned centrally without cutting a new release. The `pr-security-scan` reusable workflow already forwards `${{ vars.PRERELEASE_PATTERN }}`; define that variable once at the org level to apply it across every consuming repo.
