@@ -1,5 +1,28 @@
 # Github-actions-shared-workflows Changelog
 
+## [1.82.0](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.82.0)
+
+Features:
+- Send `extra_builds` components in the central Helm dispatch. (@bedatty)
+- Expose `helm_env_file` and provide a warning when environment detection finds nothing. (@bedatty)
+
+Fixes:
+- Ignore Socket App checks titled for a sibling pull request and match the owning pull request case-insensitively. (@bedatty)
+- Checkout before Docker login in `pr-security-scan` and drop persisted credentials from the scan checkout. (@bedatty)
+- Stop releasing on `.github/**`-only pushes. (@bedatty)
+- Fail when `semantic-release` never started. (@bedatty)
+- Fail before tagging when release notes exceed the API limit and count release notes with Node instead of locale-sensitive `wc`. Validate the notes limit and count characters in UTF-8. (@bedatty)
+- Skip the package's own version in `package.json` during prerelease checks and detect an ambiguous version pin at any depth. Drop the self-version exemption when the version is a dependency and correct the spelling of "unparsable" in the self-version comment. (@bedatty)
+
+Improvements:
+- Register `br-spi` in the deployment matrix. (@digocelos)
+- Send `extra_builds` components in the central Helm dispatch. (@bedatty)
+- Honour per-group environment settings in the central Helm dispatch. (@bedatty)
+
+[Compare changes](https://github.com/LerianStudio/github-actions-shared-workflows/compare/v1.81.1...v1.82.0)
+
+---
+
 ## [1.81.1](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.81.1)
 
 Fixes:

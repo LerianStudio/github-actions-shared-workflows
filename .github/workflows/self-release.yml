@@ -26,6 +26,13 @@ on:
       - '.github/workflows/self-*.yml'
     tags-ignore:
       - '**'
+  # Cuts the release a push could not. The doc gate classifies a push by its
+  # file diff, so once releasable commits are on a branch, a later push that
+  # changes only self-* workflows or meta files is skipped by paths-ignore or
+  # by the gate even though semantic-release would find a version to cut. A
+  # dispatch has no `before` ref, so the gate treats it as code. Run it on
+  # develop, release-candidate or main; any other ref is refused below.
+  workflow_dispatch:
 
 permissions:
   id-token: write
@@ -35,11 +42,20 @@ permissions:
 
 jobs:
   publish-release:
+    if: >-
+      github.event_name == 'push'
+      || contains(fromJSON('["refs/heads/develop", "refs/heads/release-candidate", "refs/heads/main"]'), github.ref)
     uses: ./.github/workflows/release.yml
     with:
       runner_type: ubuntu-latest
       enable_changelog: ${{ github.ref == 'refs/heads/main' }}
       enable_major_tag: ${{ github.ref == 'refs/heads/main' }}
+      # The doc gate is for callers, whose pipeline edits ship byte-identical
+      # code. This repository publishes only workflows and composites, so every
+      # change that reaches this job is releasable; what must not release (docs,
+      # self-* workflows, the controller matrices) is already dropped by the
+      # trigger's paths-ignore above.
+      enable_doc_gate: false
     secrets: inherit
 
   # The `propagate-version` job that rewrote `@vX.Y.Z` pins in each downstream
