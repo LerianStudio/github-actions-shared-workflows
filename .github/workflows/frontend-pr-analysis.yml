@@ -286,10 +286,22 @@ jobs:
         id: custom-checks-shards
         env:
           SHARDS: ${{ inputs.custom_checks_shards }}
+          MATRIX: ${{ steps.changed-paths.outputs.matrix }}
         run: |
           set -euo pipefail
           if ! [[ "$SHARDS" =~ ^[1-9][0-9]*$ ]]; then
             echo "::error::custom_checks_shards must be a positive integer, got '$SHARDS'"
+            exit 1
+          fi
+          # https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax#jobsjob_idstrategymatrix
+          max_matrix_jobs=256
+          apps=0
+          if [[ -n "${MATRIX:-}" ]]; then
+            apps=$(jq 'length' <<< "$MATRIX")
+          fi
+          jobs=$(( apps * SHARDS ))
+          if (( jobs > max_matrix_jobs )); then
+            echo "::error::custom_checks_shards=$SHARDS with $apps changed app(s) would generate $jobs custom-checks jobs; GitHub caps a matrix at $max_matrix_jobs"
             exit 1
           fi
           list=$(seq -s, 1 "$SHARDS")
