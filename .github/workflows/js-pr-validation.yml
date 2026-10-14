@@ -731,6 +731,9 @@ jobs:
           github-token: ${{ secrets.MANAGE_TOKEN || github.token }}
           # The App reports against the pull request head, not the merge commit.
           commit-sha: ${{ github.event.pull_request.head.sha }}
+          # Two pull requests can share this head SHA; the gate needs to know which
+          # one it is deciding for so an Alerts run titled for the other is ignored.
+          pull-request-number: ${{ github.event.pull_request.number }}
           app-slug: ${{ inputs.socket_app_slug }}
           timeout-seconds: ${{ inputs.socket_app_timeout }}
           fail-on-findings: ${{ inputs.socket_app_fail_on_findings }}

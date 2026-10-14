@@ -270,8 +270,10 @@ The organization already runs the [Socket GitHub App](https://github.com/marketp
 |---|---|---|
 | `pass` | Every App check completed non-adversely | Passes |
 | `findings` | A check concluded `failure`/`action_required`/`cancelled`/`timed_out` | **Blocks** |
-| `inconclusive` | Checks exist but are `neutral`/`skipped`, or the wait timed out | **Blocks** |
+| `inconclusive` | Checks exist but are `neutral`/`skipped`, the wait timed out, or every check on the SHA belongs to another pull request | **Blocks** |
 | `missing` | The App published no checks — it is not installed here | Warns |
+
+When two pull requests share one head SHA — an automated backmerge sitting on the release-candidate head is the usual case — the App publishes one `Pull Request Alerts` run for that SHA, titled for whichever one it processed first. The gate ignores a run whose title names a different pull request than this one, so the other pull request's `Skipped` no longer decides this promotion; see [`socket-app-gate`](../src/security/socket-app-gate/README.md).
 
 `inconclusive` blocking is deliberate. On a pull request with merge conflicts the App reports *"Skipped un-mergeable pull request"*, meaning no diff was analysed at all — treating that as clean would wave through exactly the wrong pull request. `missing` only warns, so repositories without the App stay green and rely on layer 1.
 
