@@ -239,6 +239,10 @@ on:
         description: 'Install Playwright browsers (Chromium) before running custom_checks. Only enable if at least one of your custom_checks scripts drives a browser (e.g. a Playwright-based smoke test) — most repo-specific guard scripts do not need this and installing browsers unconditionally wastes CI time/bandwidth.'
         type: boolean
         default: false
+      custom_checks_shards:
+        description: 'How many jobs each app''s custom checks are split across. Every script receives the shard it is on as CUSTOM_CHECKS_SHARD_INDEX (1-based) and CUSTOM_CHECKS_SHARD_TOTAL; the script decides what to do with them (e.g. Playwright --shard). 1 runs each app once, as before.'
+        type: number
+        default: 1
     secrets:
       MANAGE_TOKEN:
         description: Token for private module access and PR operations. Falls back to GITHUB_TOKEN where a job can work without it.
@@ -262,6 +266,7 @@ jobs:
     outputs:
       matrix: ${{ steps.changed-paths.outputs.matrix }}
       has_changes: ${{ steps.changed-paths.outputs.has_changes }}
+      custom_checks_shards: ${{ steps.custom-checks-shards.outputs.shards }}
     steps:
       - name: Get changed paths
         id: changed-paths
@@ -274,6 +279,21 @@ jobs:
           app-name-prefix: ${{ inputs.app_name_prefix }}
           normalize-to-filter: ${{ inputs.normalize_to_filter }}
           fallback-app-name: ${{ inputs.app_name_prefix != '' && inputs.app_name_prefix || 'app' }}
+
+      # Expressions cannot build a range, so the custom-checks shard axis [1..N]
+      # is built here.
+      - name: Build custom checks shard list
+        id: custom-checks-shards
+        env:
+          SHARDS: ${{ inputs.custom_checks_shards }}
+        run: |
+          set -euo pipefail
+          if ! [[ "$SHARDS" =~ ^[1-9][0-9]*$ ]]; then
+            echo "::error::custom_checks_shards must be a positive integer, got '$SHARDS'"
+            exit 1
+          fi
+          list=$(seq -s, 1 "$SHARDS")
+          echo "shards=[$list]" >> "$GITHUB_OUTPUT"
 
   # ============================================
   # ESLINT
@@ -735,7 +755,8 @@ jobs:
   # CUSTOM CHECKS
   # ============================================
   custom-checks:
-    name: Custom Checks (${{ matrix.app.name }})
+    # Unsharded keeps the historical name so existing required-check contexts still match.
+    name: ${{ inputs.custom_checks_shards > 1 && format('Custom Checks ({0}) {1}/{2}', matrix.app.name, matrix.shard, inputs.custom_checks_shards) || format('Custom Checks ({0})', matrix.app.name) }}
     needs: detect-changes
     if: needs.detect-changes.outputs.has_changes == 'true' && inputs.enable_custom_checks
     runs-on: ${{ inputs.custom_checks_runner_type || vars.GENERAL_RUNNERS || inputs.runner_type }}
@@ -743,6 +764,7 @@ jobs:
       fail-fast: false
       matrix:
         app: ${{ fromJson(needs.detect-changes.outputs.matrix) }}
+        shard: ${{ fromJson(needs.detect-changes.outputs.custom_checks_shards) }}
     steps:
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
@@ -776,6 +798,8 @@ jobs:
         env:
           PKG_MANAGER: ${{ inputs.package_manager }}
           CUSTOM_CHECKS: ${{ inputs.custom_checks }}
+          CUSTOM_CHECKS_SHARD_INDEX: ${{ matrix.shard }}
+          CUSTOM_CHECKS_SHARD_TOTAL: ${{ inputs.custom_checks_shards }}
         run: |
           set +e
           failures=0

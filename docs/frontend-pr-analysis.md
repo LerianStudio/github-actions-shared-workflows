@@ -200,6 +200,7 @@ Set `enable_socket_firewall: false` to restore the previous behaviour (cached, u
 | `enable_custom_checks` | Enable arbitrary caller-owned checks beyond the named gates above (runs each script in `custom_checks`) | No | `false` |
 | `custom_checks` | Newline-separated npm script names to run as additional checks; each runs independently, a non-zero exit on any fails the job | No | `''` |
 | `custom_checks_needs_browsers` | Install Playwright browsers before running `custom_checks` — only enable if a custom check drives a browser (e.g. a Playwright-based smoke test) | No | `false` |
+| `custom_checks_shards` | How many jobs each app's custom checks are split across. Every script receives `CUSTOM_CHECKS_SHARD_INDEX` (1-based) and `CUSTOM_CHECKS_SHARD_TOTAL`; `1` runs each app once, as before | No | `1` |
 | `enable_slack_notification` | Send the analysis verdict to Slack. Set to `false` in repositories without `SLACK_WEBHOOK_URL` so the job is skipped entirely instead of running just to skip internally | No | `true` |
 
 ## Secrets
@@ -287,6 +288,8 @@ Optional (`enable_accessibility`, default `false`). Runs `accessibility_script` 
 ### custom-checks
 
 Optional (`enable_custom_checks`, default `false`). Runs each npm script listed in `custom_checks` (newline-separated) independently per changed app — for arbitrary, repo-specific guard scripts that don't fit the named gates above. A non-zero exit on any of them fails the job. Set `custom_checks_needs_browsers: true` if any of the scripts drives a browser (e.g. a Playwright-based smoke test) so Chromium gets installed first — most custom checks are plain lint/guard scripts and don't need this.
+
+Set `custom_checks_shards: N` to split each app's custom checks across N parallel jobs (matrix app × shard), each with its own runner. Every script runs with `CUSTOM_CHECKS_SHARD_INDEX` (1..N) and `CUSTOM_CHECKS_SHARD_TOTAL` (N) in its environment, always set (`1`/`1` when unsharded); the script decides how to split its work, e.g. a Playwright config that maps them to `shard: { current, total }`. A script that ignores them runs in full on every shard. With `N = 1` the job is named `Custom Checks (<app>)` as before; with `N > 1` each job is `Custom Checks (<app>) <i>/<N>`, so update required-check contexts when you turn sharding on. `custom_checks_passed` covers every shard: one failing shard fails it.
 
 ### no-changes
 Runs when no frontend changes are detected - outputs skip message.

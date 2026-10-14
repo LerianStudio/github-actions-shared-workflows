@@ -330,6 +330,10 @@ on:
         description: 'Install Playwright browsers before running custom_checks. Only enable if a custom_checks script drives a browser (e.g. a Playwright-based smoke test).'
         type: boolean
         default: false
+      custom_checks_shards:
+        description: 'How many jobs each app''s custom checks are split across. Every script receives the shard it is on as CUSTOM_CHECKS_SHARD_INDEX (1-based) and CUSTOM_CHECKS_SHARD_TOTAL. 1 runs each app once, as before.'
+        type: number
+        default: 1
 
       # ----------------- Security (pr-security-scan.yml) -----------------
       prerelease_block_branches:
@@ -618,6 +622,7 @@ jobs:
       enable_custom_checks: ${{ inputs.enable_custom_checks }}
       custom_checks: ${{ inputs.custom_checks }}
       custom_checks_needs_browsers: ${{ inputs.custom_checks_needs_browsers }}
+      custom_checks_shards: ${{ inputs.custom_checks_shards }}
     secrets:
       MANAGE_TOKEN: ${{ secrets.MANAGE_TOKEN }}
       SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}

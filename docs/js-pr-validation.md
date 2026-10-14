@@ -92,6 +92,7 @@ The `Go Analysis` and `Lib Version` stubs are unaffected: they are not flag-guar
 | `enable_custom_checks` | Enable arbitrary caller-owned checks beyond the named gates above (runs each script in `custom_checks`) | boolean | `false` |
 | `custom_checks` | Newline-separated npm script names to run as additional checks | string | `''` |
 | `custom_checks_needs_browsers` | Install Playwright browsers before running `custom_checks` | boolean | `false` |
+| `custom_checks_shards` | How many jobs each app's custom checks are split across; every script receives `CUSTOM_CHECKS_SHARD_INDEX` (1-based) and `CUSTOM_CHECKS_SHARD_TOTAL` | number | `1` |
 | `prerelease_block_branches` | Target branches where pre-release versions are hard failures (comma-separated) | string | `release-candidate,main` |
 | `enable_docker_scan` | Build and scan a Docker image with Trivy; set `false` for repos without a Dockerfile (CLIs, libraries) | boolean | `true` |
 | `dockerfile_path` | Explicit path to a single Dockerfile to build and scan (e.g. `Dockerfile`) | string | `''` |
