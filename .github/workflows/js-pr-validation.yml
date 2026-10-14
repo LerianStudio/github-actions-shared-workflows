@@ -76,7 +76,7 @@ on:
         description: 'Space-separated glob patterns treated as docs/meta; when only these change, the analysis and security pipelines are skipped.'
         type: string
         default: '*.md docs/* .github/* LICENSE* .gitignore .coderabbit.yml .coderabbit.yaml'
-      analyze_workflow_changes:
+      analyze_on_workflow_changes:
         description: 'Run the analysis and security pipelines when a pull request touches only .github/workflows/, .github/actions/ or .github/scripts/ (plus ignore_globs paths). On by default: a pull request editing the pipeline runs it. Set false in a repository whose analysis exercises nothing under .github/ (a JS/TS app with no composite actions or scripts of its own), so a pipeline-only pull request runs PR metadata and skips the rest.'
         type: boolean
         default: true
@@ -566,7 +566,7 @@ jobs:
         with:
           github-token: ${{ github.token }}
           ignore-globs: ${{ inputs.ignore_globs }}
-          workflow-paths-are-code: ${{ inputs.analyze_workflow_changes && 'true' || 'false' }}
+          workflow-paths-are-code: ${{ inputs.analyze_on_workflow_changes && 'true' || 'false' }}
 
   # ----------------- Frontend Analysis -----------------
   frontend-analysis:
