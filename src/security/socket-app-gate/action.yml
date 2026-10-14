@@ -176,10 +176,10 @@ runs:
         OWN_FILE="$RUNNER_TEMP/socket-app-own.json"
         FOREIGN_FILE="$RUNNER_TEMP/socket-app-foreign.json"
         jq --arg pr "$PR_NUMBER" \
-           'def owner: (.title // "") | capture("[Pp]ull [Rr]equest #(?<n>[0-9]+)").n? // null;
+           'def owner: (.title // "") | capture("pull request #(?<n>[0-9]+)"; "i").n? // null;
             [.[] | select($pr == "" or (owner | . == null or . == $pr))]' "$RAW_FILE" > "$OWN_FILE"
         jq --arg pr "$PR_NUMBER" \
-           'def owner: (.title // "") | capture("[Pp]ull [Rr]equest #(?<n>[0-9]+)").n? // null;
+           'def owner: (.title // "") | capture("pull request #(?<n>[0-9]+)"; "i").n? // null;
             [.[] | select($pr != "" and (owner | . != null and . != $pr))]' "$RAW_FILE" > "$FOREIGN_FILE"
 
         FOREIGN=$(jq 'length' "$FOREIGN_FILE")

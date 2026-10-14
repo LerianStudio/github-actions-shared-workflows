@@ -252,6 +252,17 @@ class SocketAppGateTests(unittest.TestCase):
         self.assertEqual(verdict["checks"], [])
         self.assertIn("published for another pull request", evaluate.stdout)
 
+    def test_owner_match_is_case_insensitive(self):
+        for title in ("Pull Request #1348 Alerts: Skipped", "pull request #1348 alerts",
+                      "PULL REQUEST #1348 ALERTS"):
+            with self.subTest(title=title):
+                _, evaluate, verdict, _ = self.execute(
+                    [snapshot(check("Project Report"),
+                              check("Pull Request Alerts", "neutral", title=title))],
+                    pr_number="1350")
+                self.assertEqual(evaluate.returncode, 0, evaluate.stdout + evaluate.stderr)
+                self.assertEqual(verdict["verdict"], "pass")
+
     def test_empty_pull_request_number_keeps_legacy_behaviour(self):
         _, evaluate, verdict, _ = self.execute(
             [snapshot(check("Pull Request Alerts", "neutral",
