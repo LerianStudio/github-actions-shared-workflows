@@ -41,6 +41,7 @@ The `Go Analysis` and `Lib Version` stubs are unaffected: they are not flag-guar
 | `run_security` | Run the security scan pipeline | boolean | `true` |
 | `run_socket` | Run the Socket supply-chain pipeline | boolean | `true` |
 | `ignore_globs` | Space-separated globs treated as docs/meta for the change gate | string | `*.md docs/* .github/* LICENSE* .gitignore .coderabbit.yml .coderabbit.yaml` |
+| `analyze_workflow_changes` | Run the analysis and security pipelines when a pull request touches only `.github/workflows/`, `.github/actions/` or `.github/scripts/` (plus `ignore_globs` paths). On by default; set `false` in a repository whose analysis exercises nothing under `.github/`, so a pipeline-only pull request runs PR metadata and skips the rest | boolean | `true` |
 | `pr_title_types` | Allowed commit types (pipe-separated) | string | `feat\|fix\|docs\|style\|refactor\|perf\|test\|chore\|ci\|build\|revert` |
 | `pr_title_scopes` | Allowed scopes (pipe-separated, empty = any) | string | `''` |
 | `require_scope` | Require scope in PR title | boolean | `false` |
