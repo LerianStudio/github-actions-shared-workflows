@@ -174,6 +174,13 @@ jobs:
 | `automation_only_source_patterns` | string | `''` | Source patterns (pipe-separated) accepted only on PRs opened by automation, e.g. `backmerge/*`. Restricts rather than grants — the pattern must still be allowed by `allowed_source_branches` or `source_branch_rules` |
 | `automation_source_actors` | string | `'lerian-studio-midaz-push-bot[bot],lerian-studio'` | Comma-separated logins counting as automation. A list is authoritative: those logins are accepted whatever their account type, which matters because `lerian-studio` is a `User`, not a `Bot`. Empty accepts any author of type `Bot` |
 | `require_verified_commits` | boolean | `true` | Block the PR when any of its commits is unsigned or has an unverified signature |
+| `enable_breaking_change_approval` | boolean | `true` | Hold a PR carrying breaking-change commits at the `breaking-approval` Environment until a reviewer approves it. Requires the Environment to exist with required reviewers — see [`breaking-change-approval.md`](breaking-change-approval.md) |
+| `breaking_change_scope_rules` | string | `{"develop": "*", "main": "hotfix/*"}` | JSON object mapping an exact base branch to the pipe-separated head globs gated for breaking changes |
+| `breaking_change_additional_scope_rules` | string | `''` | JSON object merged over `breaking_change_scope_rules`, key by key, for repository-specific promotion paths |
+| `breaking_change_force_labels` | string | `breaking-change-review` | Comma-separated labels that put an out-of-scope PR into the gate |
+| `breaking_change_skip_labels` | string | `''` | Comma-separated labels that take a PR out of the gate. Empty keeps it closed |
+| `breaking_change_close_on_rejection` | boolean | `true` | Close the PR when a reviewer rejects the breaking change |
+| `breaking_change_require_protected_environment` | boolean | `true` | Refuse to gate when `breaking-approval` has no required reviewers, instead of silently passing |
 
 The breaking change guard has no enable input, target-branch input, acknowledgement input, or opt-out. It applies to every caller and every PR target branch. `dry_run: true` remains a global preview mode without guard enforcement; it is not a guard-specific opt-out and does not change normal `dry_run: false` operation. Existing callers must migrate their `pull_request.types` list to include both `edited` and `ready_for_review`; otherwise body edits and draft-to-ready transitions do not rerun validation.
 
@@ -215,6 +222,35 @@ For every non-draft live run, including detector failure or cancellation, the wo
 ```
 feat fix docs style refactor perf test chore ci build revert
 ```
+
+## Breaking change approval
+
+The author-acknowledgement guard above asks the author to declare the break. The
+**Breaking Change Approval** gate asks the team whether it is necessary.
+
+When a breaking-change commit is found on a PR in scope — anything into
+`develop`, and `hotfix/*` into `main` by default — the run stops at a job whose
+`environment: breaking-approval` carries required reviewers. The PR gets a comment
+with a link to the pending deployment, and the merge is held until somebody
+answers:
+
+- **Approve** → the break is considered necessary, the check goes green.
+- **Reject** → the PR is closed, with the reason posted as a comment. The branch
+  is untouched; reopening is one click.
+
+Approving resumes the same run, so no second trigger is involved. The gate is a
+side branch of the graph — nothing depends on it — so a PR waiting on its
+approval still gets every other verdict immediately.
+
+The detection is handed over from the guard job rather than repeated, so this
+costs no extra checkout.
+
+**Before enabling**, create the `breaking-approval` Environment with required
+reviewers and *Prevent self-review*. Until then, pass
+`enable_breaking_change_approval: false` — a missing Environment would be created
+unprotected, so the preflight fails the gate instead.
+
+Full detail: [`breaking-change-approval.md`](breaking-change-approval.md).
 
 ## Secrets
 

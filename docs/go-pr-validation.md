@@ -63,6 +63,13 @@ This distinguishes the two skips that used to look identical: a pipeline the cal
 | `allowed_source_branches` | Allowed source branches (pipe-separated, `*` prefix) | string | `hotfix/*\|release-candidate` |
 | `target_branches_for_source_check` | Target branches requiring source validation | string | `main` |
 | `require_verified_commits` | Block the PR when any commit is unsigned or unverified | boolean | `true` |
+| `enable_breaking_change_approval` | Hold a PR carrying breaking-change commits at the `breaking-approval` Environment until a reviewer approves it — see [`breaking-change-approval.md`](breaking-change-approval.md) | boolean | `true` |
+| `breaking_change_scope_rules` | Base → head globs gated for breaking changes, as JSON | string | `{"develop": "*", "main": "hotfix/*"}` |
+| `breaking_change_additional_scope_rules` | JSON merged over `breaking_change_scope_rules`, key by key | string | `''` |
+| `breaking_change_force_labels` | Labels that put an out-of-scope PR into the gate | string | `breaking-change-review` |
+| `breaking_change_skip_labels` | Labels that take a PR out of the gate. Empty keeps it closed | string | `''` |
+| `breaking_change_close_on_rejection` | Close the PR when a reviewer rejects the breaking change | boolean | `true` |
+| `breaking_change_require_protected_environment` | Refuse to gate when `breaking-approval` has no required reviewers | boolean | `true` |
 | `go_version` | Go version | string | `1.23` |
 | `golangci_lint_version` | GolangCI-Lint version | string | `v1.62.2` |
 | `govulncheck_version` | govulncheck version to install. Pinned rather than `@latest` so an upstream release cannot change what runs here unchosen. Works at any `go_version` — the install step overrides `GOTOOLCHAIN=auto`, the scan still runs under the pinned toolchain | string | `v1.7.0` |
@@ -126,6 +133,35 @@ Breaking change acknowledged: I understand that this PR intentionally introduces
 The guard is mandatory for every PR target branch whenever the metadata pipeline runs (see `run_metadata`). PRs without the required acknowledgement fail in the existing `Blocking Checks` job, including drafts. `dry_run: true` reports detection and approval without enforcing the guard.
 
 Caller triggers must include the five activity types in the usage example. `edited` is mandatory so removing or adding the acknowledgement reruns validation. `ready_for_review` is retained for complete validation transitions even though the guard enforces drafts.
+
+## Breaking change approval
+
+The author-acknowledgement guard above asks the author to declare the break. The
+**Breaking Change Approval** gate asks the team whether it is necessary.
+
+When a breaking-change commit is found on a PR in scope — anything into
+`develop`, and `hotfix/*` into `main` by default — the run stops at a job whose
+`environment: breaking-approval` carries required reviewers. The PR gets a comment
+with a link to the pending deployment, and the merge is held until somebody
+answers:
+
+- **Approve** → the break is considered necessary, the check goes green.
+- **Reject** → the PR is closed, with the reason posted as a comment. The branch
+  is untouched; reopening is one click.
+
+Approving resumes the same run, so no second trigger is involved. The gate is a
+side branch of the graph — nothing depends on it — so a PR waiting on its
+approval still gets every other verdict immediately.
+
+The detection is handed over from the guard job rather than repeated, so this
+costs no extra checkout.
+
+**Before enabling**, create the `breaking-approval` Environment with required
+reviewers and *Prevent self-review*. Until then, pass
+`enable_breaking_change_approval: false` — a missing Environment would be created
+unprotected, so the preflight fails the gate instead.
+
+Full detail: [`breaking-change-approval.md`](breaking-change-approval.md).
 
 ## Permission Manifest Nudge (RI) — non-blocking
 
