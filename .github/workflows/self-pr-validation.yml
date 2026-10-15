@@ -31,6 +31,11 @@ jobs:
       enforce_source_branches: true
       allowed_source_branches: "develop|hotfix/*"
       target_branches_for_source_check: "main"
+      # Stated rather than left to the default: this repository is the first
+      # consumer of its own gate, and the `breaking-approval` Environment lives
+      # here. If it is ever removed, the preflight fails loudly instead of this
+      # line quietly meaning nothing.
+      enable_breaking_change_approval: true
     secrets:
       MANAGE_TOKEN: ${{ secrets.MANAGE_TOKEN }}
       SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
