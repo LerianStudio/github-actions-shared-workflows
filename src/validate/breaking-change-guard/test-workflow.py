@@ -821,6 +821,24 @@ class ApprovalGateStructureTests(unittest.TestCase):
             preflight,
         )
 
+    def test_the_waiting_comment_links_instead_of_mentioning(self):
+        reporter = (
+            REPO_ROOT / "src" / "notify" / "breaking-change-approval-reporter"
+            / "action.yml"
+        ).read_text(encoding="utf-8")
+        # Links to the commit, the decision, the reviewers and the docs.
+        for fragment in (
+            "${SERVER_URL}/${REPO}/commit/${HEAD_SHA}",
+            "[Approve or reject](%s)",
+            "${SERVER_URL}/orgs/${owner}/teams/${slug}",
+            "[How this works](%s)",
+        ):
+            with self.subTest(fragment=fragment):
+                self.assertIn(fragment, reporter)
+        # The pending deployment already notifies the reviewers; a bare @mention
+        # would ping the whole team again for the same thing.
+        self.assertNotIn('}@${owner}/', reporter)
+
     def test_a_missing_environment_is_told_apart_from_an_unreadable_one(self):
         # Creating on top of a 403 would be guessing; only a 404 is ours to fix.
         self.assertIn('*"HTTP 404"* | *"Not Found"* )', ENVIRONMENT_PROTECTION)

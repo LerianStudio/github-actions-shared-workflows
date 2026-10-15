@@ -31,6 +31,18 @@ inputs:
     description: Link to the run carrying the pending deployment.
     required: false
     default: ''
+  reviewers:
+    description: 'Who can answer, as the `team:<slug>` / `user:<login>` list the Environment was given. Rendered as GitHub mentions so the reader knows who to ask instead of hunting through settings.'
+    required: false
+    default: ''
+  server-url:
+    description: Base URL used to build commit links.
+    required: false
+    default: ${{ github.server_url }}
+  docs-url:
+    description: Link to the explanation of how the gate works.
+    required: false
+    default: 'https://github.com/LerianStudio/github-actions-shared-workflows/blob/main/docs/breaking-change-approval.md'
   approvers:
     description: Comma-separated logins that approved.
     required: false
@@ -76,6 +88,9 @@ runs:
         HEAD_SHA: ${{ inputs.head-sha }}
         ACKNOWLEDGED: ${{ inputs.acknowledged }}
         RUN_URL: ${{ inputs.run-url }}
+        REVIEWERS: ${{ inputs.reviewers }}
+        SERVER_URL: ${{ inputs.server-url }}
+        DOCS_URL: ${{ inputs.docs-url }}
         APPROVERS: ${{ inputs.approvers }}
         REJECTERS: ${{ inputs.rejecters }}
         REJECTION_COMMENT: ${{ inputs.rejection-comment }}
@@ -96,58 +111,85 @@ runs:
         body_file=$(mktemp)
         trap 'rm -f "$body_file"' EXIT INT TERM
 
+        owner=${REPO%%/*}
+
+        # `team:x,user:y` -> linked names. The reader's next question is always
+        # "who can unblock this", and the answer is sitting in the Environment
+        # where nobody thinks to look.
+        #
+        # Links, deliberately not @mentions: the pending deployment already
+        # notifies these very people, and a mention would ping the whole team a
+        # second time for the same thing.
+        mentions=""
+        while IFS= read -r entry; do
+          [ -z "$entry" ] && continue
+          case "$entry" in
+            team:*)
+              slug=${entry#team:}
+              mentions="${mentions:+$mentions, }[@${owner}/${slug}](${SERVER_URL}/orgs/${owner}/teams/${slug})"
+              ;;
+            *)
+              login=${entry#user:}
+              mentions="${mentions:+$mentions, }[@${login}](${SERVER_URL}/${login})"
+              ;;
+          esac
+        done < <(tr ',' '\n' <<< "$REVIEWERS" | xargs -n1 2>/dev/null)
+
+        commit_link=""
+        if [ -n "$HEAD_SHA" ]; then
+          commit_link="[\`${HEAD_SHA:0:7}\`](${SERVER_URL}/${REPO}/commit/${HEAD_SHA})"
+        fi
+
         # shellcheck disable=SC2016  # the backticks below are Markdown code spans, not command substitutions
         {
           printf '<!-- breaking-change-approval -->\n\n'
 
           case "$STATE" in
             waiting)
-              printf '### 🚨 Breaking change — approval required\n\n'
-              printf 'A breaking-change commit was found on this branch, so merging it will force the next release to a **major** version.\n\n'
-              printf 'This pull request is held until a reviewer answers one question: **is this breaking change necessary?**\n\n'
-              [ -n "$RUN_URL" ] && printf '👉 **[Review the pending deployment](%s)** — *Review deployments* → `breaking-approval`.\n\n' "$RUN_URL"
+              printf '### Breaking change — needs a decision\n\n'
+              printf '%s carries a breaking change, so merging makes the next release a **major** version. That is often deliberate — this just asks someone to confirm it.\n\n' \
+                "${commit_link:-This branch}"
+              [ -n "$RUN_URL" ] && printf '### ➡️ [Approve or reject](%s)\n\n' "$RUN_URL"
+              [ -n "$mentions" ] && printf 'Who can: %s\n\n' "$mentions"
               ;;
             approved)
               printf '### ✅ Breaking change approved\n\n'
-              printf 'Approved by **%s** — the break is considered necessary and the next release will be a major version.\n\n' \
+              printf 'Approved by **%s**. The next release will be a major version.\n\n' \
                 "${APPROVERS:-a reviewer}"
               ;;
             rejected)
-              printf '### ⛔ Breaking change rejected\n\n'
-              printf 'Rejected by **%s** — the break is not considered necessary.\n\n' "${REJECTERS:-a reviewer}"
-              [ -n "$REJECTION_COMMENT" ] && printf '> %s\n\n' "$REJECTION_COMMENT"
+              printf '### Breaking change rejected\n\n'
+              printf 'Rejected by **%s**' "${REJECTERS:-a reviewer}"
+              [ -n "$REJECTION_COMMENT" ] && printf ' — *%s*' "$REJECTION_COMMENT"
+              printf '.\n\n'
+              if [ "$CLOSE_ON_REJECTION" = "true" ]; then
+                printf 'This pull request was closed. The branch is untouched — rework it without the break and reopen.\n\n'
+              fi
               ;;
             unresolved)
-              printf '### 🚨 Breaking change — approval required\n\n'
+              printf '### Breaking change — decision not recorded\n\n'
               printf 'The approval did not complete.'
-              [ -n "$RUN_URL" ] && printf ' [Open the run](%s) and answer the pending deployment.' "$RUN_URL"
+              [ -n "$RUN_URL" ] && printf ' [Open the run](%s) to answer it.' "$RUN_URL"
               printf '\n\n'
               ;;
           esac
 
-          printf '| | |\n|---|---|\n'
-          [ -n "$REASON" ] && printf '| Gated via | `%s` |\n' "$REASON"
-          [ -n "$HEAD_SHA" ] && printf '| Head commit | `%s` |\n' "${HEAD_SHA:0:7}"
-          printf '| Author acknowledgement in the description | %s |\n' \
-            "$([ "$ACKNOWLEDGED" = "true" ] && echo "present" || echo "missing")"
-          printf '\n'
+          # One compact line of context instead of a table of three rows.
+          context=""
+          [ -n "$REASON" ] && context="Gated by \`${REASON}\`"
+          if [ "$STATE" = "waiting" ]; then
+            if [ "$ACKNOWLEDGED" = "true" ]; then
+              context="${context:+$context · }author acknowledged"
+            else
+              context="${context:+$context · }author acknowledgement missing"
+            fi
+          fi
+          [ -n "$context" ] && printf '<sub>%s</sub>\n\n' "$context"
 
-          case "$STATE" in
-            waiting)
-              printf '**Approving** records that the approvers consider the break necessary, and releases the merge.\n\n'
-              if [ "$CLOSE_ON_REJECTION" = "true" ]; then
-                printf '**Rejecting** records that it is not, and **closes this pull request** so the change can be reworked without the break. Reopening is one click and the branch is untouched.\n\n'
-              else
-                printf '**Rejecting** records that it is not, and fails this check.\n\n'
-              fi
-              printf 'If the break was unintentional, reword the commits — drop the `!` after the type and remove any `BREAKING CHANGE:` footer — and push again. No approval is needed then.\n'
-              ;;
-            rejected)
-              if [ "$CLOSE_ON_REJECTION" = "true" ]; then
-                printf 'This pull request was closed. Rework the change so it does not break the contract — drop the `!` and any `BREAKING CHANGE:` footer once it no longer applies — then reopen it. The branch is untouched.\n'
-              fi
-              ;;
-          esac
+          if [ "$STATE" = "waiting" ]; then
+            printf '<sub>Not intended? Drop the `!` and any `BREAKING CHANGE:` footer from the commits and push again — the gate clears itself. '
+            printf '[How this works](%s)</sub>\n' "$DOCS_URL"
+          fi
         } > "$body_file"
 
         comment_id=""
