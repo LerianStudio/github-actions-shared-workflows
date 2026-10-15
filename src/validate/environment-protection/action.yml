@@ -36,6 +36,9 @@ outputs:
   created:
     description: "Whether this run created the Environment (true/false)."
     value: ${{ steps.ensure.outputs.created }}
+  reviewers:
+    description: "Reviewers the Environment actually carries, as `team:<slug>`/`user:<login>`. Read back from the Environment, so it reflects an existing one that is gated by different people than the caller asked for."
+    value: ${{ steps.ensure.outputs.reviewers }}
 
 runs:
   using: composite
@@ -57,9 +60,34 @@ runs:
         created=false
         owner=${REPO%%/*}
 
-        read_rules() {
-          gh api "repos/${REPO}/environments/${ENVIRONMENT}" \
-            --jq '[.protection_rules[].type] | join(",")' 2>/dev/null
+        error_file=$(mktemp)
+        trap 'rm -f "$error_file"' EXIT INT TERM
+        environment_json=''
+
+        # One read, both answers. Fetching the rules and the reviewers in
+        # separate calls would create a state where the first succeeded and the
+        # second did not — "protected, reviewers unknown" — and an empty
+        # reviewer list is indistinguishable from "this Environment has none".
+        # A caller would then fall back to whoever it had configured and name
+        # the wrong people. There is no such state with a single read.
+        read_environment() {
+          environment_json=$(gh api "repos/${REPO}/environments/${ENVIRONMENT}" 2>"$error_file")
+        }
+
+        rules_of() {
+          jq -r '[.protection_rules[].type] | join(",")' <<< "$environment_json"
+        }
+
+        # Who the Environment is actually gated by, which is not necessarily who
+        # the caller asked for: it may have existed already, or been edited since.
+        # Callers that name the reviewers to a human should prefer this.
+        reviewers_of() {
+          jq -r '[.protection_rules[]
+                  | select(.type == "required_reviewers")
+                  | .reviewers[]?
+                  | if .type == "Team" then "team:" + .reviewer.slug
+                    else "user:" + .reviewer.login end]
+                 | join(",")' <<< "$environment_json"
         }
 
         # Resolves `team:<slug>` / `user:<login>` / `<login>` into the
@@ -95,19 +123,18 @@ runs:
           printf '%s' "$resolved"
         }
 
-        if ! rules=$(read_rules); then
+        if ! read_environment; then
           # Distinguish "does not exist" from "cannot read". Only the first is
           # ours to fix; the second is a token problem, and creating on top of
           # it would be guessing.
-          if ! error=$(gh api "repos/${REPO}/environments/${ENVIRONMENT}" 2>&1 >/dev/null); then
-            case "$error" in
-              *"HTTP 404"* | *"Not Found"* ) ;;
-              * )
-                echo "Could not read the '${ENVIRONMENT}' Environment in ${REPO}: ${error}" >&2
-                exit 1
-                ;;
-            esac
-          fi
+          error=$(cat "$error_file")
+          case "$error" in
+            *"HTTP 404"* | *"Not Found"* ) ;;
+            * )
+              echo "Could not read the '${ENVIRONMENT}' Environment in ${REPO}: ${error}" >&2
+              exit 1
+              ;;
+          esac
 
           if [ "$CREATE_IF_MISSING" != "true" ]; then
             echo "The '${ENVIRONMENT}' Environment does not exist in ${REPO}, and create-if-missing is off." >&2
@@ -151,11 +178,13 @@ runs:
           created=true
           echo "::notice::Created the '${ENVIRONMENT}' Environment in ${REPO} with reviewers: ${REVIEWERS}"
 
-          if ! rules=$(read_rules); then
+          if ! read_environment; then
             echo "Created the '${ENVIRONMENT}' Environment but could not read it back." >&2
             exit 1
           fi
         fi
+
+        rules=$(rules_of)
 
         # Reached whether the Environment was just created or already existed.
         # An existing one that is unprotected is NOT repaired here: a PUT
@@ -171,6 +200,7 @@ runs:
         {
           echo "protected=true"
           echo "created=$created"
+          echo "reviewers=$(reviewers_of)"
         } >> "$GITHUB_OUTPUT"
 
         if [ "$created" != "true" ]; then

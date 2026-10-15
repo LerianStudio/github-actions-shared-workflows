@@ -27,6 +27,36 @@ comment, and it ends as the record of who decided what — nothing is deleted.
 Any other value fails the step. A typo in `state` must not produce a confidently
 worded comment about the wrong thing.
 
+## It reads as information, not as a block
+
+A breaking change is often deliberate, and a comment that opens with a siren
+teaches people to scroll past it. The waiting comment states what was found,
+links straight to the decision, and names who can make it:
+
+> ### Breaking change — needs a decision
+>
+> [`f8d5506`](https://github.com/LerianStudio/example/commit/f8d5506) carries a
+> breaking change, so merging makes the next release a **major** version. That is
+> often deliberate — this just asks someone to confirm it.
+>
+> ### ➡️ [Approve or reject](https://github.com/LerianStudio/example/actions/runs/1)
+>
+> Who can:
+> [@LerianStudio/g_github_devops](https://github.com/orgs/LerianStudio/teams/g_github_devops)
+
+Everything else — the scope rule, the acknowledgement state, how to undo the
+break — is one `<sub>` line at the bottom, present for whoever needs it and out
+of the way of whoever does not.
+
+**Reviewers are rendered as links, never as @mentions.** The pending deployment
+already notifies exactly these people; a mention would ping the whole team a
+second time for the same thing.
+
+**`actual-reviewers` wins over `reviewers`.** An Environment that already existed
+may be gated by different people than the caller configured, and naming the wrong
+ones is worse than naming none — with neither available, the line is omitted
+rather than guessed.
+
 ## What it does not do
 
 It never closes, merges or approves anything. `close-on-rejection` only changes
@@ -46,6 +76,10 @@ side effect in the caller is what makes this safe to run with
 | `head-sha` | Head commit the report refers to. | No | `''` |
 | `acknowledged` | Whether the author acknowledgement line is present. | No | `false` |
 | `run-url` | Link to the run carrying the pending deployment. | No | `''` |
+| `reviewers` | Who can answer, as a `team:<slug>` / `user:<login>` list. | No | `''` |
+| `actual-reviewers` | Reviewers read from the Environment itself. Preferred over `reviewers` when present. | No | `''` |
+| `server-url` | Base URL used to build commit links. | No | `${{ github.server_url }}` |
+| `docs-url` | Link to the explanation of how the gate works. | No | `https://github.com/LerianStudio/github-actions-shared-workflows/blob/main/docs/breaking-change-approval.md` |
 | `approvers` | Comma-separated logins that approved. | No | `''` |
 | `rejecters` | Comma-separated logins that rejected. | No | `''` |
 | `rejection-comment` | Comment left with the rejection. | No | `''` |
