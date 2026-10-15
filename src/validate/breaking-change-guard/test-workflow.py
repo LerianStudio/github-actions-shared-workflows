@@ -837,7 +837,18 @@ class ApprovalGateStructureTests(unittest.TestCase):
                 self.assertIn(fragment, reporter)
         # The pending deployment already notifies the reviewers; a bare @mention
         # would ping the whole team again for the same thing.
-        self.assertNotIn('}@${owner}/', reporter)
+        #
+        # Checked as "every occurrence sits inside Markdown link text", not as
+        # one forbidden spelling: an assertion pinned to the exact characters
+        # around `@` passes the day somebody writes the mention differently,
+        # which is worse than no assertion at all.
+        for match in re.finditer(r"@\$\{owner\}/", reporter):
+            preceding = reporter[: match.start()]
+            self.assertTrue(
+                preceding.endswith("["),
+                f"bare team mention at offset {match.start()}: "
+                f"...{reporter[max(0, match.start() - 40):match.end() + 20]}...",
+            )
 
     def test_a_missing_environment_is_told_apart_from_an_unreadable_one(self):
         # Creating on top of a 403 would be guessing; only a 404 is ours to fix.

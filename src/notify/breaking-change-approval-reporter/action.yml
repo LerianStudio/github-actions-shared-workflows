@@ -32,7 +32,11 @@ inputs:
     required: false
     default: ''
   reviewers:
-    description: 'Who can answer, as the `team:<slug>` / `user:<login>` list the Environment was given. Rendered as GitHub mentions so the reader knows who to ask instead of hunting through settings.'
+    description: 'Who can answer, as a `team:<slug>` / `user:<login>` list. Rendered as links, never as @mentions — the pending deployment already notifies these people, so a mention would ping them twice for the same thing.'
+    required: false
+    default: ''
+  actual-reviewers:
+    description: 'Reviewers read from the Environment itself, in the same format. Preferred over `reviewers` when present: an Environment that already existed may be gated by different people than the caller configured, and naming the wrong ones is worse than naming none.'
     required: false
     default: ''
   server-url:
@@ -88,7 +92,7 @@ runs:
         HEAD_SHA: ${{ inputs.head-sha }}
         ACKNOWLEDGED: ${{ inputs.acknowledged }}
         RUN_URL: ${{ inputs.run-url }}
-        REVIEWERS: ${{ inputs.reviewers }}
+        REVIEWERS: ${{ inputs.actual-reviewers != '' && inputs.actual-reviewers || inputs.reviewers }}
         SERVER_URL: ${{ inputs.server-url }}
         DOCS_URL: ${{ inputs.docs-url }}
         APPROVERS: ${{ inputs.approvers }}

@@ -36,6 +36,9 @@ outputs:
   created:
     description: "Whether this run created the Environment (true/false)."
     value: ${{ steps.ensure.outputs.created }}
+  reviewers:
+    description: "Reviewers the Environment actually carries, as `team:<slug>`/`user:<login>`. Read back from the Environment, so it reflects an existing one that is gated by different people than the caller asked for."
+    value: ${{ steps.ensure.outputs.reviewers }}
 
 runs:
   using: composite
@@ -60,6 +63,19 @@ runs:
         read_rules() {
           gh api "repos/${REPO}/environments/${ENVIRONMENT}" \
             --jq '[.protection_rules[].type] | join(",")' 2>/dev/null
+        }
+
+        # Who the Environment is actually gated by, which is not necessarily who
+        # the caller asked for: it may have existed already, or been edited since.
+        # Callers that name the reviewers to a human should prefer this.
+        read_reviewers() {
+          gh api "repos/${REPO}/environments/${ENVIRONMENT}" \
+            --jq '[.protection_rules[]
+                   | select(.type == "required_reviewers")
+                   | .reviewers[]?
+                   | if .type == "Team" then "team:" + .reviewer.slug
+                     else "user:" + .reviewer.login end]
+                  | join(",")' 2>/dev/null || true
         }
 
         # Resolves `team:<slug>` / `user:<login>` / `<login>` into the
@@ -171,6 +187,7 @@ runs:
         {
           echo "protected=true"
           echo "created=$created"
+          echo "reviewers=$(read_reviewers)"
         } >> "$GITHUB_OUTPUT"
 
         if [ "$created" != "true" ]; then

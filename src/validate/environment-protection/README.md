@@ -90,6 +90,7 @@ Environments API takes numeric ids only.
 |--------|-------------|
 | `protected` | `true` when the rule is present. The step fails before it could report `false`. |
 | `created` | `true` when this run created the Environment. |
+| `reviewers` | Who the Environment is actually gated by, as `team:<slug>`/`user:<login>`. Read back from the Environment, so it reflects one that already existed with different reviewers than were asked for. |
 
 ## Usage
 
