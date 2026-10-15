@@ -173,9 +173,9 @@ runs:
           case "$STATE" in
             waiting)
               printf '> [!IMPORTANT]\n'
-              printf '> **Breaking change detected — this pull request needs a decision**\n'
+              printf '> ## 💥 Breaking change detected\n'
               printf '>\n'
-              printf '> Merging it makes the next release a **major** version. That is often deliberate; this just asks someone to confirm it before it ships.\n\n'
+              printf '> **This pull request needs a decision.** Merging it makes the next release a **major** version — often deliberate, so this just asks someone to confirm it before it ships.\n\n'
 
               # A shields.io badge renders as an actual button, which nothing in
               # GitHub-flavoured Markdown does on its own. The alt text carries
@@ -190,28 +190,37 @@ runs:
               fi
 
               printf '|  |  |\n|:--|:--|\n'
-              [ -n "$commit_link" ] && printf '| **Commit** | %s |\n' "$commit_link"
-              [ -n "$mentions" ] && printf '| **Who can decide** | %s |\n' "$mentions"
-              printf '| **Author acknowledgement** | %s |\n\n' \
+              [ -n "$commit_link" ] && printf '| 💥 **Breaking commit** | %s |\n' "$commit_link"
+              [ -n "$mentions" ] && printf '| 👤 **Who can decide** | %s |\n' "$mentions"
+              printf '| %s **Author acknowledgement** | %s |\n\n' \
+                "$([ "$ACKNOWLEDGED" = "true" ] && echo "✅" || echo "⬜")" \
                 "$([ "$ACKNOWLEDGED" = "true" ] && echo "present" || echo "missing")"
               ;;
             approved)
-              printf '### ✅ Breaking change approved\n\n'
-              printf 'Approved by **%s**. The next release will be a major version.\n\n' \
+              printf '> [!NOTE]\n'
+              printf '> ## ✅ Breaking change approved\n'
+              printf '>\n'
+              printf '> Approved by **%s**. 💥 The next release will be a major version.\n\n' \
                 "${APPROVERS:-a reviewer}"
               ;;
             rejected)
-              printf '### Breaking change rejected\n\n'
-              printf 'Rejected by **%s**' "${REJECTERS:-a reviewer}"
+              printf '> [!CAUTION]\n'
+              printf '> ## ⛔ Breaking change rejected\n'
+              printf '>\n'
+              printf '> Rejected by **%s**' "${REJECTERS:-a reviewer}"
               [ -n "$REJECTION_COMMENT" ] && printf ' — *%s*' "$REJECTION_COMMENT"
-              printf '.\n\n'
+              printf '.\n'
               if [ "$CLOSE_ON_REJECTION" = "true" ]; then
-                printf 'This pull request was closed. The branch is untouched — rework it without the break and reopen.\n\n'
+                printf '>\n'
+                printf '> This pull request was closed. The branch is untouched — rework it without the break and reopen.\n'
               fi
+              printf '\n'
               ;;
             unresolved)
-              printf '### Breaking change — decision not recorded\n\n'
-              printf 'The approval did not complete.'
+              printf '> [!WARNING]\n'
+              printf '> ## 💥 Breaking change — decision not recorded\n'
+              printf '>\n'
+              printf '> The approval did not complete.'
               [ -n "$RUN_URL" ] && printf ' [Open the run](%s) to answer it.' "$RUN_URL"
               printf '\n\n'
               ;;

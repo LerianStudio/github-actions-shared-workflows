@@ -904,6 +904,24 @@ class ApprovalGateStructureTests(unittest.TestCase):
         # And an empty badge-url falls back to a plain heading link.
         self.assertIn('elif [ -n "$RUN_URL" ]; then', reporter)
 
+    def test_each_state_carries_its_own_alert_and_mark(self):
+        reporter = (
+            REPO_ROOT / "src" / "notify" / "breaking-change-approval-reporter"
+            / "action.yml"
+        ).read_text(encoding="utf-8")
+        # GitHub alerts colour the block and supply the icon; the emoji marks
+        # what the block is about, so the state is readable from the timeline
+        # without opening anything.
+        for alert, mark in (
+            ("[!IMPORTANT]", "## 💥 Breaking change detected"),
+            ("[!NOTE]", "## ✅ Breaking change approved"),
+            ("[!CAUTION]", "## ⛔ Breaking change rejected"),
+            ("[!WARNING]", "## 💥 Breaking change — decision not recorded"),
+        ):
+            with self.subTest(alert=alert):
+                self.assertIn(alert, reporter)
+                self.assertIn(mark, reporter)
+
     def test_the_undo_example_uses_the_real_commit_subjects(self):
         reporter = (
             REPO_ROOT / "src" / "notify" / "breaking-change-approval-reporter"
