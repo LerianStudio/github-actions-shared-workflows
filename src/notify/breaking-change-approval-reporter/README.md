@@ -27,6 +27,22 @@ comment, and it ends as the record of who decided what — nothing is deleted.
 Any other value fails the step. A typo in `state` must not produce a confidently
 worded comment about the wrong thing.
 
+## The button is a badge, and the alt text is the fallback
+
+Markdown has no button, so the call to action is a [shields.io](https://shields.io)
+badge wrapped in the link. That is a third party in the path of a release
+control, which is worth stating plainly — so the alt text carries the entire
+call to action:
+
+```markdown
+[![Review the pending deployment](https://img.shields.io/badge/...)](run-url)
+```
+
+A reader whose network blocks the image, or a day when shields is down, sees a
+described link rather than a broken rectangle. Setting `badge-url` to empty
+falls back to a plain `### ➡️ [Review the pending deployment](…)` heading, with
+no external dependency at all.
+
 ## It reads as information, not as a block
 
 A breaking change is often deliberate, and a comment that opens with a siren
@@ -51,6 +67,14 @@ of the way of whoever does not.
 **Reviewers are rendered as links, never as @mentions.** The pending deployment
 already notifies exactly these people; a mention would ping the whole team a
 second time for the same thing.
+
+**The undo example uses this pull request's own commits.** The composite lists
+the pull request's commits and shows the real subjects in a `diff` block,
+instead of a made-up `feat(scope)!: subject`. Only the `!` form is matched
+there, because that is the form the example illustrates — it is a view, never a
+verdict. The canonical rule lives in
+[`breaking-change-guard`](../../validate/breaking-change-guard/README.md); when
+the two disagree the detector wins and this falls back to generic wording.
 
 **`actual-reviewers` wins over `reviewers`.** An Environment that already existed
 may be gated by different people than the caller configured, and naming the wrong
@@ -79,6 +103,7 @@ side effect in the caller is what makes this safe to run with
 | `reviewers` | Who can answer, as a `team:<slug>` / `user:<login>` list. | No | `''` |
 | `actual-reviewers` | Reviewers read from the Environment itself. Preferred over `reviewers` when present. | No | `''` |
 | `server-url` | Base URL used to build commit links. | No | `${{ github.server_url }}` |
+| `badge-url` | Image used as the call-to-action button. Empty falls back to a plain heading link. | No | `https://img.shields.io/badge/%E2%9E%A1%EF%B8%8F%20Review%20pending%20deployment-1f6feb?style=for-the-badge` |
 | `docs-url` | Link to the explanation of how the gate works. | No | `https://github.com/LerianStudio/github-actions-shared-workflows/blob/main/docs/breaking-change-approval.md` |
 | `approvers` | Comma-separated logins that approved. | No | `''` |
 | `rejecters` | Comma-separated logins that rejected. | No | `''` |

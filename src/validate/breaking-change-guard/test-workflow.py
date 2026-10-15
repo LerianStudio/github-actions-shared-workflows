@@ -829,9 +829,9 @@ class ApprovalGateStructureTests(unittest.TestCase):
         # Links to the commit, the decision, the reviewers and the docs.
         for fragment in (
             "${SERVER_URL}/${REPO}/commit/${HEAD_SHA}",
-            "[Approve or reject](%s)",
+            "[![Review the pending deployment](%s)](%s)",
             "${SERVER_URL}/orgs/${owner}/teams/${slug}",
-            "[How this works](%s)",
+            "[How this gate works](${DOCS_URL})",
         ):
             with self.subTest(fragment=fragment):
                 self.assertIn(fragment, reporter)
@@ -850,6 +850,37 @@ class ApprovalGateStructureTests(unittest.TestCase):
                 f"...{reporter[max(0, match.start() - 40):match.end() + 20]}...",
             )
 
+    def test_only_one_approval_request_stays_open_per_pull_request(self):
+        job = extract_job(APPROVAL_WORKFLOW, "approval")
+        # Every push queues another pending deployment, and the old ones do not
+        # expire on their own: approving a superseded one approves a revision
+        # nobody is merging. Cancelling is also what expires an approval, so the
+        # next revision cannot inherit a yes given to different code.
+        self.assertIn("concurrency:", job)
+        self.assertIn(
+            "group: breaking-approval-${{ github.repository }}"
+            "-${{ needs.detect.outputs.pr-number }}",
+            job,
+        )
+        self.assertIn("cancel-in-progress: true", job)
+
+    def test_a_superseded_run_leaves_the_pull_request_alone(self):
+        body = extract_run_body(
+            extract_job(APPROVAL_WORKFLOW, "outcome"), "Resolve the verdict"
+        )
+        # The cancelled run still reaches the verdict. Without this it would
+        # overwrite the live revision's comment with "did not complete".
+        self.assertIn("state=superseded", body)
+        self.assertIn('"$live_sha" != "$HEAD_SHA"', body)
+        # And `superseded` must drive neither the comment nor the close.
+        for step_name in (
+            "Report the outcome on the pull request",
+            "Close the pull request on rejection",
+        ):
+            with self.subTest(step=step_name):
+                step = extract_step(extract_job(APPROVAL_WORKFLOW, "outcome"), step_name)
+                self.assertNotIn("superseded", step)
+
     def test_the_environment_is_read_exactly_once(self):
         # Two reads would allow "rules fetched, reviewers not" — and an empty
         # reviewer list is indistinguishable from "this Environment has none",
@@ -861,6 +892,28 @@ class ApprovalGateStructureTests(unittest.TestCase):
         self.assertEqual(1, reads, "the Environment must be read exactly once")
         self.assertIn("reviewers_of()", ENVIRONMENT_PROTECTION)
         self.assertIn("rules_of()", ENVIRONMENT_PROTECTION)
+
+    def test_the_button_degrades_when_the_badge_cannot_load(self):
+        reporter = (
+            REPO_ROOT / "src" / "notify" / "breaking-change-approval-reporter"
+            / "action.yml"
+        ).read_text(encoding="utf-8")
+        # The badge is an external image. Its alt text carries the whole call to
+        # action, so a blocked image leaves a described link, not a broken box.
+        self.assertIn("[![Review the pending deployment]", reporter)
+        # And an empty badge-url falls back to a plain heading link.
+        self.assertIn('elif [ -n "$RUN_URL" ]; then', reporter)
+
+    def test_the_undo_example_uses_the_real_commit_subjects(self):
+        reporter = (
+            REPO_ROOT / "src" / "notify" / "breaking-change-approval-reporter"
+            / "action.yml"
+        ).read_text(encoding="utf-8")
+        self.assertIn('repos/${REPO}/pulls/${PR_NUMBER}/commits', reporter)
+        self.assertIn("```diff", reporter)
+        # A view, never a verdict: with no subject matched it must fall back to
+        # generic wording rather than invent an example.
+        self.assertIn('if [ -n "$breaking_subjects" ]; then', reporter)
 
     def test_a_missing_environment_is_told_apart_from_an_unreadable_one(self):
         # Creating on top of a 403 would be guessing; only a 404 is ours to fix.

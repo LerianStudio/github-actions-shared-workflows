@@ -43,6 +43,10 @@ inputs:
     description: Base URL used to build commit links.
     required: false
     default: ${{ github.server_url }}
+  badge-url:
+    description: 'Image used as the call-to-action button. Markdown has no button, so this is a badge image wrapped in the link. Its alt text carries the full call to action, so a reader whose network blocks the image still sees a described link. Set to empty for a plain text link instead.'
+    required: false
+    default: 'https://img.shields.io/badge/%E2%9E%A1%EF%B8%8F%20Review%20pending%20deployment-1f6feb?style=for-the-badge'
   docs-url:
     description: Link to the explanation of how the gate works.
     required: false
@@ -94,6 +98,7 @@ runs:
         RUN_URL: ${{ inputs.run-url }}
         REVIEWERS: ${{ inputs.actual-reviewers != '' && inputs.actual-reviewers || inputs.reviewers }}
         SERVER_URL: ${{ inputs.server-url }}
+        BADGE_URL: ${{ inputs.badge-url }}
         DOCS_URL: ${{ inputs.docs-url }}
         APPROVERS: ${{ inputs.approvers }}
         REJECTERS: ${{ inputs.rejecters }}
@@ -139,6 +144,23 @@ runs:
           esac
         done < <(tr ',' '\n' <<< "$REVIEWERS" | xargs -n1 2>/dev/null)
 
+        # The subjects that actually tripped the gate, so the "how to undo it"
+        # example shows this pull request's own commits rather than a made-up
+        # `feat(scope)!: subject`.
+        #
+        # Only the `!` form is matched here, because that is the form the diff
+        # below illustrates. This is a view, never a verdict: the canonical rule
+        # lives in the breaking-change-guard composite, and when the two disagree
+        # the detector wins — this just falls back to generic wording.
+        breaking_subjects=""
+        if [ "$STATE" = "waiting" ]; then
+          breaking_subjects=$(
+            gh api "repos/${REPO}/pulls/${PR_NUMBER}/commits" --paginate \
+              --jq '.[] | .commit.message | split("\n")[0]' 2>/dev/null \
+              | grep -E '^[A-Za-z0-9_]*(\([^)]*\))?!: ' || true
+          )
+        fi
+
         commit_link=""
         if [ -n "$HEAD_SHA" ]; then
           commit_link="[\`${HEAD_SHA:0:7}\`](${SERVER_URL}/${REPO}/commit/${HEAD_SHA})"
@@ -150,11 +172,28 @@ runs:
 
           case "$STATE" in
             waiting)
-              printf '### Breaking change — needs a decision\n\n'
-              printf '%s carries a breaking change, so merging makes the next release a **major** version. That is often deliberate — this just asks someone to confirm it.\n\n' \
-                "${commit_link:-This branch}"
-              [ -n "$RUN_URL" ] && printf '### ➡️ [Approve or reject](%s)\n\n' "$RUN_URL"
-              [ -n "$mentions" ] && printf 'Who can: %s\n\n' "$mentions"
+              printf '> [!IMPORTANT]\n'
+              printf '> **Breaking change detected — this pull request needs a decision**\n'
+              printf '>\n'
+              printf '> Merging it makes the next release a **major** version. That is often deliberate; this just asks someone to confirm it before it ships.\n\n'
+
+              # A shields.io badge renders as an actual button, which nothing in
+              # GitHub-flavoured Markdown does on its own. The alt text carries
+              # the full call to action on purpose: if the image fails to load —
+              # shields down, or a network that blocks it — the reader still sees
+              # a described link rather than a broken rectangle.
+              if [ -n "$RUN_URL" ] && [ -n "$BADGE_URL" ]; then
+                printf '[![Review the pending deployment](%s)](%s)\n\n' "$BADGE_URL" "$RUN_URL"
+                printf '<sub>Actions → **Review deployments** → `breaking-approval`</sub>\n\n'
+              elif [ -n "$RUN_URL" ]; then
+                printf '### ➡️ [Review the pending deployment](%s)\n\n' "$RUN_URL"
+              fi
+
+              printf '|  |  |\n|:--|:--|\n'
+              [ -n "$commit_link" ] && printf '| **Commit** | %s |\n' "$commit_link"
+              [ -n "$mentions" ] && printf '| **Who can decide** | %s |\n' "$mentions"
+              printf '| **Author acknowledgement** | %s |\n\n' \
+                "$([ "$ACKNOWLEDGED" = "true" ] && echo "present" || echo "missing")"
               ;;
             approved)
               printf '### ✅ Breaking change approved\n\n'
@@ -178,22 +217,31 @@ runs:
               ;;
           esac
 
-          # One compact line of context instead of a table of three rows.
+          # The escape hatch is folded away: it matters enormously to whoever
+          # broke the contract by accident, and not at all to whoever meant to.
+          if [ "$STATE" = "waiting" ]; then
+            printf '<details>\n'
+            printf '<summary><b>Not intentional?</b> — how to clear this without an approval</summary>\n\n'
+            if [ -n "$breaking_subjects" ]; then
+              printf 'Drop the `!` from the commit subject, then push again. The gate re-evaluates and clears itself.\n\n'
+              printf '```diff\n'
+              while IFS= read -r subject; do
+                [ -z "$subject" ] && continue
+                printf -- '- %s\n' "$subject"
+                printf -- '+ %s\n' "$(sed -E 's/^([A-Za-z0-9_]*(\([^)]*\))?)!:/\1:/' <<< "$subject")"
+              done <<< "$breaking_subjects"
+              printf '```\n\n'
+              printf 'Also remove any `BREAKING CHANGE:` footer from the commit bodies, if there is one.\n\n'
+            else
+              printf 'Remove the `BREAKING CHANGE:` footer from the commit bodies, and drop any `!` after the type in the subjects. Push again and the gate re-evaluates.\n\n'
+            fi
+            printf '</details>\n\n'
+          fi
+
           context=""
           [ -n "$REASON" ] && context="Gated by \`${REASON}\`"
-          if [ "$STATE" = "waiting" ]; then
-            if [ "$ACKNOWLEDGED" = "true" ]; then
-              context="${context:+$context · }author acknowledged"
-            else
-              context="${context:+$context · }author acknowledgement missing"
-            fi
-          fi
-          [ -n "$context" ] && printf '<sub>%s</sub>\n\n' "$context"
-
-          if [ "$STATE" = "waiting" ]; then
-            printf '<sub>Not intended? Drop the `!` and any `BREAKING CHANGE:` footer from the commits and push again — the gate clears itself. '
-            printf '[How this works](%s)</sub>\n' "$DOCS_URL"
-          fi
+          context="${context:+$context · }[How this gate works](${DOCS_URL})"
+          printf '<sub>%s</sub>\n' "$context"
         } > "$body_file"
 
         comment_id=""
