@@ -40,6 +40,21 @@ APPROVAL_WORKFLOW_PATH = (
 )
 APPROVAL_WORKFLOW = APPROVAL_WORKFLOW_PATH.read_text(encoding="utf-8")
 
+# Composites the approval gate orchestrates. Each must exist with the action.yml
+# + README.md pair the repository requires.
+APPROVAL_COMPOSITES = (
+    "src/validate/pr-gate-scope",
+    "src/validate/environment-protection",
+    "src/validate/environment-approvals",
+    "src/notify/breaking-change-approval-reporter",
+)
+ENVIRONMENT_PROTECTION = (
+    REPO_ROOT / "src" / "validate" / "environment-protection" / "action.yml"
+).read_text(encoding="utf-8")
+ENVIRONMENT_APPROVALS = (
+    REPO_ROOT / "src" / "validate" / "environment-approvals" / "action.yml"
+).read_text(encoding="utf-8")
+
 # The mandatory author-acknowledgement guard must stay unconfigurable, which the
 # tests below enforce by rejecting any input whose name mentions "breaking" or
 # "acknowledgement". The human approval gate is a separate control and is meant to
@@ -723,14 +738,39 @@ class ApprovalGateStructureTests(unittest.TestCase):
         # it failed, or an unprotected Environment would wave the change through.
         self.assertIn("needs.request.result == 'success'", job)
 
-    def test_preflight_refuses_an_unprotected_environment(self):
-        body = extract_run_body(
+    def test_every_orchestrated_composite_exists_with_its_readme(self):
+        for path in APPROVAL_COMPOSITES:
+            with self.subTest(composite=path):
+                directory = REPO_ROOT / path
+                self.assertTrue((directory / "action.yml").is_file(), path)
+                self.assertTrue((directory / "README.md").is_file(), path)
+                self.assertIn(
+                    f"LerianStudio/github-actions-shared-workflows/{path}@v1",
+                    APPROVAL_WORKFLOW,
+                )
+
+    def test_preflight_runs_before_the_gate_and_fails_closed(self):
+        step = extract_step(
             extract_job(APPROVAL_WORKFLOW, "request"),
             "Verify the breaking-approval Environment is protected",
         )
-        self.assertIn("repos/${REPO}/environments/breaking-approval", body)
-        self.assertIn("required_reviewers", body)
-        self.assertIn("exit 1", body)
+        self.assertIn(
+            "src/validate/environment-protection@v1",
+            step,
+        )
+        self.assertIn("environment: breaking-approval", step)
+        # The composite is what must refuse — an unreadable or unprotected
+        # Environment has to be a non-zero exit, not a warning.
+        self.assertIn("required_reviewers", ENVIRONMENT_PROTECTION)
+        self.assertEqual(2, ENVIRONMENT_PROTECTION.count("exit 1"))
+
+    def test_approvals_composite_reports_whether_it_could_read(self):
+        # Empty lists mean "nobody decided" only when the API was readable.
+        # Without this flag a 403 would be indistinguishable from an approval
+        # that never happened.
+        self.assertIn("api-readable:", ENVIRONMENT_APPROVALS)
+        self.assertIn("api_readable=false", ENVIRONMENT_APPROVALS)
+        self.assertIn('|| [ -n "$state" ]', ENVIRONMENT_APPROVALS)
 
     def test_outcome_does_not_escalate_permissions(self):
         job = extract_job(APPROVAL_WORKFLOW, "outcome")
@@ -743,11 +783,20 @@ class ApprovalGateStructureTests(unittest.TestCase):
         self.assertIn("pull-requests: write", permissions)
 
     def test_pull_request_is_closed_only_on_a_recorded_rejection(self):
-        body = extract_run_body(
-            extract_job(APPROVAL_WORKFLOW, "outcome"), "Resolve the verdict"
+        job = extract_job(APPROVAL_WORKFLOW, "outcome")
+        step = extract_step(job, "Close the pull request on rejection")
+        # Gated on the resolved state, never on the raw job conclusion: a
+        # cancelled run must not close a pull request.
+        self.assertIn(
+            "if: steps.verdict.outputs.state == 'rejected'"
+            " && inputs.close_on_rejection && !inputs.dry_run",
+            step,
         )
-        self.assertIn('if [ -n "$rejecters" ] && [ "$CLOSE_ON_REJECTION" = "true" ]', body)
-        # A cancelled run must never close a pull request.
+        body = extract_run_body(job, "Resolve the verdict")
+        self.assertIn('state=rejected', body)
+        # `rejected` is only reachable from a recorded rejecter, or from a failed
+        # approval job when the approvals API could not be read at all.
+        self.assertIn('"$API_READABLE" != "true" ]', body)
         self.assertIn('"$APPROVAL_RESULT" = "failure"', body)
 
     def test_pr_validation_hands_detection_over_and_fails_closed(self):

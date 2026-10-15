@@ -44,6 +44,24 @@ detect  →  request          →  approval               →  outcome
            + preflight         ⏸ waits for a human       rejected → PR closed
 ```
 
+## Composition
+
+The workflow orchestrates; the work lives in composites, each reusable on its
+own:
+
+| Composite | Responsibility |
+|---|---|
+| [`pr-gate-scope`](../src/validate/pr-gate-scope/README.md) | Is this pull request in scope, and why — base → head rules, label overrides, author vetoes |
+| [`breaking-change-guard`](../src/validate/breaking-change-guard/README.md) | Does the branch carry a breaking-change commit |
+| [`environment-protection`](../src/validate/environment-protection/README.md) | Does `breaking-approval` actually have required reviewers |
+| [`environment-approvals`](../src/validate/environment-approvals/README.md) | Who approved or rejected, and could we read that at all |
+| [`breaking-change-approval-reporter`](../src/notify/breaking-change-approval-reporter/README.md) | The single pull request comment, in each of its states |
+
+What stays in the workflow is the part that is genuinely orchestration: turning
+those facts into a verdict, closing the pull request, and failing the check.
+`pr-gate-scope` and the two Environment composites were written to be useful to
+any future gate, not just this one.
+
 ## How it differs from the guard in `pr-validation`
 
 `pr-validation.yml` already runs the same detector, and already blocks. What it
@@ -338,9 +356,18 @@ correct fix, since the commit message is what the release reads.
 ## Local test
 
 ```bash
+bash   src/validate/pr-gate-scope/test.sh
+bash   src/validate/breaking-change-guard/test.sh
 python3 src/validate/breaking-change-guard/test-workflow.py
 ```
 
-The suite covers the detector, the mandatory guard wiring, and this gate's
-structure: the literal `environment:`, the preflight, the permission that must
-not be declared, and that a pull request is closed only on a recorded rejection.
+- **`pr-gate-scope/test.sh`** — 32 cases against a stubbed `gh`: the rules and
+  their globs, the merge semantics of `additional-scope-rules`, both label
+  overrides and their precedence, the three bot spellings, and every input that
+  must fail closed. No network, no repository fixture.
+- **`breaking-change-guard/test.sh`** — the detector itself, against real Git
+  fixtures.
+- **`test-workflow.py`** — the wiring: the literal `environment:`, that every
+  orchestrated composite exists with its README and is pinned, that the preflight
+  runs before the gate, that `outcome` does not declare a permission it cannot
+  escalate to, and that a pull request is closed only on a recorded rejection.

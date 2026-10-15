@@ -1,0 +1,58 @@
+name: Environment Protection
+description: "Fails when a GitHub Environment is missing or carries no required reviewers. Use before any job that relies on an Environment as an approval gate."
+
+inputs:
+  github-token:
+    description: Token used to read the Environment. Needs read access to the repository.
+    required: true
+  environment:
+    description: Environment whose protection rules are checked.
+    required: true
+  repository:
+    description: Repository owning the Environment, as `owner/name`.
+    required: false
+    default: ${{ github.repository }}
+  required-rule:
+    description: Protection rule type that must be present. `required_reviewers` is what makes an Environment a human gate.
+    required: false
+    default: required_reviewers
+
+outputs:
+  protected:
+    description: "Whether the Environment carries the required protection rule (true/false). The step fails before reporting false, so a caller reading this is reading `true`."
+    value: ${{ steps.verify.outputs.protected }}
+
+runs:
+  using: composite
+  steps:
+    - name: Verify the Environment is protected
+      id: verify
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+        REPO: ${{ inputs.repository }}
+        ENVIRONMENT: ${{ inputs.environment }}
+        REQUIRED_RULE: ${{ inputs.required-rule }}
+      run: |
+        set -euo pipefail
+
+        # A job whose `environment:` names something that does not exist CREATES
+        # it, with no protection rules, and sails straight through. The gate is
+        # then a green check that gates nothing — the worst failure mode for a
+        # control like this, because it looks like it is working.
+        if ! rules=$(gh api "repos/${REPO}/environments/${ENVIRONMENT}" \
+               --jq '[.protection_rules[].type] | join(",")' 2>/dev/null); then
+          echo "The '${ENVIRONMENT}' Environment could not be read in ${REPO}." >&2
+          echo "Create it under Settings → Environments with 'Required reviewers' (and 'Prevent self-review') enabled." >&2
+          echo "If it exists and only the API read is blocked, skip this check in the caller." >&2
+          exit 1
+        fi
+
+        if [[ "$rules" != *"${REQUIRED_RULE}"* ]]; then
+          echo "The '${ENVIRONMENT}' Environment in ${REPO} has no ${REQUIRED_RULE} (rules: ${rules:-none})." >&2
+          echo "Without them the gated job resolves on its own and the gate passes everything." >&2
+          exit 1
+        fi
+
+        echo "protected=true" >> "$GITHUB_OUTPUT"
+        echo "::notice::'${ENVIRONMENT}' is protected by ${REQUIRED_RULE}"

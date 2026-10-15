@@ -184,163 +184,33 @@ jobs:
       detection-succeeded: ${{ steps.normalize.outputs.detection-succeeded }}
 
     steps:
-      - name: Resolve scope
+      - name: Resolve the gate scope
         id: scope
+        uses: LerianStudio/github-actions-shared-workflows/src/validate/pr-gate-scope@v1
+        with:
+          github-token: ${{ secrets.MANAGE_TOKEN || github.token }}
+          pr-number: ${{ inputs.pr_number != 0 && inputs.pr_number || github.event.pull_request.number }}
+          scope-rules: ${{ inputs.scope_rules }}
+          additional-scope-rules: ${{ inputs.additional_scope_rules }}
+          force-labels: ${{ inputs.force_labels }}
+          skip-labels: ${{ inputs.skip_labels }}
+          ignore-authors: ${{ inputs.ignore_authors }}
+          verbose: ${{ inputs.dry_run && 'true' || 'false' }}
+
+      - name: Announce the scope verdict
         env:
-          GH_TOKEN: ${{ secrets.MANAGE_TOKEN || github.token }}
-          REPO: ${{ github.repository }}
-          INPUT_PR_NUMBER: ${{ inputs.pr_number }}
-          EVENT_PR_NUMBER: ${{ github.event.pull_request.number }}
-          SCOPE_RULES: ${{ inputs.scope_rules }}
-          ADDITIONAL_SCOPE_RULES: ${{ inputs.additional_scope_rules }}
-          FORCE_LABELS: ${{ inputs.force_labels }}
-          SKIP_LABELS: ${{ inputs.skip_labels }}
-          IGNORE_AUTHORS: ${{ inputs.ignore_authors }}
-          DRY_RUN: ${{ inputs.dry_run && 'true' || 'false' }}
+          IN_SCOPE: ${{ steps.scope.outputs.in-scope }}
+          REASON: ${{ steps.scope.outputs.reason }}
+          PR_NUMBER: ${{ steps.scope.outputs.pr-number }}
+          HEAD_REF: ${{ steps.scope.outputs.head-ref }}
+          BASE_REF: ${{ steps.scope.outputs.base-ref }}
         run: |
           set -euo pipefail
-
-          pr_number="$INPUT_PR_NUMBER"
-          if [ -z "$pr_number" ] || [ "$pr_number" = "0" ]; then
-            pr_number="$EVENT_PR_NUMBER"
+          if [ "$IN_SCOPE" = "true" ]; then
+            echo "::notice::PR #${PR_NUMBER} is gated for breaking changes via ${REASON}"
+          else
+            echo "::notice::PR #${PR_NUMBER} (${HEAD_REF} → ${BASE_REF}) is not gated — ${REASON}"
           fi
-
-          if [ -z "$pr_number" ]; then
-            echo "No pull request number — pass \`pr_number\` or call this workflow from an event that carries one." >&2
-            exit 1
-          fi
-
-          # Read the live pull request rather than the event payload, which is
-          # frozen at dispatch. A run started before a retarget would otherwise
-          # decide against a base branch that no longer applies.
-          read -r base head head_sha author < <(
-            gh pr view "$pr_number" --repo "$REPO" \
-              --json baseRefName,headRefName,headRefOid,author \
-              --jq '"\(.baseRefName) \(.headRefName) \(.headRefOid) \(.author.login)"'
-          )
-
-          labels=$(gh pr view "$pr_number" --repo "$REPO" --json labels --jq '.labels[].name')
-
-          # Three spellings of the same bot, all of which must match. REST says
-          # `dependabot[bot]`, GraphQL says `dependabot`, and `gh pr view --json
-          # author` — the call above — says `app/dependabot`, because the CLI
-          # prefixes bot logins with `app/`. Strip the affixes from both sides so a
-          # caller can write whichever spelling it last saw.
-          normalise_login() {
-            local login="${1,,}"
-            login="${login#app/}"
-            printf '%s' "${login%\[bot\]}"
-          }
-
-          has_label() {
-            local wanted="${1,,}" name
-            while IFS= read -r name; do
-              [ -z "$name" ] && continue
-              [ "${name,,}" = "$wanted" ] && return 0
-            done <<< "$labels"
-            return 1
-          }
-
-          matches_any_label() {
-            local list="$1" entry
-            while IFS= read -r entry; do
-              [ -z "$entry" ] && continue
-              if has_label "$entry"; then
-                printf '%s' "$entry"
-                return 0
-              fi
-            done < <(tr ',' '\n' <<< "$list" | xargs -n1 2>/dev/null)
-            return 1
-          }
-
-          emit() {
-            {
-              echo "in-scope=$1"
-              echo "reason=$2"
-              echo "pr-number=$pr_number"
-              echo "base-ref=$base"
-              echo "head-sha=$head_sha"
-              echo "author=$author"
-            } >> "$GITHUB_OUTPUT"
-          }
-
-          if [ "$DRY_RUN" = "true" ]; then
-            echo "::notice::DRY RUN — no comment, no label, and no approval will be requested"
-            echo "  pull request      : #${pr_number}"
-            echo "  head → base       : ${head} → ${base}"
-            echo "  head commit       : ${head_sha}"
-            echo "  author            : ${author}"
-            echo "  labels            : [$(tr '\n' ',' <<< "$labels" | sed 's/,$//')]"
-            echo "  scope rules       : ${SCOPE_RULES}"
-            echo "  additional rules  : [${ADDITIONAL_SCOPE_RULES}]"
-            echo "  force labels      : [${FORCE_LABELS}]"
-            echo "  skip labels       : [${SKIP_LABELS}]"
-            echo "  ignored authors   : [${IGNORE_AUTHORS}]"
-          fi
-
-          # Authors vetoed outright, before scope is even considered — an exclusion
-          # expressed as another scope dimension would lose to any positive match.
-          author_key=$(normalise_login "$author")
-          while IFS= read -r entry; do
-            [ -z "$entry" ] && continue
-            if [ "$author_key" = "$(normalise_login "$entry")" ]; then
-              echo "::notice::PR #${pr_number} was opened by ${author}, an ignored author — not gated"
-              emit false "ignored author '${author}'"
-              exit 0
-            fi
-          done < <(tr ',' '\n' <<< "$IGNORE_AUTHORS" | xargs -n1 2>/dev/null)
-
-          if [ -n "$SKIP_LABELS" ] && skip_hit=$(matches_any_label "$SKIP_LABELS"); then
-            echo "::notice::PR #${pr_number} carries the '${skip_hit}' label — not gated"
-            emit false "skip label '${skip_hit}'"
-            exit 0
-          fi
-
-          # Both objects validated before the merge so a malformed rule set fails
-          # closed here rather than silently gating nothing.
-          validate_rules() {
-            jq -e 'type == "object" and (to_entries | all(.value | type == "string"))' >/dev/null 2>&1 <<< "$1"
-          }
-
-          additional="${ADDITIONAL_SCOPE_RULES:-}"
-          [ -z "$additional" ] && additional='{}'
-
-          if ! validate_rules "$SCOPE_RULES"; then
-            echo "scope_rules must be a JSON object of string values; got: ${SCOPE_RULES}" >&2
-            exit 1
-          fi
-
-          if ! validate_rules "$additional"; then
-            echo "additional_scope_rules must be a JSON object of string values; got: ${ADDITIONAL_SCOPE_RULES}" >&2
-            exit 1
-          fi
-
-          # `*` is a shallow merge: a base present in both takes the additional
-          # value, a base present only in the additional set is added.
-          rules=$(jq -cn --argjson base "$SCOPE_RULES" --argjson extra "$additional" '$base * $extra')
-          patterns=$(jq -r --arg base "$base" '.[$base] // ""' <<< "$rules")
-
-          matched=""
-          while IFS= read -r entry; do
-            [ -z "$entry" ] && continue
-            # shellcheck disable=SC2254
-            case "$head" in
-              $entry) matched="rule ${base} ← '${entry}'"; break ;;
-            esac
-          done < <(tr '|' '\n' <<< "$patterns" | xargs -n1 2>/dev/null)
-
-          if [ -z "$matched" ] && [ -n "$FORCE_LABELS" ] && force_hit=$(matches_any_label "$FORCE_LABELS"); then
-            matched="force label '${force_hit}'"
-          fi
-
-          if [ -z "$matched" ]; then
-            echo "::notice::PR #${pr_number} (${head} → ${base}) is outside the breaking-change scope — not gated"
-            emit false "no rule matches ${head} → ${base}"
-            exit 0
-          fi
-
-          echo "::notice::PR #${pr_number} is gated for breaking changes via ${matched}"
-          emit true "$matched"
 
       # The composite reads Git history, so it needs `origin/<base>` and a HEAD
       # that is the pull request. The second checkout exists because the first
@@ -456,97 +326,29 @@ jobs:
           && needs.detect.outputs.has-breaking-changes == 'true'
           && inputs.require_protected_environment
           && !inputs.dry_run
-        env:
-          GH_TOKEN: ${{ secrets.MANAGE_TOKEN || github.token }}
-          REPO: ${{ github.repository }}
-        run: |
-          set -euo pipefail
+        uses: LerianStudio/github-actions-shared-workflows/src/validate/environment-protection@v1
+        with:
+          github-token: ${{ secrets.MANAGE_TOKEN || github.token }}
+          environment: breaking-approval
 
-          # A job whose `environment:` names something that does not exist CREATES
-          # it, with no protection rules, and sails straight through. The gate would
-          # then be a green check that gates nothing — the worst possible failure for
-          # a control like this, because it looks like it is working.
-          if ! rules=$(gh api "repos/${REPO}/environments/breaking-approval" \
-                 --jq '[.protection_rules[].type] | join(",")' 2>/dev/null); then
-            echo "The 'breaking-approval' Environment could not be read in ${REPO}." >&2
-            echo "Create it under Settings → Environments with 'Required reviewers' (and 'Prevent self-review') enabled." >&2
-            echo "If the Environment exists and only the API read is blocked, set require_protected_environment: false." >&2
-            exit 1
-          fi
-
-          if [[ "$rules" != *required_reviewers* ]]; then
-            echo "The 'breaking-approval' Environment in ${REPO} has no required reviewers (rules: ${rules:-none})." >&2
-            echo "Without them the approval job would resolve on its own and the gate would pass every breaking change." >&2
-            exit 1
-          fi
-
-          echo "::notice::'breaking-approval' is protected by required reviewers"
-
-      - name: Announce the pending approval
-        if: always()
-        env:
-          GH_TOKEN: ${{ secrets.MANAGE_TOKEN || github.token }}
-          REPO: ${{ github.repository }}
-          DETECT_RESULT: ${{ needs.detect.result }}
-          IN_SCOPE: ${{ needs.detect.outputs.in-scope }}
-          REASON: ${{ needs.detect.outputs.reason }}
-          PR_NUMBER: ${{ needs.detect.outputs.pr-number }}
-          HEAD_SHA: ${{ needs.detect.outputs.head-sha }}
-          HAS_BREAKING_CHANGES: ${{ needs.detect.outputs.has-breaking-changes }}
-          ACKNOWLEDGED: ${{ needs.detect.outputs.acknowledged }}
-          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-          CLOSE_ON_REJECTION: ${{ inputs.close_on_rejection && 'true' || 'false' }}
-          LABEL: ${{ inputs.label }}
-          ENABLE_COMMENT: ${{ inputs.enable_comment && 'true' || 'false' }}
-          DRY_RUN: ${{ inputs.dry_run && 'true' || 'false' }}
-        run: |
-          set -euo pipefail
-
-          if [ "$DETECT_RESULT" != "success" ] || [ "$IN_SCOPE" != "true" ] \
-            || [ "$HAS_BREAKING_CHANGES" != "true" ] || [ "$DRY_RUN" = "true" ]; then
-            exit 0
-          fi
-
-          # shellcheck disable=SC2016  # the backticks below are Markdown code spans, not command substitutions
-          {
-            printf '<!-- breaking-change-approval -->\n\n'
-            printf '### 🚨 Breaking change — approval required\n\n'
-            printf 'A breaking-change commit was found on this branch, so merging it will force the next release to a **major** version.\n\n'
-            printf 'This pull request is held at the `breaking-approval` Environment until a reviewer answers one question: **is this breaking change necessary?**\n\n'
-            printf '👉 **[Review the pending deployment](%s)** — *Review deployments* → `breaking-approval`.\n\n' "$RUN_URL"
-            printf '| | |\n|---|---|\n'
-            printf '| Gated via | `%s` |\n' "$REASON"
-            printf '| Head commit | `%s` |\n' "${HEAD_SHA:0:7}"
-            printf '| Author acknowledgement in the description | %s |\n' \
-              "$([ "$ACKNOWLEDGED" = "true" ] && echo "present" || echo "missing")"
-            printf '\n'
-            printf '**Approving** records that the approvers consider the break necessary, and releases the merge.\n\n'
-            if [ "$CLOSE_ON_REJECTION" = "true" ]; then
-              printf '**Rejecting** records that it is not, and **closes this pull request** so the change can be reworked without the break. Reopening is one click and the branch is untouched.\n\n'
-            else
-              printf '**Rejecting** records that it is not, and fails this check.\n\n'
-            fi
-            printf 'If the break was unintentional, reword the commits — drop the `!` after the type and remove any `BREAKING CHANGE:` footer — and push again. No approval is needed then.\n'
-          } > comment.md
-
-          marker='<!-- breaking-change-approval -->'
-          existing=$(gh api "repos/${REPO}/issues/${PR_NUMBER}/comments" --paginate \
-            --jq "[.[] | select(.body | contains(\"${marker}\")) | .id] | first // empty")
-
-          if [ "$ENABLE_COMMENT" = "true" ]; then
-            if [ -n "$existing" ]; then
-              gh api --method PATCH "repos/${REPO}/issues/comments/${existing}" -F body=@comment.md >/dev/null
-            else
-              gh pr comment "$PR_NUMBER" --repo "$REPO" --body-file comment.md >/dev/null
-            fi
-          fi
-
-          # Cosmetic — a repository that never declared the label still gets its gate.
-          if [ -n "$LABEL" ] && ! gh pr edit "$PR_NUMBER" --repo "$REPO" --add-label "$LABEL" >/dev/null 2>&1; then
-            echo "::notice::Label '${LABEL}' not applied — it is not declared in ${REPO}. Cosmetic only."
-          fi
-
-          echo "::notice::PR #${PR_NUMBER} is waiting for a breaking-change approval — ${RUN_URL}"
+      - name: Request the approval on the pull request
+        if: >-
+          needs.detect.result == 'success'
+          && needs.detect.outputs.in-scope == 'true'
+          && needs.detect.outputs.has-breaking-changes == 'true'
+          && !inputs.dry_run
+        uses: LerianStudio/github-actions-shared-workflows/src/notify/breaking-change-approval-reporter@v1
+        with:
+          github-token: ${{ secrets.MANAGE_TOKEN || github.token }}
+          pr-number: ${{ needs.detect.outputs.pr-number }}
+          state: waiting
+          reason: ${{ needs.detect.outputs.reason }}
+          head-sha: ${{ needs.detect.outputs.head-sha }}
+          acknowledged: ${{ needs.detect.outputs.acknowledged }}
+          run-url: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          close-on-rejection: ${{ inputs.close_on_rejection && 'true' || 'false' }}
+          label: ${{ inputs.label }}
+          enabled: ${{ inputs.enable_comment && 'true' || 'false' }}
 
   # ----------------- The gate itself -----------------
   # The whole job is the gate. It holds the run until a reviewer of the
@@ -592,185 +394,167 @@ jobs:
       approved: ${{ steps.verdict.outputs.approved }}
       result: ${{ steps.verdict.outputs.result }}
     steps:
+      # Read before deciding. `api-readable` matters as much as the lists: a
+      # token without `actions: read` returns no rejection AND no approval, and
+      # only the flag tells the two apart from "nobody decided".
+      - name: Collect the Environment decisions
+        id: decisions
+        if: needs.detect.outputs.has-breaking-changes == 'true' && !inputs.dry_run
+        continue-on-error: true
+        uses: LerianStudio/github-actions-shared-workflows/src/validate/environment-approvals@v1
+        with:
+          github-token: ${{ secrets.MANAGE_TOKEN || github.token }}
+          environment: breaking-approval
+
       - name: Resolve the verdict
         id: verdict
         env:
-          GH_TOKEN: ${{ secrets.MANAGE_TOKEN || github.token }}
-          REPO: ${{ github.repository }}
-          RUN_ID: ${{ github.run_id }}
-          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           DETECT_RESULT: ${{ needs.detect.result }}
           REQUEST_RESULT: ${{ needs.request.result }}
           APPROVAL_RESULT: ${{ needs.approval.result }}
           IN_SCOPE: ${{ needs.detect.outputs.in-scope }}
           REASON: ${{ needs.detect.outputs.reason }}
           PR_NUMBER: ${{ needs.detect.outputs.pr-number }}
-          HEAD_SHA: ${{ needs.detect.outputs.head-sha }}
           HAS_BREAKING_CHANGES: ${{ needs.detect.outputs.has-breaking-changes }}
-          ACKNOWLEDGED: ${{ needs.detect.outputs.acknowledged }}
           DETECTION_SUCCEEDED: ${{ needs.detect.outputs.detection-succeeded }}
-          CLOSE_ON_REJECTION: ${{ inputs.close_on_rejection && 'true' || 'false' }}
-          LABEL: ${{ inputs.label }}
-          ENABLE_COMMENT: ${{ inputs.enable_comment && 'true' || 'false' }}
+          APPROVERS: ${{ steps.decisions.outputs.approvers }}
+          REJECTERS: ${{ steps.decisions.outputs.rejecters }}
+          API_READABLE: ${{ steps.decisions.outputs.api-readable }}
           DRY_RUN: ${{ inputs.dry_run && 'true' || 'false' }}
         run: |
           set -euo pipefail
 
+          # Four facts in, four facts out. Everything that acts on the verdict —
+          # the comment, the close, the step summary, the job's own exit — reads
+          # these rather than re-deriving them.
           approved=false
           result=failure
+          state=unresolved
+          rejecters="$REJECTERS"
 
-          finish() {
+          emit() {
             {
               echo "approved=$approved"
               echo "result=$result"
+              echo "state=$state"
+              echo "rejecters=$rejecters"
             } >> "$GITHUB_OUTPUT"
-          }
-
-          summarise() {
-            {
-              printf '## Breaking Change Approval\n\n'
-              printf -- '- Pull request: #%s\n' "${PR_NUMBER:-?}"
-              printf -- '- Scope: %s\n' "${REASON:-unresolved}"
-              printf -- '- Breaking change: %s\n' "$1"
-              printf -- '- Verdict: **%s**\n' "$result"
-            } >> "$GITHUB_STEP_SUMMARY"
           }
 
           # Detection failing is not "no breaking changes" — it is "we do not
           # know", and the point of the gate is that an unknown blocks.
           if [ "$DETECT_RESULT" != "success" ] || [ "$DETECTION_SUCCEEDED" != "true" ] \
             || [ "$REQUEST_RESULT" != "success" ]; then
-            finish
-            summarise "detection or preflight did not complete"
-            if [ "$DRY_RUN" = "true" ]; then
-              echo "::notice::DRY RUN — detection or preflight did not complete (detect=${DETECT_RESULT}, request=${REQUEST_RESULT}); a real run would block"
-              exit 0
-            fi
-            echo "Breaking change gate could not run (detect=${DETECT_RESULT}, request=${REQUEST_RESULT}, detection_succeeded=${DETECTION_SUCCEEDED}) — failing closed." >&2
-            exit 1
+            state=blocked
+            emit
+            echo "::error::Breaking change gate could not run (detect=${DETECT_RESULT}, request=${REQUEST_RESULT}, detection_succeeded=${DETECTION_SUCCEEDED})"
+            exit 0
           fi
 
           if [ "$IN_SCOPE" != "true" ] || [ "$HAS_BREAKING_CHANGES" != "true" ]; then
             approved=true
             result=success
-            finish
-            summarise "none"
+            state=none
+            emit
             echo "::notice::Nothing to approve on PR #${PR_NUMBER} — ${REASON}"
-            # The label describes a state the pull request is no longer in; a
-            # rewritten history should take it back off.
-            if [ -n "$LABEL" ] && [ "$DRY_RUN" != "true" ] && [ -n "${PR_NUMBER:-}" ]; then
-              gh pr edit "$PR_NUMBER" --repo "$REPO" --remove-label "$LABEL" >/dev/null 2>&1 || true
-            fi
             exit 0
           fi
 
           if [ "$DRY_RUN" = "true" ]; then
-            finish
-            summarise "detected — an approval would have been requested"
+            state=would-request
+            emit
             echo "::notice::DRY RUN — PR #${PR_NUMBER} would be held at the 'breaking-approval' Environment"
             echo "  gated via         : ${REASON}"
-            echo "  head commit       : ${HEAD_SHA}"
-            echo "  author ack line   : ${ACKNOWLEDGED}"
-            echo "  on rejection      : $([ "$CLOSE_ON_REJECTION" = "true" ] && echo "close the pull request" || echo "fail the check")"
+            echo "  on rejection      : the caller's close_on_rejection decides"
             exit 0
           fi
 
-          # The Environment's own reviewer record is the source of truth, not the
-          # job conclusion. A rejection and a cancellation can both leave the
-          # approval job non-successful, and only one of them is a decision —
-          # closing a pull request because a superseding push cancelled the run
-          # would be indefensible.
-          api_ok=true
-          decisions=$(gh api "repos/${REPO}/actions/runs/${RUN_ID}/approvals" \
-            --jq '.[] | select((.environments // []) | map(.name) | index("breaking-approval")) | [.state, .user.login, (.comment // "" | gsub("[\r\n]+"; " "))] | @tsv' 2>/dev/null) || { api_ok=false; decisions=""; }
-
-          approvers=""
-          rejecters=""
-          rejection_comment=""
-          while IFS=$'\t' read -r state login comment || [ -n "$state" ]; do
-            [ -z "$state" ] && continue
-            case "$state" in
-              approved) approvers="${approvers:+$approvers, }${login}" ;;
-              rejected)
-                rejecters="${rejecters:+$rejecters, }${login}"
-                [ -n "$comment" ] && rejection_comment="$comment"
-                ;;
-            esac
-          done <<< "$decisions"
-
-          # Reading the approvals needs `actions: read`, which the entrypoint may not
-          # grant to a token this workflow cannot escalate. Without it a rejection
-          # would be indistinguishable from an approval that never happened — so
-          # fall back to the job conclusion, which separates the two well enough:
-          # a rejection fails the approval job, while a cancellation cancels the
-          # run and this job never reaches here at all.
-          if [ -z "$rejecters" ] && [ "$api_ok" != "true" ] && [ "$APPROVAL_RESULT" = "failure" ]; then
+          # A rejection and a cancellation can both leave the approval job
+          # non-successful, and only one of them is a decision. When the approvals
+          # API is unreadable the job conclusion is the best signal left, and it
+          # separates the two well enough: a rejection fails the approval job,
+          # while a cancellation cancels the whole run and never reaches here.
+          if [ -z "$rejecters" ] && [ "$API_READABLE" != "true" ] && [ "$APPROVAL_RESULT" = "failure" ]; then
             rejecters="a reviewer"
-            echo "::warning::Could not read the Environment approvals (needs 'actions: read', or a MANAGE_TOKEN that has it). Treating the failed approval job as a rejection."
           fi
 
-          if [ "$APPROVAL_RESULT" = "success" ] && [ -z "$rejecters" ]; then
+          if [ -n "$rejecters" ]; then
+            state=rejected
+          elif [ "$APPROVAL_RESULT" = "success" ]; then
             approved=true
             result=success
+            state=approved
           fi
 
-          # shellcheck disable=SC2016  # Markdown code spans
+          emit
+
+      - name: Report the outcome on the pull request
+        if: >-
+          !inputs.dry_run
+          && (steps.verdict.outputs.state == 'approved' || steps.verdict.outputs.state == 'rejected'
+              || steps.verdict.outputs.state == 'unresolved')
+        continue-on-error: true
+        uses: LerianStudio/github-actions-shared-workflows/src/notify/breaking-change-approval-reporter@v1
+        with:
+          github-token: ${{ secrets.MANAGE_TOKEN || github.token }}
+          pr-number: ${{ needs.detect.outputs.pr-number }}
+          state: ${{ steps.verdict.outputs.state }}
+          reason: ${{ needs.detect.outputs.reason }}
+          head-sha: ${{ needs.detect.outputs.head-sha }}
+          acknowledged: ${{ needs.detect.outputs.acknowledged }}
+          run-url: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          approvers: ${{ steps.decisions.outputs.approvers }}
+          rejecters: ${{ steps.verdict.outputs.rejecters }}
+          rejection-comment: ${{ steps.decisions.outputs.rejection-comment }}
+          close-on-rejection: ${{ inputs.close_on_rejection && 'true' || 'false' }}
+          label: ${{ inputs.label }}
+          enabled: ${{ inputs.enable_comment && 'true' || 'false' }}
+
+      # Only on a recorded rejection, never on a cancellation. Closing a pull
+      # request because a superseding push cancelled the run would be
+      # indefensible, which is why `state` is `rejected` only when a decision was
+      # actually observed.
+      - name: Close the pull request on rejection
+        if: steps.verdict.outputs.state == 'rejected' && inputs.close_on_rejection && !inputs.dry_run
+        env:
+          GH_TOKEN: ${{ secrets.MANAGE_TOKEN || github.token }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ needs.detect.outputs.pr-number }}
+          REJECTERS: ${{ steps.verdict.outputs.rejecters }}
+        run: |
+          set -euo pipefail
+          if gh pr close "$PR_NUMBER" --repo "$REPO" >/dev/null 2>&1; then
+            echo "::notice::PR #${PR_NUMBER} closed — breaking change rejected by ${REJECTERS}"
+          else
+            echo "::warning::PR #${PR_NUMBER} could not be closed (token lacks 'pull-requests: write'?) — the gate still failed"
+          fi
+
+      - name: Record the verdict
+        if: always()
+        env:
+          PR_NUMBER: ${{ needs.detect.outputs.pr-number }}
+          REASON: ${{ needs.detect.outputs.reason }}
+          STATE: ${{ steps.verdict.outputs.state }}
+          RESULT: ${{ steps.verdict.outputs.result }}
+          APPROVERS: ${{ steps.decisions.outputs.approvers }}
+          REJECTERS: ${{ steps.verdict.outputs.rejecters }}
+          DRY_RUN: ${{ inputs.dry_run && 'true' || 'false' }}
+        run: |
+          set -euo pipefail
+
           {
-            printf '<!-- breaking-change-approval -->\n\n'
-            if [ "$approved" = "true" ]; then
-              printf '### ✅ Breaking change approved\n\n'
-              printf 'Approved by **%s** — the break is considered necessary and the next release will be a major version.\n\n' \
-                "${approvers:-a reviewer}"
-            elif [ -n "$rejecters" ]; then
-              printf '### ⛔ Breaking change rejected\n\n'
-              printf 'Rejected by **%s** — the break is not considered necessary.\n\n' "$rejecters"
-              [ -n "$rejection_comment" ] && printf '> %s\n\n' "$rejection_comment"
-              if [ "$CLOSE_ON_REJECTION" = "true" ]; then
-                printf 'This pull request was closed. Rework the change so it does not break the contract — drop the `!` and any `BREAKING CHANGE:` footer once it no longer applies — then reopen it. The branch is untouched.\n\n'
-              fi
-            else
-              printf '### 🚨 Breaking change — approval required\n\n'
-              printf 'The approval did not complete. [Open the run](%s) and answer the pending `breaking-approval` deployment.\n\n' "$RUN_URL"
-            fi
-            printf '| | |\n|---|---|\n'
-            printf '| Gated via | `%s` |\n' "$REASON"
-            printf '| Head commit | `%s` |\n' "${HEAD_SHA:0:7}"
-            printf '| Author acknowledgement in the description | %s |\n' \
-              "$([ "$ACKNOWLEDGED" = "true" ] && echo "present" || echo "missing")"
-            printf '| Decision | [%s](%s) |\n' "$result" "$RUN_URL"
-          } > comment.md
+            printf '## Breaking Change Approval\n\n'
+            printf -- '- Pull request: #%s\n' "${PR_NUMBER:-?}"
+            printf -- '- Scope: %s\n' "${REASON:-unresolved}"
+            printf -- '- State: %s\n' "${STATE:-unknown}"
+            [ -n "$APPROVERS" ] && printf -- '- Approved by: %s\n' "$APPROVERS"
+            [ -n "$REJECTERS" ] && printf -- '- Rejected by: %s\n' "$REJECTERS"
+            printf -- '- Verdict: **%s**\n' "${RESULT:-failure}"
+          } >> "$GITHUB_STEP_SUMMARY"
 
-          marker='<!-- breaking-change-approval -->'
-          existing=$(gh api "repos/${REPO}/issues/${PR_NUMBER}/comments" --paginate \
-            --jq "[.[] | select(.body | contains(\"${marker}\")) | .id] | first // empty")
-
-          if [ "$ENABLE_COMMENT" = "true" ]; then
-            if [ -n "$existing" ]; then
-              gh api --method PATCH "repos/${REPO}/issues/comments/${existing}" -F body=@comment.md >/dev/null
-            else
-              gh pr comment "$PR_NUMBER" --repo "$REPO" --body-file comment.md >/dev/null
-            fi
-          fi
-
-          if [ -n "$LABEL" ] && [ "$approved" = "true" ]; then
-            gh pr edit "$PR_NUMBER" --repo "$REPO" --remove-label "$LABEL" >/dev/null 2>&1 || true
-          fi
-
-          finish
-          summarise "$([ "$approved" = "true" ] && echo "approved by ${approvers}" || echo "not approved")"
-
-          if [ "$approved" = "true" ]; then
-            echo "::notice::PR #${PR_NUMBER} ships an approved breaking change (${approvers})"
+          # dry_run never fails: it reports what a real run would have done.
+          if [ "$DRY_RUN" = "true" ] || [ "$RESULT" = "success" ]; then
             exit 0
-          fi
-
-          # Closing only on a recorded rejection, never on a cancellation.
-          if [ -n "$rejecters" ] && [ "$CLOSE_ON_REJECTION" = "true" ]; then
-            if gh pr close "$PR_NUMBER" --repo "$REPO" >/dev/null 2>&1; then
-              echo "::notice::PR #${PR_NUMBER} closed — breaking change rejected by ${rejecters}"
-            else
-              echo "::warning::PR #${PR_NUMBER} could not be closed (token lacks pull-requests: write?) — the gate still failed"
-            fi
           fi
 
           echo "PR #${PR_NUMBER} carries an unapproved breaking change — blocking the merge." >&2
