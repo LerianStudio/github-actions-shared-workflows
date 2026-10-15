@@ -47,6 +47,7 @@ APPROVAL_COMPOSITES = (
     "src/validate/environment-protection",
     "src/validate/environment-approvals",
     "src/notify/breaking-change-approval-reporter",
+    "src/validate/codeowners-reviewers",
 )
 ENVIRONMENT_PROTECTION = (
     REPO_ROOT / "src" / "validate" / "environment-protection" / "action.yml"
@@ -761,7 +762,7 @@ class ApprovalGateStructureTests(unittest.TestCase):
             step,
         )
         self.assertIn("environment: breaking-approval", step)
-        self.assertIn("reviewers: ${{ inputs.approval_reviewers }}", step)
+        # Where the reviewers come from is asserted in the CODEOWNERS test.
         # The composite is what must refuse. Every branch that cannot prove the
         # Environment gates something has to exit non-zero, never warn.
         self.assertIn("required_reviewers", ENVIRONMENT_PROTECTION)
@@ -782,6 +783,27 @@ class ApprovalGateStructureTests(unittest.TestCase):
         put_at = ENVIRONMENT_PROTECTION.index("--method PUT")
         self.assertLess(put_at, created_at)
         self.assertEqual(1, ENVIRONMENT_PROTECTION.count("--method PUT"))
+
+    def test_reviewers_come_from_codeowners_on_the_base_ref(self):
+        step = extract_step(
+            extract_job(APPROVAL_WORKFLOW, "request"),
+            "Derive the reviewers from CODEOWNERS",
+        )
+        self.assertIn("src/validate/codeowners-reviewers@v1", step)
+        # The base ref, never the head: a CODEOWNERS from the pull request
+        # branch would let the author choose who approves their own change.
+        self.assertIn("ref: ${{ needs.detect.outputs.base-ref }}", step)
+        self.assertNotIn("head", step)
+        # Explicit reviewers win; CODEOWNERS is the fallback.
+        preflight = extract_step(
+            extract_job(APPROVAL_WORKFLOW, "request"),
+            "Verify the breaking-approval Environment is protected",
+        )
+        self.assertIn(
+            "inputs.approval_reviewers != '' && inputs.approval_reviewers"
+            " || steps.codeowners.outputs.reviewers",
+            preflight,
+        )
 
     def test_a_missing_environment_is_told_apart_from_an_unreadable_one(self):
         # Creating on top of a 403 would be guessing; only a 404 is ours to fix.

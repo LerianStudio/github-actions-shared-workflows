@@ -53,6 +53,7 @@ own:
 |---|---|
 | [`pr-gate-scope`](../src/validate/pr-gate-scope/README.md) | Is this pull request in scope, and why — base → head rules, label overrides, author vetoes |
 | [`breaking-change-guard`](../src/validate/breaking-change-guard/README.md) | Does the branch carry a breaking-change commit |
+| [`codeowners-reviewers`](../src/validate/codeowners-reviewers/README.md) | Who owns this repository, per its CODEOWNERS |
 | [`environment-protection`](../src/validate/environment-protection/README.md) | Does `breaking-approval` exist with required reviewers — creating it when it does not |
 | [`environment-approvals`](../src/validate/environment-approvals/README.md) | Who approved or rejected, and could we read that at all |
 | [`breaking-change-approval-reporter`](../src/notify/breaking-change-approval-reporter/README.md) | The single pull request comment, in each of its states |
@@ -84,22 +85,37 @@ the reviewer as context.
 
 ## Setup
 
-### The Environment creates itself
+### The Environment creates itself, owned by CODEOWNERS
 
 On the first pull request that carries a breaking change, the gate creates
-`breaking-approval` with the reviewers in `approval_reviewers` (default
-`team:g_github_devops`, the same team that approves tier promotions) and
-*Prevent self-review* on. There is nothing to prepare.
+`breaking-approval` — with *Prevent self-review* on, and with the repository's
+own **CODEOWNERS** as the required reviewers. There is nothing to prepare and
+nothing to keep in sync: the people who own the code are the people asked
+whether the break is necessary.
 
-Two conditions:
+```
+.github/CODEOWNERS                       breaking-approval
+*  @LerianStudio/g_github_devops   →     required reviewers: g_github_devops
+```
+
+CODEOWNERS is read from the pull request's **base** ref. Reading the head would
+let an author edit who is allowed to approve their own breaking change.
+
+Pass `breaking_change_approval_reviewers` to override, as comma-separated
+`team:<slug>` or `user:<login>`.
+
+Three conditions:
 
 - **`MANAGE_TOKEN` must be able to administer the repository.** Creating an
   Environment needs the `administration` permission, which the default
   `GITHUB_TOKEN` does not have and `permissions:` cannot grant. Without such a
   token the gate fails and names what it needs, rather than running without a
   gate.
-- **Reviewers must be resolvable.** `team:` takes the team *slug*, not the
-  display name.
+- **CODEOWNERS must yield a reviewer.** No file, no `*` rule, or only email
+  owners means nothing to create the Environment with — the gate fails rather
+  than creating one that approves itself.
+- **At most six reviewers.** That is the Environment limit; anything beyond it
+  is reported in the log rather than dropped quietly.
 
 To create it by hand instead, pass `breaking_change_create_environment: false`:
 
@@ -299,7 +315,7 @@ cosmetic, and a repository that never declared it still gets its gate.
 | `detected_acknowledged` | string | *(empty)* | Companion to the above — whether the author acknowledgement line is present. Context only. |
 | `author_acknowledgement` | string | the `pr-validation` line | Shown to the reviewer as context. Never substitutes for the approval. |
 | `close_on_rejection` | boolean | `true` | Close the pull request when a reviewer rejects. |
-| `approval_reviewers` | string | `team:g_github_devops` | Who may answer the gate, as comma-separated `team:<slug>` or `user:<login>`. Used to create the Environment when missing. Empty means it is never created. |
+| `approval_reviewers` | string | *(empty)* | Who may answer the gate, as comma-separated `team:<slug>` or `user:<login>`. Empty takes the repository's CODEOWNERS. Used only to create the Environment when it does not exist. |
 | `create_approval_environment` | boolean | `true` | Create `breaking-approval` when missing. Needs a token with repository administration rights. |
 | `require_protected_environment` | boolean | `true` | Refuse to gate when `breaking-approval` exists without required reviewers. Leave on. |
 | `label` | string | `breaking-change` | Applied while waiting, removed once resolved. Cosmetic. |
@@ -369,8 +385,9 @@ correct fix, since the commit message is what the release reads.
 ## Local test
 
 ```bash
-bash   src/validate/pr-gate-scope/test.sh
-bash   src/validate/breaking-change-guard/test.sh
+bash    src/validate/pr-gate-scope/test.sh
+bash    src/validate/codeowners-reviewers/test.sh
+bash    src/validate/breaking-change-guard/test.sh
 python3 src/validate/breaking-change-guard/test-workflow.py
 ```
 
@@ -378,6 +395,9 @@ python3 src/validate/breaking-change-guard/test-workflow.py
   their globs, the merge semantics of `additional-scope-rules`, both label
   overrides and their precedence, the three bot spellings, and every input that
   must fail closed. No network, no repository fixture.
+- **`codeowners-reviewers/test.sh`** — 22 cases: both owner forms, comments,
+  last-rule-wins, Enterprise section headers, the three file locations, the
+  reviewer cap, and every shape that yields nothing.
 - **`breaking-change-guard/test.sh`** — the detector itself, against real Git
   fixtures.
 - **`test-workflow.py`** — the wiring: the literal `environment:`, that every

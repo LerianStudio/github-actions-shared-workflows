@@ -153,10 +153,11 @@ on:
       breaking_change_approval_reviewers:
         description: >-
           Who may answer the breaking-change gate, as comma-separated `team:<slug>`
-          or `user:<login>`. Used to create the `breaking-approval` Environment when
-          the repository has none. Empty means it is never created.
+          or `user:<login>`. Empty — the default — takes the repository's own
+          CODEOWNERS. Used only to create the `breaking-approval` Environment when
+          it does not exist.
         type: string
-        default: 'team:g_github_devops'
+        default: ''
       breaking_change_create_environment:
         description: >-
           Create `breaking-approval` when missing. Needs a MANAGE_TOKEN with

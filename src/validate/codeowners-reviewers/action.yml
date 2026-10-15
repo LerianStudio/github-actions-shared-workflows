@@ -1,0 +1,50 @@
+name: CODEOWNERS Reviewers
+description: "Derives an Environment reviewer list from a repository's CODEOWNERS, as team:<slug> and user:<login> entries. Reports only; the caller decides what to do when none are found."
+
+inputs:
+  github-token:
+    description: 'Token used to read CODEOWNERS. Needs `contents: read`.'
+    required: true
+  repository:
+    description: 'Repository whose CODEOWNERS is read, as `owner/name`.'
+    required: false
+    default: ${{ github.repository }}
+  ref:
+    description: 'Ref to read CODEOWNERS from. Pass the pull request BASE — reading the head would let an author edit who is allowed to approve their own change. Empty reads the default branch.'
+    required: false
+    default: ''
+  pattern:
+    description: 'CODEOWNERS pattern whose owners are taken. Defaults to the catch-all `*`, which is what a repository-wide gate should ask.'
+    required: false
+    default: '*'
+  max-reviewers:
+    description: Most reviewers to return. An Environment accepts six; anything beyond that is reported as dropped rather than truncated quietly.
+    required: false
+    default: '6'
+
+outputs:
+  found:
+    description: "Whether any reviewer could be derived (true/false). False when there is no CODEOWNERS, no rule for the pattern, or only owners that cannot be reviewers."
+    value: ${{ steps.resolve.outputs.found }}
+  reviewers:
+    description: "Comma-separated `team:<slug>` and `user:<login>` entries, ready for the environment-protection composite. Empty when `found` is false."
+    value: ${{ steps.resolve.outputs.reviewers }}
+  source:
+    description: "Path CODEOWNERS was read from — `.github/CODEOWNERS`, `CODEOWNERS` or `docs/CODEOWNERS`. Empty when none was found."
+    value: ${{ steps.resolve.outputs.source }}
+
+runs:
+  using: composite
+  steps:
+    - name: Derive reviewers from CODEOWNERS
+      id: resolve
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+        REPO: ${{ inputs.repository }}
+        REF: ${{ inputs.ref }}
+        PATTERN: ${{ inputs.pattern }}
+        MAX_REVIEWERS: ${{ inputs.max-reviewers }}
+      run: |
+        set -euo pipefail
+        bash "${GITHUB_ACTION_PATH}/resolve.sh" >> "${GITHUB_OUTPUT}"

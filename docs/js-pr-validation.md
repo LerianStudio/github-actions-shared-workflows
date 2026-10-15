@@ -60,7 +60,7 @@ The `Go Analysis` and `Lib Version` stubs are unaffected: they are not flag-guar
 | `breaking_change_skip_labels` | Labels that take a PR out of the gate. Empty keeps it closed | string | `''` |
 | `breaking_change_close_on_rejection` | Close the PR when a reviewer rejects the breaking change | boolean | `true` |
 | `breaking_change_require_protected_environment` | Refuse to gate when `breaking-approval` has no required reviewers | boolean | `true` |
-| `breaking_change_approval_reviewers` | Who may answer the gate, as `team:<slug>` or `user:<login>`. Used to create the Environment when missing | string | `team:g_github_devops` |
+| `breaking_change_approval_reviewers` | Who may answer the gate, as `team:<slug>` or `user:<login>`. Empty takes the repository's CODEOWNERS | string | *(empty)* |
 | `breaking_change_create_environment` | Create `breaking-approval` when missing. Needs a `MANAGE_TOKEN` with administration rights | boolean | `true` |
 | `node_version` | Node.js version | string | `22` |
 | `package_manager` | Package manager (`npm`, `yarn`, `pnpm`) | string | `npm` |
@@ -186,12 +186,14 @@ approval still gets every other verdict immediately.
 The detection is handed over from the guard job rather than repeated, so this
 costs no extra checkout.
 
-**The Environment creates itself.** On the first breaking change, the gate
-creates `breaking-approval` with `breaking_change_approval_reviewers` (default
-`team:g_github_devops`) and *Prevent self-review* on — provided `MANAGE_TOKEN`
-can administer the repository, since the default token cannot create an
-Environment. If it cannot, the gate fails and says so rather than running
-without a gate. An Environment that already exists is never rewritten.
+**The Environment creates itself, owned by CODEOWNERS.** On the first breaking
+change, the gate creates `breaking-approval` with *Prevent self-review* on and
+the repository's own CODEOWNERS as the required reviewers — read from the base
+ref, so an author cannot edit who approves their own change. Override with
+`breaking_change_approval_reviewers`. Creating needs a `MANAGE_TOKEN` that can
+administer the repository, since the default token cannot; if it cannot, the
+gate fails and says so rather than running without a gate. An Environment that
+already exists is never rewritten.
 
 Full detail: [`breaking-change-approval.md`](breaking-change-approval.md).
 

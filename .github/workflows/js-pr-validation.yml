@@ -188,9 +188,9 @@ on:
         type: boolean
         default: true
       breaking_change_approval_reviewers:
-        description: 'Who may answer the breaking-change gate, as comma-separated `team:<slug>` or `user:<login>`. Used to create the `breaking-approval` Environment when the repository has none.'
+        description: 'Who may answer the breaking-change gate, as comma-separated `team:<slug>` or `user:<login>`. Empty takes the repository own CODEOWNERS. Used only to create the `breaking-approval` Environment when it does not exist.'
         type: string
-        default: 'team:g_github_devops'
+        default: ''
       breaking_change_create_environment:
         description: 'Create `breaking-approval` when missing. Needs a MANAGE_TOKEN with repository administration rights.'
         type: boolean

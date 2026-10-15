@@ -25,8 +25,9 @@ name: Breaking Change Approval
 # Because a job referencing an Environment that does not exist CREATES it,
 # unprotected, a missing `breaking-approval` would wave every breaking change
 # straight through. The preflight in `request` closes that hole from both ends:
-# it creates the Environment with `approval_reviewers` when it is missing, and
-# refuses to run when one exists without required reviewers. It never rewrites
+# it creates the Environment when missing — with the repository's own CODEOWNERS
+# as the reviewers, read from the base ref — and refuses to run when one exists
+# without required reviewers. It never rewrites
 # an existing Environment — a PUT replaces the whole configuration, and would
 # drop a wait timer or branch policy somebody set on purpose.
 #
@@ -117,13 +118,13 @@ on:
       approval_reviewers:
         description: >-
           Who may answer the gate, as comma-separated `team:<slug>` or
-          `user:<login>`. Used to CREATE the `breaking-approval` Environment when
-          a repository does not have one yet — an existing Environment is never
-          rewritten from here. Empty means the Environment is never created, and
-          a repository without one fails the preflight instead.
+          `user:<login>`. Leave empty — the default — to take the repository's own
+          CODEOWNERS, which is where a repository already states who owns its code.
+          Used only to CREATE the `breaking-approval` Environment when one does not
+          exist; an existing Environment is never rewritten from here.
         required: false
         type: string
-        default: 'team:g_github_devops'
+        default: ''
       create_approval_environment:
         description: >-
           Create `breaking-approval` when it is missing, using `approval_reviewers`.
@@ -342,6 +343,22 @@ jobs:
       contents: read
       pull-requests: write
     steps:
+      # Read from the BASE ref, never the head: a CODEOWNERS taken from the pull
+      # request branch would let an author edit who is allowed to approve their
+      # own breaking change.
+      - name: Derive the reviewers from CODEOWNERS
+        id: codeowners
+        if: >-
+          needs.detect.result == 'success'
+          && needs.detect.outputs.has-breaking-changes == 'true'
+          && inputs.approval_reviewers == ''
+          && inputs.create_approval_environment
+          && !inputs.dry_run
+        uses: LerianStudio/github-actions-shared-workflows/src/validate/codeowners-reviewers@v1
+        with:
+          github-token: ${{ secrets.MANAGE_TOKEN || github.token }}
+          ref: ${{ needs.detect.outputs.base-ref }}
+
       - name: Verify the breaking-approval Environment is protected
         if: >-
           needs.detect.result == 'success'
@@ -353,7 +370,7 @@ jobs:
           github-token: ${{ secrets.MANAGE_TOKEN || github.token }}
           environment: breaking-approval
           create-if-missing: ${{ inputs.create_approval_environment && 'true' || 'false' }}
-          reviewers: ${{ inputs.approval_reviewers }}
+          reviewers: ${{ inputs.approval_reviewers != '' && inputs.approval_reviewers || steps.codeowners.outputs.reviewers }}
 
       - name: Request the approval on the pull request
         if: >-
