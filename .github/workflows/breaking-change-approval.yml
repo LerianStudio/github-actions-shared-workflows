@@ -1,0 +1,611 @@
+name: Breaking Change Approval
+
+# Holds a pull request that carries breaking-change commits until a human has
+# approved it through the `breaking-approval` Environment, so a major version
+# bump is always a decision somebody made rather than a side effect of how a
+# commit was worded.
+#
+# Same mechanism as the tier promotion train: the work stops at a job whose
+# `environment:` carries required reviewers, the run sits pending until somebody
+# answers, and approving resumes the very same run. That is why there is no
+# `pull_request_review` trigger anywhere — a review does not re-run a
+# `pull_request` workflow, but an Environment approval resumes one.
+#
+#   detect → request (comment + label) → approval (Environment) → outcome
+#
+# The reviewer is being asked one question: is this breaking change necessary?
+# Approving says yes and releases the merge. Rejecting says no, and the pull
+# request is closed — the change goes back to being reworked without the break.
+#
+# `environment: breaking-approval` is a literal, deliberately. An `environment:`
+# resolved through an expression could be pointed at an ungated Environment by
+# editing an input, while a literal is auditable by reading this file. Same
+# reasoning as `tier-promotion.yml`.
+#
+# Because a job referencing an Environment that does not exist CREATES it,
+# unprotected, a missing `breaking-approval` would wave every breaking change
+# straight through. The preflight in `request` closes that hole from both ends:
+# it creates the Environment when missing — with the repository's own CODEOWNERS
+# as the reviewers, read from the base ref — and refuses to run when one exists
+# without required reviewers. It never rewrites
+# an existing Environment — a PUT replaces the whole configuration, and would
+# drop a wait timer or branch policy somebody set on purpose.
+#
+# Scope is a base → head mapping:
+#
+#   scope_rules  {"develop": "*", "main": "hotfix/*"}
+#
+# Everything reaching `develop` is gated — that is where the next release is
+# assembled. On `main` only `hotfix/*` is, because every other source reached
+# `main` through `develop` and was already gated there.
+#
+# `additional_scope_rules` is the open field for what the default cannot
+# anticipate, merged over `scope_rules` key by key.
+
+on:
+  workflow_call:
+    inputs:
+      pr_number:
+        description: Pull request to act on. Defaults to the one in the event payload.
+        required: false
+        type: number
+        default: 0
+      scope_rules:
+        description: >-
+          JSON object mapping an exact base branch to the pipe-separated head
+          globs gated on it — {"develop": "*", "main": "hotfix/*"}. A base absent
+          from the object is never gated. Invalid JSON fails the job closed.
+        required: false
+        type: string
+        default: '{"develop": "*", "main": "hotfix/*"}'
+      additional_scope_rules:
+        description: >-
+          JSON object merged over `scope_rules`, key by key, for repository-specific
+          cases. A base present in both takes this value — write the complete
+          pattern set for that base, not just the addition.
+        required: false
+        type: string
+        default: ''
+      force_labels:
+        description: Comma-separated labels that put a pull request in scope even when no rule matches. Matched case-insensitively. Empty disables the override.
+        required: false
+        type: string
+        default: breaking-change-review
+      skip_labels:
+        description: Comma-separated labels that take a pull request out of scope. Matched case-insensitively. Empty by default — the guard fails closed unless a repository opts into an escape hatch.
+        required: false
+        type: string
+        default: ''
+      ignore_authors:
+        description: >-
+          Comma-separated logins whose pull requests are never gated, checked before
+          scope as a veto. Spelling is normalised — `dependabot`, `dependabot[bot]`
+          and `app/dependabot` are the same entry.
+        required: false
+        type: string
+        default: 'dependabot[bot]'
+      detected_breaking_changes:
+        description: >-
+          Detection result computed by the caller — `true`, `false`, `unknown` when
+          the caller's own detection did not complete, or empty to detect here. `pr-validation.yml` already runs the same composite over the
+          same commits, so it passes its verdict instead of paying for a second
+          full-history checkout. Any other value fails the job closed.
+        required: false
+        type: string
+        default: ''
+      detected_acknowledged:
+        description: Companion to `detected_breaking_changes` — whether the author acknowledgement line is present. Reported to the reviewer as context only.
+        required: false
+        type: string
+        default: ''
+      author_acknowledgement:
+        description: >-
+          The exact line `pr-validation.yml` requires in the pull request body. Read
+          here for reporting only — it is shown to the reviewer as context and never
+          substitutes for the Environment approval.
+        required: false
+        type: string
+        default: 'Breaking change acknowledged: I understand that this PR intentionally introduces a breaking change and requires the next release to be a major version.'
+      close_on_rejection:
+        description: >-
+          Close the pull request when a reviewer rejects the deployment. The rejection
+          itself is the decision that the break is not necessary; leaving the pull
+          request open invites a re-run until somebody approves. Reopening is one
+          click, and the branch is never touched.
+        required: false
+        type: boolean
+        default: true
+      approval_reviewers:
+        description: >-
+          Who may answer the gate, as comma-separated `team:<slug>` or
+          `user:<login>`. Leave empty — the default — to take the repository's own
+          CODEOWNERS, which is where a repository already states who owns its code.
+          Used only to CREATE the `breaking-approval` Environment when one does not
+          exist; an existing Environment is never rewritten from here.
+        required: false
+        type: string
+        default: ''
+      create_approval_environment:
+        description: >-
+          Create `breaking-approval` when it is missing, using `approval_reviewers`.
+          Creating an Environment needs repository administration rights, which the
+          default token does not have — pass a MANAGE_TOKEN that does, or create the
+          Environment by hand and leave this off.
+        required: false
+        type: boolean
+        default: true
+      require_protected_environment:
+        description: >-
+          Refuse to gate when `breaking-approval` has no required reviewers. Leave on:
+          a job referencing a missing Environment creates it unprotected, which would
+          turn this whole workflow into a no-op that looks green. Turn off only where
+          the API cannot be read and the Environment is known to be configured.
+        required: false
+        type: boolean
+        default: true
+      label:
+        description: Label applied while the pull request waits for its approval, and removed once resolved. Cosmetic — failure to apply it never fails the job. Empty disables it.
+        required: false
+        type: string
+        default: breaking-change
+      enable_comment:
+        description: Post (and keep updated) a single comment carrying the request, the approval link and the outcome.
+        required: false
+        type: boolean
+        default: true
+      dry_run:
+        description: Report what would be gated without commenting, labelling, requesting an approval, or failing
+        required: false
+        type: boolean
+        default: false
+      runner_type:
+        description: Runner label for the jobs
+        required: false
+        type: string
+        default: blacksmith-4vcpu-ubuntu-2404
+    outputs:
+      in_scope:
+        description: 'Whether the pull request was gated by this workflow (true/false)'
+        value: ${{ jobs.detect.outputs.in-scope == 'true' && 'true' || 'false' }}
+      has_breaking_changes:
+        description: 'Whether at least one pull request commit is breaking (true/false). Always false when out of scope — nothing was scanned.'
+        value: ${{ jobs.detect.outputs.has-breaking-changes == 'true' && 'true' || 'false' }}
+      approved:
+        description: 'Whether a reviewer approved the breaking change through the Environment (true/false)'
+        value: ${{ jobs.outcome.outputs.approved == 'true' && 'true' || 'false' }}
+      result:
+        description: 'Gate verdict (success/failure)'
+        value: ${{ jobs.outcome.outputs.result == 'success' && 'success' || 'failure' }}
+    secrets:
+      MANAGE_TOKEN:
+        description: 'Token with `pull-requests: write` on the target repository. Falls back to `github.token` when absent, which is enough for same-repository pull requests.'
+        required: false
+
+# No `workflow_dispatch`: reusable workflows in this repository do not offer one —
+# manual triggering belongs in a `self-*` entrypoint.
+
+permissions:
+  contents: read
+
+# TODO: pin the five composites below to @v1 once this ships in a release.
+# They are @develop because @v1 is the previous release and does not contain
+# them — a composite cannot be consumed at @v1 by the very pull request that
+# introduces it. `breaking-change-guard` is already released, so it stays at @v1.
+#
+# Until this lands on `develop`, the three jobs here fail to resolve their
+# actions. None of them is a required check, so that blocks nothing; it clears
+# itself on merge.
+
+jobs:
+  # ----------------- Scope resolution and breaking-change detection -----------------
+  detect:
+    name: Detect Breaking Changes
+    runs-on: ${{ vars.GENERAL_RUNNERS || inputs.runner_type }}
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      in-scope: ${{ steps.scope.outputs.in-scope }}
+      pr-number: ${{ steps.scope.outputs.pr-number }}
+      base-ref: ${{ steps.scope.outputs.base-ref }}
+      head-sha: ${{ steps.scope.outputs.head-sha }}
+      author: ${{ steps.scope.outputs.author }}
+      reason: ${{ steps.scope.outputs.reason }}
+      has-breaking-changes: ${{ steps.normalize.outputs.has-breaking-changes }}
+      acknowledged: ${{ steps.normalize.outputs.acknowledged }}
+      detection-succeeded: ${{ steps.normalize.outputs.detection-succeeded }}
+
+    steps:
+      - name: Resolve the gate scope
+        id: scope
+        uses: LerianStudio/github-actions-shared-workflows/src/validate/pr-gate-scope@develop
+        with:
+          github-token: ${{ secrets.MANAGE_TOKEN || github.token }}
+          pr-number: ${{ inputs.pr_number != 0 && inputs.pr_number || github.event.pull_request.number }}
+          scope-rules: ${{ inputs.scope_rules }}
+          additional-scope-rules: ${{ inputs.additional_scope_rules }}
+          force-labels: ${{ inputs.force_labels }}
+          skip-labels: ${{ inputs.skip_labels }}
+          ignore-authors: ${{ inputs.ignore_authors }}
+          verbose: ${{ inputs.dry_run && 'true' || 'false' }}
+
+      - name: Announce the scope verdict
+        env:
+          IN_SCOPE: ${{ steps.scope.outputs.in-scope }}
+          REASON: ${{ steps.scope.outputs.reason }}
+          PR_NUMBER: ${{ steps.scope.outputs.pr-number }}
+          HEAD_REF: ${{ steps.scope.outputs.head-ref }}
+          BASE_REF: ${{ steps.scope.outputs.base-ref }}
+        run: |
+          set -euo pipefail
+          if [ "$IN_SCOPE" = "true" ]; then
+            echo "::notice::PR #${PR_NUMBER} is gated for breaking changes via ${REASON}"
+          else
+            echo "::notice::PR #${PR_NUMBER} (${HEAD_REF} → ${BASE_REF}) is not gated — ${REASON}"
+          fi
+
+      # The composite reads Git history, so it needs `origin/<base>` and a HEAD
+      # that is the pull request. The second checkout exists because the first
+      # one leaves HEAD on the event's commit, which is only the pull request
+      # under `pull_request`. `clean: false` keeps what the first one fetched.
+      - name: Check out full history
+        id: checkout
+        if: steps.scope.outputs.in-scope == 'true' && inputs.detected_breaking_changes == ''
+        continue-on-error: true
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Move HEAD onto the pull request head
+        id: checkout-head
+        if: steps.scope.outputs.in-scope == 'true' && steps.checkout.outcome == 'success'
+        continue-on-error: true
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+        with:
+          ref: refs/pull/${{ steps.scope.outputs.pr-number }}/head
+          fetch-depth: 0
+          clean: false
+          persist-credentials: false
+
+      # Nothing from the checked-out tree is executed — the composite only reads
+      # commit messages — so fork code never runs here.
+      - name: Detect breaking changes
+        id: guard
+        if: steps.scope.outputs.in-scope == 'true' && steps.checkout-head.outcome == 'success' && inputs.detected_breaking_changes == ''
+        continue-on-error: true
+        uses: LerianStudio/github-actions-shared-workflows/src/validate/breaking-change-guard@v1
+        with:
+          base-ref: ${{ steps.scope.outputs.base-ref }}
+          breaking-change-acknowledgement: ${{ inputs.author_acknowledgement }}
+          acknowledgement-match-mode: exact-visible-line
+
+      - name: Normalize detection result
+        id: normalize
+        if: always()
+        env:
+          IN_SCOPE: ${{ steps.scope.outputs.in-scope }}
+          SUPPLIED_HAS_BREAKING_CHANGES: ${{ inputs.detected_breaking_changes }}
+          SUPPLIED_ACKNOWLEDGED: ${{ inputs.detected_acknowledged }}
+          CHECKOUT_OUTCOME: ${{ steps.checkout.outcome }}
+          CHECKOUT_HEAD_OUTCOME: ${{ steps.checkout-head.outcome }}
+          GUARD_OUTCOME: ${{ steps.guard.outcome }}
+          RAW_HAS_BREAKING_CHANGES: ${{ steps.guard.outputs.has-breaking-changes }}
+          RAW_ACKNOWLEDGED: ${{ steps.guard.outputs.approved }}
+        run: |
+          set -euo pipefail
+
+          has_breaking_changes=false
+          acknowledged=false
+          detection_succeeded=false
+
+          if [ "$IN_SCOPE" != "true" ]; then
+            # Nothing was scanned, and nothing needs to be: an out-of-scope pull
+            # request is a successful no-op, not a failed detection.
+            detection_succeeded=true
+          elif [ -n "$SUPPLIED_HAS_BREAKING_CHANGES" ]; then
+            # The caller already ran the same composite over the same commits.
+            # Anything but a clean boolean is a wiring mistake, and a wiring
+            # mistake must not read as "no breaking changes".
+            case "$SUPPLIED_HAS_BREAKING_CHANGES" in
+              true | false )
+                has_breaking_changes="$SUPPLIED_HAS_BREAKING_CHANGES"
+                [ "$SUPPLIED_ACKNOWLEDGED" = "true" ] && acknowledged=true
+                detection_succeeded=true
+                ;;
+              unknown )
+                # The documented way for a caller to say "my own detection did not
+                # complete". It must not read as "no breaking changes".
+                echo "The caller reported that its breaking-change detection did not complete — failing closed." >&2
+                ;;
+              * )
+                echo "detected_breaking_changes must be 'true', 'false', 'unknown' or empty; got '${SUPPLIED_HAS_BREAKING_CHANGES}'." >&2
+                ;;
+            esac
+          elif [ "$CHECKOUT_OUTCOME" = "success" ] && [ "$CHECKOUT_HEAD_OUTCOME" = "success" ] \
+            && [ "$GUARD_OUTCOME" = "success" ] \
+            && { [ "$RAW_HAS_BREAKING_CHANGES" = "true" ] || [ "$RAW_HAS_BREAKING_CHANGES" = "false" ]; } \
+            && { [ "$RAW_ACKNOWLEDGED" = "true" ] || [ "$RAW_ACKNOWLEDGED" = "false" ]; }; then
+            has_breaking_changes="$RAW_HAS_BREAKING_CHANGES"
+            acknowledged="$RAW_ACKNOWLEDGED"
+            detection_succeeded=true
+          else
+            echo "Breaking change detection failed: checkout=${CHECKOUT_OUTCOME} checkout_head=${CHECKOUT_HEAD_OUTCOME} guard=${GUARD_OUTCOME}" >&2
+          fi
+
+          {
+            echo "has-breaking-changes=$has_breaking_changes"
+            echo "acknowledged=$acknowledged"
+            echo "detection-succeeded=$detection_succeeded"
+          } >> "$GITHUB_OUTPUT"
+
+  # ----------------- Ask for the approval -----------------
+  # Runs before the Environment gate so the reviewer arrives at a pull request
+  # that already explains what they are being asked, and so the preflight refuses
+  # an unprotected Environment before anything depends on it.
+  request:
+    name: Request Approval
+    runs-on: ${{ vars.GENERAL_RUNNERS || inputs.runner_type }}
+    needs: [detect]
+    if: always()
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      # Read from the BASE ref, never the head: a CODEOWNERS taken from the pull
+      # request branch would let an author edit who is allowed to approve their
+      # own breaking change.
+      - name: Derive the reviewers from CODEOWNERS
+        id: codeowners
+        if: >-
+          needs.detect.result == 'success'
+          && needs.detect.outputs.has-breaking-changes == 'true'
+          && inputs.approval_reviewers == ''
+          && inputs.create_approval_environment
+          && !inputs.dry_run
+        uses: LerianStudio/github-actions-shared-workflows/src/validate/codeowners-reviewers@develop
+        with:
+          github-token: ${{ secrets.MANAGE_TOKEN || github.token }}
+          ref: ${{ needs.detect.outputs.base-ref }}
+
+      - name: Verify the breaking-approval Environment is protected
+        if: >-
+          needs.detect.result == 'success'
+          && needs.detect.outputs.has-breaking-changes == 'true'
+          && inputs.require_protected_environment
+          && !inputs.dry_run
+        uses: LerianStudio/github-actions-shared-workflows/src/validate/environment-protection@develop
+        with:
+          github-token: ${{ secrets.MANAGE_TOKEN || github.token }}
+          environment: breaking-approval
+          create-if-missing: ${{ inputs.create_approval_environment && 'true' || 'false' }}
+          reviewers: ${{ inputs.approval_reviewers != '' && inputs.approval_reviewers || steps.codeowners.outputs.reviewers }}
+
+      - name: Request the approval on the pull request
+        if: >-
+          needs.detect.result == 'success'
+          && needs.detect.outputs.in-scope == 'true'
+          && needs.detect.outputs.has-breaking-changes == 'true'
+          && !inputs.dry_run
+        uses: LerianStudio/github-actions-shared-workflows/src/notify/breaking-change-approval-reporter@develop
+        with:
+          github-token: ${{ secrets.MANAGE_TOKEN || github.token }}
+          pr-number: ${{ needs.detect.outputs.pr-number }}
+          state: waiting
+          reason: ${{ needs.detect.outputs.reason }}
+          head-sha: ${{ needs.detect.outputs.head-sha }}
+          acknowledged: ${{ needs.detect.outputs.acknowledged }}
+          run-url: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          close-on-rejection: ${{ inputs.close_on_rejection && 'true' || 'false' }}
+          label: ${{ inputs.label }}
+          enabled: ${{ inputs.enable_comment && 'true' || 'false' }}
+
+  # ----------------- The gate itself -----------------
+  # The whole job is the gate. It holds the run until a reviewer of the
+  # `breaking-approval` Environment answers; the steps are only there to leave a
+  # record. Skipped entirely when there is nothing to approve, so an ordinary
+  # pull request never puts an entry in anybody's review queue.
+  approval:
+    name: Approve Breaking Change
+    runs-on: ${{ vars.GENERAL_RUNNERS || inputs.runner_type }}
+    needs: [detect, request]
+    if: >-
+      needs.detect.result == 'success'
+      && needs.request.result == 'success'
+      && needs.detect.outputs.has-breaking-changes == 'true'
+      && !inputs.dry_run
+    environment: breaking-approval
+    permissions:
+      contents: read
+    steps:
+      - name: Record the approval
+        env:
+          PR_NUMBER: ${{ needs.detect.outputs.pr-number }}
+          HEAD_SHA: ${{ needs.detect.outputs.head-sha }}
+          REASON: ${{ needs.detect.outputs.reason }}
+        run: |
+          set -euo pipefail
+          echo "::notice::Breaking change on PR #${PR_NUMBER} (${HEAD_SHA:0:7}) approved — gated via ${REASON}"
+
+  # ----------------- Verdict -----------------
+  outcome:
+    name: Breaking Change Approval
+    runs-on: ${{ vars.GENERAL_RUNNERS || inputs.runner_type }}
+    needs: [detect, request, approval]
+    if: always()
+    # Deliberately NOT declaring `actions: read`. A called workflow may only ask
+    # for permissions the caller already holds, so declaring it would break every
+    # consumer whose entrypoint does not grant it. The approvals API is read
+    # through MANAGE_TOKEN when present, and degrades to the job conclusion when
+    # it is not — see the fallback in the step.
+    permissions:
+      pull-requests: write
+    outputs:
+      approved: ${{ steps.verdict.outputs.approved }}
+      result: ${{ steps.verdict.outputs.result }}
+    steps:
+      # Read before deciding. `api-readable` matters as much as the lists: a
+      # token without `actions: read` returns no rejection AND no approval, and
+      # only the flag tells the two apart from "nobody decided".
+      - name: Collect the Environment decisions
+        id: decisions
+        if: needs.detect.outputs.has-breaking-changes == 'true' && !inputs.dry_run
+        continue-on-error: true
+        uses: LerianStudio/github-actions-shared-workflows/src/validate/environment-approvals@develop
+        with:
+          github-token: ${{ secrets.MANAGE_TOKEN || github.token }}
+          environment: breaking-approval
+
+      - name: Resolve the verdict
+        id: verdict
+        env:
+          DETECT_RESULT: ${{ needs.detect.result }}
+          REQUEST_RESULT: ${{ needs.request.result }}
+          APPROVAL_RESULT: ${{ needs.approval.result }}
+          IN_SCOPE: ${{ needs.detect.outputs.in-scope }}
+          REASON: ${{ needs.detect.outputs.reason }}
+          PR_NUMBER: ${{ needs.detect.outputs.pr-number }}
+          HAS_BREAKING_CHANGES: ${{ needs.detect.outputs.has-breaking-changes }}
+          DETECTION_SUCCEEDED: ${{ needs.detect.outputs.detection-succeeded }}
+          APPROVERS: ${{ steps.decisions.outputs.approvers }}
+          REJECTERS: ${{ steps.decisions.outputs.rejecters }}
+          API_READABLE: ${{ steps.decisions.outputs.api-readable }}
+          DRY_RUN: ${{ inputs.dry_run && 'true' || 'false' }}
+        run: |
+          set -euo pipefail
+
+          # Four facts in, four facts out. Everything that acts on the verdict —
+          # the comment, the close, the step summary, the job's own exit — reads
+          # these rather than re-deriving them.
+          approved=false
+          result=failure
+          state=unresolved
+          rejecters="$REJECTERS"
+
+          emit() {
+            {
+              echo "approved=$approved"
+              echo "result=$result"
+              echo "state=$state"
+              echo "rejecters=$rejecters"
+            } >> "$GITHUB_OUTPUT"
+          }
+
+          # Detection failing is not "no breaking changes" — it is "we do not
+          # know", and the point of the gate is that an unknown blocks.
+          if [ "$DETECT_RESULT" != "success" ] || [ "$DETECTION_SUCCEEDED" != "true" ] \
+            || [ "$REQUEST_RESULT" != "success" ]; then
+            state=blocked
+            emit
+            echo "::error::Breaking change gate could not run (detect=${DETECT_RESULT}, request=${REQUEST_RESULT}, detection_succeeded=${DETECTION_SUCCEEDED})"
+            exit 0
+          fi
+
+          if [ "$IN_SCOPE" != "true" ] || [ "$HAS_BREAKING_CHANGES" != "true" ]; then
+            approved=true
+            result=success
+            state=none
+            emit
+            echo "::notice::Nothing to approve on PR #${PR_NUMBER} — ${REASON}"
+            exit 0
+          fi
+
+          if [ "$DRY_RUN" = "true" ]; then
+            state=would-request
+            emit
+            echo "::notice::DRY RUN — PR #${PR_NUMBER} would be held at the 'breaking-approval' Environment"
+            echo "  gated via         : ${REASON}"
+            echo "  on rejection      : the caller's close_on_rejection decides"
+            exit 0
+          fi
+
+          # A rejection and a cancellation can both leave the approval job
+          # non-successful, and only one of them is a decision. When the approvals
+          # API is unreadable the job conclusion is the best signal left, and it
+          # separates the two well enough: a rejection fails the approval job,
+          # while a cancellation cancels the whole run and never reaches here.
+          if [ -z "$rejecters" ] && [ "$API_READABLE" != "true" ] && [ "$APPROVAL_RESULT" = "failure" ]; then
+            rejecters="a reviewer"
+          fi
+
+          if [ -n "$rejecters" ]; then
+            state=rejected
+          elif [ "$APPROVAL_RESULT" = "success" ]; then
+            approved=true
+            result=success
+            state=approved
+          fi
+
+          emit
+
+      - name: Report the outcome on the pull request
+        if: >-
+          !inputs.dry_run
+          && (steps.verdict.outputs.state == 'approved' || steps.verdict.outputs.state == 'rejected'
+              || steps.verdict.outputs.state == 'unresolved')
+        continue-on-error: true
+        uses: LerianStudio/github-actions-shared-workflows/src/notify/breaking-change-approval-reporter@develop
+        with:
+          github-token: ${{ secrets.MANAGE_TOKEN || github.token }}
+          pr-number: ${{ needs.detect.outputs.pr-number }}
+          state: ${{ steps.verdict.outputs.state }}
+          reason: ${{ needs.detect.outputs.reason }}
+          head-sha: ${{ needs.detect.outputs.head-sha }}
+          acknowledged: ${{ needs.detect.outputs.acknowledged }}
+          run-url: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          approvers: ${{ steps.decisions.outputs.approvers }}
+          rejecters: ${{ steps.verdict.outputs.rejecters }}
+          rejection-comment: ${{ steps.decisions.outputs.rejection-comment }}
+          close-on-rejection: ${{ inputs.close_on_rejection && 'true' || 'false' }}
+          label: ${{ inputs.label }}
+          enabled: ${{ inputs.enable_comment && 'true' || 'false' }}
+
+      # Only on a recorded rejection, never on a cancellation. Closing a pull
+      # request because a superseding push cancelled the run would be
+      # indefensible, which is why `state` is `rejected` only when a decision was
+      # actually observed.
+      - name: Close the pull request on rejection
+        if: steps.verdict.outputs.state == 'rejected' && inputs.close_on_rejection && !inputs.dry_run
+        env:
+          GH_TOKEN: ${{ secrets.MANAGE_TOKEN || github.token }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ needs.detect.outputs.pr-number }}
+          REJECTERS: ${{ steps.verdict.outputs.rejecters }}
+        run: |
+          set -euo pipefail
+          if gh pr close "$PR_NUMBER" --repo "$REPO" >/dev/null 2>&1; then
+            echo "::notice::PR #${PR_NUMBER} closed — breaking change rejected by ${REJECTERS}"
+          else
+            echo "::warning::PR #${PR_NUMBER} could not be closed (token lacks 'pull-requests: write'?) — the gate still failed"
+          fi
+
+      - name: Record the verdict
+        if: always()
+        env:
+          PR_NUMBER: ${{ needs.detect.outputs.pr-number }}
+          REASON: ${{ needs.detect.outputs.reason }}
+          STATE: ${{ steps.verdict.outputs.state }}
+          RESULT: ${{ steps.verdict.outputs.result }}
+          APPROVERS: ${{ steps.decisions.outputs.approvers }}
+          REJECTERS: ${{ steps.verdict.outputs.rejecters }}
+          DRY_RUN: ${{ inputs.dry_run && 'true' || 'false' }}
+        run: |
+          set -euo pipefail
+
+          {
+            printf '## Breaking Change Approval\n\n'
+            printf -- '- Pull request: #%s\n' "${PR_NUMBER:-?}"
+            printf -- '- Scope: %s\n' "${REASON:-unresolved}"
+            printf -- '- State: %s\n' "${STATE:-unknown}"
+            [ -n "$APPROVERS" ] && printf -- '- Approved by: %s\n' "$APPROVERS"
+            [ -n "$REJECTERS" ] && printf -- '- Rejected by: %s\n' "$REJECTERS"
+            printf -- '- Verdict: **%s**\n' "${RESULT:-failure}"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          # dry_run never fails: it reports what a real run would have done.
+          if [ "$DRY_RUN" = "true" ] || [ "$RESULT" = "success" ]; then
+            exit 0
+          fi
+
+          echo "PR #${PR_NUMBER} carries an unapproved breaking change — blocking the merge." >&2
+          exit 1

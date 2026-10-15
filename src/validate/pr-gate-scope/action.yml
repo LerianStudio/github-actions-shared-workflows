@@ -1,0 +1,80 @@
+name: PR Gate Scope
+description: "Decides whether a pull request falls inside a gate's scope — base to head rules, label overrides and author vetoes — and reports why. Reports only; the caller decides what to do with the verdict."
+
+inputs:
+  github-token:
+    description: 'Token used to read the pull request. Needs `pull-requests: read`.'
+    required: true
+  pr-number:
+    description: Pull request to resolve. Required — the composite never guesses from the event.
+    required: true
+  repository:
+    description: Repository owning the pull request, as `owner/name`.
+    required: false
+    default: ${{ github.repository }}
+  scope-rules:
+    description: 'JSON object mapping an exact base branch to the pipe-separated head globs in scope for it, e.g. {"develop": "*", "main": "hotfix/*"}. A base absent from the object is never in scope. Invalid JSON fails the step.'
+    required: true
+  additional-scope-rules:
+    description: JSON object merged over `scope-rules`, key by key. A base present in both takes this value; a base present only here is added. Empty leaves the rules alone.
+    required: false
+    default: ''
+  force-labels:
+    description: Comma-separated labels that put a pull request in scope even when no rule matches. Matched case-insensitively. Empty disables the override.
+    required: false
+    default: ''
+  skip-labels:
+    description: Comma-separated labels that take a pull request out of scope. Matched case-insensitively. Empty means no opt-out.
+    required: false
+    default: ''
+  ignore-authors:
+    description: Comma-separated logins whose pull requests are never in scope, checked before everything else as a veto. Spelling is normalised — `dependabot`, `dependabot[bot]` and `app/dependabot` are the same entry.
+    required: false
+    default: ''
+  verbose:
+    description: Print the resolved inputs to the step log. Wire this to the caller's `dry_run`.
+    required: false
+    default: 'false'
+
+outputs:
+  in-scope:
+    description: "Whether the pull request is inside the gate's scope (true/false)"
+    value: ${{ steps.resolve.outputs.in-scope }}
+  reason:
+    description: "Human-readable explanation of the verdict — the matched rule, the label, or why nothing matched"
+    value: ${{ steps.resolve.outputs.reason }}
+  pr-number:
+    description: "Pull request that was resolved"
+    value: ${{ steps.resolve.outputs.pr-number }}
+  base-ref:
+    description: "Base branch read live from the pull request, not from the event payload"
+    value: ${{ steps.resolve.outputs.base-ref }}
+  head-ref:
+    description: "Head branch read live from the pull request"
+    value: ${{ steps.resolve.outputs.head-ref }}
+  head-sha:
+    description: "Head commit read live from the pull request"
+    value: ${{ steps.resolve.outputs.head-sha }}
+  author:
+    description: "Pull request author login, as the GitHub CLI spells it"
+    value: ${{ steps.resolve.outputs.author }}
+
+runs:
+  using: composite
+  steps:
+    - name: Resolve the gate scope
+      id: resolve
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+        REPO: ${{ inputs.repository }}
+        PR_NUMBER: ${{ inputs.pr-number }}
+        SCOPE_RULES: ${{ inputs.scope-rules }}
+        ADDITIONAL_SCOPE_RULES: ${{ inputs.additional-scope-rules }}
+        FORCE_LABELS: ${{ inputs.force-labels }}
+        SKIP_LABELS: ${{ inputs.skip-labels }}
+        IGNORE_AUTHORS: ${{ inputs.ignore-authors }}
+        VERBOSE: ${{ inputs.verbose }}
+      run: |
+        set -euo pipefail
+        bash "${GITHUB_ACTION_PATH}/resolve.sh" >> "${GITHUB_OUTPUT}"
