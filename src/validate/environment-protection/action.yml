@@ -1,17 +1,29 @@
 name: Environment Protection
-description: "Fails when a GitHub Environment is missing or carries no required reviewers. Use before any job that relies on an Environment as an approval gate."
+description: "Ensures a GitHub Environment exists and carries required reviewers, creating it with the given reviewers when it is missing. Use before any job that leans on an Environment as a human gate."
 
 inputs:
   github-token:
-    description: Token used to read the Environment. Needs read access to the repository.
+    description: 'Token used to read the Environment, and to create it when missing. Creation needs repository administration rights, which the default GITHUB_TOKEN does not have and a workflow cannot request — pass a PAT or App token for that.'
     required: true
   environment:
-    description: Environment whose protection rules are checked.
+    description: Environment to ensure.
     required: true
   repository:
-    description: Repository owning the Environment, as `owner/name`.
+    description: 'Repository owning the Environment, as `owner/name`.'
     required: false
     default: ${{ github.repository }}
+  create-if-missing:
+    description: Create the Environment when it does not exist. Requires `reviewers` — an Environment created without them would be a gate that approves itself.
+    required: false
+    default: 'true'
+  reviewers:
+    description: 'Comma-separated reviewers to set when creating, as `team:<slug>` or `user:<login>`. A bare value is read as a user. Empty means the Environment is never created.'
+    required: false
+    default: ''
+  prevent-self-review:
+    description: Set `Prevent self-review` on a created Environment, so the author cannot approve their own gate.
+    required: false
+    default: 'true'
   required-rule:
     description: Protection rule type that must be present. `required_reviewers` is what makes an Environment a human gate.
     required: false
@@ -20,39 +32,147 @@ inputs:
 outputs:
   protected:
     description: "Whether the Environment carries the required protection rule (true/false). The step fails before reporting false, so a caller reading this is reading `true`."
-    value: ${{ steps.verify.outputs.protected }}
+    value: ${{ steps.ensure.outputs.protected }}
+  created:
+    description: "Whether this run created the Environment (true/false)."
+    value: ${{ steps.ensure.outputs.created }}
 
 runs:
   using: composite
   steps:
-    - name: Verify the Environment is protected
-      id: verify
+    - name: Ensure the Environment is protected
+      id: ensure
       shell: bash
       env:
         GH_TOKEN: ${{ inputs.github-token }}
         REPO: ${{ inputs.repository }}
         ENVIRONMENT: ${{ inputs.environment }}
+        CREATE_IF_MISSING: ${{ inputs.create-if-missing }}
+        REVIEWERS: ${{ inputs.reviewers }}
+        PREVENT_SELF_REVIEW: ${{ inputs.prevent-self-review }}
         REQUIRED_RULE: ${{ inputs.required-rule }}
       run: |
         set -euo pipefail
 
-        # A job whose `environment:` names something that does not exist CREATES
-        # it, with no protection rules, and sails straight through. The gate is
-        # then a green check that gates nothing — the worst failure mode for a
-        # control like this, because it looks like it is working.
-        if ! rules=$(gh api "repos/${REPO}/environments/${ENVIRONMENT}" \
-               --jq '[.protection_rules[].type] | join(",")' 2>/dev/null); then
-          echo "The '${ENVIRONMENT}' Environment could not be read in ${REPO}." >&2
-          echo "Create it under Settings → Environments with 'Required reviewers' (and 'Prevent self-review') enabled." >&2
-          echo "If it exists and only the API read is blocked, skip this check in the caller." >&2
-          exit 1
+        created=false
+        owner=${REPO%%/*}
+
+        read_rules() {
+          gh api "repos/${REPO}/environments/${ENVIRONMENT}" \
+            --jq '[.protection_rules[].type] | join(",")' 2>/dev/null
+        }
+
+        # Resolves `team:<slug>` / `user:<login>` / `<login>` into the
+        # {type,id} pairs the Environments API expects. It takes numeric ids
+        # only, so every entry costs a lookup.
+        resolve_reviewers() {
+          local entry kind name id
+          local resolved='[]'
+
+          while IFS= read -r entry; do
+            [ -z "$entry" ] && continue
+            case "$entry" in
+              team:*) kind=Team; name=${entry#team:} ;;
+              user:*) kind=User; name=${entry#user:} ;;
+              *)      kind=User; name=$entry ;;
+            esac
+
+            if [ "$kind" = Team ]; then
+              if ! id=$(gh api "orgs/${owner}/teams/${name}" --jq '.id' 2>/dev/null); then
+                echo "Could not resolve team '${name}' in ${owner} — check the slug (not the display name)." >&2
+                return 1
+              fi
+            else
+              if ! id=$(gh api "users/${name}" --jq '.id' 2>/dev/null); then
+                echo "Could not resolve user '${name}'." >&2
+                return 1
+              fi
+            fi
+
+            resolved=$(jq -c --arg t "$kind" --argjson i "$id" '. + [{type: $t, id: $i}]' <<< "$resolved")
+          done < <(tr ',' '\n' <<< "$REVIEWERS" | xargs -n1 2>/dev/null)
+
+          printf '%s' "$resolved"
+        }
+
+        if ! rules=$(read_rules); then
+          # Distinguish "does not exist" from "cannot read". Only the first is
+          # ours to fix; the second is a token problem, and creating on top of
+          # it would be guessing.
+          if ! error=$(gh api "repos/${REPO}/environments/${ENVIRONMENT}" 2>&1 >/dev/null); then
+            case "$error" in
+              *"HTTP 404"* | *"Not Found"* ) ;;
+              * )
+                echo "Could not read the '${ENVIRONMENT}' Environment in ${REPO}: ${error}" >&2
+                exit 1
+                ;;
+            esac
+          fi
+
+          if [ "$CREATE_IF_MISSING" != "true" ]; then
+            echo "The '${ENVIRONMENT}' Environment does not exist in ${REPO}, and create-if-missing is off." >&2
+            exit 1
+          fi
+
+          if [ -z "$REVIEWERS" ]; then
+            # Creating it without reviewers would produce exactly the failure
+            # this composite exists to prevent: an Environment that approves
+            # itself, behind a check that looks green.
+            echo "The '${ENVIRONMENT}' Environment does not exist in ${REPO} and no reviewers were given, so it cannot be created as a gate." >&2
+            echo "Pass reviewers (team:<slug> or user:<login>), or create it under Settings → Environments with 'Required reviewers'." >&2
+            exit 1
+          fi
+
+          if ! reviewer_json=$(resolve_reviewers); then
+            exit 1
+          fi
+
+          if [ "$reviewer_json" = '[]' ]; then
+            echo "None of the given reviewers could be resolved: ${REVIEWERS}" >&2
+            exit 1
+          fi
+
+          payload=$(jq -cn \
+            --argjson reviewers "$reviewer_json" \
+            --argjson prevent "$([ "$PREVENT_SELF_REVIEW" = "true" ] && echo true || echo false)" \
+            '{prevent_self_review: $prevent, reviewers: $reviewers}')
+
+          # Creating an Environment needs repository administration rights. The
+          # default GITHUB_TOKEN has none, and `permissions:` cannot grant them,
+          # so this only works with a PAT or App token.
+          if ! gh api --method PUT "repos/${REPO}/environments/${ENVIRONMENT}" \
+                 --input - >/dev/null 2>&1 <<< "$payload"; then
+            echo "Could not create the '${ENVIRONMENT}' Environment in ${REPO}." >&2
+            echo "Creating an Environment needs repository administration rights — the default GITHUB_TOKEN cannot do it." >&2
+            echo "Pass a token that can, or create it under Settings → Environments with 'Required reviewers' (and 'Prevent self-review')." >&2
+            exit 1
+          fi
+
+          created=true
+          echo "::notice::Created the '${ENVIRONMENT}' Environment in ${REPO} with reviewers: ${REVIEWERS}"
+
+          if ! rules=$(read_rules); then
+            echo "Created the '${ENVIRONMENT}' Environment but could not read it back." >&2
+            exit 1
+          fi
         fi
 
+        # Reached whether the Environment was just created or already existed.
+        # An existing one that is unprotected is NOT repaired here: a PUT
+        # replaces the whole configuration, so it would silently drop a wait
+        # timer or branch policy somebody set on purpose.
         if [[ "$rules" != *"${REQUIRED_RULE}"* ]]; then
           echo "The '${ENVIRONMENT}' Environment in ${REPO} has no ${REQUIRED_RULE} (rules: ${rules:-none})." >&2
           echo "Without them the gated job resolves on its own and the gate passes everything." >&2
+          echo "Not changing it from here — an existing Environment may carry a wait timer or branch policy that a rewrite would drop. Add the reviewers under Settings → Environments." >&2
           exit 1
         fi
 
-        echo "protected=true" >> "$GITHUB_OUTPUT"
-        echo "::notice::'${ENVIRONMENT}' is protected by ${REQUIRED_RULE}"
+        {
+          echo "protected=true"
+          echo "created=$created"
+        } >> "$GITHUB_OUTPUT"
+
+        if [ "$created" != "true" ]; then
+          echo "::notice::'${ENVIRONMENT}' is protected by ${REQUIRED_RULE}"
+        fi

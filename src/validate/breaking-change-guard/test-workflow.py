@@ -68,6 +68,8 @@ APPROVAL_GATE_INPUTS = {
     "breaking_change_skip_labels",
     "breaking_change_close_on_rejection",
     "breaking_change_require_protected_environment",
+    "breaking_change_approval_reviewers",
+    "breaking_change_create_environment",
 }
 
 
@@ -759,10 +761,31 @@ class ApprovalGateStructureTests(unittest.TestCase):
             step,
         )
         self.assertIn("environment: breaking-approval", step)
-        # The composite is what must refuse — an unreadable or unprotected
-        # Environment has to be a non-zero exit, not a warning.
+        self.assertIn("reviewers: ${{ inputs.approval_reviewers }}", step)
+        # The composite is what must refuse. Every branch that cannot prove the
+        # Environment gates something has to exit non-zero, never warn.
         self.assertIn("required_reviewers", ENVIRONMENT_PROTECTION)
-        self.assertEqual(2, ENVIRONMENT_PROTECTION.count("exit 1"))
+        self.assertGreaterEqual(ENVIRONMENT_PROTECTION.count("exit 1"), 7)
+
+    def test_environment_is_never_created_without_reviewers(self):
+        # Creating it without reviewers would produce the exact failure the
+        # preflight exists to prevent: a gate that approves itself.
+        self.assertIn('if [ -z "$REVIEWERS" ]; then', ENVIRONMENT_PROTECTION)
+        self.assertIn("cannot be created as a gate", ENVIRONMENT_PROTECTION)
+
+    def test_an_existing_environment_is_never_rewritten(self):
+        # A PUT replaces the whole configuration, so repairing an existing
+        # Environment would silently drop a wait timer or branch policy.
+        self.assertIn("Not changing it from here", ENVIRONMENT_PROTECTION)
+        # The only PUT must sit on the creation path, after the 404 branch.
+        created_at = ENVIRONMENT_PROTECTION.index("created=true")
+        put_at = ENVIRONMENT_PROTECTION.index("--method PUT")
+        self.assertLess(put_at, created_at)
+        self.assertEqual(1, ENVIRONMENT_PROTECTION.count("--method PUT"))
+
+    def test_a_missing_environment_is_told_apart_from_an_unreadable_one(self):
+        # Creating on top of a 403 would be guessing; only a 404 is ours to fix.
+        self.assertIn('*"HTTP 404"* | *"Not Found"* )', ENVIRONMENT_PROTECTION)
 
     def test_approvals_composite_reports_whether_it_could_read(self):
         # Empty lists mean "nobody decided" only when the API was readable.

@@ -53,7 +53,7 @@ own:
 |---|---|
 | [`pr-gate-scope`](../src/validate/pr-gate-scope/README.md) | Is this pull request in scope, and why — base → head rules, label overrides, author vetoes |
 | [`breaking-change-guard`](../src/validate/breaking-change-guard/README.md) | Does the branch carry a breaking-change commit |
-| [`environment-protection`](../src/validate/environment-protection/README.md) | Does `breaking-approval` actually have required reviewers |
+| [`environment-protection`](../src/validate/environment-protection/README.md) | Does `breaking-approval` exist with required reviewers — creating it when it does not |
 | [`environment-approvals`](../src/validate/environment-approvals/README.md) | Who approved or rejected, and could we read that at all |
 | [`breaking-change-approval-reporter`](../src/notify/breaking-change-approval-reporter/README.md) | The single pull request comment, in each of its states |
 
@@ -84,45 +84,56 @@ the reviewer as context.
 
 ## Setup
 
-### 1. Create the Environment
+### The Environment creates itself
 
-In **Settings → Environments** of each consuming repository, create
-`breaking-approval` with:
+On the first pull request that carries a breaking change, the gate creates
+`breaking-approval` with the reviewers in `approval_reviewers` (default
+`team:g_github_devops`, the same team that approves tier promotions) and
+*Prevent self-review* on. There is nothing to prepare.
 
-- **Required reviewers** — the people or teams who may answer. Without this the
-  gate does nothing.
-- **Prevent self-review** — on. Otherwise the author approves their own break,
-  which is the exact thing this gate exists to prevent.
-- Deployment branches — leave unrestricted. The gate runs on pull request
-  branches, not on protected ones.
+Two conditions:
+
+- **`MANAGE_TOKEN` must be able to administer the repository.** Creating an
+  Environment needs the `administration` permission, which the default
+  `GITHUB_TOKEN` does not have and `permissions:` cannot grant. Without such a
+  token the gate fails and names what it needs, rather than running without a
+  gate.
+- **Reviewers must be resolvable.** `team:` takes the team *slug*, not the
+  display name.
+
+To create it by hand instead, pass `breaking_change_create_environment: false`:
 
 ```bash
 gh api --method PUT repos/<owner>/<repo>/environments/breaking-approval \
   --input - <<'JSON'
-{
-  "prevent_self_review": true,
-  "reviewers": [{"type": "Team", "id": <team_id>}]
-}
+{"prevent_self_review": true, "reviewers": [{"type": "Team", "id": <team_id>}]}
 JSON
 ```
 
-> **A missing Environment is not a safe default.** A job referencing an
-> Environment that does not exist *creates* it, unprotected, and sails straight
-> through — a green check that gates nothing. The `request` job refuses to run in
-> that state; see `require_protected_environment`.
+> **A missing Environment is not a safe default.** A job referencing one that
+> does not exist *creates it, unprotected*, and sails through — a green check
+> that gates nothing. That is why the gate either creates a properly protected
+> Environment or refuses to run, and never simply proceeds.
 
-### 2. Turn it on
+### An existing Environment is never rewritten
+
+If `breaking-approval` already exists but has no required reviewers, the gate
+**fails and leaves it alone**. A `PUT` replaces the whole configuration, so
+repairing it from here would silently drop a wait timer or branch policy
+somebody set on purpose. Add the reviewers under Settings → Environments.
+
+### Turn it on
 
 Repositories on `go-pr-validation.yml`, `js-pr-validation.yml` or
-`pr-validation.yml` get the gate **by default** — there is nothing to add. Until
-the Environment exists, pass:
+`pr-validation.yml` get the gate **by default** — there is nothing to add.
 
 ```yaml
 with:
-  enable_breaking_change_approval: false
+  # only if this repository's reviewers differ from the default
+  breaking_change_approval_reviewers: 'team:my-team,user:someone'
 ```
 
-### 3. Make it required
+### Make it required
 
 Add **Breaking Change Approval** to the required status checks on the protected
 branches. Without that, the red check is advice rather than a gate.
@@ -288,7 +299,9 @@ cosmetic, and a repository that never declared it still gets its gate.
 | `detected_acknowledged` | string | *(empty)* | Companion to the above — whether the author acknowledgement line is present. Context only. |
 | `author_acknowledgement` | string | the `pr-validation` line | Shown to the reviewer as context. Never substitutes for the approval. |
 | `close_on_rejection` | boolean | `true` | Close the pull request when a reviewer rejects. |
-| `require_protected_environment` | boolean | `true` | Refuse to gate when `breaking-approval` has no required reviewers. Leave on. |
+| `approval_reviewers` | string | `team:g_github_devops` | Who may answer the gate, as comma-separated `team:<slug>` or `user:<login>`. Used to create the Environment when missing. Empty means it is never created. |
+| `create_approval_environment` | boolean | `true` | Create `breaking-approval` when missing. Needs a token with repository administration rights. |
+| `require_protected_environment` | boolean | `true` | Refuse to gate when `breaking-approval` exists without required reviewers. Leave on. |
 | `label` | string | `breaking-change` | Applied while waiting, removed once resolved. Cosmetic. |
 | `enable_comment` | boolean | `true` | Post and keep the comment updated. |
 | `dry_run` | boolean | `false` | Report what would be gated without commenting, labelling, requesting an approval, or failing. |
@@ -314,7 +327,7 @@ and a gate that passed are not the same fact.
 
 | Secret | Required | Description |
 |--------|----------|-------------|
-| `MANAGE_TOKEN` | No | Token with `pull-requests: write`, and `actions: read` to name the reviewer and close on rejection. Falls back to `github.token`. |
+| `MANAGE_TOKEN` | No | Token with `pull-requests: write`; `actions: read` to name the reviewer and close on rejection; `administration: write` to create the Environment. Falls back to `github.token`, which can do none of the three. |
 
 Fork pull requests get a read-only `github.token`, so the comment and the label
 are skipped there while the verdict still decides the check. Pass `MANAGE_TOKEN`

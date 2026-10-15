@@ -5,7 +5,8 @@
   </tr>
 </table>
 
-Fails when a GitHub Environment is missing or carries no required reviewers.
+Ensures a GitHub Environment exists and carries required reviewers — creating it
+with the reviewers you name when it is missing.
 
 ## Why this exists
 
@@ -16,44 +17,47 @@ a control, because it looks like it is working and nobody goes looking.
 
 Run this before any job that leans on an Environment as a human gate.
 
-## Inputs
-
-| Input | Description | Required | Default |
-|-------|-------------|----------|---------|
-| `github-token` | Token used to read the Environment. Needs read access to the repository. | Yes | — |
-| `environment` | Environment whose protection rules are checked. | Yes | — |
-| `repository` | Repository owning it, as `owner/name`. | No | `${{ github.repository }}` |
-| `required-rule` | Protection rule type that must be present. | No | `required_reviewers` |
-
-## Outputs
-
-| Output | Description |
-|--------|-------------|
-| `protected` | `true` when the rule is present. The step fails before it could report `false`, so a caller reading this output is reading `true`. |
-
-## Failure modes, and what they mean
+## What it does
 
 | Situation | Result |
 |---|---|
-| Environment missing | Fails — the message says to create it with required reviewers |
-| Environment exists, no required reviewers | Fails — names the rules it does have |
-| API read blocked by token scope | Fails — indistinguishable from "missing" from here, so it fails closed |
+| Exists with required reviewers | Passes |
+| Missing, `reviewers` given | **Creates it** with those reviewers and `Prevent self-review`, then reads it back to confirm |
+| Missing, no `reviewers` | Fails — see below |
+| Missing, `create-if-missing: false` | Fails |
+| Missing, token cannot create | Fails, naming the permission |
+| Exists **without** required reviewers | Fails, and is left alone — see below |
+| Cannot be read at all (403) | Fails, and nothing is created |
 
-That last row is deliberate. A caller that genuinely cannot read the API, and
-knows the Environment is configured, should skip this step rather than have it
-pass on an unverified assumption.
+### It never creates an unprotected Environment
 
-## Usage
+An Environment with no reviewers approves itself. Creating one would produce the
+exact failure this composite exists to prevent, so with no `reviewers` it fails
+instead — telling you to pass them or to create the Environment by hand.
 
-```yaml
-- name: Verify the gate is real
-  uses: LerianStudio/github-actions-shared-workflows/src/validate/environment-protection@v1
-  with:
-    github-token: ${{ secrets.MANAGE_TOKEN || github.token }}
-    environment: breaking-approval
-```
+### It never rewrites an existing Environment
 
-## Setting the Environment up
+`PUT /repos/{owner}/{repo}/environments/{name}` replaces the **whole**
+configuration. Repairing an unprotected Environment through it would silently
+drop a wait timer or a deployment branch policy somebody set on purpose, so an
+existing Environment is reported and left untouched. Creating from nothing is a
+different act from overwriting somebody's configuration.
+
+### A 404 and a 403 are not the same
+
+Only "does not exist" is this composite's to fix. If the Environment merely
+cannot be read — a token without the scope — creating one on top would be
+guessing, so it fails and says what it saw.
+
+## Creation needs administration rights
+
+`PUT .../environments/{name}` requires repository **administration** permission.
+The default `GITHUB_TOKEN` does not have it, and `permissions:` cannot grant it —
+`administration` is not a scope a workflow can request. Creation therefore works
+only with a PAT or GitHub App token.
+
+Without such a token, leave `create-if-missing: false` and create the Environment
+by hand:
 
 ```bash
 gh api --method PUT repos/<owner>/<repo>/environments/<name> --input - <<'JSON'
@@ -61,5 +65,36 @@ gh api --method PUT repos/<owner>/<repo>/environments/<name> --input - <<'JSON'
 JSON
 ```
 
-`prevent_self_review` matters as much as the reviewers: without it the person who
-opened the pull request can approve their own gate.
+## Inputs
+
+| Input | Description | Required | Default |
+|-------|-------------|----------|---------|
+| `github-token` | Token used to read, and to create when missing. Creation needs administration rights. | Yes | — |
+| `environment` | Environment to ensure. | Yes | — |
+| `repository` | Repository owning it, as `owner/name`. | No | `${{ github.repository }}` |
+| `create-if-missing` | Create the Environment when it does not exist. | No | `true` |
+| `reviewers` | Comma-separated `team:<slug>` or `user:<login>`. A bare value is read as a user. Empty means never create. | No | `''` |
+| `prevent-self-review` | Set *Prevent self-review* on a created Environment. | No | `true` |
+| `required-rule` | Protection rule that must be present. | No | `required_reviewers` |
+
+`team:` takes the team **slug**, not the display name — `team:g_github_devops`,
+not `team:G_Github_Devops`. Each entry costs one API lookup, because the
+Environments API takes numeric ids only.
+
+## Outputs
+
+| Output | Description |
+|--------|-------------|
+| `protected` | `true` when the rule is present. The step fails before it could report `false`. |
+| `created` | `true` when this run created the Environment. |
+
+## Usage
+
+```yaml
+- name: Ensure the gate is real
+  uses: LerianStudio/github-actions-shared-workflows/src/validate/environment-protection@v1
+  with:
+    github-token: ${{ secrets.MANAGE_TOKEN || github.token }}
+    environment: breaking-approval
+    reviewers: team:g_github_devops
+```

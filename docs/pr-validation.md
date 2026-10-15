@@ -181,6 +181,8 @@ jobs:
 | `breaking_change_skip_labels` | string | `''` | Comma-separated labels that take a PR out of the gate. Empty keeps it closed |
 | `breaking_change_close_on_rejection` | boolean | `true` | Close the PR when a reviewer rejects the breaking change |
 | `breaking_change_require_protected_environment` | boolean | `true` | Refuse to gate when `breaking-approval` has no required reviewers, instead of silently passing |
+| `breaking_change_approval_reviewers` | string | `team:g_github_devops` | Who may answer the gate, as comma-separated `team:<slug>` or `user:<login>`. Used to create the `breaking-approval` Environment when the repository has none |
+| `breaking_change_create_environment` | boolean | `true` | Create `breaking-approval` when missing. Needs a `MANAGE_TOKEN` with repository administration rights |
 
 The breaking change guard has no enable input, target-branch input, acknowledgement input, or opt-out. It applies to every caller and every PR target branch. `dry_run: true` remains a global preview mode without guard enforcement; it is not a guard-specific opt-out and does not change normal `dry_run: false` operation. Existing callers must migrate their `pull_request.types` list to include both `edited` and `ready_for_review`; otherwise body edits and draft-to-ready transitions do not rerun validation.
 
@@ -245,10 +247,12 @@ approval still gets every other verdict immediately.
 The detection is handed over from the guard job rather than repeated, so this
 costs no extra checkout.
 
-**Before enabling**, create the `breaking-approval` Environment with required
-reviewers and *Prevent self-review*. Until then, pass
-`enable_breaking_change_approval: false` — a missing Environment would be created
-unprotected, so the preflight fails the gate instead.
+**The Environment creates itself.** On the first breaking change, the gate
+creates `breaking-approval` with `breaking_change_approval_reviewers` (default
+`team:g_github_devops`) and *Prevent self-review* on — provided `MANAGE_TOKEN`
+can administer the repository, since the default token cannot create an
+Environment. If it cannot, the gate fails and says so rather than running
+without a gate. An Environment that already exists is never rewritten.
 
 Full detail: [`breaking-change-approval.md`](breaking-change-approval.md).
 

@@ -23,9 +23,12 @@ name: Breaking Change Approval
 # reasoning as `tier-promotion.yml`.
 #
 # Because a job referencing an Environment that does not exist CREATES it,
-# unprotected, a missing or unprotected `breaking-approval` would wave every
-# breaking change straight through. The preflight in `request` refuses to run
-# in that state — see `require_protected_environment`.
+# unprotected, a missing `breaking-approval` would wave every breaking change
+# straight through. The preflight in `request` closes that hole from both ends:
+# it creates the Environment with `approval_reviewers` when it is missing, and
+# refuses to run when one exists without required reviewers. It never rewrites
+# an existing Environment — a PUT replaces the whole configuration, and would
+# drop a wait timer or branch policy somebody set on purpose.
 #
 # Scope is a base → head mapping:
 #
@@ -108,6 +111,25 @@ on:
           itself is the decision that the break is not necessary; leaving the pull
           request open invites a re-run until somebody approves. Reopening is one
           click, and the branch is never touched.
+        required: false
+        type: boolean
+        default: true
+      approval_reviewers:
+        description: >-
+          Who may answer the gate, as comma-separated `team:<slug>` or
+          `user:<login>`. Used to CREATE the `breaking-approval` Environment when
+          a repository does not have one yet — an existing Environment is never
+          rewritten from here. Empty means the Environment is never created, and
+          a repository without one fails the preflight instead.
+        required: false
+        type: string
+        default: 'team:g_github_devops'
+      create_approval_environment:
+        description: >-
+          Create `breaking-approval` when it is missing, using `approval_reviewers`.
+          Creating an Environment needs repository administration rights, which the
+          default token does not have — pass a MANAGE_TOKEN that does, or create the
+          Environment by hand and leave this off.
         required: false
         type: boolean
         default: true
@@ -330,6 +352,8 @@ jobs:
         with:
           github-token: ${{ secrets.MANAGE_TOKEN || github.token }}
           environment: breaking-approval
+          create-if-missing: ${{ inputs.create_approval_environment && 'true' || 'false' }}
+          reviewers: ${{ inputs.approval_reviewers }}
 
       - name: Request the approval on the pull request
         if: >-

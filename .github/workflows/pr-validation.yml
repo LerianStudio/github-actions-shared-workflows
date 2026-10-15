@@ -150,6 +150,19 @@ on:
         description: 'Close the pull request when a reviewer rejects the breaking change.'
         type: boolean
         default: true
+      breaking_change_approval_reviewers:
+        description: >-
+          Who may answer the breaking-change gate, as comma-separated `team:<slug>`
+          or `user:<login>`. Used to create the `breaking-approval` Environment when
+          the repository has none. Empty means it is never created.
+        type: string
+        default: 'team:g_github_devops'
+      breaking_change_create_environment:
+        description: >-
+          Create `breaking-approval` when missing. Needs a MANAGE_TOKEN with
+          repository administration rights; the default token cannot do it.
+        type: boolean
+        default: true
       breaking_change_require_protected_environment:
         description: 'Refuse to gate when `breaking-approval` has no required reviewers, instead of silently passing. Leave on.'
         type: boolean
@@ -288,6 +301,8 @@ jobs:
       force_labels: ${{ inputs.breaking_change_force_labels }}
       skip_labels: ${{ inputs.breaking_change_skip_labels }}
       close_on_rejection: ${{ inputs.breaking_change_close_on_rejection }}
+      approval_reviewers: ${{ inputs.breaking_change_approval_reviewers }}
+      create_approval_environment: ${{ inputs.breaking_change_create_environment }}
       require_protected_environment: ${{ inputs.breaking_change_require_protected_environment }}
       dry_run: ${{ inputs.dry_run }}
       runner_type: ${{ inputs.runner_type }}
