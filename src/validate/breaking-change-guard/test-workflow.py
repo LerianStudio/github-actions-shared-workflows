@@ -821,6 +821,47 @@ class ApprovalGateStructureTests(unittest.TestCase):
             preflight,
         )
 
+    def test_the_waiting_comment_links_instead_of_mentioning(self):
+        reporter = (
+            REPO_ROOT / "src" / "notify" / "breaking-change-approval-reporter"
+            / "action.yml"
+        ).read_text(encoding="utf-8")
+        # Links to the commit, the decision, the reviewers and the docs.
+        for fragment in (
+            "${SERVER_URL}/${REPO}/commit/${HEAD_SHA}",
+            "[Approve or reject](%s)",
+            "${SERVER_URL}/orgs/${owner}/teams/${slug}",
+            "[How this works](%s)",
+        ):
+            with self.subTest(fragment=fragment):
+                self.assertIn(fragment, reporter)
+        # The pending deployment already notifies the reviewers; a bare @mention
+        # would ping the whole team again for the same thing.
+        #
+        # Checked as "every occurrence sits inside Markdown link text", not as
+        # one forbidden spelling: an assertion pinned to the exact characters
+        # around `@` passes the day somebody writes the mention differently,
+        # which is worse than no assertion at all.
+        for match in re.finditer(r"@\$\{owner\}/", reporter):
+            preceding = reporter[: match.start()]
+            self.assertTrue(
+                preceding.endswith("["),
+                f"bare team mention at offset {match.start()}: "
+                f"...{reporter[max(0, match.start() - 40):match.end() + 20]}...",
+            )
+
+    def test_the_environment_is_read_exactly_once(self):
+        # Two reads would allow "rules fetched, reviewers not" — and an empty
+        # reviewer list is indistinguishable from "this Environment has none",
+        # so a caller would fall back to whoever it had configured and name the
+        # wrong people. One read, both answers, no such state.
+        reads = ENVIRONMENT_PROTECTION.count(
+            'gh api "repos/${REPO}/environments/${ENVIRONMENT}"'
+        )
+        self.assertEqual(1, reads, "the Environment must be read exactly once")
+        self.assertIn("reviewers_of()", ENVIRONMENT_PROTECTION)
+        self.assertIn("rules_of()", ENVIRONMENT_PROTECTION)
+
     def test_a_missing_environment_is_told_apart_from_an_unreadable_one(self):
         # Creating on top of a 403 would be guessing; only a 404 is ours to fix.
         self.assertIn('*"HTTP 404"* | *"Not Found"* )', ENVIRONMENT_PROTECTION)
