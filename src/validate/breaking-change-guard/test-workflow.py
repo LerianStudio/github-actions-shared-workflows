@@ -850,6 +850,18 @@ class ApprovalGateStructureTests(unittest.TestCase):
                 f"...{reporter[max(0, match.start() - 40):match.end() + 20]}...",
             )
 
+    def test_the_environment_is_read_exactly_once(self):
+        # Two reads would allow "rules fetched, reviewers not" — and an empty
+        # reviewer list is indistinguishable from "this Environment has none",
+        # so a caller would fall back to whoever it had configured and name the
+        # wrong people. One read, both answers, no such state.
+        reads = ENVIRONMENT_PROTECTION.count(
+            'gh api "repos/${REPO}/environments/${ENVIRONMENT}"'
+        )
+        self.assertEqual(1, reads, "the Environment must be read exactly once")
+        self.assertIn("reviewers_of()", ENVIRONMENT_PROTECTION)
+        self.assertIn("rules_of()", ENVIRONMENT_PROTECTION)
+
     def test_a_missing_environment_is_told_apart_from_an_unreadable_one(self):
         # Creating on top of a 403 would be guessing; only a 404 is ours to fix.
         self.assertIn('*"HTTP 404"* | *"Not Found"* )', ENVIRONMENT_PROTECTION)
