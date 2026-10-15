@@ -5,6 +5,9 @@
   </tr>
 </table>
 
+> **Unreleased.** Until this ships in a release, reference it as `@develop` —
+> `@v1` is the previous release and does not contain it yet.
+
 Ensures a GitHub Environment exists and carries required reviewers — creating it
 with the reviewers you name when it is missing.
 

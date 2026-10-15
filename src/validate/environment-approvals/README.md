@@ -5,6 +5,9 @@
   </tr>
 </table>
 
+> **Unreleased.** Until this ships in a release, reference it as `@develop` —
+> `@v1` is the previous release and does not contain it yet.
+
 Reads who approved or rejected a workflow run's pending deployment to a given
 Environment.
 

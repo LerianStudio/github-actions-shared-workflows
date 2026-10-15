@@ -747,20 +747,36 @@ class ApprovalGateStructureTests(unittest.TestCase):
                 directory = REPO_ROOT / path
                 self.assertTrue((directory / "action.yml").is_file(), path)
                 self.assertTrue((directory / "README.md").is_file(), path)
+                # Ref deliberately not asserted while the composites are still
+                # unreleased: `@v1` cannot resolve a composite this very pull
+                # request introduces. test_composite_refs_are_pinned below is
+                # what keeps the ref honest.
                 self.assertIn(
-                    f"LerianStudio/github-actions-shared-workflows/{path}@v1",
+                    f"LerianStudio/github-actions-shared-workflows/{path}@",
                     APPROVAL_WORKFLOW,
                 )
+
+    def test_composite_refs_are_pinned_to_a_channel_not_a_feature_branch(self):
+        refs = set(
+            re.findall(
+                r"LerianStudio/github-actions-shared-workflows/src/[^@\s]+@(\S+)",
+                APPROVAL_WORKFLOW,
+            )
+        )
+        allowed = {"v1", "develop"}
+        stray = sorted(refs - allowed)
+        self.assertFalse(
+            stray,
+            f"composites must resolve through {sorted(allowed)}, not a feature "
+            f"branch that disappears when it is deleted: {stray}",
+        )
 
     def test_preflight_runs_before_the_gate_and_fails_closed(self):
         step = extract_step(
             extract_job(APPROVAL_WORKFLOW, "request"),
             "Verify the breaking-approval Environment is protected",
         )
-        self.assertIn(
-            "src/validate/environment-protection@v1",
-            step,
-        )
+        self.assertIn("src/validate/environment-protection@", step)
         self.assertIn("environment: breaking-approval", step)
         # Where the reviewers come from is asserted in the CODEOWNERS test.
         # The composite is what must refuse. Every branch that cannot prove the
@@ -789,7 +805,7 @@ class ApprovalGateStructureTests(unittest.TestCase):
             extract_job(APPROVAL_WORKFLOW, "request"),
             "Derive the reviewers from CODEOWNERS",
         )
-        self.assertIn("src/validate/codeowners-reviewers@v1", step)
+        self.assertIn("src/validate/codeowners-reviewers@", step)
         # The base ref, never the head: a CODEOWNERS from the pull request
         # branch would let the author choose who approves their own change.
         self.assertIn("ref: ${{ needs.detect.outputs.base-ref }}", step)

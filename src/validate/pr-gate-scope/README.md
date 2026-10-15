@@ -5,6 +5,9 @@
   </tr>
 </table>
 
+> **Unreleased.** Until this ships in a release, reference it as `@develop` —
+> `@v1` is the previous release and does not contain it yet.
+
 Decides whether a pull request falls inside a gate's scope, and says why.
 
 Any gate that should apply to some pull requests and not others needs this

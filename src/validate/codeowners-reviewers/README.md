@@ -5,6 +5,9 @@
   </tr>
 </table>
 
+> **Unreleased.** Until this ships in a release, reference it as `@develop` —
+> `@v1` is the previous release and does not contain it yet.
+
 Derives an Environment reviewer list from a repository's CODEOWNERS.
 
 The people who own the code are the people who should answer a gate about it,

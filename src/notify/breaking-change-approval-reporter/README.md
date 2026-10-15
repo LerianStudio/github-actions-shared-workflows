@@ -5,6 +5,9 @@
   </tr>
 </table>
 
+> **Unreleased.** Until this ships in a release, reference it as `@develop` —
+> `@v1` is the previous release and does not contain it yet.
+
 Posts and keeps updated the single pull request comment that carries a breaking
 change's approval state.
 
