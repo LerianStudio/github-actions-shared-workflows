@@ -980,8 +980,11 @@ class ApprovalGateStructureTests(unittest.TestCase):
         for state, alert, mark in self.STATE_MARKS:
             with self.subTest(state=state):
                 rendered = render_reporter(state)
-                self.assertIn(alert, rendered)
-                self.assertIn(mark, rendered)
+                # As adjacent blockquote lines, not as two strings that happen
+                # to be somewhere: a GitHub alert only renders inside `>`, so
+                # dropping the quote would leave both assertions green and the
+                # comment looking like plain text.
+                self.assertIn(f"> {alert}\n> {mark}", rendered)
 
                 # Exclusivity is what actually catches a swap.
                 for other_state, other_alert, other_mark in self.STATE_MARKS:
