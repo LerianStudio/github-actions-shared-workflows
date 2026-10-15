@@ -418,6 +418,18 @@ jobs:
       && needs.detect.outputs.has-breaking-changes == 'true'
       && !inputs.dry_run
     environment: breaking-approval
+    # One open request per pull request. Every push creates another pending
+    # deployment, and the old ones do not go away on their own — they sit in the
+    # reviewers' queue, each tied to a commit that is no longer the head. The
+    # risk is not clutter: approving a superseded one approves a revision nobody
+    # is merging, while the current one is still waiting.
+    #
+    # Cancelling the previous request is also what expires an approval. A push
+    # kills the pending job, so the next revision has to be approved again
+    # rather than inheriting a yes given to different code.
+    concurrency:
+      group: breaking-approval-${{ github.repository }}-${{ needs.detect.outputs.pr-number }}
+      cancel-in-progress: true
     permissions:
       contents: read
     steps:
@@ -462,6 +474,9 @@ jobs:
       - name: Resolve the verdict
         id: verdict
         env:
+          GH_TOKEN: ${{ secrets.MANAGE_TOKEN || github.token }}
+          REPO: ${{ github.repository }}
+          HEAD_SHA: ${{ needs.detect.outputs.head-sha }}
           DETECT_RESULT: ${{ needs.detect.result }}
           REQUEST_RESULT: ${{ needs.request.result }}
           APPROVAL_RESULT: ${{ needs.approval.result }}
@@ -493,6 +508,21 @@ jobs:
               echo "rejecters=$rejecters"
             } >> "$GITHUB_OUTPUT"
           }
+
+          # A superseded run must not touch the pull request. When a push cancels
+          # the pending approval, this job still runs — and without this guard it
+          # would overwrite the current revision's comment with "the approval did
+          # not complete", which is true of the dead run and misleading about the
+          # live one.
+          if [ -n "${PR_NUMBER:-}" ] && [ -n "${HEAD_SHA:-}" ]; then
+            live_sha=$(gh pr view "$PR_NUMBER" --repo "$REPO" --json headRefOid --jq '.headRefOid' 2>/dev/null || true)
+            if [ -n "$live_sha" ] && [ "$live_sha" != "$HEAD_SHA" ]; then
+              state=superseded
+              emit
+              echo "::notice::Superseded — this run covers ${HEAD_SHA:0:7} but PR #${PR_NUMBER} now heads at ${live_sha:0:7}; leaving the pull request alone"
+              exit 0
+            fi
+          fi
 
           # Detection failing is not "no breaking changes" — it is "we do not
           # know", and the point of the gate is that an unknown blocks.
@@ -606,7 +636,9 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
           # dry_run never fails: it reports what a real run would have done.
-          if [ "$DRY_RUN" = "true" ] || [ "$RESULT" = "success" ]; then
+          # Neither does a superseded run — its verdict is about a commit that is
+          # no longer the head, and the live run is the one that decides.
+          if [ "$DRY_RUN" = "true" ] || [ "$RESULT" = "success" ] || [ "$STATE" = "superseded" ]; then
             exit 0
           fi
 

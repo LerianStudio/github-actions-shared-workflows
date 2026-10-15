@@ -249,6 +249,26 @@ them match: REST returns `dependabot[bot]`, GraphQL returns `dependabot`, and
 `gh pr view --json author` — what this job reads — returns `app/dependabot`. Both
 affixes are stripped before comparing.
 
+## One open request, and approvals expire on a push
+
+Every push queues another pending deployment, and GitHub does not retire the
+previous one. Left alone, a reviewer's queue fills with requests tied to commits
+that are no longer the head — and approving one of those approves a revision
+nobody is merging, while the live one still waits.
+
+The approval job is therefore under a `concurrency` group keyed to the pull
+request, with `cancel-in-progress`. A push cancels the pending request and
+replaces it with one for the new head.
+
+That is also what expires an approval: the yes was given to a specific
+revision, and the next one has to earn its own. Nothing inherits it.
+
+**A cancelled run never touches the pull request.** The verdict job still runs
+when its approval is cancelled, and without a guard it would overwrite the live
+revision's comment with *"the approval did not complete"* — true of the dead run,
+misleading about the live one. It compares the commit it covers against the
+pull request's current head and, when they differ, leaves everything alone.
+
 ## Fails closed
 
 Detection failing is not "no breaking changes" — it is "we do not know", and an
