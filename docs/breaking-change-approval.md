@@ -404,3 +404,5 @@ python3 src/validate/breaking-change-guard/test-workflow.py
   orchestrated composite exists with its README and is pinned, that the preflight
   runs before the gate, that `outcome` does not declare a permission it cannot
   escalate to, and that a pull request is closed only on a recorded rejection.
+
+<!-- smoke test: exercises the breaking-change approval gate. This PR is not meant to be merged. -->
