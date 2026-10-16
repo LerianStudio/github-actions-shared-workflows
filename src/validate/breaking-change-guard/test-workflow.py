@@ -1202,6 +1202,23 @@ class ApprovalGateStructureTests(unittest.TestCase):
         # Only an approval writes a new record.
         self.assertIn('if [ "$STATE" = "approved" ] && [ -n "$FINGERPRINT" ]', reporter)
 
+    def test_the_gate_checks_out_nothing(self):
+        # CodeQL flagged `actions/untrusted-checkout` here, and it was right:
+        # a non-privileged workflow was putting a contributor's tree on disk
+        # beside MANAGE_TOKEN. Nothing executed it, but nothing needed it —
+        # the commits are readable through the API.
+        self.assertNotIn("actions/checkout", APPROVAL_WORKFLOW)
+
+    def test_an_unevaluated_acknowledgement_is_not_reported_as_missing(self):
+        # The detector that reads the description lives in pr-validation. Where
+        # it did not run, the state is unknown — and "missing" would send the
+        # author after a line no check is asking for.
+        rendered = render_reporter("waiting", ACKNOWLEDGED="")
+        self.assertNotIn("Author acknowledgement", rendered)
+        rendered = render_reporter("waiting", ACKNOWLEDGED="false")
+        self.assertIn("Author acknowledgement", rendered)
+        self.assertIn("missing", rendered)
+
     def test_the_fingerprint_comes_from_the_breaking_commits(self):
         detect = extract_job(APPROVAL_WORKFLOW, "detect")
         self.assertIn("src/validate/breaking-change-commits@", detect)
