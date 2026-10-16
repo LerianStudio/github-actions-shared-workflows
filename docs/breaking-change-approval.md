@@ -540,3 +540,5 @@ python3 src/validate/breaking-change-guard/test-workflow.py
 <!-- smoke test: exercises the breaking-change approval gate. This PR is not meant to be merged. -->
 
 <!-- concurrency probe: does a push cancel the previous pending approval? -->
+
+<!-- label lifecycle probe -->
