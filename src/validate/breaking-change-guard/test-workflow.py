@@ -1219,6 +1219,33 @@ class ApprovalGateStructureTests(unittest.TestCase):
         self.assertIn("Author acknowledgement", rendered)
         self.assertIn("missing", rendered)
 
+    def test_the_fact_label_outlives_the_decision(self):
+        reporter = (
+            REPO_ROOT / "src" / "notify" / "breaking-change-approval-reporter"
+            / "action.yml"
+        ).read_text(encoding="utf-8")
+        # `breaking-change` describes the commits, not the process: approving
+        # does not make the break go away, and somebody filtering for it months
+        # later wants this pull request in the results. Only the pending label
+        # is a state, and only it comes off on a decision.
+        self.assertIn("PENDING_LABEL", reporter)
+        add_fact = reporter.index('--add-label "$LABEL"')
+        self.assertNotIn('--remove-label "$LABEL"', reporter)
+        self.assertIn('--remove-label "$PENDING_LABEL"', reporter)
+        self.assertGreater(add_fact, 0)
+
+    def test_both_labels_go_when_the_break_does(self):
+        body = extract_run_body(
+            extract_job(APPROVAL_WORKFLOW, "outcome"), "Resolve the verdict"
+        )
+        # The one moment the fact stops being true. This cleanup was lost in an
+        # earlier rewrite, leaving `breaking-change` on a pull request whose
+        # breaking commit had been reworded away.
+        self.assertIn('for stale in "$LABEL" "$PENDING_LABEL"', body)
+        none_at = body.index("state=none")
+        cleanup_at = body.index('for stale in "$LABEL" "$PENDING_LABEL"')
+        self.assertLess(none_at, cleanup_at)
+
     def test_the_fingerprint_comes_from_the_breaking_commits(self):
         detect = extract_job(APPROVAL_WORKFLOW, "detect")
         self.assertIn("src/validate/breaking-change-commits@", detect)

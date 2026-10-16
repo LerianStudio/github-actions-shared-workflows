@@ -80,7 +80,11 @@ inputs:
     required: false
     default: 'true'
   label:
-    description: Label applied while waiting and removed once resolved. Cosmetic — failing to apply it never fails the step. Empty disables it.
+    description: 'Label stating that this pull request carries a breaking change. A fact about the change, so it stays once applied — approving does not make the break go away. The caller removes it when the breaking commits are gone. Cosmetic; failing to apply it never fails the step. Empty disables it.'
+    required: false
+    default: ''
+  pending-label:
+    description: 'Label stating that the breaking change is waiting on a decision. A state, so it is removed once approved or rejected. Kept separate from `label` because "this breaks things" and "nobody has decided yet" stop being true at different moments. Empty disables it.'
     required: false
     default: ''
   enabled:
@@ -120,6 +124,7 @@ runs:
         REJECTION_COMMENT: ${{ inputs.rejection-comment }}
         CLOSE_ON_REJECTION: ${{ inputs.close-on-rejection }}
         LABEL: ${{ inputs.label }}
+        PENDING_LABEL: ${{ inputs.pending-label }}
         ENABLED: ${{ inputs.enabled }}
       run: |
         set -euo pipefail
@@ -356,14 +361,30 @@ runs:
         fi
 
         # Cosmetic and deliberately last — a repository that never declared the
-        # label still gets its gate.
+        # labels still gets its gate.
+        #
+        # Two of them, because they stop being true at different moments. The
+        # breaking change is a property of the commits: approving it does not
+        # make the break go away, and somebody filtering for `breaking-change`
+        # three months from now wants this pull request in the results. Waiting
+        # on a decision is a state, and it ends.
+        #
+        # Every state reaching this composite means a breaking change is
+        # present — the caller skips it entirely when there is none — so the
+        # fact label is applied throughout and only the caller removes it.
         if [ -n "$LABEL" ]; then
+          if ! gh pr edit "$PR_NUMBER" --repo "$REPO" --add-label "$LABEL" >/dev/null 2>&1; then
+            echo "::notice::Label '${LABEL}' not applied — it is not declared in ${REPO}. Cosmetic only."
+          fi
+        fi
+
+        if [ -n "$PENDING_LABEL" ]; then
           if [ "$STATE" = "waiting" ]; then
-            if ! gh pr edit "$PR_NUMBER" --repo "$REPO" --add-label "$LABEL" >/dev/null 2>&1; then
-              echo "::notice::Label '${LABEL}' not applied — it is not declared in ${REPO}. Cosmetic only."
+            if ! gh pr edit "$PR_NUMBER" --repo "$REPO" --add-label "$PENDING_LABEL" >/dev/null 2>&1; then
+              echo "::notice::Label '${PENDING_LABEL}' not applied — it is not declared in ${REPO}. Cosmetic only."
             fi
           else
-            gh pr edit "$PR_NUMBER" --repo "$REPO" --remove-label "$LABEL" >/dev/null 2>&1 || true
+            gh pr edit "$PR_NUMBER" --repo "$REPO" --remove-label "$PENDING_LABEL" >/dev/null 2>&1 || true
           fi
         fi
 
