@@ -13,7 +13,7 @@ inputs:
     required: false
     default: ${{ github.repository }}
   state:
-    description: "What to report — `waiting`, `approved`, `rejected`, or `unresolved` when the approval ended without a recorded decision. Any other value fails the step."
+    description: "What to report — `waiting`, `approved`, `rejected`, `unresolved` when the approval ended without a recorded decision, or `acknowledgement` where no approval is required and only the author's acknowledgement is at stake. Any other value fails the step."
     required: true
   reason:
     description: Why the pull request is gated, as resolved by `pr-gate-scope`.
