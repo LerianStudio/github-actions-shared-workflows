@@ -1098,6 +1098,35 @@ class ApprovalGateStructureTests(unittest.TestCase):
         # whole feature for every caller on the default token.
         self.assertIn('.user.login == "github-actions[bot]"', step)
 
+    def test_the_prior_lookup_honours_the_dry_run_contract(self):
+        step = extract_step(
+            extract_job(APPROVAL_WORKFLOW, "request"),
+            "Check for a prior approval of the same change",
+        )
+        # The repository's contract: a real run is silent beyond one summary,
+        # a dry run prints the resolved values. Both halves matter here —
+        # a preview that cannot say whether the approval would be reused is
+        # not previewing the decision this gate turns on.
+        self.assertIn('DRY_RUN: ${{ inputs.dry_run', step)
+        self.assertNotIn("&& !inputs.dry_run", step)
+
+        code = "\n".join(
+            line for line in step.splitlines() if not line.strip().startswith("#")
+        )
+        # Every diagnostic beyond the single summary sits behind the dry-run
+        # branch; count them to keep a future one from slipping out.
+        for line in code.splitlines():
+            if "echo " not in line or "GITHUB_OUTPUT" in line:
+                continue
+            stripped = line.strip()
+            guarded = (
+                stripped.startswith('[ "$DRY_RUN" = "true" ] &&')
+                or "::notice::" in stripped
+                or "::warning::" in stripped
+                or stripped.startswith('echo "  ')
+            )
+            self.assertTrue(guarded, f"ungated diagnostic on a real run: {stripped}")
+
     def test_every_record_is_tried_not_just_the_first(self):
         step = extract_step(
             extract_job(APPROVAL_WORKFLOW, "request"),

@@ -377,20 +377,25 @@ jobs:
       # the second time costs attention, the fifth time gets a reflex click.
       - name: Check for a prior approval of the same change
         id: prior
+        # Runs under dry_run too: it only reads, and a dry run that cannot say
+        # whether the approval would be reused is not previewing the decision
+        # that matters most here.
         if: >-
           needs.detect.result == 'success'
           && needs.detect.outputs.has-breaking-changes == 'true'
           && needs.detect.outputs.fingerprint != ''
-          && !inputs.dry_run
         env:
           GH_TOKEN: ${{ secrets.MANAGE_TOKEN || github.token }}
           REPO: ${{ github.repository }}
           PR_NUMBER: ${{ needs.detect.outputs.pr-number }}
           FINGERPRINT: ${{ needs.detect.outputs.fingerprint }}
+          DRY_RUN: ${{ inputs.dry_run && 'true' || 'false' }}
         run: |
           set -euo pipefail
 
           already=false
+          approved_by=""
+          unverified=""
 
           # Two things have to be true, because the comment alone is not
           # evidence. Anyone who can read the repository can comment on a pull
@@ -450,15 +455,27 @@ jobs:
 
             if [ -n "$approvers" ]; then
               already=true
-              echo "::notice::This breaking change (${FINGERPRINT}) was approved on run ${approving_run} by ${approvers} — not asking again"
+              approved_by="$approvers"
               break
             fi
 
-            echo "::notice::A record names run ${approving_run} for ${FINGERPRINT}, but its approval could not be verified — trying any others"
+            unverified="${unverified:+$unverified }${approving_run}"
+            [ "$DRY_RUN" = "true" ] && echo "  record run=${approving_run} : approval could not be verified"
           done <<< "$records"
 
-          if [ -n "$records" ] && [ "$already" != "true" ]; then
-            echo "::warning::No recorded approval of ${FINGERPRINT} could be verified against the Environment log. Asking again."
+          # One line on a real run, per the dry_run contract. Everything else is
+          # for the preview, where being able to predict the decision is the
+          # entire point.
+          if [ "$DRY_RUN" = "true" ]; then
+            echo "::notice::DRY RUN — approval reuse lookup"
+            echo "  fingerprint       : ${FINGERPRINT}"
+            echo "  records found     : $(grep -c . <<< "$records" || true)"
+            echo "  unverified runs   : [${unverified:-}]"
+            echo "  already approved  : ${already}${approved_by:+ (by ${approved_by})}"
+          elif [ "$already" = "true" ]; then
+            echo "::notice::This breaking change was approved on run ${approving_run} by ${approved_by} — not asking again"
+          elif [ -n "$records" ]; then
+            echo "::warning::A recorded approval of ${FINGERPRINT} exists but could not be verified against the Environment log (runs: ${unverified:-none}). Asking again."
           fi
 
           echo "already-approved=$already" >> "$GITHUB_OUTPUT"
