@@ -280,6 +280,68 @@ def render_reporter(state, **overrides):
     return result.stdout
 
 
+def run_verdict(**overrides):
+    """Run the gate's verdict step and return its outputs.
+
+    Asserting that the cancellation branch contains `exit 0` would only prove
+    the characters are there. Running it with a recorded rejection in hand is
+    what proves the branch actually stops: without the exit, the rejection
+    downstream wins and the pull request gets closed.
+    """
+    workflow = yaml.safe_load(APPROVAL_WORKFLOW)
+    step = next(
+        s
+        for s in workflow["jobs"]["outcome"]["steps"]
+        if s.get("name") == "Resolve the verdict"
+    )
+
+    env = {
+        "GH_TOKEN": "stub",
+        "REPO": "LerianStudio/example",
+        "HEAD_SHA": "abc123",
+        "DETECT_RESULT": "success",
+        "REQUEST_RESULT": "success",
+        "APPROVAL_RESULT": "success",
+        "IN_SCOPE": "true",
+        "REASON": "rule develop <- '*'",
+        "PR_NUMBER": "42",
+        "HAS_BREAKING_CHANGES": "true",
+        "DETECTION_SUCCEEDED": "true",
+        "APPROVERS": "",
+        "REJECTERS": "",
+        "API_READABLE": "true",
+        "DRY_RUN": "false",
+        "LIVE_SHA": "abc123",
+    }
+    env.update(overrides)
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        stub = Path(temp_dir) / "gh"
+        stub.write_text(
+            "#!/usr/bin/env bash\n"
+            'case "$*" in\n'
+            '  *headRefOid*) printf \'%s\\n\' "$LIVE_SHA" ;;\n'
+            "  *) exit 1 ;;\n"
+            "esac\n",
+            encoding="utf-8",
+        )
+        stub.chmod(0o755)
+        output_path = Path(temp_dir) / "github-output"
+        output_path.touch()
+        env["GITHUB_OUTPUT"] = str(output_path)
+        env["GITHUB_STEP_SUMMARY"] = str(Path(temp_dir) / "summary")
+        env["PATH"] = f"{temp_dir}:{os.environ.get('PATH', '/usr/bin:/bin')}"
+        result = subprocess.run(
+            ["bash", "-c", step["run"]],
+            cwd=temp_dir,
+            env=env,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        return result, parse_github_output(output_path.read_text(encoding="utf-8"))
+
+
 def parse_github_output(output):
     values = {}
     for line in output.splitlines():
@@ -981,6 +1043,50 @@ class ApprovalGateStructureTests(unittest.TestCase):
             head_compare_at,
             "the cancelled check must come first — it is the broader signal",
         )
+
+    def test_a_cancelled_approval_stops_before_anything_can_act_on_it(self):
+        # Run it, with a recorded rejection sitting right there. The branch has
+        # to stop: if it falls through, the rejection downstream wins, the
+        # verdict comes back `rejected`, and the pull request gets closed —
+        # because a concurrency cancellation raced a reviewer.
+        _, outputs = run_verdict(APPROVAL_RESULT="cancelled", REJECTERS="dave")
+        self.assertEqual("superseded", outputs["state"])
+        self.assertNotEqual("rejected", outputs["state"])
+
+    def test_the_verdict_states_are_reachable_as_documented(self):
+        # The whole table in one place, run rather than read.
+        for description, env, expected in (
+            ("approved", {"APPROVAL_RESULT": "success"}, "approved"),
+            (
+                "rejected",
+                {"APPROVAL_RESULT": "failure", "REJECTERS": "dave"},
+                "rejected",
+            ),
+            (
+                "cancelled, same head",
+                {"APPROVAL_RESULT": "cancelled"},
+                "superseded",
+            ),
+            (
+                "head moved under us",
+                {"LIVE_SHA": "def456"},
+                "superseded",
+            ),
+            (
+                "failed with no recorded decision",
+                {"APPROVAL_RESULT": "failure"},
+                "unresolved",
+            ),
+            ("nothing to approve", {"HAS_BREAKING_CHANGES": "false"}, "none"),
+            (
+                "detection never completed",
+                {"DETECTION_SUCCEEDED": "false"},
+                "blocked",
+            ),
+        ):
+            with self.subTest(case=description):
+                _, outputs = run_verdict(**env)
+                self.assertEqual(expected, outputs["state"])
         # And `superseded` must drive neither the comment nor the close.
         for step_name in (
             "Report the outcome on the pull request",
