@@ -82,6 +82,21 @@ may be gated by different people than the caller configured, and naming the wron
 ones is worse than naming none — with neither available, the line is omitted
 rather than guessed.
 
+## Two labels, because they expire at different times
+
+`breaking-change` is a **fact about the commits**. Approving does not make the
+break go away, and somebody filtering for that label three months from now wants
+this pull request in the results. It is applied in every state this composite
+handles, and only the caller removes it — at the one moment the fact stops being
+true, when the breaking commits are gone.
+
+`awaiting-breaking-approval` is a **state**. It goes on while a decision is
+pending and comes off the moment one is made, either way.
+
+Collapsing the two is tempting and wrong: removing `breaking-change` on approval
+erases the record exactly when it starts to matter, because now the break is
+both real and agreed.
+
 ## What it does not do
 
 It never closes, merges or approves anything. `close-on-rejection` only changes
@@ -113,7 +128,8 @@ side effect in the caller is what makes this safe to run with
 | `rejecters` | Comma-separated logins that rejected. | No | `''` |
 | `rejection-comment` | Comment left with the rejection. | No | `''` |
 | `close-on-rejection` | Whether the caller closes on rejection. Wording only. | No | `true` |
-| `label` | Applied while waiting, removed once resolved. Cosmetic. | No | `''` |
+| `label` | States that the PR carries a breaking change. A fact — stays once applied. Cosmetic. | No | `''` |
+| `pending-label` | States that the breaking change is waiting on a decision. Removed once approved or rejected. | No | `''` |
 | `enabled` | `false` skips commenting while still managing the label. | No | `true` |
 
 ## Outputs
