@@ -20,6 +20,7 @@ comment, and it ends as the record of who decided what — nothing is deleted.
 | `state` | What the comment says |
 |---|---|
 | `waiting` | A breaking change was found; here is the link to the pending deployment, and what approving or rejecting will do |
+| `acknowledgement` | A breaking change was found on a branch outside the approval scope — no decision is needed, only the author's acknowledgement, with the exact line to paste |
 | `approved` | Approved by whom, and that the next release will be a major version |
 | `rejected` | Rejected by whom, the reason they gave, and what to do next |
 | `unresolved` | The approval ended without a recorded decision — open the run |
@@ -99,6 +100,9 @@ side effect in the caller is what makes this safe to run with
 | `reason` | Why the pull request is gated, from `pr-gate-scope`. | No | `''` |
 | `head-sha` | Head commit the report refers to. | No | `''` |
 | `acknowledged` | Whether the author acknowledgement line is present. | No | `false` |
+| `author-acknowledgement` | The exact line the author must add when it is missing. | No | `''` |
+| `fingerprint` | Digest of the breaking-change commit set. Recorded when the state is `approved`, with the run that carried the approval. | No | `''` |
+| `run-id` | Run recorded alongside the fingerprint, so a later run can verify the approval against the Environment log. | No | `${{ github.run_id }}` |
 | `run-url` | Link to the run carrying the pending deployment. | No | `''` |
 | `reviewers` | Who can answer, as a `team:<slug>` / `user:<login>` list. | No | `''` |
 | `actual-reviewers` | Reviewers read from the Environment itself. Preferred over `reviewers` when present. | No | `''` |

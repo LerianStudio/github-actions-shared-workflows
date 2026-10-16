@@ -27,6 +27,10 @@ inputs:
     description: Whether the author acknowledgement line is present in the description (true/false). Shown to the reviewer as context.
     required: false
     default: 'false'
+  author-acknowledgement:
+    description: 'The exact line the author must add to the description. Shown when it is missing — a check that fails without saying what to add is a check people route around.'
+    required: false
+    default: ''
   run-url:
     description: Link to the run carrying the pending deployment.
     required: false
@@ -103,6 +107,7 @@ runs:
         REASON: ${{ inputs.reason }}
         HEAD_SHA: ${{ inputs.head-sha }}
         ACKNOWLEDGED: ${{ inputs.acknowledged }}
+        ACK_LINE: ${{ inputs.author-acknowledgement }}
         RUN_URL: ${{ inputs.run-url }}
         REVIEWERS: ${{ inputs.actual-reviewers != '' && inputs.actual-reviewers || inputs.reviewers }}
         SERVER_URL: ${{ inputs.server-url }}
@@ -120,9 +125,9 @@ runs:
         set -euo pipefail
 
         case "$STATE" in
-          waiting | approved | rejected | unresolved ) ;;
+          waiting | approved | rejected | unresolved | acknowledgement ) ;;
           * )
-            echo "state must be one of: waiting, approved, rejected, unresolved; got '${STATE}'." >&2
+            echo "state must be one of: waiting, approved, rejected, unresolved, acknowledgement; got '${STATE}'." >&2
             exit 1
             ;;
         esac
@@ -205,6 +210,15 @@ runs:
               printf '| %s **Author acknowledgement** | %s |\n\n' \
                 "$([ "$ACKNOWLEDGED" = "true" ] && echo "✅" || echo "⬜")" \
                 "$([ "$ACKNOWLEDGED" = "true" ] && echo "present" || echo "missing")"
+
+              # Blocking Checks fails on a missing acknowledgement whether or
+              # not an approval is pending, so the line to add belongs here too.
+              if [ "$ACKNOWLEDGED" != "true" ] && [ -n "$ACK_LINE" ]; then
+                printf '<details>\n<summary><b>Blocking Checks</b> also needs the author acknowledgement</summary>\n\n'
+                printf 'Add this exact line to the pull request description:\n\n'
+                printf '```\n%s\n```\n\n' "$ACK_LINE"
+                printf '</details>\n\n'
+              fi
               ;;
             approved)
               printf '> [!NOTE]\n'
@@ -225,6 +239,23 @@ runs:
                 printf '> This pull request was closed. The branch is untouched — rework it without the break and reopen.\n'
               fi
               printf '\n'
+              ;;
+            acknowledgement)
+              # No approval is required here — only the author's own
+              # acknowledgement, which Blocking Checks enforces everywhere.
+              if [ "$ACKNOWLEDGED" = "true" ]; then
+                printf '> [!NOTE]\n'
+                printf '> ## 💥 Breaking change acknowledged\n'
+                printf '>\n'
+                printf '> The author has declared this break in the description. No approval is required on this branch.\n\n'
+              else
+                printf '> [!IMPORTANT]\n'
+                printf '> ## 💥 Breaking change — acknowledgement missing\n'
+                printf '>\n'
+                printf '> This pull request carries a breaking change, so the next release becomes a **major** version. Add this exact line to the description:\n'
+                printf '>\n'
+                printf '> ```\n> %s\n> ```\n\n' "$ACK_LINE"
+              fi
               ;;
             unresolved)
               printf '> [!WARNING]\n'
