@@ -410,18 +410,32 @@ jobs:
           # exit on the first match while `--paginate` is still writing, and the
           # broken pipe would read as "no match" — asking for an approval that
           # was already given.
+          # `github-actions[bot]` is accepted by login because GitHub can report
+          # `author_association: NONE` for it — and that is the identity the
+          # reporter writes under whenever no MANAGE_TOKEN is passed, which is
+          # most callers. Filtering it out would quietly disable the whole
+          # feature for them. It is not a weakening: nobody but Actions can
+          # author a comment under that login.
           records=$(
             gh api "repos/${REPO}/issues/${PR_NUMBER}/comments" --paginate \
               --jq '.[]
                     | select(.author_association == "OWNER"
-                             or .author_association == "MEMBER")
+                             or .author_association == "MEMBER"
+                             or .user.login == "github-actions[bot]")
                     | .body' 2>/dev/null \
             | grep -oE "<!-- breaking-change-approved: ${FINGERPRINT} run=[0-9]+ -->" \
             || true
           )
 
-          if [ -n "$records" ]; then
-            approving_run=$(head -n1 <<< "$records" | grep -oE 'run=[0-9]+' | cut -d= -f2)
+          # Every record, not just the first. The reporter keeps them all, and
+          # runs are deleted on the repository's retention schedule — 90 days by
+          # default — so the oldest record for a fingerprint is the first to
+          # become unverifiable while a newer one is still perfectly good.
+          # Stopping at the first would ask for an approval that is on file.
+          while IFS= read -r record; do
+            [ -z "$record" ] && continue
+            approving_run=$(grep -oE 'run=[0-9]+' <<< "$record" | cut -d= -f2)
+            [ -z "$approving_run" ] && continue
 
             # Verified against the Environment's own approval log. Needs
             # `actions: read`; when that is missing the check cannot be made, so
@@ -436,10 +450,15 @@ jobs:
 
             if [ -n "$approvers" ]; then
               already=true
-              echo "::notice::This breaking change (${FINGERPRINT}) was approved on run ${approving_run} — not asking again"
-            else
-              echo "::warning::A record claims run ${approving_run} approved ${FINGERPRINT}, but that approval could not be verified. Asking again."
+              echo "::notice::This breaking change (${FINGERPRINT}) was approved on run ${approving_run} by ${approvers} — not asking again"
+              break
             fi
+
+            echo "::notice::A record names run ${approving_run} for ${FINGERPRINT}, but its approval could not be verified — trying any others"
+          done <<< "$records"
+
+          if [ -n "$records" ] && [ "$already" != "true" ]; then
+            echo "::warning::No recorded approval of ${FINGERPRINT} could be verified against the Environment log. Asking again."
           fi
 
           echo "already-approved=$already" >> "$GITHUB_OUTPUT"
@@ -706,7 +725,11 @@ jobs:
           github-token: ${{ secrets.MANAGE_TOKEN || github.token }}
           pr-number: ${{ needs.detect.outputs.pr-number }}
           state: ${{ steps.verdict.outputs.state }}
-          fingerprint: ${{ needs.detect.outputs.fingerprint }}
+          # Only a run whose Environment approval actually happened may write a
+          # record naming itself. A reused approval reports `approved` with the
+          # gate job skipped, and a record pointing at that run would assert
+          # something no log can confirm — then outlive the real one.
+          fingerprint: ${{ needs.approval.result == 'success' && needs.detect.outputs.fingerprint || '' }}
           run-id: ${{ github.run_id }}
           reason: ${{ needs.detect.outputs.reason }}
           head-sha: ${{ needs.detect.outputs.head-sha }}

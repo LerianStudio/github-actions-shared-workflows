@@ -1087,6 +1087,39 @@ class ApprovalGateStructureTests(unittest.TestCase):
         self.assertIn('select(.state == "approved")', step)
         self.assertIn('index("breaking-approval")', step)
 
+    def test_the_default_reporter_identity_is_accepted(self):
+        step = extract_step(
+            extract_job(APPROVAL_WORKFLOW, "request"),
+            "Check for a prior approval of the same change",
+        )
+        # Without MANAGE_TOKEN the reporter writes as `github-actions[bot]`,
+        # for which GitHub can report `author_association: NONE`. Filtering on
+        # association alone would drop those comments and quietly disable the
+        # whole feature for every caller on the default token.
+        self.assertIn('.user.login == "github-actions[bot]"', step)
+
+    def test_every_record_is_tried_not_just_the_first(self):
+        step = extract_step(
+            extract_job(APPROVAL_WORKFLOW, "request"),
+            "Check for a prior approval of the same change",
+        )
+        # Runs are deleted on the repository's retention schedule, so the oldest
+        # record for a fingerprint goes unverifiable first while a newer one is
+        # still good. Stopping at the first would ask for an approval on file.
+        self.assertIn("while IFS= read -r record", step)
+        self.assertNotIn("head -n1 <<< \"$records\"", step)
+
+    def test_only_a_real_approval_writes_a_record(self):
+        job = extract_job(APPROVAL_WORKFLOW, "outcome")
+        step = extract_step(job, "Report the outcome on the pull request")
+        # A reused approval reports `approved` with the gate job skipped. A
+        # record naming that run would assert something no log can confirm, and
+        # would outlive the real one.
+        self.assertIn(
+            "needs.approval.result == 'success' && needs.detect.outputs.fingerprint",
+            step,
+        )
+
     def test_the_prior_lookup_consumes_the_whole_comment_stream(self):
         step = extract_step(
             extract_job(APPROVAL_WORKFLOW, "request"),

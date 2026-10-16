@@ -294,9 +294,20 @@ record on its own is therefore something a stranger can write.
 So two things must hold before an approval is reused:
 
 1. the record sits in a comment from an **owner or member** of the
-   organisation, which is where the reporter writes
+   organisation, or from `github-actions[bot]` — the identity the reporter
+   writes under when no `MANAGE_TOKEN` is passed, and one nobody but Actions
+   can author as
 2. the **run it names really was approved** for the `breaking-approval`
    Environment, read from the Environment's own approval log
+
+Every record for the fingerprint is tried, not only the first: runs are deleted
+on the repository's retention schedule, so the oldest record goes unverifiable
+while a newer one is still good.
+
+Only a run whose Environment approval actually happened writes a record. A
+reused approval reports `approved` with the gate job skipped, and a record
+naming *that* run would assert something no log can confirm — then outlive the
+real one.
 
 The second is what carries the weight. Writing the text is easy; producing a run
 whose Environment approval actually happened is not.
