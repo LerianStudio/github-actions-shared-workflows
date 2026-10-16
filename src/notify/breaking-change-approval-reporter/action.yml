@@ -181,6 +181,23 @@ runs:
           )
         fi
 
+        # `carol` -> `[@carol](https://github.com/carol)`. Linked, not a bare
+        # mention: the person being named is the one who just acted, so a
+        # notification tells them what they already know. Same reasoning as the
+        # reviewer list above.
+        link_people() {
+          local out="" person
+          while IFS= read -r person; do
+            person=$(printf '%s' "$person" | tr -d ' ')
+            [ -z "$person" ] && continue
+            out="${out:+$out, }[@${person}](${SERVER_URL}/${person})"
+          done < <(tr ',' '\n' <<< "$1")
+          printf '%s' "$out"
+        }
+
+        linked_approvers=$(link_people "$APPROVERS")
+        linked_rejecters=$(link_people "$REJECTERS")
+
         commit_link=""
         if [ -n "$HEAD_SHA" ]; then
           commit_link="[\`${HEAD_SHA:0:7}\`](${SERVER_URL}/${REPO}/commit/${HEAD_SHA})"
@@ -235,14 +252,14 @@ runs:
               printf '> [!NOTE]\n'
               printf '> ## ✅ Breaking change approved\n'
               printf '>\n'
-              printf '> Approved by **%s**. 💥 The next release will be a major version.\n\n' \
-                "${APPROVERS:-a reviewer}"
+              printf '> Approved by %s. 💥 The next release will be a major version.\n\n' \
+                "${linked_approvers:-a reviewer}"
               ;;
             rejected)
               printf '> [!CAUTION]\n'
               printf '> ## ⛔ Breaking change rejected\n'
               printf '>\n'
-              printf '> Rejected by **%s**' "${REJECTERS:-a reviewer}"
+              printf '> Rejected by %s' "${linked_rejecters:-a reviewer}"
               [ -n "$REJECTION_COMMENT" ] && printf ' — *%s*' "$REJECTION_COMMENT"
               printf '.\n'
               if [ "$CLOSE_ON_REJECTION" = "true" ]; then
