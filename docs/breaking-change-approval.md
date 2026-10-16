@@ -266,8 +266,16 @@ revision, and the next one has to earn its own. Nothing inherits it.
 **A cancelled run never touches the pull request.** The verdict job still runs
 when its approval is cancelled, and without a guard it would overwrite the live
 revision's comment with *"the approval did not complete"* — true of the dead run,
-misleading about the live one. It compares the commit it covers against the
-pull request's current head and, when they differ, leaves everything alone.
+misleading about the live one.
+
+Two signals, and the order matters. A **cancelled approval** is the broad one:
+nothing cancels it except the concurrency group replacing the run or a human
+doing it by hand, and neither is a decision to report. A **changed head** is the
+narrower one, for anything that slipped past the first.
+
+The cancelled check cannot be dropped in favour of the head comparison, because
+a run can be replaced without the head moving at all: editing the description
+fires `edited`, which queues a new run on the very same commit.
 
 ## Fails closed
 

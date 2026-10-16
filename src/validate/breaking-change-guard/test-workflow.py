@@ -968,6 +968,19 @@ class ApprovalGateStructureTests(unittest.TestCase):
         # overwrite the live revision's comment with "did not complete".
         self.assertIn("state=superseded", body)
         self.assertIn('"$live_sha" != "$HEAD_SHA"', body)
+        # A changed head is not the only way to be superseded: `edited` queues a
+        # new run on the very same commit, so a cancelled approval has to count
+        # on its own. Observed on #906 — editing the description replaced the
+        # run, and the comparison above saw nothing wrong while the comment was
+        # overwritten with "decision not recorded".
+        self.assertIn('if [ "$APPROVAL_RESULT" = "cancelled" ]; then', body)
+        cancelled_at = body.index('"$APPROVAL_RESULT" = "cancelled"')
+        head_compare_at = body.index('"$live_sha" != "$HEAD_SHA"')
+        self.assertLess(
+            cancelled_at,
+            head_compare_at,
+            "the cancelled check must come first — it is the broader signal",
+        )
         # And `superseded` must drive neither the comment nor the close.
         for step_name in (
             "Report the outcome on the pull request",
