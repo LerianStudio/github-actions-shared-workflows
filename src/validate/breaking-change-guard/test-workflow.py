@@ -50,6 +50,7 @@ APPROVAL_COMPOSITES = (
     "src/validate/environment-approvals",
     "src/notify/breaking-change-approval-reporter",
     "src/validate/codeowners-reviewers",
+    "src/validate/breaking-change-commits",
 )
 ENVIRONMENT_PROTECTION = (
     REPO_ROOT / "src" / "validate" / "environment-protection" / "action.yml"
@@ -312,6 +313,7 @@ def run_verdict(**overrides):
         "API_READABLE": "true",
         "DRY_RUN": "false",
         "LIVE_SHA": "abc123",
+        "ALREADY_APPROVED": "false",
     }
     env.update(overrides)
 
@@ -1052,6 +1054,41 @@ class ApprovalGateStructureTests(unittest.TestCase):
         _, outputs = run_verdict(APPROVAL_RESULT="cancelled", REJECTERS="dave")
         self.assertEqual("superseded", outputs["state"])
         self.assertNotEqual("rejected", outputs["state"])
+
+    def test_an_approval_already_given_is_not_asked_for_again(self):
+        # The reviewer said yes to a breaking change. A push that leaves that
+        # change alone must not put the same question back in their queue —
+        # asking repeatedly for unchanged content is how a gate stops being
+        # read. The approval job is skipped, so there is no Environment
+        # decision; the verdict comes from the record on the pull request.
+        _, outputs = run_verdict(ALREADY_APPROVED="true", APPROVAL_RESULT="skipped")
+        self.assertEqual("approved", outputs["state"])
+        self.assertEqual("success", outputs["result"])
+
+        job = extract_job(APPROVAL_WORKFLOW, "approval")
+        self.assertIn(
+            "needs.request.outputs.already-approved != 'true'",
+            job,
+            "the Environment gate must be skipped when the change was already approved",
+        )
+
+    def test_the_approval_record_survives_the_next_run(self):
+        reporter = (
+            REPO_ROOT / "src" / "notify" / "breaking-change-approval-reporter"
+            / "action.yml"
+        ).read_text(encoding="utf-8")
+        # Every run rewrites the comment body. Without carrying the records
+        # forward, the approval would be forgotten by the very next push, which
+        # is the one thing the record exists to prevent.
+        self.assertIn("previous_records", reporter)
+        self.assertIn("breaking-change-approved: [a-f0-9]+", reporter)
+        # Only an approval writes a new record.
+        self.assertIn('if [ "$STATE" = "approved" ] && [ -n "$FINGERPRINT" ]', reporter)
+
+    def test_the_fingerprint_comes_from_the_breaking_commits(self):
+        detect = extract_job(APPROVAL_WORKFLOW, "detect")
+        self.assertIn("src/validate/breaking-change-commits@", detect)
+        self.assertIn("fingerprint: ${{ steps.commits.outputs.fingerprint }}", detect)
 
     def test_the_verdict_states_are_reachable_as_documented(self):
         # The whole table in one place, run rather than read.

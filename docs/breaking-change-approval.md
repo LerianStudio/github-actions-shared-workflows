@@ -53,6 +53,7 @@ own:
 |---|---|
 | [`pr-gate-scope`](../src/validate/pr-gate-scope/README.md) | Is this pull request in scope, and why — base → head rules, label overrides, author vetoes |
 | [`breaking-change-guard`](../src/validate/breaking-change-guard/README.md) | Does the branch carry a breaking-change commit |
+| [`breaking-change-commits`](../src/validate/breaking-change-commits/README.md) | Which commits carry the break, and a digest of the set |
 | [`codeowners-reviewers`](../src/validate/codeowners-reviewers/README.md) | Who owns this repository, per its CODEOWNERS |
 | [`environment-protection`](../src/validate/environment-protection/README.md) | Does `breaking-approval` exist with required reviewers — creating it when it does not |
 | [`environment-approvals`](../src/validate/environment-approvals/README.md) | Who approved or rejected, and could we read that at all |
@@ -249,6 +250,44 @@ them match: REST returns `dependabot[bot]`, GraphQL returns `dependabot`, and
 `gh pr view --json author` — what this job reads — returns `app/dependabot`. Both
 affixes are stripped before comparing.
 
+## An approval survives a push that did not change the breaking change
+
+The gate asks about a specific breaking change, not about a pull request. So it
+remembers which one was approved, and only asks again when that changes.
+
+| The author… | Asked again? |
+|---|---|
+| fixes a typo the review pointed out | no |
+| adds an ordinary commit | no |
+| rewords the breaking commit | **yes** — it is different text now |
+| adds another breaking commit | **yes** |
+
+This matters more than convenience, because of how the review gate is wired:
+CodeRabbit only runs once every check has passed, which includes this one. So
+without the memory, every iteration of *approve → review → fix → push* would
+need a fresh human approval to get the next review — and the reviewer would be
+answering the identical question each time. A question asked five times gets a
+reflex answer by the third.
+
+**How it is remembered.** `breaking-change-commits` digests the SHAs of the
+breaking commits. When an approval lands, the comment records that digest:
+
+```html
+<!-- breaking-change-approved: 4f2a9c1e8b3d7a60 -->
+```
+
+Every later run rebuilds the digest and looks for its record. A match skips the
+Environment gate entirely; anything else asks again. Records accumulate, so
+returning to a previously approved set is still approved.
+
+Built from SHAs, so a reword counts as a change — the approval was given to the
+text that was read, and the subject is what the release parser acts on.
+
+**It is a comment, not a signed record.** Forging one means editing a bot's
+comment, which needs maintainer rights — and an admin can already bypass the
+Environment outright (`can_admins_bypass`). It does not widen the threat model,
+but it is state in text, and worth knowing as such.
+
 ## One open request, and approvals expire on a push
 
 Every push queues another pending deployment, and GitHub does not retire the
@@ -260,8 +299,9 @@ The approval job is therefore under a `concurrency` group keyed to the pull
 request, with `cancel-in-progress`. A push cancels the pending request and
 replaces it with one for the new head.
 
-That is also what expires an approval: the yes was given to a specific
-revision, and the next one has to earn its own. Nothing inherits it.
+That is what retires a *pending* request. An approval that already landed is a
+different matter — see above: it is remembered against the change it approved,
+and only a change to that change asks again.
 
 **A cancelled run never touches the pull request.** The verdict job still runs
 when its approval is cancelled, and without a guard it would overwrite the live
@@ -414,6 +454,7 @@ correct fix, since the commit message is what the release reads.
 
 ```bash
 bash    src/validate/pr-gate-scope/test.sh
+bash    src/validate/breaking-change-commits/test.sh
 bash    src/validate/codeowners-reviewers/test.sh
 bash    src/validate/breaking-change-guard/test.sh
 python3 src/validate/breaking-change-guard/test-workflow.py
