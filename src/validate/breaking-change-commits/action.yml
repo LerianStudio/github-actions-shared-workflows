@@ -1,0 +1,42 @@
+name: Breaking Change Commits
+description: "Lists the commits in a pull request that carry a breaking change, and fingerprints the set so an approval can be matched against what it approved."
+
+inputs:
+  github-token:
+    description: 'Token used to read the pull request commits. Needs `pull-requests: read`.'
+    required: true
+  pr-number:
+    description: Pull request whose commits are listed.
+    required: true
+  repository:
+    description: 'Repository owning the pull request, as `owner/name`.'
+    required: false
+    default: ${{ github.repository }}
+
+outputs:
+  count:
+    description: "How many commits carry a breaking change."
+    value: ${{ steps.resolve.outputs.count }}
+  shas:
+    description: "Comma-separated SHAs of those commits, in commit order."
+    value: ${{ steps.resolve.outputs.shas }}
+  subjects:
+    description: "Their subjects, one per line, for showing the author their own commits."
+    value: ${{ steps.resolve.outputs.subjects }}
+  fingerprint:
+    description: "Short digest of the SHA set. Equal fingerprints mean the same breaking change; empty when there is none. Use it to tell an approval that still applies from one that does not."
+    value: ${{ steps.resolve.outputs.fingerprint }}
+
+runs:
+  using: composite
+  steps:
+    - name: List the breaking-change commits
+      id: resolve
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+        REPO: ${{ inputs.repository }}
+        PR_NUMBER: ${{ inputs.pr-number }}
+      run: |
+        set -euo pipefail
+        bash "${GITHUB_ACTION_PATH}/resolve.sh" >> "${GITHUB_OUTPUT}"
