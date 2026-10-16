@@ -490,12 +490,21 @@ jobs:
     runs-on: ${{ vars.GENERAL_RUNNERS || inputs.runner_type }}
     needs: [breaking-change-guard]
     if: always() && github.event_name == 'pull_request' && github.event.pull_request.draft != true && !inputs.dry_run
+    # `pull-requests: write`, not `issues: write`. The step posts through the
+    # issue-comments endpoint, but the subject is a pull request — and GitHub
+    # authorises those as pull requests. `issues: write` covers real issues
+    # only, so this job spent from 2026-08-06 taking a 403 on every run and
+    # reporting success, because the step is continue-on-error.
+    #
+    # The job-level block narrows the workflow's own `pull-requests: write`, so
+    # declaring `read` here was not least privilege — it was below what the step
+    # needs to work at all.
     permissions:
-      pull-requests: read
-      issues: write
+      pull-requests: write
 
     steps:
       - name: Manage breaking change guard comment
+        id: comment
         continue-on-error: true
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
@@ -573,6 +582,15 @@ jobs:
               : 'The PR author can acknowledge intentional awareness by adding this exact visible line to the pull request description:';
             const body = `${marker}\n## Breaking change guard\n\n**Status:** ${state}\n\n${detail}\n\n\`${acknowledgement}\``;
             await upsertOwned(body);
+
+      # Cosmetic enough to keep continue-on-error — losing the comment should
+      # not fail validation — but not so cosmetic that it should fail in
+      # silence. Swallowing it is what let a 403 run for two months while every
+      # job reported green.
+      - name: Surface a failed comment
+        if: always() && steps.comment.outcome == 'failure'
+        run: |
+          echo "::warning::Could not post the breaking change guard comment. The validation verdict is unaffected, but the author gets no explanation of what to add. Check the step log above — a 403 here usually means the job lacks 'pull-requests: write'."
 
   # ----------------- PR Validation Summary Comment -----------------
   pr-validation-report:

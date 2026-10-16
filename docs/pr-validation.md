@@ -286,7 +286,7 @@ Full detail: [`breaking-change-approval.md`](breaking-change-approval.md).
 | `blocking-checks` | 1 (fail-fast) | guard enforcement, `pr-source-branch`, `pr-title`, `pr-description`, `pr-commit-signatures` | always; drafts run guard enforcement only |
 | `advisory-checks` | 2 (informational) | `pr-metadata`, `pr-size`, `pr-labels` | non-draft, regardless of the blocking result |
 | `pr-checks-summary` | — | `pr-checks-summary` | always (writes to step summary) |
-| `breaking-change-comment` | — | `actions/github-script` | every non-draft live run, including detector failure or cancellation |
+| `breaking-change-comment` | — | `actions/github-script` | every non-draft live run, including detector failure or cancellation. Needs `pull-requests: write` — commenting on a PR is authorised as a pull request, not as an issue |
 | `pr-validation-report` | — | `pr-validation-reporter` | non-draft (upserts single PR comment) |
 | `notify` | — | `slack-notify.yml` | non-draft, `!dry_run` |
 
