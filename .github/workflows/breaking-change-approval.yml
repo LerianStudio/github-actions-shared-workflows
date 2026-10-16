@@ -314,9 +314,18 @@ jobs:
           detection_succeeded=false
 
           if [ "$IN_SCOPE" != "true" ]; then
-            # Nothing was scanned, and nothing needs to be: an out-of-scope pull
-            # request is a successful no-op, not a failed detection.
+            # Out of scope means no approval is required — it does not mean
+            # nothing was found. When the caller already detected, keep that
+            # answer: the acknowledgement is still enforced everywhere, and the
+            # author needs to be told which line to add. Scanning here is what
+            # would be pointless, not knowing.
             detection_succeeded=true
+            case "$SUPPLIED_HAS_BREAKING_CHANGES" in
+              true | false )
+                has_breaking_changes="$SUPPLIED_HAS_BREAKING_CHANGES"
+                [ "$SUPPLIED_ACKNOWLEDGED" = "true" ] && acknowledged=true
+                ;;
+            esac
           elif [ -n "$SUPPLIED_HAS_BREAKING_CHANGES" ]; then
             # The caller already ran the same composite over the same commits.
             # Anything but a clean boolean is a wiring mistake, and a wiring
@@ -510,6 +519,27 @@ jobs:
           create-if-missing: ${{ inputs.create_approval_environment && 'true' || 'false' }}
           reviewers: ${{ inputs.approval_reviewers != '' && inputs.approval_reviewers || steps.codeowners.outputs.reviewers }}
 
+      # Out of scope, so no approval is coming — but the acknowledgement is
+      # enforced on every pull request, and an author who omits it otherwise
+      # sees Blocking Checks fail with nothing explaining what to add.
+      - name: Report the acknowledgement requirement
+        if: >-
+          needs.detect.result == 'success'
+          && needs.detect.outputs.in-scope != 'true'
+          && needs.detect.outputs.has-breaking-changes == 'true'
+          && !inputs.dry_run
+        continue-on-error: true
+        uses: LerianStudio/github-actions-shared-workflows/src/notify/breaking-change-approval-reporter@develop
+        with:
+          github-token: ${{ secrets.MANAGE_TOKEN || github.token }}
+          pr-number: ${{ needs.detect.outputs.pr-number }}
+          state: acknowledgement
+          head-sha: ${{ needs.detect.outputs.head-sha }}
+          acknowledged: ${{ needs.detect.outputs.acknowledged }}
+          author-acknowledgement: ${{ inputs.author_acknowledgement }}
+          label: ''
+          enabled: ${{ inputs.enable_comment && 'true' || 'false' }}
+
       - name: Request the approval on the pull request
         if: >-
           needs.detect.result == 'success'
@@ -521,6 +551,7 @@ jobs:
           github-token: ${{ secrets.MANAGE_TOKEN || github.token }}
           pr-number: ${{ needs.detect.outputs.pr-number }}
           state: waiting
+          author-acknowledgement: ${{ inputs.author_acknowledgement }}
           fingerprint: ${{ needs.detect.outputs.fingerprint }}
           reviewers: ${{ inputs.approval_reviewers != '' && inputs.approval_reviewers || steps.codeowners.outputs.reviewers }}
           actual-reviewers: ${{ steps.environment.outputs.reviewers }}

@@ -238,6 +238,18 @@ where that information is worth having.
 
 They still skip on drafts, and on anything that is not a `pull_request` event.
 
+## One comment, not two
+
+The acknowledgement guard used to post its own comment. It no longer does: the
+breaking-change gate's comment carries both controls, because two bot comments
+about the same breaking change read as a contradiction — one headed by a ✅ for
+the author's acknowledgement, one asking for a decision. The ✅ gets taken for
+the approval.
+
+The gate now comments wherever a breaking change is found, including on branches
+outside its approval scope. There it reports only the acknowledgement and the
+exact line to paste, since that is the only thing being enforced.
+
 ## Breaking change approval
 
 The author-acknowledgement guard above asks the author to declare the break. The
@@ -286,7 +298,6 @@ Full detail: [`breaking-change-approval.md`](breaking-change-approval.md).
 | `blocking-checks` | 1 (fail-fast) | guard enforcement, `pr-source-branch`, `pr-title`, `pr-description`, `pr-commit-signatures` | always; drafts run guard enforcement only |
 | `advisory-checks` | 2 (informational) | `pr-metadata`, `pr-size`, `pr-labels` | non-draft, regardless of the blocking result |
 | `pr-checks-summary` | — | `pr-checks-summary` | always (writes to step summary) |
-| `breaking-change-comment` | — | `actions/github-script` | every non-draft live run, including detector failure or cancellation. Needs `pull-requests: write` — commenting on a PR is authorised as a pull request, not as an issue |
 | `pr-validation-report` | — | `pr-validation-reporter` | non-draft (upserts single PR comment) |
 | `notify` | — | `slack-notify.yml` | non-draft, `!dry_run` |
 

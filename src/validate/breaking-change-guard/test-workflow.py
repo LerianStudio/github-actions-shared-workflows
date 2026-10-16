@@ -240,6 +240,9 @@ def render_reporter(state, **overrides):
         "REASON": "rule develop <- '*'",
         "HEAD_SHA": "abc1234567",
         "ACKNOWLEDGED": "false",
+        "ACK_LINE": "Breaking change acknowledged: I understand that this PR "
+        "intentionally introduces a breaking change and requires the next "
+        "release to be a major version.",
         "RUN_URL": "https://github.com/LerianStudio/example/actions/runs/1",
         "REVIEWERS": "team:devops",
         "SERVER_URL": "https://github.com",
@@ -644,22 +647,30 @@ class WorkflowStructureTests(unittest.TestCase):
         self.assertIn("does not grant maintainer permission", outputs)
 
     def test_detector_and_comment_acknowledgement_literals_are_identical(self):
+        # One literal tells the author what to paste, the other decides whether
+        # what they pasted counts. A drift between them leaves the gate teaching
+        # a line that fails the check it is explaining.
         detector_step = extract_step(
             extract_job(WORKFLOW, "breaking-change-guard"), "Detect breaking changes"
         )
-        comment_job = extract_job(WORKFLOW, "breaking-change-comment")
         detector_literal = re.search(
             r"(?m)^\s*breaking-change-acknowledgement: '(?P<value>[^']*)'$",
             detector_step,
         )
-        comment_literal = re.search(
-            r"(?m)^\s*ACKNOWLEDGEMENT: '(?P<value>[^']*)'$", comment_job
-        )
         self.assertIsNotNone(detector_literal)
-        self.assertIsNotNone(comment_literal)
         self.assertEqual(ACKNOWLEDGEMENT, detector_literal.group("value"))
+
+        # The gate is handed the same literal explicitly — relying on its
+        # default to coincide is what made these drift-prone in the first place.
+        gate_job = extract_job(WORKFLOW, "breaking-change-approval")
+        gate_literal = re.search(
+            r"(?m)^\s*author_acknowledgement: '(?P<value>[^']*)'$", gate_job
+        )
+        self.assertIsNotNone(
+            gate_literal, "pr-validation must pass the acknowledgement explicitly"
+        )
         self.assertEqual(
-            detector_literal.group("value"), comment_literal.group("value")
+            detector_literal.group("value"), gate_literal.group("value")
         )
 
     def test_guard_checkout_has_full_history_without_persisted_credentials(self):
@@ -685,58 +696,6 @@ class WorkflowStructureTests(unittest.TestCase):
         self.assertRegex(blocking_job, r"(?m)^    if: always\(\)$")
         self.assertRegex(enforcement, r"(?m)^        if: always\(\)$")
         self.assertIn("github.event.pull_request.draft != true", collection)
-
-    def test_comment_job_is_write_minimal_and_does_not_checkout(self):
-        job = extract_job(WORKFLOW, "breaking-change-comment")
-        permissions = yaml.safe_load(WORKFLOW)["jobs"]["breaking-change-comment"][
-            "permissions"
-        ]
-        # `pull-requests: write` is the minimum that works, not a widening.
-        # This set used to be {pull-requests: read, issues: write}, which looks
-        # narrower and is simply wrong: commenting on a pull request is
-        # authorised as a pull request, so the step took a 403 on every run
-        # from 2026-08-06 and reported success anyway.
-        #
-        # The lesson is in the shape of the old assertion, not just its value —
-        # it pinned a permission set nobody had watched work, and so kept the
-        # bug in place rather than catching it.
-        self.assertEqual({"pull-requests": "write"}, permissions)
-        self.assertNotIn("contents", permissions)
-        self.assertNotIn("actions/checkout", job)
-        self.assertIn("github-token: ${{ github.token }}", job)
-
-    def test_comment_job_owns_only_exact_bot_marker_comments(self):
-        job = extract_job(WORKFLOW, "breaking-change-comment")
-        self.assertIn("comment.user?.login === 'github-actions[bot]'", job)
-        self.assertIn("comment.body === marker", job)
-        self.assertIn("comment.body?.startsWith(`${marker}\\n`)", job)
-        self.assertNotIn("comment.body?.includes(marker)", job)
-        self.assertEqual(2, job.count("const body = `${marker}\\n"))
-
-    def test_comment_job_uses_author_acknowledgement_not_authorization(self):
-        job = extract_job(WORKFLOW, "breaking-change-comment")
-        self.assertIn("'✅ Author acknowledged'", job)
-        self.assertIn("'🚫 Awaiting author acknowledgement'", job)
-        self.assertIn("does not grant maintainer permission", job)
-        self.assertNotIn("'✅ Approved'", job)
-        self.assertNotIn("'🚫 Awaiting approval'", job)
-
-    def test_comment_job_rejects_stale_head_updates(self):
-        job = extract_job(WORKFLOW, "breaking-change-comment")
-        self.assertIn("EVENT_HEAD_SHA: ${{ github.event.pull_request.head.sha }}", job)
-        self.assertIn("github.rest.pulls.get", job)
-        self.assertIn("current.data.head.sha !== eventHeadSha", job)
-
-    def test_comment_job_reconciles_detector_failure(self):
-        job = extract_job(WORKFLOW, "breaking-change-comment")
-        self.assertIn("if (!guardJobSucceeded || !detectionSucceeded)", job)
-        self.assertIn("**Status:** ⚠️ Detection failed", job)
-        self.assertIn("Blocking Checks failed closed.", job)
-        failure_branch = job.index("if (!guardJobSucceeded || !detectionSucceeded)")
-        no_breaking_branch = job.index("if (!hasBreakingChanges)")
-        self.assertIn(
-            "await upsertOwned(body);", job[failure_branch:no_breaking_branch]
-        )
 
     def test_reporter_and_summary_receive_guard_and_blocking_runtime_results(self):
         for job_id, step_name in (
@@ -876,15 +835,6 @@ class CommentPermissionTests(unittest.TestCase):
                     effective.get("pull-requests"),
                     f"{job_id} comments on a pull request and would take a 403",
                 )
-
-    def test_a_failed_comment_is_visible_rather_than_swallowed(self):
-        job = extract_job(WORKFLOW, "breaking-change-comment")
-        # continue-on-error is right for a cosmetic comment, but silence is how
-        # a 403 ran for two months with every job green.
-        self.assertIn("continue-on-error: true", job)
-        self.assertIn("::warning::", job)
-        self.assertIn("steps.comment.outcome == 'failure'", job)
-
 
 class AdvisoryChecksTests(unittest.TestCase):
     def test_advisory_checks_do_not_cascade_off_a_blocking_failure(self):
