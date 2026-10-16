@@ -52,17 +52,34 @@ count=0
 # `!` after the type, or a `BREAKING CHANGE` footer. Same two forms the
 # detector accepts, and deliberately no others: `BREAKING-CHANGE` and `-`
 # bullets are not breaking to the release parser either.
-is_breaking() {
-  local message=$1 subject line
+# Transcribed from the detector's awk, which lowercases the line first and then
+# applies:
+#
+#   subject  ^[a-z0-9_]*(\(.*\))?!: .*$
+#   footer   ^[[:space:]|*]*breaking changes?(:|[[:space:]])+
+#
+# Held in variables because a bare `|` inside `[[ =~ ]]` is parsed as an
+# operator, and because the two must be read side by side with the detector to
+# stay honest. `\(.*\)` for the scope, not `\([^)]*\)`: a scope containing a
+# closing paren matches there, so it has to match here.
+BANG_SUBJECT_RE='^[a-z0-9_]*(\(.*\))?!: '
+# `[[:space:]|*]` — inside a bracket expression a backslash is a literal
+# backslash, so escaping `|` and `*` there would quietly widen the class to
+# accept a leading `\`.
+FOOTER_RE='^[[:space:]|*]*breaking changes?(:|[[:space:]])'
 
-  subject=$(head -n1 <<< "${message}")
-  if [[ "${subject}" =~ ^[A-Za-z0-9_]*(\([^\)]*\))?!:\  ]]; then
+is_breaking() {
+  local message=$1 subject line lowered
+
+  subject=$(printf '%s' "${message}" | head -n1 | tr '[:upper:]' '[:lower:]')
+  if [[ "${subject}" =~ ${BANG_SUBJECT_RE} ]]; then
     return 0
   fi
 
   while IFS= read -r line; do
     line=${line%$'\r'}
-    if [[ "${line}" =~ ^[[:space:]\|\*]*[Bb][Rr][Ee][Aa][Kk][Ii][Nn][Gg][[:space:]][Cc][Hh][Aa][Nn][Gg][Ee][Ss]?([:[:space:]]) ]]; then
+    lowered=$(printf '%s' "${line}" | tr '[:upper:]' '[:lower:]')
+    if [[ "${lowered}" =~ ${FOOTER_RE} ]]; then
       return 0
     fi
   done <<< "${message}"
@@ -99,8 +116,19 @@ fi
 printf 'count=%s\n' "${count}"
 printf 'shas=%s\n' "${shas}"
 printf 'fingerprint=%s\n' "${fingerprint}"
+# The subjects are commit-controlled text going into GITHUB_OUTPUT. With a
+# fixed delimiter, a commit whose subject IS that delimiter closes the block
+# early and every line after it becomes a new output assignment — including
+# `fingerprint=`, which is what decides whether this breaking change was
+# already approved. That is a gate bypass written by whoever opens the pull
+# request, so the delimiter is random per run and verified not to appear.
+delimiter="BREAKING_SUBJECTS_$(head -c 16 /dev/urandom | od -An -tx1 | tr -d ' \n')"
+while grep -Fqx -- "${delimiter}" <<< "${subjects}"; do
+  delimiter="BREAKING_SUBJECTS_$(head -c 16 /dev/urandom | od -An -tx1 | tr -d ' \n')"
+done
+
 {
-  printf 'subjects<<BREAKING_SUBJECTS_EOF\n'
+  printf 'subjects<<%s\n' "${delimiter}"
   printf '%s' "${subjects}"
-  printf 'BREAKING_SUBJECTS_EOF\n'
+  printf '%s\n' "${delimiter}"
 }

@@ -48,6 +48,18 @@ and no others:
 mentions the phrase mid-sentence — because the release parser treats neither as
 breaking.
 
+## Commit subjects are untrusted text
+
+The subjects go into `GITHUB_OUTPUT` as a multiline value, and whoever opens the
+pull request writes them. With a fixed delimiter, a commit whose subject *is*
+that delimiter closes the block early, and every line after it is read as a new
+output assignment — `fingerprint=` included, which is what decides whether a
+breaking change counts as already approved.
+
+So the delimiter is random per run and checked against the subjects before
+anything is written. The test suite includes the attack: two commits, one
+closing the block and one assigning a forged fingerprint.
+
 **This is a view, not a verdict.** The detector runs over the real commit range
 and decides; this reads the API because the jobs that need it have no checkout.
 They must agree, which is why the patterns are kept identical — and the tests
@@ -72,6 +84,10 @@ here cover the same negative cases.
 
 ## Usage
 
+Testing, while this is unreleased — `@develop` is the only ref that resolves
+today. After it ships, pin a tier channel (`@tier-0` / `@tier-1` / `@tier-2`)
+and never `@develop`, which moves under the caller.
+
 ```yaml
 - name: List the breaking-change commits
   id: breaking
@@ -91,6 +107,7 @@ here cover the same negative cases.
 bash src/validate/breaking-change-commits/test.sh
 ```
 
-13 cases against a stubbed `gh`: both breaking forms, the two lookalikes that
-must not count, ordering, and the fingerprint staying put when an ordinary
-commit is added while changing when a breaking one is.
+20 cases against a stubbed `gh`: both breaking forms, the two lookalikes that
+must not count, ordering, the fingerprint staying put when an ordinary commit is
+added while changing when a breaking one is, parity with the detector on case
+and on scopes containing parens, and the output-injection attack.
