@@ -406,10 +406,10 @@ jobs:
           # The second is the one that matters: forging the text is easy,
           # producing a run whose Environment approval actually happened is not.
           #
-          # `grep -F ... >/dev/null`, not `grep -qF`: with `pipefail`, `-q` can
-          # exit on the first match while `--paginate` is still writing, and the
-          # broken pipe would read as "no match" — asking for an approval that
-          # was already given.
+          # No `grep -q` anywhere below: with `pipefail`, it can exit on the
+          # first match while `--paginate` is still writing, and the broken pipe
+          # would read as "no match" — asking for an approval already given.
+          #
           # `github-actions[bot]` is accepted by login because GitHub can report
           # `author_association: NONE` for it — and that is the identity the
           # reporter writes under whenever no MANAGE_TOKEN is passed, which is

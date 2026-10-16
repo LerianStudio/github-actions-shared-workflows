@@ -1081,7 +1081,7 @@ class ApprovalGateStructureTests(unittest.TestCase):
         # from public data — so the record alone is writable by a stranger.
         # Two independent conditions must hold before an approval is reused.
         self.assertIn('select(.author_association == "OWNER"', step)
-        self.assertIn('or .author_association == "MEMBER")', step)
+        self.assertIn('or .author_association == "MEMBER"', step)
         # And the run it names has to carry a real Environment approval.
         self.assertIn("actions/runs/${approving_run}/approvals", step)
         self.assertIn('select(.state == "approved")', step)
