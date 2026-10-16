@@ -270,10 +270,11 @@ answering the identical question each time. A question asked five times gets a
 reflex answer by the third.
 
 **How it is remembered.** `breaking-change-commits` digests the SHAs of the
-breaking commits. When an approval lands, the comment records that digest:
+breaking commits. When an approval lands, the comment records that digest
+together with the run that carried the approval:
 
 ```html
-<!-- breaking-change-approved: 4f2a9c1e8b3d7a60 -->
+<!-- breaking-change-approved: 4f2a9c1e8b3d7a60 run=38905110563 -->
 ```
 
 Every later run rebuilds the digest and looks for its record. A match skips the
@@ -283,10 +284,31 @@ returning to a previously approved set is still approved.
 Built from SHAs, so a reword counts as a change — the approval was given to the
 text that was read, and the subject is what the release parser acts on.
 
-**It is a comment, not a signed record.** Forging one means editing a bot's
-comment, which needs maintainer rights — and an admin can already bypass the
-Environment outright (`can_admins_bypass`). It does not widen the threat model,
-but it is state in text, and worth knowing as such.
+### The record is checked, not believed
+
+A comment is not evidence. Anyone who can read the repository can comment on a
+pull request, and the fingerprint is computable from public data: the commit
+SHAs are on the pull request and the digest is defined in this repository. A
+record on its own is therefore something a stranger can write.
+
+So two things must hold before an approval is reused:
+
+1. the record sits in a comment from an **owner or member** of the
+   organisation, which is where the reporter writes
+2. the **run it names really was approved** for the `breaking-approval`
+   Environment, read from the Environment's own approval log
+
+The second is what carries the weight. Writing the text is easy; producing a run
+whose Environment approval actually happened is not.
+
+Verifying needs `actions: read`. Where that is unavailable the check cannot be
+made, so the approval is **not** reused and the reviewer is asked again — asking
+twice costs attention, trusting an unverified record costs the gate.
+
+**The records are never rewritten blind.** If the comment cannot be read back,
+the reporter fails rather than replacing it, because a rewrite without the
+records would erase approvals already given and send reviewers questions they
+had already answered.
 
 ## One open request, and approvals expire on a push
 

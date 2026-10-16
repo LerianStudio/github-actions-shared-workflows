@@ -48,9 +48,13 @@ inputs:
     required: false
     default: 'https://img.shields.io/badge/%E2%9E%A1%EF%B8%8F%20Review%20pending%20deployment-1f6feb?style=for-the-badge'
   fingerprint:
-    description: 'Digest of the breaking-change commit set, from `breaking-change-commits`. Recorded in the comment when the state is `approved`, so a later run can tell that the same change was already approved and not ask again. Previous records are preserved.'
+    description: 'Digest of the breaking-change commit set, from `breaking-change-commits`. Recorded in the comment when the state is `approved`, alongside the run that carried the approval, so a later run can verify it against the Environment log rather than trusting the text. Previous records are preserved.'
     required: false
     default: ''
+  run-id:
+    description: Run recorded with the approval, so the next run can verify that this run's Environment approval actually happened.
+    required: false
+    default: ${{ github.run_id }}
   docs-url:
     description: Link to the explanation of how the gate works.
     required: false
@@ -104,6 +108,7 @@ runs:
         SERVER_URL: ${{ inputs.server-url }}
         BADGE_URL: ${{ inputs.badge-url }}
         FINGERPRINT: ${{ inputs.fingerprint }}
+        RUN_ID: ${{ inputs.run-id }}
         DOCS_URL: ${{ inputs.docs-url }}
         APPROVERS: ${{ inputs.approvers }}
         REJECTERS: ${{ inputs.rejecters }}
@@ -272,13 +277,28 @@ runs:
           # exists to prevent.
           previous_records=""
           if [ -n "$existing" ]; then
-            previous_records=$(gh api "repos/${REPO}/issues/comments/${existing}" \
-              --jq '.body' 2>/dev/null | grep -oE '<!-- breaking-change-approved: [a-f0-9]+ -->' || true)
+            # A failed read must not look like "there were none". `|| true`
+            # here would hand back an empty set, the PATCH below would rewrite
+            # the comment without the records, and every approval on this pull
+            # request would be silently erased by a transient API error — the
+            # reviewers asked again for changes they had already cleared.
+            if ! current_body=$(gh api "repos/${REPO}/issues/comments/${existing}" --jq '.body'); then
+              echo "Could not read the existing comment (${existing}) to carry its approval records forward." >&2
+              echo "Refusing to rewrite it: that would drop approvals already given." >&2
+              exit 1
+            fi
+
+            # A successful read with no markers is a legitimately empty set.
+            previous_records=$(grep -oE '<!-- breaking-change-approved: [a-f0-9]+ run=[0-9]+ -->' \
+              <<< "$current_body" || true)
           fi
 
           if [ "$STATE" = "approved" ] && [ -n "$FINGERPRINT" ]; then
-            previous_records=$(printf '%s\n<!-- breaking-change-approved: %s -->' \
-              "$previous_records" "$FINGERPRINT")
+            # The run is recorded alongside the fingerprint so the next run can
+            # verify the approval against the Environment's log rather than
+            # taking this text at its word.
+            previous_records=$(printf '%s\n<!-- breaking-change-approved: %s run=%s -->' \
+              "$previous_records" "$FINGERPRINT" "${RUN_ID}")
           fi
 
           if [ -n "$(printf '%s' "$previous_records" | tr -d '[:space:]')" ]; then

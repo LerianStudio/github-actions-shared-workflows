@@ -1072,6 +1072,67 @@ class ApprovalGateStructureTests(unittest.TestCase):
             "the Environment gate must be skipped when the change was already approved",
         )
 
+    def test_a_forged_approval_record_is_not_believed(self):
+        step = extract_step(
+            extract_job(APPROVAL_WORKFLOW, "request"),
+            "Check for a prior approval of the same change",
+        )
+        # Anyone with read access can comment, and the fingerprint is computable
+        # from public data — so the record alone is writable by a stranger.
+        # Two independent conditions must hold before an approval is reused.
+        self.assertIn('select(.author_association == "OWNER"', step)
+        self.assertIn('or .author_association == "MEMBER")', step)
+        # And the run it names has to carry a real Environment approval.
+        self.assertIn("actions/runs/${approving_run}/approvals", step)
+        self.assertIn('select(.state == "approved")', step)
+        self.assertIn('index("breaking-approval")', step)
+
+    def test_the_prior_lookup_consumes_the_whole_comment_stream(self):
+        step = extract_step(
+            extract_job(APPROVAL_WORKFLOW, "request"),
+            "Check for a prior approval of the same change",
+        )
+        # `grep -q` can exit on the first match while `--paginate` is still
+        # writing; under pipefail the broken pipe reads as "no match", and the
+        # reviewer is asked for an approval they already gave.
+        #
+        # Comment lines are stripped first: the step explains this very hazard
+        # in prose, and matching that prose would make the assertion pass or
+        # fail on the explanation rather than on the code.
+        code = "\n".join(
+            line for line in step.splitlines() if not line.strip().startswith("#")
+        )
+        self.assertNotIn("grep -q", code)
+        self.assertIn("grep -oE", code)
+
+    def test_a_reused_approval_does_not_skip_the_other_guards(self):
+        body = extract_run_body(
+            extract_job(APPROVAL_WORKFLOW, "outcome"), "Resolve the verdict"
+        )
+        already_at = body.index('"$ALREADY_APPROVED" = "true"')
+        for guard in (
+            '"$APPROVAL_RESULT" = "cancelled"',   # superseded by a newer run
+            '"$live_sha" != "$HEAD_SHA"',          # head moved under us
+            '"$REQUEST_RESULT" != "success"',      # preflight never proved the gate
+        ):
+            with self.subTest(guard=guard):
+                self.assertLess(
+                    body.index(guard),
+                    already_at,
+                    "a standing approval is not a reason to skip the checks that "
+                    "say whether this run may speak at all",
+                )
+
+    def test_the_records_are_never_rewritten_blind(self):
+        reporter = (
+            REPO_ROOT / "src" / "notify" / "breaking-change-approval-reporter"
+            / "action.yml"
+        ).read_text(encoding="utf-8")
+        # A failed read must not look like "there were none": the rewrite would
+        # erase approvals already given.
+        self.assertIn("Refusing to rewrite it", reporter)
+        self.assertIn("if ! current_body=$(gh api", reporter)
+
     def test_the_approval_record_survives_the_next_run(self):
         reporter = (
             REPO_ROOT / "src" / "notify" / "breaking-change-approval-reporter"
@@ -1081,7 +1142,7 @@ class ApprovalGateStructureTests(unittest.TestCase):
         # forward, the approval would be forgotten by the very next push, which
         # is the one thing the record exists to prevent.
         self.assertIn("previous_records", reporter)
-        self.assertIn("breaking-change-approved: [a-f0-9]+", reporter)
+        self.assertIn("breaking-change-approved: [a-f0-9]+ run=[0-9]+", reporter)
         # Only an approval writes a new record.
         self.assertIn('if [ "$STATE" = "approved" ] && [ -n "$FINGERPRINT" ]', reporter)
 

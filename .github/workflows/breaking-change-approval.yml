@@ -391,12 +391,55 @@ jobs:
           set -euo pipefail
 
           already=false
-          marker="<!-- breaking-change-approved: ${FINGERPRINT} -->"
 
-          if gh api "repos/${REPO}/issues/${PR_NUMBER}/comments" --paginate \
-               --jq '.[].body' 2>/dev/null | grep -qF "$marker"; then
-            already=true
-            echo "::notice::This breaking change (${FINGERPRINT}) was already approved on PR #${PR_NUMBER} — not asking again"
+          # Two things have to be true, because the comment alone is not
+          # evidence. Anyone who can read the repository can comment on a pull
+          # request, and the fingerprint is computable from public data — the
+          # commit SHAs are on the pull request and the digest is in this
+          # repository. A marker on its own is therefore forgeable by a
+          # stranger, which would hand them the approval gate.
+          #
+          #   1. the record sits in a comment from someone inside the
+          #      organisation, which is where the reporter writes
+          #   2. the run it names really was approved for this Environment
+          #
+          # The second is the one that matters: forging the text is easy,
+          # producing a run whose Environment approval actually happened is not.
+          #
+          # `grep -F ... >/dev/null`, not `grep -qF`: with `pipefail`, `-q` can
+          # exit on the first match while `--paginate` is still writing, and the
+          # broken pipe would read as "no match" — asking for an approval that
+          # was already given.
+          records=$(
+            gh api "repos/${REPO}/issues/${PR_NUMBER}/comments" --paginate \
+              --jq '.[]
+                    | select(.author_association == "OWNER"
+                             or .author_association == "MEMBER")
+                    | .body' 2>/dev/null \
+            | grep -oE "<!-- breaking-change-approved: ${FINGERPRINT} run=[0-9]+ -->" \
+            || true
+          )
+
+          if [ -n "$records" ]; then
+            approving_run=$(head -n1 <<< "$records" | grep -oE 'run=[0-9]+' | cut -d= -f2)
+
+            # Verified against the Environment's own approval log. Needs
+            # `actions: read`; when that is missing the check cannot be made, so
+            # the approval is not reused and the reviewer is asked again. Asking
+            # twice is a cost, trusting an unverified record is a hole.
+            approvers=$(
+              gh api "repos/${REPO}/actions/runs/${approving_run}/approvals" \
+                --jq '.[] | select(.state == "approved")
+                      | select((.environments // []) | map(.name) | index("breaking-approval"))
+                      | .user.login' 2>/dev/null || true
+            )
+
+            if [ -n "$approvers" ]; then
+              already=true
+              echo "::notice::This breaking change (${FINGERPRINT}) was approved on run ${approving_run} — not asking again"
+            else
+              echo "::warning::A record claims run ${approving_run} approved ${FINGERPRINT}, but that approval could not be verified. Asking again."
+            fi
           fi
 
           echo "already-approved=$already" >> "$GITHUB_OUTPUT"
@@ -567,18 +610,6 @@ jobs:
           # approval did not complete", which is true of the dead run and
           # misleading about the live one.
           #
-          # An approval already given to this exact breaking change stands. The
-          # gate job was skipped on purpose, so there is no Environment decision
-          # to read — the decision is the one recorded on the pull request.
-          if [ "$ALREADY_APPROVED" = "true" ]; then
-            approved=true
-            result=success
-            state=approved
-            emit
-            echo "::notice::PR #${PR_NUMBER} carries a breaking change that was already approved — nothing changed about it"
-            exit 0
-          fi
-
           # A cancelled approval is the first and broader signal. Nothing cancels
           # it except the concurrency group replacing this run, or a human
           # cancelling by hand, and neither is a decision to report. It matters
@@ -610,6 +641,20 @@ jobs:
             state=blocked
             emit
             echo "::error::Breaking change gate could not run (detect=${DETECT_RESULT}, request=${REQUEST_RESULT}, detection_succeeded=${DETECTION_SUCCEEDED})"
+            exit 0
+          fi
+
+          # Only now, with the guards behind us. Placed any earlier this would
+          # report success for a run whose `request` job failed — the preflight
+          # that proves the Environment is real lives there — or for a run the
+          # head has moved out from under. An approval that still applies is not
+          # a reason to skip the checks that say whether this run may speak.
+          if [ "$ALREADY_APPROVED" = "true" ]; then
+            approved=true
+            result=success
+            state=approved
+            emit
+            echo "::notice::PR #${PR_NUMBER} carries a breaking change that was already approved — nothing changed about it"
             exit 0
           fi
 
@@ -662,6 +707,7 @@ jobs:
           pr-number: ${{ needs.detect.outputs.pr-number }}
           state: ${{ steps.verdict.outputs.state }}
           fingerprint: ${{ needs.detect.outputs.fingerprint }}
+          run-id: ${{ github.run_id }}
           reason: ${{ needs.detect.outputs.reason }}
           head-sha: ${{ needs.detect.outputs.head-sha }}
           acknowledged: ${{ needs.detect.outputs.acknowledged }}
