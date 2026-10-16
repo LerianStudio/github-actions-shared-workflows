@@ -215,8 +215,9 @@ breaking change — including the exact acknowledgement line to paste — lives 
 the single comment described under [One comment, not two](#one-comment-not-two),
 written by the breaking-change gate.
 
-Enforcement never depends on that comment: a comment API failure leaves the
-verdict untouched, and the author still sees `Blocking Checks` fail.
+Enforcement never depends on that comment. A comment API failure leaves the
+verdict exactly as it was — passing or failing on the acknowledgement alone,
+which is what `Blocking Checks` decides either way.
 
 ### Default PR Title Types
 
