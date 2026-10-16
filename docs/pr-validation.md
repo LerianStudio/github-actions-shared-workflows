@@ -225,6 +225,19 @@ For every non-draft live run, including detector failure or cancellation, the wo
 feat fix docs style refactor perf test chore ci build revert
 ```
 
+### Advisory checks always run
+
+PR Size, Auto Labels and PR Metadata are advisory — none of them can block a
+merge. They are therefore **not** gated on the blocking tier passing.
+
+They used to be. The 2-tier fail-fast model skipped them whenever a blocking
+check failed, which saved a runner at the cost of the pull request that most
+needed the help: a wrong title or a missing signature also meant no size label,
+no auto-labels and no assignee. A pull request already in trouble is exactly
+where that information is worth having.
+
+They still skip on drafts, and on anything that is not a `pull_request` event.
+
 ## Breaking change approval
 
 The author-acknowledgement guard above asks the author to declare the break. The
