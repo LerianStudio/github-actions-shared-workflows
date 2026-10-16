@@ -8,6 +8,8 @@ import textwrap
 import unittest
 from pathlib import Path
 
+import yaml
+
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 WORKFLOW_PATH = REPO_ROOT / ".github" / "workflows" / "pr-validation.yml"
@@ -211,6 +213,71 @@ def execute_body(body, env):
         )
         output = output_path.read_text(encoding="utf-8") if output_path.exists() else ""
         return result, parse_github_output(output)
+
+
+def render_reporter(state, **overrides):
+    """Render the reporter's comment for one state and return the Markdown.
+
+    Asserting against the composite's source only proves a string exists
+    somewhere in it — swapping two states' alerts would keep every string
+    present and every assertion green. Running the thing and reading what it
+    produced is the only check that ties a state to its own output.
+    """
+    action = yaml.safe_load(
+        (
+            REPO_ROOT / "src" / "notify" / "breaking-change-approval-reporter"
+            / "action.yml"
+        ).read_text(encoding="utf-8")
+    )
+    # Everything up to the posting is the part that builds the Markdown.
+    body = action["runs"]["steps"][0]["run"].split('comment_id=""')[0]
+
+    env = {
+        "REPO": "LerianStudio/example",
+        "PR_NUMBER": "42",
+        "STATE": state,
+        "REASON": "rule develop <- '*'",
+        "HEAD_SHA": "abc1234567",
+        "ACKNOWLEDGED": "false",
+        "RUN_URL": "https://github.com/LerianStudio/example/actions/runs/1",
+        "REVIEWERS": "team:devops",
+        "SERVER_URL": "https://github.com",
+        "BADGE_URL": "https://img.shields.io/badge/x-1f6feb",
+        "DOCS_URL": "https://example.invalid/docs",
+        "APPROVERS": "carol",
+        "REJECTERS": "dave",
+        "REJECTION_COMMENT": "",
+        "CLOSE_ON_REJECTION": "true",
+        "LABEL": "breaking-change",
+        "ENABLED": "true",
+        "GH_TOKEN": "stub",
+    }
+    env.update(overrides)
+
+    with tempfile.TemporaryDirectory() as stub_dir:
+        stub = Path(stub_dir) / "gh"
+        stub.write_text(
+            "#!/usr/bin/env bash\n"
+            "case \"$*\" in\n"
+            "  *\"/commits\"*) printf '%s\\n'"
+            " 'feat(scope)!: a breaking subject' 'chore: an ordinary one' ;;\n"
+            "  *) exit 1 ;;\n"
+            "esac\n",
+            encoding="utf-8",
+        )
+        stub.chmod(0o755)
+        env["PATH"] = f"{stub_dir}:{os.environ.get('PATH', '/usr/bin:/bin')}"
+        result = subprocess.run(
+            ["bash", "-c", body + '\ncat "$body_file"'],
+            cwd=stub_dir,
+            env=env,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+    if result.returncode != 0:
+        raise AssertionError(f"reporter failed for state {state!r}: {result.stderr}")
+    return result.stdout
 
 
 def parse_github_output(output):
@@ -822,32 +889,24 @@ class ApprovalGateStructureTests(unittest.TestCase):
         )
 
     def test_the_waiting_comment_links_instead_of_mentioning(self):
-        reporter = (
-            REPO_ROOT / "src" / "notify" / "breaking-change-approval-reporter"
-            / "action.yml"
-        ).read_text(encoding="utf-8")
+        rendered = render_reporter("waiting")
         # Links to the commit, the decision, the reviewers and the docs.
         for fragment in (
-            "${SERVER_URL}/${REPO}/commit/${HEAD_SHA}",
-            "[![Review the pending deployment](%s)](%s)",
-            "${SERVER_URL}/orgs/${owner}/teams/${slug}",
-            "[How this gate works](${DOCS_URL})",
+            "](https://github.com/LerianStudio/example/commit/abc1234567)",
+            "[![Review the pending deployment](https://img.shields.io/badge/",
+            "](https://github.com/orgs/LerianStudio/teams/devops)",
+            "[How this gate works](https://example.invalid/docs)",
         ):
             with self.subTest(fragment=fragment):
-                self.assertIn(fragment, reporter)
+                self.assertIn(fragment, rendered)
+
         # The pending deployment already notifies the reviewers; a bare @mention
-        # would ping the whole team again for the same thing.
-        #
-        # Checked as "every occurrence sits inside Markdown link text", not as
-        # one forbidden spelling: an assertion pinned to the exact characters
-        # around `@` passes the day somebody writes the mention differently,
-        # which is worse than no assertion at all.
-        for match in re.finditer(r"@\$\{owner\}/", reporter):
-            preceding = reporter[: match.start()]
+        # would ping the whole team again for the same thing. Checked on the
+        # rendered comment, so it holds however the composite spells it.
+        for match in re.finditer(r"@LerianStudio/", rendered):
             self.assertTrue(
-                preceding.endswith("["),
-                f"bare team mention at offset {match.start()}: "
-                f"...{reporter[max(0, match.start() - 40):match.end() + 20]}...",
+                rendered[: match.start()].endswith("["),
+                f"bare team mention: ...{rendered[max(0, match.start() - 40):match.end() + 30]}...",
             )
 
     def test_only_one_approval_request_stays_open_per_pull_request(self):
@@ -903,6 +962,36 @@ class ApprovalGateStructureTests(unittest.TestCase):
         self.assertIn("[![Review the pending deployment]", reporter)
         # And an empty badge-url falls back to a plain heading link.
         self.assertIn('elif [ -n "$RUN_URL" ]; then', reporter)
+
+    # GitHub alerts colour the block and supply the icon; the emoji marks what
+    # the block is about, so the state is readable from the timeline without
+    # opening anything.
+    STATE_MARKS = (
+        ("waiting", "[!IMPORTANT]", "## 💥 Breaking change detected"),
+        ("approved", "[!NOTE]", "## ✅ Breaking change approved"),
+        ("rejected", "[!CAUTION]", "## ⛔ Breaking change rejected"),
+        ("unresolved", "[!WARNING]", "## 💥 Breaking change — decision not recorded"),
+    )
+
+    def test_each_state_renders_its_own_alert_and_mark(self):
+        # Rendered, not grepped. Asserting against the source only proves a
+        # string exists somewhere in it, so swapping two states' alerts would
+        # keep every assertion green while every comment said the wrong thing.
+        for state, alert, mark in self.STATE_MARKS:
+            with self.subTest(state=state):
+                rendered = render_reporter(state)
+                # As adjacent blockquote lines, not as two strings that happen
+                # to be somewhere: a GitHub alert only renders inside `>`, so
+                # dropping the quote would leave both assertions green and the
+                # comment looking like plain text.
+                self.assertIn(f"> {alert}\n> {mark}", rendered)
+
+                # Exclusivity is what actually catches a swap.
+                for other_state, other_alert, other_mark in self.STATE_MARKS:
+                    if other_state == state:
+                        continue
+                    self.assertNotIn(other_alert, rendered)
+                    self.assertNotIn(other_mark, rendered)
 
     def test_the_undo_example_uses_the_real_commit_subjects(self):
         reporter = (
