@@ -30,9 +30,12 @@ encode() {
   jq -cn --arg s "$1" --arg m "$2" '[$s, $m]' | base64 | tr -d '\n'
 }
 
+# `|| true` so a resolver that exits non-zero is reported as a failing case
+# rather than aborting the suite at the assignment, which under `set -e` would
+# take the summary line with it and never name the case that broke.
 run() {
   env GH_TOKEN=stub REPO=LerianStudio/example PR_NUMBER=42 COMMITS_B64="$1" \
-    bash "${RESOLVER}" 2>/dev/null
+    bash "${RESOLVER}" 2>/dev/null || true
 }
 
 check() {
@@ -77,6 +80,74 @@ check 'prose mentioning the phrase mid-line is not' "${PROSE}" 0 ''
 check 'a bang with no type is breaking' "${NOTYPE}" 1 aaa7777
 check 'several breaking commits are all listed' "${BANG} ${PLAIN} ${FOOTER}" 2 aaa1111,ccc3333
 check 'order follows the commit list' "${FOOTER} ${BANG}" 2 ccc3333,aaa1111
+
+# ----------------- Parity with the detector -----------------
+# The detector lowercases before matching, and allows any scope content. These
+# are the forms where a transcription slip would make this view disagree with
+# the verdict.
+LOWER=$(encode aab1111 'feat(scope): looks ordinary
+
+breaking change: lowercase footer')
+MIXED=$(encode aab2222 'feat(scope): looks ordinary
+
+Breaking Change: mixed case footer')
+PLURAL=$(encode aab3333 'feat(scope): looks ordinary
+
+BREAKING CHANGES: plural')
+SPACED=$(encode aab4444 'feat(scope): looks ordinary
+
+BREAKING CHANGE the separator is a space')
+NESTED=$(encode aab5555 'feat(a)b)!: a scope containing a closing paren')
+UPPER_SUBJECT=$(encode aab6666 'FEAT(SCOPE)!: an uppercase subject')
+
+check 'a lowercase footer is breaking' "${LOWER}" 1 aab1111
+check 'a mixed-case footer is breaking' "${MIXED}" 1 aab2222
+check 'the plural form is breaking' "${PLURAL}" 1 aab3333
+check 'a space separator is breaking' "${SPACED}" 1 aab4444
+check 'a scope containing a paren still matches' "${NESTED}" 1 aab5555
+check 'an uppercase subject is breaking' "${UPPER_SUBJECT}" 1 aab6666
+
+# ----------------- Output injection -----------------
+# The subjects are commit-controlled and go into GITHUB_OUTPUT as a multiline
+# value. A fixed delimiter would let a commit close the block and write its own
+# assignments — `fingerprint=` among them, which decides whether this change
+# counts as already approved.
+INJECT_CLOSE=$(encode aac1111 'BREAKING_SUBJECTS_EOF
+
+BREAKING CHANGE: closes the block above')
+INJECT_VALUE=$(encode aac2222 'fingerprint=deadbeefdeadbeef
+
+BREAKING CHANGE: and assigns a forged one')
+
+# Parsed the way the runner parses GITHUB_OUTPUT: lines inside a multiline
+# block are a value, not assignments. Grepping the raw text would find the
+# forged line sitting harmlessly inside the block and call it a breach.
+single_line_assignments() {
+  local line delimiter='' in_block=0
+  while IFS= read -r line; do
+    if [[ ${in_block} -eq 1 ]]; then
+      [[ "${line}" == "${delimiter}" ]] && in_block=0
+      continue
+    fi
+    if [[ "${line}" == *'<<'* ]]; then
+      delimiter=${line#*<<}
+      in_block=1
+      continue
+    fi
+    printf '%s\n' "${line}"
+  done
+}
+
+injected=$(run "${INJECT_CLOSE} ${INJECT_VALUE}")
+forged=$(single_line_assignments <<< "${injected}" \
+  | grep -c '^fingerprint=deadbeefdeadbeef$' || true)
+if [[ "${forged}" == '0' ]]; then
+  PASSED=$((PASSED + 1))
+  printf 'ok - a commit subject cannot close the output block and forge a value\n'
+else
+  FAILED=$((FAILED + 1))
+  printf 'not ok - a commit subject forged an output assignment\n'
+fi
 
 # ----------------- Fingerprint -----------------
 fingerprint_of() { run "$1" | sed -n 's/^fingerprint=//p'; }

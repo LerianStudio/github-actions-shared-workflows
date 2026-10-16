@@ -464,6 +464,11 @@ python3 src/validate/breaking-change-guard/test-workflow.py
   their globs, the merge semantics of `additional-scope-rules`, both label
   overrides and their precedence, the three bot spellings, and every input that
   must fail closed. No network, no repository fixture.
+- **`breaking-change-commits/test.sh`** — 20 cases: both breaking forms, the
+  lookalikes that must not count, parity with the detector on case and on scopes
+  containing parens, the fingerprint holding still for an ordinary commit while
+  changing for a breaking one, and the output-injection attack a commit subject
+  can otherwise mount.
 - **`codeowners-reviewers/test.sh`** — 22 cases: both owner forms, comments,
   last-rule-wins, Enterprise section headers, the three file locations, the
   reviewer cap, and every shape that yields nothing.
