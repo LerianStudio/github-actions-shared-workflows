@@ -80,7 +80,7 @@ inputs:
     required: false
     default: 'true'
   label:
-    description: 'Label stating that this pull request carries a breaking change. A fact about the change, so it stays once applied — approving does not make the break go away. The caller removes it when the breaking commits are gone. Cosmetic; failing to apply it never fails the step. Empty disables it.'
+    description: 'Label stating that this pull request carries a breaking change. A fact about the change, so it stays once applied — approving does not make the break go away. The caller removes it when the breaking commits are gone. Cosmetic; failing to apply it never fails the step. Empty disables it. Behaviour change: it used to be removed on a decision — a caller using it as a temporary waiting marker should move that value to `pending-label` and clear this one.'
     required: false
     default: ''
   pending-label:

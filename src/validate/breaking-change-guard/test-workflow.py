@@ -347,6 +347,79 @@ def run_verdict(**overrides):
         return result, parse_github_output(output_path.read_text(encoding="utf-8"))
 
 
+def run_reporter_labels(state, **overrides):
+    """Run the reporter end to end and return the `gh pr edit` calls it made.
+
+    `render_reporter` stops before the label block, so asserting on the
+    composite's text was the only coverage the lifecycle had — and text cannot
+    tell which state made which call. Moving `--add-label "$LABEL"` into the
+    `waiting` branch would keep every string in place and break the behaviour.
+    """
+    action = yaml.safe_load(
+        (
+            REPO_ROOT / "src" / "notify" / "breaking-change-approval-reporter"
+            / "action.yml"
+        ).read_text(encoding="utf-8")
+    )
+    body = action["runs"]["steps"][0]["run"]
+
+    env = {
+        "REPO": "LerianStudio/example",
+        "PR_NUMBER": "42",
+        "STATE": state,
+        "REASON": "rule develop <- '*'",
+        "HEAD_SHA": "abc1234567",
+        "ACKNOWLEDGED": "false",
+        "ACK_LINE": "Breaking change acknowledged: …",
+        "RUN_URL": "https://github.com/LerianStudio/example/actions/runs/1",
+        "REVIEWERS": "team:devops",
+        "SERVER_URL": "https://github.com",
+        "BADGE_URL": "https://img.shields.io/badge/x-1f6feb",
+        "DOCS_URL": "https://example.invalid/docs",
+        "APPROVERS": "carol",
+        "REJECTERS": "dave",
+        "REJECTION_COMMENT": "",
+        "CLOSE_ON_REJECTION": "true",
+        "LABEL": "breaking-change",
+        "PENDING_LABEL": "awaiting-breaking-approval",
+        "ENABLED": "false",
+        "FINGERPRINT": "",
+        "RUN_ID": "1",
+        "GH_TOKEN": "stub",
+    }
+    env.update(overrides)
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        calls = Path(temp_dir) / "calls"
+        calls.touch()
+        stub = Path(temp_dir) / "gh"
+        stub.write_text(
+            "#!/usr/bin/env bash\n"
+            'case "$*" in\n'
+            "  *\"pr edit\"*)"
+            " printf '%s\\n' \"$*\" | grep -oE '(add|remove)-label [a-z-]+'"
+            f' >> "{calls}" ;;\n'
+            "  *\"/commits\"*) printf '%s\\n' 'feat(x)!: breaks' ;;\n"
+            "  *) exit 1 ;;\n"
+            "esac\n",
+            encoding="utf-8",
+        )
+        stub.chmod(0o755)
+        env["PATH"] = f"{temp_dir}:{os.environ.get('PATH', '/usr/bin:/bin')}"
+        env["GITHUB_OUTPUT"] = str(Path(temp_dir) / "out")
+        result = subprocess.run(
+            ["bash", "-c", body],
+            cwd=temp_dir,
+            env=env,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        if result.returncode != 0:
+            raise AssertionError(f"reporter failed for {state!r}: {result.stderr}")
+        return calls.read_text(encoding="utf-8").split()
+
+
 def parse_github_output(output):
     values = {}
     for line in output.splitlines():
@@ -1220,19 +1293,37 @@ class ApprovalGateStructureTests(unittest.TestCase):
         self.assertIn("missing", rendered)
 
     def test_the_fact_label_outlives_the_decision(self):
-        reporter = (
-            REPO_ROOT / "src" / "notify" / "breaking-change-approval-reporter"
-            / "action.yml"
-        ).read_text(encoding="utf-8")
-        # `breaking-change` describes the commits, not the process: approving
-        # does not make the break go away, and somebody filtering for it months
-        # later wants this pull request in the results. Only the pending label
-        # is a state, and only it comes off on a decision.
-        self.assertIn("PENDING_LABEL", reporter)
-        add_fact = reporter.index('--add-label "$LABEL"')
-        self.assertNotIn('--remove-label "$LABEL"', reporter)
-        self.assertIn('--remove-label "$PENDING_LABEL"', reporter)
-        self.assertGreater(add_fact, 0)
+        # Run it, per state, and read the `gh pr edit` calls. Asserting on the
+        # composite's text cannot tell which state made which call: moving
+        # `--add-label "$LABEL"` into the `waiting` branch would leave every
+        # string in place and stop the fact label from surviving a decision.
+        for state in ("waiting", "approved", "rejected", "acknowledgement"):
+            with self.subTest(state=state):
+                calls = run_reporter_labels(state)
+                pairs = list(zip(calls[::2], calls[1::2]))
+
+                self.assertIn(
+                    ("add-label", "breaking-change"),
+                    pairs,
+                    "the fact label belongs on every state the gate reports",
+                )
+                self.assertNotIn(
+                    ("remove-label", "breaking-change"),
+                    pairs,
+                    "approving does not make the break go away",
+                )
+
+                expected = "add-label" if state == "waiting" else "remove-label"
+                self.assertIn((expected, "awaiting-breaking-approval"), pairs)
+
+    def test_the_two_labels_can_be_turned_off_independently(self):
+        # Cosmetic throughout: a repository that declared neither still gets
+        # its gate, and one that wants only the fact can say so.
+        self.assertEqual([], run_reporter_labels("waiting", LABEL="", PENDING_LABEL=""))
+        self.assertEqual(
+            ["add-label", "breaking-change"],
+            run_reporter_labels("waiting", PENDING_LABEL=""),
+        )
 
     def test_both_labels_go_when_the_break_does(self):
         body = extract_run_body(

@@ -419,6 +419,14 @@ Both are cosmetic: a repository that never declared them still gets its gate.
 Declare them with [`labels-sync`](labels-sync.md), or pass `label: ''` /
 `pending_label: ''` to turn them off.
 
+> **Behaviour change.** `label` used to be removed once the change was approved
+> or rejected. If you set it as a temporary waiting marker, move that value to
+> `pending_label` and set `label: ''` — otherwise the marker now stays on the
+> pull request after the decision.
+>
+> Callers on the default need nothing: `breaking-change` staying put is the
+> point, and `awaiting-breaking-approval` takes over the transient role.
+
 ## Inputs
 
 | Input | Type | Default | Description |

@@ -149,6 +149,10 @@ on:
           about the change, so it survives the approval — the break does not go
           away because somebody agreed to it. Removed only when the breaking
           commits are gone. Empty disables it.
+
+          Behaviour change: this label used to come off on approval. A caller
+          that set it as a temporary waiting marker should move that value to
+          `pending_label` and set this one to an empty string.
         required: false
         type: string
         default: breaking-change
