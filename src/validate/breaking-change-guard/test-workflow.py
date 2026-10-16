@@ -804,11 +804,15 @@ class AdvisoryChecksTests(unittest.TestCase):
     def test_the_reports_survive_an_advisory_failure(self):
         # The checkout in advisory-checks has no continue-on-error, so the job
         # can still fail. Everything that reports must run anyway.
+        #
+        # Read from the parsed job, not from its text: `assertIn` over the whole
+        # job body is satisfied by a step, or even by this comment, while the
+        # job-level `needs` and `if` say something else entirely.
+        jobs = yaml.safe_load(WORKFLOW)["jobs"]
         for job_id in ("pr-checks-summary", "pr-validation-report"):
             with self.subTest(job=job_id):
-                job = extract_job(WORKFLOW, job_id)
-                self.assertIn("advisory-checks", job)
-                self.assertIn("always()", job)
+                self.assertIn("advisory-checks", jobs[job_id]["needs"])
+                self.assertIn("always()", jobs[job_id]["if"])
 
 
 class ApprovalGateStructureTests(unittest.TestCase):

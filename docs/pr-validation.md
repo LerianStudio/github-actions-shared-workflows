@@ -284,7 +284,7 @@ Full detail: [`breaking-change-approval.md`](breaking-change-approval.md).
 |-----|------|------------|-----------|
 | `breaking-change-guard` | mandatory detection | `breaking-change-guard@v1` | always, including drafts |
 | `blocking-checks` | 1 (fail-fast) | guard enforcement, `pr-source-branch`, `pr-title`, `pr-description`, `pr-commit-signatures` | always; drafts run guard enforcement only |
-| `advisory-checks` | 2 (informational) | `pr-metadata`, `pr-size`, `pr-labels` | non-draft, blocking-checks passed |
+| `advisory-checks` | 2 (informational) | `pr-metadata`, `pr-size`, `pr-labels` | non-draft, regardless of the blocking result |
 | `pr-checks-summary` | — | `pr-checks-summary` | always (writes to step summary) |
 | `breaking-change-comment` | — | `actions/github-script` | every non-draft live run, including detector failure or cancellation |
 | `pr-validation-report` | — | `pr-validation-reporter` | non-draft (upserts single PR comment) |
@@ -295,7 +295,7 @@ Full detail: [`breaking-change-approval.md`](breaking-change-approval.md).
 - Always enforce both the guard job state and its normalized output, including on drafts
 - Skip existing source branch, title, description, commit signature, and collector steps on drafts; their non-draft behavior is unchanged
 - On non-drafts, every validation runs even if one fails (`continue-on-error` per step)
-- Job fails if the guard job, normalized guard output, or **any** existing blocking check fails, preventing advisory checks from running
+- Job fails if the guard job, normalized guard output, or **any** existing blocking check fails. Advisory checks run either way
 - In dry-run mode, guard state is logged but does not fail `Blocking Checks`
 
 ### Fail-closed detection
@@ -338,7 +338,9 @@ The step runs with read-only permissions and emits no commit metadata beyond wha
 
 ### Advisory checks (Tier 2)
 - Share a single `checkout` with `fetch-depth: 0`
-- Only run if all blocking checks passed
+- Run on every non-draft pull request, **regardless of the blocking result** — a
+  pull request that failed a blocking check still gets its size label, its
+  auto-labels and its assignee
 - Never block merge — informational only
 
 ## Dry Run Behavior
