@@ -212,6 +212,8 @@ jobs:
       author: ${{ steps.scope.outputs.author }}
       reason: ${{ steps.scope.outputs.reason }}
       has-breaking-changes: ${{ steps.normalize.outputs.has-breaking-changes }}
+      fingerprint: ${{ steps.commits.outputs.fingerprint }}
+      subjects: ${{ steps.commits.outputs.subjects }}
       acknowledged: ${{ steps.normalize.outputs.acknowledged }}
       detection-succeeded: ${{ steps.normalize.outputs.detection-succeeded }}
 
@@ -279,6 +281,18 @@ jobs:
           base-ref: ${{ steps.scope.outputs.base-ref }}
           breaking-change-acknowledgement: ${{ inputs.author_acknowledgement }}
           acknowledgement-match-mode: exact-visible-line
+
+      # Which commits tripped the gate, and a digest of the set. The digest is
+      # what lets an approval survive a push that did not touch the breaking
+      # change — see the `request` job.
+      - name: List the breaking-change commits
+        id: commits
+        if: steps.scope.outputs.in-scope == 'true'
+        continue-on-error: true
+        uses: LerianStudio/github-actions-shared-workflows/src/validate/breaking-change-commits@develop
+        with:
+          github-token: ${{ secrets.MANAGE_TOKEN || github.token }}
+          pr-number: ${{ steps.scope.outputs.pr-number }}
 
       - name: Normalize detection result
         id: normalize
@@ -351,7 +365,121 @@ jobs:
     permissions:
       contents: read
       pull-requests: write
+    outputs:
+      already-approved: ${{ steps.prior.outputs.already-approved }}
     steps:
+      # Has this exact breaking change already been approved on this pull
+      # request? The approval comment records the fingerprint it approved, so a
+      # push that leaves the breaking commits alone — a typo fix, a review
+      # follow-up — does not send the reviewer the same question again.
+      #
+      # Asking again for unchanged content is how a gate becomes a formality:
+      # the second time costs attention, the fifth time gets a reflex click.
+      - name: Check for a prior approval of the same change
+        id: prior
+        # Runs under dry_run too: it only reads, and a dry run that cannot say
+        # whether the approval would be reused is not previewing the decision
+        # that matters most here.
+        if: >-
+          needs.detect.result == 'success'
+          && needs.detect.outputs.has-breaking-changes == 'true'
+          && needs.detect.outputs.fingerprint != ''
+        env:
+          GH_TOKEN: ${{ secrets.MANAGE_TOKEN || github.token }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ needs.detect.outputs.pr-number }}
+          FINGERPRINT: ${{ needs.detect.outputs.fingerprint }}
+          DRY_RUN: ${{ inputs.dry_run && 'true' || 'false' }}
+        run: |
+          set -euo pipefail
+
+          already=false
+          approved_by=""
+          unverified=""
+
+          # Two things have to be true, because the comment alone is not
+          # evidence. Anyone who can read the repository can comment on a pull
+          # request, and the fingerprint is computable from public data — the
+          # commit SHAs are on the pull request and the digest is in this
+          # repository. A marker on its own is therefore forgeable by a
+          # stranger, which would hand them the approval gate.
+          #
+          #   1. the record sits in a comment from someone inside the
+          #      organisation, which is where the reporter writes
+          #   2. the run it names really was approved for this Environment
+          #
+          # The second is the one that matters: forging the text is easy,
+          # producing a run whose Environment approval actually happened is not.
+          #
+          # No `grep -q` anywhere below: with `pipefail`, it can exit on the
+          # first match while `--paginate` is still writing, and the broken pipe
+          # would read as "no match" — asking for an approval already given.
+          #
+          # `github-actions[bot]` is accepted by login because GitHub can report
+          # `author_association: NONE` for it — and that is the identity the
+          # reporter writes under whenever no MANAGE_TOKEN is passed, which is
+          # most callers. Filtering it out would quietly disable the whole
+          # feature for them. It is not a weakening: nobody but Actions can
+          # author a comment under that login.
+          records=$(
+            gh api "repos/${REPO}/issues/${PR_NUMBER}/comments" --paginate \
+              --jq '.[]
+                    | select(.author_association == "OWNER"
+                             or .author_association == "MEMBER"
+                             or .user.login == "github-actions[bot]")
+                    | .body' 2>/dev/null \
+            | grep -oE "<!-- breaking-change-approved: ${FINGERPRINT} run=[0-9]+ -->" \
+            || true
+          )
+
+          # Every record, not just the first. The reporter keeps them all, and
+          # runs are deleted on the repository's retention schedule — 90 days by
+          # default — so the oldest record for a fingerprint is the first to
+          # become unverifiable while a newer one is still perfectly good.
+          # Stopping at the first would ask for an approval that is on file.
+          while IFS= read -r record; do
+            [ -z "$record" ] && continue
+            approving_run=$(grep -oE 'run=[0-9]+' <<< "$record" | cut -d= -f2)
+            [ -z "$approving_run" ] && continue
+
+            # Verified against the Environment's own approval log. Needs
+            # `actions: read`; when that is missing the check cannot be made, so
+            # the approval is not reused and the reviewer is asked again. Asking
+            # twice is a cost, trusting an unverified record is a hole.
+            approvers=$(
+              gh api "repos/${REPO}/actions/runs/${approving_run}/approvals" \
+                --jq '.[] | select(.state == "approved")
+                      | select((.environments // []) | map(.name) | index("breaking-approval"))
+                      | .user.login' 2>/dev/null || true
+            )
+
+            if [ -n "$approvers" ]; then
+              already=true
+              approved_by="$approvers"
+              break
+            fi
+
+            unverified="${unverified:+$unverified }${approving_run}"
+            [ "$DRY_RUN" = "true" ] && echo "  record run=${approving_run} : approval could not be verified"
+          done <<< "$records"
+
+          # One line on a real run, per the dry_run contract. Everything else is
+          # for the preview, where being able to predict the decision is the
+          # entire point.
+          if [ "$DRY_RUN" = "true" ]; then
+            echo "::notice::DRY RUN — approval reuse lookup"
+            echo "  fingerprint       : ${FINGERPRINT}"
+            echo "  records found     : $(grep -c . <<< "$records" || true)"
+            echo "  unverified runs   : [${unverified:-}]"
+            echo "  already approved  : ${already}${approved_by:+ (by ${approved_by})}"
+          elif [ "$already" = "true" ]; then
+            echo "::notice::This breaking change was approved on run ${approving_run} by ${approved_by} — not asking again"
+          elif [ -n "$records" ]; then
+            echo "::warning::A recorded approval of ${FINGERPRINT} exists but could not be verified against the Environment log (runs: ${unverified:-none}). Asking again."
+          fi
+
+          echo "already-approved=$already" >> "$GITHUB_OUTPUT"
+
       # Read from the BASE ref, never the head: a CODEOWNERS taken from the pull
       # request branch would let an author edit who is allowed to approve their
       # own breaking change.
@@ -393,6 +521,7 @@ jobs:
           github-token: ${{ secrets.MANAGE_TOKEN || github.token }}
           pr-number: ${{ needs.detect.outputs.pr-number }}
           state: waiting
+          fingerprint: ${{ needs.detect.outputs.fingerprint }}
           reviewers: ${{ inputs.approval_reviewers != '' && inputs.approval_reviewers || steps.codeowners.outputs.reviewers }}
           actual-reviewers: ${{ steps.environment.outputs.reviewers }}
           reason: ${{ needs.detect.outputs.reason }}
@@ -416,6 +545,7 @@ jobs:
       needs.detect.result == 'success'
       && needs.request.result == 'success'
       && needs.detect.outputs.has-breaking-changes == 'true'
+      && needs.request.outputs.already-approved != 'true'
       && !inputs.dry_run
     environment: breaking-approval
     # One open request per pull request. Every push creates another pending
@@ -480,6 +610,7 @@ jobs:
           DETECT_RESULT: ${{ needs.detect.result }}
           REQUEST_RESULT: ${{ needs.request.result }}
           APPROVAL_RESULT: ${{ needs.approval.result }}
+          ALREADY_APPROVED: ${{ needs.request.outputs.already-approved }}
           IN_SCOPE: ${{ needs.detect.outputs.in-scope }}
           REASON: ${{ needs.detect.outputs.reason }}
           PR_NUMBER: ${{ needs.detect.outputs.pr-number }}
@@ -549,6 +680,20 @@ jobs:
             exit 0
           fi
 
+          # Only now, with the guards behind us. Placed any earlier this would
+          # report success for a run whose `request` job failed — the preflight
+          # that proves the Environment is real lives there — or for a run the
+          # head has moved out from under. An approval that still applies is not
+          # a reason to skip the checks that say whether this run may speak.
+          if [ "$ALREADY_APPROVED" = "true" ]; then
+            approved=true
+            result=success
+            state=approved
+            emit
+            echo "::notice::PR #${PR_NUMBER} carries a breaking change that was already approved — nothing changed about it"
+            exit 0
+          fi
+
           if [ "$IN_SCOPE" != "true" ] || [ "$HAS_BREAKING_CHANGES" != "true" ]; then
             approved=true
             result=success
@@ -597,6 +742,12 @@ jobs:
           github-token: ${{ secrets.MANAGE_TOKEN || github.token }}
           pr-number: ${{ needs.detect.outputs.pr-number }}
           state: ${{ steps.verdict.outputs.state }}
+          # Only a run whose Environment approval actually happened may write a
+          # record naming itself. A reused approval reports `approved` with the
+          # gate job skipped, and a record pointing at that run would assert
+          # something no log can confirm — then outlive the real one.
+          fingerprint: ${{ needs.approval.result == 'success' && needs.detect.outputs.fingerprint || '' }}
+          run-id: ${{ github.run_id }}
           reason: ${{ needs.detect.outputs.reason }}
           head-sha: ${{ needs.detect.outputs.head-sha }}
           acknowledged: ${{ needs.detect.outputs.acknowledged }}

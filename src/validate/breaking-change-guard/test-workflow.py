@@ -50,6 +50,7 @@ APPROVAL_COMPOSITES = (
     "src/validate/environment-approvals",
     "src/notify/breaking-change-approval-reporter",
     "src/validate/codeowners-reviewers",
+    "src/validate/breaking-change-commits",
 )
 ENVIRONMENT_PROTECTION = (
     REPO_ROOT / "src" / "validate" / "environment-protection" / "action.yml"
@@ -312,6 +313,7 @@ def run_verdict(**overrides):
         "API_READABLE": "true",
         "DRY_RUN": "false",
         "LIVE_SHA": "abc123",
+        "ALREADY_APPROVED": "false",
     }
     env.update(overrides)
 
@@ -686,15 +688,20 @@ class WorkflowStructureTests(unittest.TestCase):
 
     def test_comment_job_is_write_minimal_and_does_not_checkout(self):
         job = extract_job(WORKFLOW, "breaking-change-comment")
-        permissions = re.search(
-            r"(?m)^    permissions:\n(?P<body>(?:      [^\n]+\n?)+)", job
-        )
-        self.assertIsNotNone(permissions)
-        self.assertEqual(
-            {"pull-requests: read", "issues: write"},
-            {line.strip() for line in permissions.group("body").splitlines()},
-        )
-        self.assertNotIn("contents:", permissions.group("body"))
+        permissions = yaml.safe_load(WORKFLOW)["jobs"]["breaking-change-comment"][
+            "permissions"
+        ]
+        # `pull-requests: write` is the minimum that works, not a widening.
+        # This set used to be {pull-requests: read, issues: write}, which looks
+        # narrower and is simply wrong: commenting on a pull request is
+        # authorised as a pull request, so the step took a 403 on every run
+        # from 2026-08-06 and reported success anyway.
+        #
+        # The lesson is in the shape of the old assertion, not just its value —
+        # it pinned a permission set nobody had watched work, and so kept the
+        # bug in place rather than catching it.
+        self.assertEqual({"pull-requests": "write"}, permissions)
+        self.assertNotIn("contents", permissions)
         self.assertNotIn("actions/checkout", job)
         self.assertIn("github-token: ${{ github.token }}", job)
 
@@ -838,6 +845,45 @@ class WorkflowStructureTests(unittest.TestCase):
                     f"runs-on: ${{{{ inputs.{input_name} || vars.GENERAL_RUNNERS || inputs.runner_type }}}}",
                     extract_job(analysis, analysis_job),
                 )
+
+
+class CommentPermissionTests(unittest.TestCase):
+    def test_jobs_that_comment_on_a_pull_request_can_write_to_it(self):
+        # Commenting on a pull request needs `pull-requests: write`. The
+        # issue-comments endpoint is the one used, but GitHub authorises the
+        # subject as a pull request, so `issues: write` is not enough — it
+        # covers real issues only. The mistake fails as a 403 at runtime, and
+        # these steps are continue-on-error, so it reports success.
+        workflow = yaml.safe_load(WORKFLOW)
+        top_level = workflow.get("permissions") or {}
+
+        for job_id, job in workflow["jobs"].items():
+            if not isinstance(job, dict):
+                continue
+            body = yaml.safe_dump(job)
+            if not any(
+                marker in body
+                for marker in ("createComment", "updateComment", "issues/comments")
+            ):
+                continue
+
+            with self.subTest(job=job_id):
+                # A job-level block replaces the workflow's, it does not merge,
+                # so an explicit block has to carry the permission itself.
+                effective = job.get("permissions") or top_level
+                self.assertEqual(
+                    "write",
+                    effective.get("pull-requests"),
+                    f"{job_id} comments on a pull request and would take a 403",
+                )
+
+    def test_a_failed_comment_is_visible_rather_than_swallowed(self):
+        job = extract_job(WORKFLOW, "breaking-change-comment")
+        # continue-on-error is right for a cosmetic comment, but silence is how
+        # a 403 ran for two months with every job green.
+        self.assertIn("continue-on-error: true", job)
+        self.assertIn("::warning::", job)
+        self.assertIn("steps.comment.outcome == 'failure'", job)
 
 
 class AdvisoryChecksTests(unittest.TestCase):
@@ -1052,6 +1098,164 @@ class ApprovalGateStructureTests(unittest.TestCase):
         _, outputs = run_verdict(APPROVAL_RESULT="cancelled", REJECTERS="dave")
         self.assertEqual("superseded", outputs["state"])
         self.assertNotEqual("rejected", outputs["state"])
+
+    def test_an_approval_already_given_is_not_asked_for_again(self):
+        # The reviewer said yes to a breaking change. A push that leaves that
+        # change alone must not put the same question back in their queue —
+        # asking repeatedly for unchanged content is how a gate stops being
+        # read. The approval job is skipped, so there is no Environment
+        # decision; the verdict comes from the record on the pull request.
+        _, outputs = run_verdict(ALREADY_APPROVED="true", APPROVAL_RESULT="skipped")
+        self.assertEqual("approved", outputs["state"])
+        self.assertEqual("success", outputs["result"])
+
+        job = extract_job(APPROVAL_WORKFLOW, "approval")
+        self.assertIn(
+            "needs.request.outputs.already-approved != 'true'",
+            job,
+            "the Environment gate must be skipped when the change was already approved",
+        )
+
+    def test_a_forged_approval_record_is_not_believed(self):
+        step = extract_step(
+            extract_job(APPROVAL_WORKFLOW, "request"),
+            "Check for a prior approval of the same change",
+        )
+        # Anyone with read access can comment, and the fingerprint is computable
+        # from public data — so the record alone is writable by a stranger.
+        # Two independent conditions must hold before an approval is reused.
+        self.assertIn('select(.author_association == "OWNER"', step)
+        self.assertIn('or .author_association == "MEMBER"', step)
+        # And the run it names has to carry a real Environment approval.
+        self.assertIn("actions/runs/${approving_run}/approvals", step)
+        self.assertIn('select(.state == "approved")', step)
+        self.assertIn('index("breaking-approval")', step)
+
+    def test_the_default_reporter_identity_is_accepted(self):
+        step = extract_step(
+            extract_job(APPROVAL_WORKFLOW, "request"),
+            "Check for a prior approval of the same change",
+        )
+        # Without MANAGE_TOKEN the reporter writes as `github-actions[bot]`,
+        # for which GitHub can report `author_association: NONE`. Filtering on
+        # association alone would drop those comments and quietly disable the
+        # whole feature for every caller on the default token.
+        self.assertIn('.user.login == "github-actions[bot]"', step)
+
+    def test_the_prior_lookup_honours_the_dry_run_contract(self):
+        step = extract_step(
+            extract_job(APPROVAL_WORKFLOW, "request"),
+            "Check for a prior approval of the same change",
+        )
+        # The repository's contract: a real run is silent beyond one summary,
+        # a dry run prints the resolved values. Both halves matter here —
+        # a preview that cannot say whether the approval would be reused is
+        # not previewing the decision this gate turns on.
+        self.assertIn('DRY_RUN: ${{ inputs.dry_run', step)
+        self.assertNotIn("&& !inputs.dry_run", step)
+
+        code = "\n".join(
+            line for line in step.splitlines() if not line.strip().startswith("#")
+        )
+        # Every diagnostic beyond the single summary sits behind the dry-run
+        # branch; count them to keep a future one from slipping out.
+        for line in code.splitlines():
+            if "echo " not in line or "GITHUB_OUTPUT" in line:
+                continue
+            stripped = line.strip()
+            guarded = (
+                stripped.startswith('[ "$DRY_RUN" = "true" ] &&')
+                or "::notice::" in stripped
+                or "::warning::" in stripped
+                or stripped.startswith('echo "  ')
+            )
+            self.assertTrue(guarded, f"ungated diagnostic on a real run: {stripped}")
+
+    def test_every_record_is_tried_not_just_the_first(self):
+        step = extract_step(
+            extract_job(APPROVAL_WORKFLOW, "request"),
+            "Check for a prior approval of the same change",
+        )
+        # Runs are deleted on the repository's retention schedule, so the oldest
+        # record for a fingerprint goes unverifiable first while a newer one is
+        # still good. Stopping at the first would ask for an approval on file.
+        self.assertIn("while IFS= read -r record", step)
+        self.assertNotIn("head -n1 <<< \"$records\"", step)
+
+    def test_only_a_real_approval_writes_a_record(self):
+        job = extract_job(APPROVAL_WORKFLOW, "outcome")
+        step = extract_step(job, "Report the outcome on the pull request")
+        # A reused approval reports `approved` with the gate job skipped. A
+        # record naming that run would assert something no log can confirm, and
+        # would outlive the real one.
+        self.assertIn(
+            "needs.approval.result == 'success' && needs.detect.outputs.fingerprint",
+            step,
+        )
+
+    def test_the_prior_lookup_consumes_the_whole_comment_stream(self):
+        step = extract_step(
+            extract_job(APPROVAL_WORKFLOW, "request"),
+            "Check for a prior approval of the same change",
+        )
+        # `grep -q` can exit on the first match while `--paginate` is still
+        # writing; under pipefail the broken pipe reads as "no match", and the
+        # reviewer is asked for an approval they already gave.
+        #
+        # Comment lines are stripped first: the step explains this very hazard
+        # in prose, and matching that prose would make the assertion pass or
+        # fail on the explanation rather than on the code.
+        code = "\n".join(
+            line for line in step.splitlines() if not line.strip().startswith("#")
+        )
+        self.assertNotIn("grep -q", code)
+        self.assertIn("grep -oE", code)
+
+    def test_a_reused_approval_does_not_skip_the_other_guards(self):
+        body = extract_run_body(
+            extract_job(APPROVAL_WORKFLOW, "outcome"), "Resolve the verdict"
+        )
+        already_at = body.index('"$ALREADY_APPROVED" = "true"')
+        for guard in (
+            '"$APPROVAL_RESULT" = "cancelled"',   # superseded by a newer run
+            '"$live_sha" != "$HEAD_SHA"',          # head moved under us
+            '"$REQUEST_RESULT" != "success"',      # preflight never proved the gate
+        ):
+            with self.subTest(guard=guard):
+                self.assertLess(
+                    body.index(guard),
+                    already_at,
+                    "a standing approval is not a reason to skip the checks that "
+                    "say whether this run may speak at all",
+                )
+
+    def test_the_records_are_never_rewritten_blind(self):
+        reporter = (
+            REPO_ROOT / "src" / "notify" / "breaking-change-approval-reporter"
+            / "action.yml"
+        ).read_text(encoding="utf-8")
+        # A failed read must not look like "there were none": the rewrite would
+        # erase approvals already given.
+        self.assertIn("Refusing to rewrite it", reporter)
+        self.assertIn("if ! current_body=$(gh api", reporter)
+
+    def test_the_approval_record_survives_the_next_run(self):
+        reporter = (
+            REPO_ROOT / "src" / "notify" / "breaking-change-approval-reporter"
+            / "action.yml"
+        ).read_text(encoding="utf-8")
+        # Every run rewrites the comment body. Without carrying the records
+        # forward, the approval would be forgotten by the very next push, which
+        # is the one thing the record exists to prevent.
+        self.assertIn("previous_records", reporter)
+        self.assertIn("breaking-change-approved: [a-f0-9]+ run=[0-9]+", reporter)
+        # Only an approval writes a new record.
+        self.assertIn('if [ "$STATE" = "approved" ] && [ -n "$FINGERPRINT" ]', reporter)
+
+    def test_the_fingerprint_comes_from_the_breaking_commits(self):
+        detect = extract_job(APPROVAL_WORKFLOW, "detect")
+        self.assertIn("src/validate/breaking-change-commits@", detect)
+        self.assertIn("fingerprint: ${{ steps.commits.outputs.fingerprint }}", detect)
 
     def test_the_verdict_states_are_reachable_as_documented(self):
         # The whole table in one place, run rather than read.
