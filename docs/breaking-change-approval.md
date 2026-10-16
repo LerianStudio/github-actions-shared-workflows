@@ -53,6 +53,7 @@ own:
 |---|---|
 | [`pr-gate-scope`](../src/validate/pr-gate-scope/README.md) | Is this pull request in scope, and why — base → head rules, label overrides, author vetoes |
 | [`breaking-change-guard`](../src/validate/breaking-change-guard/README.md) | Does the branch carry a breaking-change commit |
+| [`breaking-change-commits`](../src/validate/breaking-change-commits/README.md) | Which commits carry the break, and a digest of the set |
 | [`codeowners-reviewers`](../src/validate/codeowners-reviewers/README.md) | Who owns this repository, per its CODEOWNERS |
 | [`environment-protection`](../src/validate/environment-protection/README.md) | Does `breaking-approval` exist with required reviewers — creating it when it does not |
 | [`environment-approvals`](../src/validate/environment-approvals/README.md) | Who approved or rejected, and could we read that at all |
@@ -249,6 +250,77 @@ them match: REST returns `dependabot[bot]`, GraphQL returns `dependabot`, and
 `gh pr view --json author` — what this job reads — returns `app/dependabot`. Both
 affixes are stripped before comparing.
 
+## An approval survives a push that did not change the breaking change
+
+The gate asks about a specific breaking change, not about a pull request. So it
+remembers which one was approved, and only asks again when that changes.
+
+| The author… | Asked again? |
+|---|---|
+| fixes a typo the review pointed out | no |
+| adds an ordinary commit | no |
+| rewords the breaking commit | **yes** — it is different text now |
+| adds another breaking commit | **yes** |
+
+This matters more than convenience, because of how the review gate is wired:
+CodeRabbit only runs once every check has passed, which includes this one. So
+without the memory, every iteration of *approve → review → fix → push* would
+need a fresh human approval to get the next review — and the reviewer would be
+answering the identical question each time. A question asked five times gets a
+reflex answer by the third.
+
+**How it is remembered.** `breaking-change-commits` digests the SHAs of the
+breaking commits. When an approval lands, the comment records that digest
+together with the run that carried the approval:
+
+```html
+<!-- breaking-change-approved: 4f2a9c1e8b3d7a60 run=38905110563 -->
+```
+
+Every later run rebuilds the digest and looks for its record. A match skips the
+Environment gate entirely; anything else asks again. Records accumulate, so
+returning to a previously approved set is still approved.
+
+Built from SHAs, so a reword counts as a change — the approval was given to the
+text that was read, and the subject is what the release parser acts on.
+
+### The record is checked, not believed
+
+A comment is not evidence. Anyone who can read the repository can comment on a
+pull request, and the fingerprint is computable from public data: the commit
+SHAs are on the pull request and the digest is defined in this repository. A
+record on its own is therefore something a stranger can write.
+
+So two things must hold before an approval is reused:
+
+1. the record sits in a comment from an **owner or member** of the
+   organisation, or from `github-actions[bot]` — the identity the reporter
+   writes under when no `MANAGE_TOKEN` is passed, and one nobody but Actions
+   can author as
+2. the **run it names really was approved** for the `breaking-approval`
+   Environment, read from the Environment's own approval log
+
+Every record for the fingerprint is tried, not only the first: runs are deleted
+on the repository's retention schedule, so the oldest record goes unverifiable
+while a newer one is still good.
+
+Only a run whose Environment approval actually happened writes a record. A
+reused approval reports `approved` with the gate job skipped, and a record
+naming *that* run would assert something no log can confirm — then outlive the
+real one.
+
+The second is what carries the weight. Writing the text is easy; producing a run
+whose Environment approval actually happened is not.
+
+Verifying needs `actions: read`. Where that is unavailable the check cannot be
+made, so the approval is **not** reused and the reviewer is asked again — asking
+twice costs attention, trusting an unverified record costs the gate.
+
+**The records are never rewritten blind.** If the comment cannot be read back,
+the reporter fails rather than replacing it, because a rewrite without the
+records would erase approvals already given and send reviewers questions they
+had already answered.
+
 ## One open request, and approvals expire on a push
 
 Every push queues another pending deployment, and GitHub does not retire the
@@ -260,8 +332,9 @@ The approval job is therefore under a `concurrency` group keyed to the pull
 request, with `cancel-in-progress`. A push cancels the pending request and
 replaces it with one for the new head.
 
-That is also what expires an approval: the yes was given to a specific
-revision, and the next one has to earn its own. Nothing inherits it.
+That is what retires a *pending* request. An approval that already landed is a
+different matter — see above: it is remembered against the change it approved,
+and only a change to that change asks again.
 
 **A cancelled run never touches the pull request.** The verdict job still runs
 when its approval is cancelled, and without a guard it would overwrite the live
@@ -414,6 +487,7 @@ correct fix, since the commit message is what the release reads.
 
 ```bash
 bash    src/validate/pr-gate-scope/test.sh
+bash    src/validate/breaking-change-commits/test.sh
 bash    src/validate/codeowners-reviewers/test.sh
 bash    src/validate/breaking-change-guard/test.sh
 python3 src/validate/breaking-change-guard/test-workflow.py
@@ -423,6 +497,11 @@ python3 src/validate/breaking-change-guard/test-workflow.py
   their globs, the merge semantics of `additional-scope-rules`, both label
   overrides and their precedence, the three bot spellings, and every input that
   must fail closed. No network, no repository fixture.
+- **`breaking-change-commits/test.sh`** — 20 cases: both breaking forms, the
+  lookalikes that must not count, parity with the detector on case and on scopes
+  containing parens, the fingerprint holding still for an ordinary commit while
+  changing for a breaking one, and the output-injection attack a commit subject
+  can otherwise mount.
 - **`codeowners-reviewers/test.sh`** — 22 cases: both owner forms, comments,
   last-rule-wins, Enterprise section headers, the three file locations, the
   reviewer cap, and every shape that yields nothing.
