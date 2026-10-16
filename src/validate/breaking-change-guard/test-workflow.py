@@ -688,15 +688,20 @@ class WorkflowStructureTests(unittest.TestCase):
 
     def test_comment_job_is_write_minimal_and_does_not_checkout(self):
         job = extract_job(WORKFLOW, "breaking-change-comment")
-        permissions = re.search(
-            r"(?m)^    permissions:\n(?P<body>(?:      [^\n]+\n?)+)", job
-        )
-        self.assertIsNotNone(permissions)
-        self.assertEqual(
-            {"pull-requests: read", "issues: write"},
-            {line.strip() for line in permissions.group("body").splitlines()},
-        )
-        self.assertNotIn("contents:", permissions.group("body"))
+        permissions = yaml.safe_load(WORKFLOW)["jobs"]["breaking-change-comment"][
+            "permissions"
+        ]
+        # `pull-requests: write` is the minimum that works, not a widening.
+        # This set used to be {pull-requests: read, issues: write}, which looks
+        # narrower and is simply wrong: commenting on a pull request is
+        # authorised as a pull request, so the step took a 403 on every run
+        # from 2026-08-06 and reported success anyway.
+        #
+        # The lesson is in the shape of the old assertion, not just its value —
+        # it pinned a permission set nobody had watched work, and so kept the
+        # bug in place rather than catching it.
+        self.assertEqual({"pull-requests": "write"}, permissions)
+        self.assertNotIn("contents", permissions)
         self.assertNotIn("actions/checkout", job)
         self.assertIn("github-token: ${{ github.token }}", job)
 
@@ -840,6 +845,45 @@ class WorkflowStructureTests(unittest.TestCase):
                     f"runs-on: ${{{{ inputs.{input_name} || vars.GENERAL_RUNNERS || inputs.runner_type }}}}",
                     extract_job(analysis, analysis_job),
                 )
+
+
+class CommentPermissionTests(unittest.TestCase):
+    def test_jobs_that_comment_on_a_pull_request_can_write_to_it(self):
+        # Commenting on a pull request needs `pull-requests: write`. The
+        # issue-comments endpoint is the one used, but GitHub authorises the
+        # subject as a pull request, so `issues: write` is not enough — it
+        # covers real issues only. The mistake fails as a 403 at runtime, and
+        # these steps are continue-on-error, so it reports success.
+        workflow = yaml.safe_load(WORKFLOW)
+        top_level = workflow.get("permissions") or {}
+
+        for job_id, job in workflow["jobs"].items():
+            if not isinstance(job, dict):
+                continue
+            body = yaml.safe_dump(job)
+            if not any(
+                marker in body
+                for marker in ("createComment", "updateComment", "issues/comments")
+            ):
+                continue
+
+            with self.subTest(job=job_id):
+                # A job-level block replaces the workflow's, it does not merge,
+                # so an explicit block has to carry the permission itself.
+                effective = job.get("permissions") or top_level
+                self.assertEqual(
+                    "write",
+                    effective.get("pull-requests"),
+                    f"{job_id} comments on a pull request and would take a 403",
+                )
+
+    def test_a_failed_comment_is_visible_rather_than_swallowed(self):
+        job = extract_job(WORKFLOW, "breaking-change-comment")
+        # continue-on-error is right for a cosmetic comment, but silence is how
+        # a 403 ran for two months with every job green.
+        self.assertIn("continue-on-error: true", job)
+        self.assertIn("::warning::", job)
+        self.assertIn("steps.comment.outcome == 'failure'", job)
 
 
 class AdvisoryChecksTests(unittest.TestCase):
