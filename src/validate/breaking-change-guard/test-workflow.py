@@ -1069,13 +1069,18 @@ class ApprovalGateStructureTests(unittest.TestCase):
                 self.assertIn(fragment, rendered)
 
         # The pending deployment already notifies the reviewers; a bare @mention
-        # would ping the whole team again for the same thing. Checked on the
-        # rendered comment, so it holds however the composite spells it.
-        for match in re.finditer(r"@LerianStudio/", rendered):
-            self.assertTrue(
-                rendered[: match.start()].endswith("["),
-                f"bare team mention: ...{rendered[max(0, match.start() - 40):match.end() + 30]}...",
-            )
+        # would ping the whole team again for the same thing.
+        #
+        # Same technique as the decider test: delete the complete links, then
+        # require nothing to remain. This assertion used to check only that an
+        # `@` was preceded by `[`, which a bare `[@LerianStudio/devops]` with no
+        # target satisfies.
+        without_links = re.sub(
+            r"\[@LerianStudio/\w+\]\(https://github\.com/orgs/LerianStudio/teams/\w+\)",
+            "",
+            rendered,
+        )
+        self.assertNotIn("@LerianStudio/", without_links)
 
     def test_only_one_approval_request_stays_open_per_pull_request(self):
         job = extract_job(APPROVAL_WORKFLOW, "approval")
@@ -1141,10 +1146,17 @@ class ApprovalGateStructureTests(unittest.TestCase):
             with self.subTest(state=state):
                 rendered = render_reporter(state, **env)
                 self.assertIn(f"[@{who}](https://github.com/{who})", rendered)
+
                 # Linked, not mentioned: the person named is the one who just
                 # acted, so a notification tells them what they already know.
-                for match in re.finditer(rf"@{who}", rendered):
-                    self.assertTrue(rendered[: match.start()].endswith("["))
+                #
+                # Checked by deleting the complete links and requiring nothing
+                # to remain. "preceded by `[`" would accept a bare `[@carol]`
+                # with no target — present, bracketed, and not a link.
+                without_links = re.sub(
+                    rf"\[@{who}\]\(https://github\.com/{who}\)", "", rendered
+                )
+                self.assertNotIn(f"@{who}", without_links)
 
     def test_an_approval_already_given_is_not_asked_for_again(self):
         # The reviewer said yes to a breaking change. A push that leaves that
