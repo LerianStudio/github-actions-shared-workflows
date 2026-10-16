@@ -144,10 +144,27 @@ on:
         type: boolean
         default: true
       label:
-        description: Label applied while the pull request waits for its approval, and removed once resolved. Cosmetic — failure to apply it never fails the job. Empty disables it.
+        description: >-
+          Label stating that this pull request carries a breaking change. A fact
+          about the change, so it survives the approval — the break does not go
+          away because somebody agreed to it. Removed only when the breaking
+          commits are gone. Empty disables it.
+
+          Behaviour change: this label used to come off on approval. A caller
+          that set it as a temporary waiting marker should move that value to
+          `pending_label` and set this one to an empty string.
         required: false
         type: string
         default: breaking-change
+      pending_label:
+        description: >-
+          Label stating that the breaking change is waiting on a decision. A
+          state, so it comes off once approved or rejected. Separate from
+          `label` because the two stop being true at different moments.
+          Empty disables it.
+        required: false
+        type: string
+        default: awaiting-breaking-approval
       enable_comment:
         description: Post (and keep updated) a single comment carrying the request, the approval link and the outcome.
         required: false
@@ -512,7 +529,8 @@ jobs:
           head-sha: ${{ needs.detect.outputs.head-sha }}
           acknowledged: ${{ needs.detect.outputs.acknowledged }}
           author-acknowledgement: ${{ inputs.author_acknowledgement }}
-          label: ''
+          label: ${{ inputs.label }}
+          pending-label: ''
           enabled: ${{ inputs.enable_comment && 'true' || 'false' }}
 
       - name: Request the approval on the pull request
@@ -536,6 +554,7 @@ jobs:
           run-url: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           close-on-rejection: ${{ inputs.close_on_rejection && 'true' || 'false' }}
           label: ${{ inputs.label }}
+          pending-label: ${{ inputs.pending_label }}
           enabled: ${{ inputs.enable_comment && 'true' || 'false' }}
 
   # ----------------- The gate itself -----------------
@@ -625,6 +644,8 @@ jobs:
           APPROVERS: ${{ steps.decisions.outputs.approvers }}
           REJECTERS: ${{ steps.decisions.outputs.rejecters }}
           API_READABLE: ${{ steps.decisions.outputs.api-readable }}
+          LABEL: ${{ inputs.label }}
+          PENDING_LABEL: ${{ inputs.pending_label }}
           DRY_RUN: ${{ inputs.dry_run && 'true' || 'false' }}
         run: |
           set -euo pipefail
@@ -705,6 +726,18 @@ jobs:
             result=success
             state=none
             emit
+
+            # The only moment the break actually stopped existing, so the only
+            # place the fact label comes off. A reword dropping the `!` left
+            # `breaking-change` on the pull request for good — the cleanup was
+            # lost in an earlier rewrite of this job and is restored here.
+            if [ "$DRY_RUN" != "true" ] && [ -n "${PR_NUMBER:-}" ]; then
+              for stale in "$LABEL" "$PENDING_LABEL"; do
+                [ -n "$stale" ] || continue
+                gh pr edit "$PR_NUMBER" --repo "$REPO" --remove-label "$stale" >/dev/null 2>&1 || true
+              done
+            fi
+
             echo "::notice::Nothing to approve on PR #${PR_NUMBER} — ${REASON}"
             exit 0
           fi
@@ -763,6 +796,7 @@ jobs:
           rejection-comment: ${{ steps.decisions.outputs.rejection-comment }}
           close-on-rejection: ${{ inputs.close_on_rejection && 'true' || 'false' }}
           label: ${{ inputs.label }}
+          pending-label: ${{ inputs.pending_label }}
           enabled: ${{ inputs.enable_comment && 'true' || 'false' }}
 
       # Only on a recorded rejection, never on a cancellation. Closing a pull

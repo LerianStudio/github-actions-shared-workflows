@@ -408,8 +408,24 @@ ends as the record of who decided what:
 > 👉 **[Review the pending deployment](#)** — *Review deployments* →
 > `breaking-approval`.
 
-The `breaking-change` label is applied while it waits and removed once resolved —
-cosmetic, and a repository that never declared it still gets its gate.
+Two labels, and they expire at different times. `breaking-change` states a fact
+about the commits and **survives the approval** — the break does not stop being a
+break because somebody agreed to it, and a search for that label months later
+should still find this pull request. It comes off only when the breaking commits
+are gone. `awaiting-breaking-approval` states that a decision is pending, and
+comes off the moment one is made.
+
+Both are cosmetic: a repository that never declared them still gets its gate.
+Declare them with [`labels-sync`](labels-sync.md), or pass `label: ''` /
+`pending_label: ''` to turn them off.
+
+> **Behaviour change.** `label` used to be removed once the change was approved
+> or rejected. If you set it as a temporary waiting marker, move that value to
+> `pending_label` and set `label: ''` — otherwise the marker now stays on the
+> pull request after the decision.
+>
+> Callers on the default need nothing: `breaking-change` staying put is the
+> point, and `awaiting-breaking-approval` takes over the transient role.
 
 ## Inputs
 
