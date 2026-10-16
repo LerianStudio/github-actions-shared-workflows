@@ -778,6 +778,43 @@ class WorkflowStructureTests(unittest.TestCase):
                 )
 
 
+class AdvisoryChecksTests(unittest.TestCase):
+    def test_advisory_checks_do_not_cascade_off_a_blocking_failure(self):
+        job = extract_job(WORKFLOW, "advisory-checks")
+        condition = next(
+            line for line in job.splitlines() if line.strip().startswith("if:")
+        )
+        # Advisory by definition: a wrong title or a missing signature must not
+        # also cost the pull request its size label, its auto-labels and its
+        # assignee. Those are most useful precisely on a pull request that is
+        # already in trouble.
+        self.assertNotIn("needs.blocking-checks.result", condition)
+        self.assertIn("always()", condition)
+        self.assertIn("github.event.pull_request.draft != true", condition)
+
+    def test_advisory_checks_cannot_become_a_new_blocker(self):
+        job = extract_job(WORKFLOW, "advisory-checks")
+        # Running them unconditionally is only safe while none of them can fail
+        # the job — otherwise this change would turn three advisory checks into
+        # a blocking one.
+        for step_name in ("Check PR metadata", "Check PR size", "Auto-label PR"):
+            with self.subTest(step=step_name):
+                self.assertIn("continue-on-error: true", extract_step(job, step_name))
+
+    def test_the_reports_survive_an_advisory_failure(self):
+        # The checkout in advisory-checks has no continue-on-error, so the job
+        # can still fail. Everything that reports must run anyway.
+        #
+        # Read from the parsed job, not from its text: `assertIn` over the whole
+        # job body is satisfied by a step, or even by this comment, while the
+        # job-level `needs` and `if` say something else entirely.
+        jobs = yaml.safe_load(WORKFLOW)["jobs"]
+        for job_id in ("pr-checks-summary", "pr-validation-report"):
+            with self.subTest(job=job_id):
+                self.assertIn("advisory-checks", jobs[job_id]["needs"])
+                self.assertIn("always()", jobs[job_id]["if"])
+
+
 class ApprovalGateStructureTests(unittest.TestCase):
     """The human approval gate — wiring that must not drift.
 

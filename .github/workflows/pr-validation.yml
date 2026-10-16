@@ -402,11 +402,20 @@ jobs:
           commit-signatures-outcome: ${{ steps.commit-signatures.outcome || 'skipped' }}
 
   # ----------------- Tier 2: Advisory Checks (shared checkout, depends on Tier 1) -----------------
+  # Advisory by definition, so a blocking failure must not take them with it.
+  # They used to be gated on `needs.blocking-checks.result == 'success'`, from
+  # the 2-tier fail-fast model, which saved a runner at the cost of the exact
+  # pull request that needed the help: a wrong title or a missing signature
+  # meant no size label, no auto-labels and no assignee either. Those three are
+  # cheap, none of them can block, and they are most useful on a pull request
+  # that is already in trouble.
+  #
+  # `needs:` stays for ordering only. The verdict is no longer consulted.
   advisory-checks:
     name: Advisory Checks
     runs-on: ${{ vars.GENERAL_RUNNERS || inputs.runner_type }}
     needs: [blocking-checks]
-    if: always() && github.event_name == 'pull_request' && needs.blocking-checks.result == 'success' && github.event.pull_request.draft != true
+    if: always() && github.event_name == 'pull_request' && github.event.pull_request.draft != true
     outputs:
       metadata-result: ${{ steps.collect.outputs.metadata }}
       size-result: ${{ steps.collect.outputs.size }}

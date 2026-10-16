@@ -225,6 +225,19 @@ For every non-draft live run, including detector failure or cancellation, the wo
 feat fix docs style refactor perf test chore ci build revert
 ```
 
+### Advisory checks always run
+
+PR Size, Auto Labels and PR Metadata are advisory — none of them can block a
+merge. They are therefore **not** gated on the blocking tier passing.
+
+They used to be. The 2-tier fail-fast model skipped them whenever a blocking
+check failed, which saved a runner at the cost of the pull request that most
+needed the help: a wrong title or a missing signature also meant no size label,
+no auto-labels and no assignee. A pull request already in trouble is exactly
+where that information is worth having.
+
+They still skip on drafts, and on anything that is not a `pull_request` event.
+
 ## Breaking change approval
 
 The author-acknowledgement guard above asks the author to declare the break. The
@@ -271,7 +284,7 @@ Full detail: [`breaking-change-approval.md`](breaking-change-approval.md).
 |-----|------|------------|-----------|
 | `breaking-change-guard` | mandatory detection | `breaking-change-guard@v1` | always, including drafts |
 | `blocking-checks` | 1 (fail-fast) | guard enforcement, `pr-source-branch`, `pr-title`, `pr-description`, `pr-commit-signatures` | always; drafts run guard enforcement only |
-| `advisory-checks` | 2 (informational) | `pr-metadata`, `pr-size`, `pr-labels` | non-draft, blocking-checks passed |
+| `advisory-checks` | 2 (informational) | `pr-metadata`, `pr-size`, `pr-labels` | non-draft, regardless of the blocking result |
 | `pr-checks-summary` | — | `pr-checks-summary` | always (writes to step summary) |
 | `breaking-change-comment` | — | `actions/github-script` | every non-draft live run, including detector failure or cancellation |
 | `pr-validation-report` | — | `pr-validation-reporter` | non-draft (upserts single PR comment) |
@@ -282,7 +295,7 @@ Full detail: [`breaking-change-approval.md`](breaking-change-approval.md).
 - Always enforce both the guard job state and its normalized output, including on drafts
 - Skip existing source branch, title, description, commit signature, and collector steps on drafts; their non-draft behavior is unchanged
 - On non-drafts, every validation runs even if one fails (`continue-on-error` per step)
-- Job fails if the guard job, normalized guard output, or **any** existing blocking check fails, preventing advisory checks from running
+- Job fails if the guard job, normalized guard output, or **any** existing blocking check fails. Advisory checks run either way
 - In dry-run mode, guard state is logged but does not fail `Blocking Checks`
 
 ### Fail-closed detection
@@ -325,7 +338,9 @@ The step runs with read-only permissions and emits no commit metadata beyond wha
 
 ### Advisory checks (Tier 2)
 - Share a single `checkout` with `fetch-depth: 0`
-- Only run if all blocking checks passed
+- Run on every non-draft pull request, **regardless of the blocking result** — a
+  pull request that failed a blocking check still gets its size label, its
+  auto-labels and its assignee
 - Never block merge — informational only
 
 ## Dry Run Behavior
