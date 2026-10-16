@@ -24,7 +24,7 @@ inputs:
     required: false
     default: ''
   acknowledged:
-    description: Whether the author acknowledgement line is present in the description (true/false). Shown to the reviewer as context.
+    description: 'Whether the author acknowledgement line is present in the description — `true`, `false`, or empty when nobody evaluated it. Empty omits the row entirely: reporting "missing" for something unchecked sends the author after a line no check is asking for.'
     required: false
     default: 'false'
   author-acknowledgement:
@@ -207,13 +207,19 @@ runs:
               printf '|  |  |\n|:--|:--|\n'
               [ -n "$commit_link" ] && printf '| 💥 **Breaking commit** | %s |\n' "$commit_link"
               [ -n "$mentions" ] && printf '| 👤 **Who can decide** | %s |\n' "$mentions"
-              printf '| %s **Author acknowledgement** | %s |\n\n' \
-                "$([ "$ACKNOWLEDGED" = "true" ] && echo "✅" || echo "⬜")" \
-                "$([ "$ACKNOWLEDGED" = "true" ] && echo "present" || echo "missing")"
+              # Empty means nobody evaluated it — only the caller that enforces
+              # the acknowledgement can say. Printing "missing" there would send
+              # the author after a line no check is asking for.
+              if [ -n "$ACKNOWLEDGED" ]; then
+                printf '| %s **Author acknowledgement** | %s |\n' \
+                  "$([ "$ACKNOWLEDGED" = "true" ] && echo "✅" || echo "⬜")" \
+                  "$([ "$ACKNOWLEDGED" = "true" ] && echo "present" || echo "missing")"
+              fi
+              printf '\n'
 
               # Blocking Checks fails on a missing acknowledgement whether or
               # not an approval is pending, so the line to add belongs here too.
-              if [ "$ACKNOWLEDGED" != "true" ] && [ -n "$ACK_LINE" ]; then
+              if [ "$ACKNOWLEDGED" = "false" ] && [ -n "$ACK_LINE" ]; then
                 printf '<details>\n<summary><b>Blocking Checks</b> also needs the author acknowledgement</summary>\n\n'
                 printf 'Add this exact line to the pull request description:\n\n'
                 printf '```\n%s\n```\n\n' "$ACK_LINE"
