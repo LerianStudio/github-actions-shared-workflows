@@ -246,49 +246,25 @@ jobs:
             echo "::notice::PR #${PR_NUMBER} (${HEAD_REF} → ${BASE_REF}) is not gated — ${REASON}"
           fi
 
-      # The composite reads Git history, so it needs `origin/<base>` and a HEAD
-      # that is the pull request. The second checkout exists because the first
-      # one leaves HEAD on the event's commit, which is only the pull request
-      # under `pull_request`. `clean: false` keeps what the first one fetched.
-      - name: Check out full history
-        id: checkout
-        if: steps.scope.outputs.in-scope == 'true' && inputs.detected_breaking_changes == ''
-        continue-on-error: true
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
-        with:
-          fetch-depth: 0
-          persist-credentials: false
-
-      - name: Move HEAD onto the pull request head
-        id: checkout-head
-        if: steps.scope.outputs.in-scope == 'true' && steps.checkout.outcome == 'success'
-        continue-on-error: true
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
-        with:
-          ref: refs/pull/${{ steps.scope.outputs.pr-number }}/head
-          fetch-depth: 0
-          clean: false
-          persist-credentials: false
-
-      # Nothing from the checked-out tree is executed — the composite only reads
-      # commit messages — so fork code never runs here.
-      - name: Detect breaking changes
-        id: guard
-        if: steps.scope.outputs.in-scope == 'true' && steps.checkout-head.outcome == 'success' && inputs.detected_breaking_changes == ''
-        continue-on-error: true
-        uses: LerianStudio/github-actions-shared-workflows/src/validate/breaking-change-guard@v1
-        with:
-          base-ref: ${{ steps.scope.outputs.base-ref }}
-          breaking-change-acknowledgement: ${{ inputs.author_acknowledgement }}
-          acknowledgement-match-mode: exact-visible-line
-
       # Which commits tripped the gate, and a digest of the set. The digest is
       # what lets an approval survive a push that did not touch the breaking
       # change — see the `request` job.
+      #
+      # This also detects, when the caller did not. It replaced a pair of
+      # checkouts and the Git-reading composite: CodeQL flagged them as
+      # `actions/untrusted-checkout`, and it was right to — a non-privileged
+      # workflow was putting a contributor's tree on disk beside MANAGE_TOKEN.
+      # Nothing executed it, but nothing needed it either. Reading the API
+      # removes the tree, the token exposure and the alert together.
+      #
+      # `breaking-change-guard` stays the canonical detector and still runs in
+      # pr-validation over the real commit range; the patterns here are kept
+      # identical to it and tested against the same negative cases.
       - name: List the breaking-change commits
         id: commits
         if: steps.scope.outputs.in-scope == 'true'
         continue-on-error: true
+        # No checkout: it reads the pull request through the API.
         uses: LerianStudio/github-actions-shared-workflows/src/validate/breaking-change-commits@develop
         with:
           github-token: ${{ secrets.MANAGE_TOKEN || github.token }}
@@ -301,11 +277,8 @@ jobs:
           IN_SCOPE: ${{ steps.scope.outputs.in-scope }}
           SUPPLIED_HAS_BREAKING_CHANGES: ${{ inputs.detected_breaking_changes }}
           SUPPLIED_ACKNOWLEDGED: ${{ inputs.detected_acknowledged }}
-          CHECKOUT_OUTCOME: ${{ steps.checkout.outcome }}
-          CHECKOUT_HEAD_OUTCOME: ${{ steps.checkout-head.outcome }}
-          GUARD_OUTCOME: ${{ steps.guard.outcome }}
-          RAW_HAS_BREAKING_CHANGES: ${{ steps.guard.outputs.has-breaking-changes }}
-          RAW_ACKNOWLEDGED: ${{ steps.guard.outputs.approved }}
+          COMMITS_OUTCOME: ${{ steps.commits.outcome }}
+          BREAKING_COUNT: ${{ steps.commits.outputs.count }}
         run: |
           set -euo pipefail
 
@@ -314,9 +287,18 @@ jobs:
           detection_succeeded=false
 
           if [ "$IN_SCOPE" != "true" ]; then
-            # Nothing was scanned, and nothing needs to be: an out-of-scope pull
-            # request is a successful no-op, not a failed detection.
+            # Out of scope means no approval is required — it does not mean
+            # nothing was found. When the caller already detected, keep that
+            # answer: the acknowledgement is still enforced everywhere, and the
+            # author needs to be told which line to add. Scanning here is what
+            # would be pointless, not knowing.
             detection_succeeded=true
+            case "$SUPPLIED_HAS_BREAKING_CHANGES" in
+              true | false )
+                has_breaking_changes="$SUPPLIED_HAS_BREAKING_CHANGES"
+                [ "$SUPPLIED_ACKNOWLEDGED" = "true" ] && acknowledged=true
+                ;;
+            esac
           elif [ -n "$SUPPLIED_HAS_BREAKING_CHANGES" ]; then
             # The caller already ran the same composite over the same commits.
             # Anything but a clean boolean is a wiring mistake, and a wiring
@@ -336,15 +318,17 @@ jobs:
                 echo "detected_breaking_changes must be 'true', 'false', 'unknown' or empty; got '${SUPPLIED_HAS_BREAKING_CHANGES}'." >&2
                 ;;
             esac
-          elif [ "$CHECKOUT_OUTCOME" = "success" ] && [ "$CHECKOUT_HEAD_OUTCOME" = "success" ] \
-            && [ "$GUARD_OUTCOME" = "success" ] \
-            && { [ "$RAW_HAS_BREAKING_CHANGES" = "true" ] || [ "$RAW_HAS_BREAKING_CHANGES" = "false" ]; } \
-            && { [ "$RAW_ACKNOWLEDGED" = "true" ] || [ "$RAW_ACKNOWLEDGED" = "false" ]; }; then
-            has_breaking_changes="$RAW_HAS_BREAKING_CHANGES"
-            acknowledged="$RAW_ACKNOWLEDGED"
+          elif [ "$COMMITS_OUTCOME" = "success" ] && [ -n "$BREAKING_COUNT" ]; then
+            [ "$BREAKING_COUNT" -gt 0 ] && has_breaking_changes=true
             detection_succeeded=true
+            # Left empty on purpose, not false. Without the caller's verdict
+            # the acknowledgement was never evaluated here — the detector that
+            # reads the description lives in pr-validation — and reporting
+            # "missing" for something nobody looked at would send the author
+            # after a line no check is asking for.
+            acknowledged=""
           else
-            echo "Breaking change detection failed: checkout=${CHECKOUT_OUTCOME} checkout_head=${CHECKOUT_HEAD_OUTCOME} guard=${GUARD_OUTCOME}" >&2
+            echo "Breaking change detection failed: commits=${COMMITS_OUTCOME} count=${BREAKING_COUNT:-missing}" >&2
           fi
 
           {
@@ -510,6 +494,27 @@ jobs:
           create-if-missing: ${{ inputs.create_approval_environment && 'true' || 'false' }}
           reviewers: ${{ inputs.approval_reviewers != '' && inputs.approval_reviewers || steps.codeowners.outputs.reviewers }}
 
+      # Out of scope, so no approval is coming — but the acknowledgement is
+      # enforced on every pull request, and an author who omits it otherwise
+      # sees Blocking Checks fail with nothing explaining what to add.
+      - name: Report the acknowledgement requirement
+        if: >-
+          needs.detect.result == 'success'
+          && needs.detect.outputs.in-scope != 'true'
+          && needs.detect.outputs.has-breaking-changes == 'true'
+          && !inputs.dry_run
+        continue-on-error: true
+        uses: LerianStudio/github-actions-shared-workflows/src/notify/breaking-change-approval-reporter@develop
+        with:
+          github-token: ${{ secrets.MANAGE_TOKEN || github.token }}
+          pr-number: ${{ needs.detect.outputs.pr-number }}
+          state: acknowledgement
+          head-sha: ${{ needs.detect.outputs.head-sha }}
+          acknowledged: ${{ needs.detect.outputs.acknowledged }}
+          author-acknowledgement: ${{ inputs.author_acknowledgement }}
+          label: ''
+          enabled: ${{ inputs.enable_comment && 'true' || 'false' }}
+
       - name: Request the approval on the pull request
         if: >-
           needs.detect.result == 'success'
@@ -521,6 +526,7 @@ jobs:
           github-token: ${{ secrets.MANAGE_TOKEN || github.token }}
           pr-number: ${{ needs.detect.outputs.pr-number }}
           state: waiting
+          author-acknowledgement: ${{ inputs.author_acknowledgement }}
           fingerprint: ${{ needs.detect.outputs.fingerprint }}
           reviewers: ${{ inputs.approval_reviewers != '' && inputs.approval_reviewers || steps.codeowners.outputs.reviewers }}
           actual-reviewers: ${{ steps.environment.outputs.reviewers }}

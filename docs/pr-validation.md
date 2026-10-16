@@ -210,14 +210,14 @@ The guard is mandatory on every target branch. There is no opt-out. The action s
 
 ### Feedback comments
 
-For every non-draft live run, including detector failure or cancellation, the workflow uses `github.token` to manage one best-effort comment owned only when the author is exactly `github-actions[bot]` and the body starts with the exact marker line:
+The guard posts nothing of its own. Everything an author needs to read about a
+breaking change — including the exact acknowledgement line to paste — lives in
+the single comment described under [One comment, not two](#one-comment-not-two),
+written by the breaking-change gate.
 
-- A breaking change creates or updates the comment with `Author acknowledged` or `Awaiting author acknowledgement` state and the exact acknowledgement.
-- Detection or guard-job failure replaces stale acknowledgement with one `Detection failed` comment and deletes duplicate owned comments.
-- Duplicate owned marker comments are deleted.
-- When breaking changes disappear, all owned guard comments are deleted.
-- Before any comment mutation, the workflow fetches the current PR and stops if its current head SHA differs from the event head SHA.
-- Fork token write restrictions and comment API failures never affect enforcement. The workflow never falls back to another bot identity.
+Enforcement never depends on that comment. A comment API failure leaves the
+verdict exactly as it was — passing or failing on the acknowledgement alone,
+which is what `Blocking Checks` decides either way.
 
 ### Default PR Title Types
 
@@ -237,6 +237,18 @@ no auto-labels and no assignee. A pull request already in trouble is exactly
 where that information is worth having.
 
 They still skip on drafts, and on anything that is not a `pull_request` event.
+
+## One comment, not two
+
+The acknowledgement guard used to post its own comment. It no longer does: the
+breaking-change gate's comment carries both controls, because two bot comments
+about the same breaking change read as a contradiction — one headed by a ✅ for
+the author's acknowledgement, one asking for a decision. The ✅ gets taken for
+the approval.
+
+The gate now comments wherever a breaking change is found, including on branches
+outside its approval scope. There it reports only the acknowledgement and the
+exact line to paste, since that is the only thing being enforced.
 
 ## Breaking change approval
 
@@ -286,7 +298,6 @@ Full detail: [`breaking-change-approval.md`](breaking-change-approval.md).
 | `blocking-checks` | 1 (fail-fast) | guard enforcement, `pr-source-branch`, `pr-title`, `pr-description`, `pr-commit-signatures` | always; drafts run guard enforcement only |
 | `advisory-checks` | 2 (informational) | `pr-metadata`, `pr-size`, `pr-labels` | non-draft, regardless of the blocking result |
 | `pr-checks-summary` | — | `pr-checks-summary` | always (writes to step summary) |
-| `breaking-change-comment` | — | `actions/github-script` | every non-draft live run, including detector failure or cancellation. Needs `pull-requests: write` — commenting on a PR is authorised as a pull request, not as an issue |
 | `pr-validation-report` | — | `pr-validation-reporter` | non-draft (upserts single PR comment) |
 | `notify` | — | `slack-notify.yml` | non-draft, `!dry_run` |
 

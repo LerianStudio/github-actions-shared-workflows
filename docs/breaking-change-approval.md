@@ -52,7 +52,7 @@ own:
 | Composite | Responsibility |
 |---|---|
 | [`pr-gate-scope`](../src/validate/pr-gate-scope/README.md) | Is this pull request in scope, and why — base → head rules, label overrides, author vetoes |
-| [`breaking-change-guard`](../src/validate/breaking-change-guard/README.md) | Does the branch carry a breaking-change commit |
+| [`breaking-change-guard`](../src/validate/breaking-change-guard/README.md) | The canonical detector, over the real commit range. Runs in `pr-validation.yml`, whose verdict this gate is handed |
 | [`breaking-change-commits`](../src/validate/breaking-change-commits/README.md) | Which commits carry the break, and a digest of the set |
 | [`codeowners-reviewers`](../src/validate/codeowners-reviewers/README.md) | Who owns this repository, per its CODEOWNERS |
 | [`environment-protection`](../src/validate/environment-protection/README.md) | Does `breaking-approval` exist with required reviewers — creating it when it does not |
@@ -177,10 +177,19 @@ jobs:
       MANAGE_TOKEN: ${{ secrets.MANAGE_TOKEN }}
 ```
 
-Called this way the workflow detects on its own, with two checkouts: a plain one
-for the `origin/<base>` remote-tracking refs, then `refs/pull/<n>/head` with
-`clean: false` to move `HEAD` onto the pull request. Nothing from the tree is
-executed — only commit messages are read — so fork code never runs.
+Called this way the workflow detects on its own, through the API — it checks
+out nothing at all.
+
+It used to use two checkouts and read Git directly. CodeQL flagged that as
+`actions/untrusted-checkout`, and the alert was fair: a non-privileged workflow
+was placing a contributor's tree on disk next to `MANAGE_TOKEN`. Nothing ever
+executed it, but nothing needed it either, and the tree, the token exposure and
+the alert all went away together.
+
+The acknowledgement is **not** evaluated on this path — the detector that reads
+the pull request description runs in `pr-validation.yml`. The comment omits that
+row rather than reporting it missing, because telling an author to add a line no
+check is asking for is worse than saying nothing.
 
 ### Testing before adoption
 
