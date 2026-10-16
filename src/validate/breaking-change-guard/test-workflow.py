@@ -1122,6 +1122,30 @@ class ApprovalGateStructureTests(unittest.TestCase):
         self.assertEqual("superseded", outputs["state"])
         self.assertNotEqual("rejected", outputs["state"])
 
+    def test_a_standing_approval_skips_the_request_entirely(self):
+        step = extract_step(
+            extract_job(APPROVAL_WORKFLOW, "request"),
+            "Request the approval on the pull request",
+        )
+        # Observed on #920: with the approval already standing, the run still
+        # announced "needs a decision" and added the pending label, and the
+        # verdict took both back seconds later. A flicker in the timeline for a
+        # decision that was never in question.
+        self.assertIn("steps.prior.outputs.already-approved != 'true'", step)
+
+    def test_the_decider_is_linked_not_mentioned(self):
+        for state, env, who in (
+            ("approved", {"APPROVERS": "carol"}, "carol"),
+            ("rejected", {"REJECTERS": "dave"}, "dave"),
+        ):
+            with self.subTest(state=state):
+                rendered = render_reporter(state, **env)
+                self.assertIn(f"[@{who}](https://github.com/{who})", rendered)
+                # Linked, not mentioned: the person named is the one who just
+                # acted, so a notification tells them what they already know.
+                for match in re.finditer(rf"@{who}", rendered):
+                    self.assertTrue(rendered[: match.start()].endswith("["))
+
     def test_an_approval_already_given_is_not_asked_for_again(self):
         # The reviewer said yes to a breaking change. A push that leaves that
         # change alone must not put the same question back in their queue —

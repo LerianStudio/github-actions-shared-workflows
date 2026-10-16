@@ -533,11 +533,16 @@ jobs:
           pending-label: ''
           enabled: ${{ inputs.enable_comment && 'true' || 'false' }}
 
+      # Nothing to request when the approval already stands. Without this the
+      # run announces "needs a decision", adds the pending label, and then the
+      # verdict takes both back seconds later — a flicker in the timeline for a
+      # decision that was never in question.
       - name: Request the approval on the pull request
         if: >-
           needs.detect.result == 'success'
           && needs.detect.outputs.in-scope == 'true'
           && needs.detect.outputs.has-breaking-changes == 'true'
+          && steps.prior.outputs.already-approved != 'true'
           && !inputs.dry_run
         uses: LerianStudio/github-actions-shared-workflows/src/notify/breaking-change-approval-reporter@develop
         with:
