@@ -138,6 +138,14 @@ them match: REST returns `dependabot[bot]`, GraphQL returns `dependabot`, and
 stripped before comparing, so `dependabot`, `dependabot[bot]` and
 `app/dependabot` are the same entry.
 
+### Authors reviewed by Radagast
+
+The variable `RADAGAST_AUTHORS` (comma-separated logins, spelled as for
+`ignore_authors`) is a second veto, checked right after it: Radagast reviews those
+authors, so the gate never asks CodeRabbit for them. It is read from the caller's
+organization or repository, so changing it needs no input and no promotion. Unset
+or empty, it vetoes nobody. A `dry_run` prints the value the run saw.
+
 ### The caller's trigger bounds this
 
 A base branch listed in `review_base_branches` but absent from the caller's

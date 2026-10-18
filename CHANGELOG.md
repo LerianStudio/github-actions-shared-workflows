@@ -1,5 +1,26 @@
 # Github-actions-shared-workflows Changelog
 
+## [1.84.0](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.84.0)
+
+Features:
+
+- Develop branch changes merged into the main branch for release. (@bedatty)
+- Implemented a mechanism to hold major version bumps for human approval during pull request validation. (@bedatty)
+- Updated pull request validation to take gate reviewers from the `CODEOWNERS` file. (@bedatty)
+- Automatically create the `breaking-approval` environment if it is missing during pull request validation. (@bedatty)
+
+Fixes:
+
+- Updated references to use the new composites at the `@develop` branch. (@bedatty)
+
+Improvements:
+
+- Refactored the pull request validation logic by moving the approval gate logic into composites. (@bedatty)
+
+[Compare changes](https://github.com/LerianStudio/github-actions-shared-workflows/compare/v1.83.0...v1.84.0)
+
+---
+
 ## [1.83.0](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.83.0)
 
 Features:
