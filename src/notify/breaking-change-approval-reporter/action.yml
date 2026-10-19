@@ -130,9 +130,9 @@ runs:
         set -euo pipefail
 
         case "$STATE" in
-          waiting | approved | rejected | unresolved | acknowledgement ) ;;
+          waiting | approved | rejected | unresolved | acknowledgement | blocked ) ;;
           * )
-            echo "state must be one of: waiting, approved, rejected, unresolved, acknowledgement; got '${STATE}'." >&2
+            echo "state must be one of: waiting, approved, rejected, unresolved, acknowledgement, blocked; got '${STATE}'." >&2
             exit 1
             ;;
         esac
@@ -211,6 +211,22 @@ runs:
           commit_link="[\`${HEAD_SHA:0:7}\`](${SERVER_URL}/${REPO}/commit/${HEAD_SHA})"
         fi
 
+        # Blocking Checks fails on a missing acknowledgement whether or not an
+        # approval is pending — and whether or not one was given. Approving a
+        # break is a reviewer saying yes to it; it is not the author declaring
+        # it in the description, which is a separate, mandatory control.
+        #
+        # This used to live inside `waiting` alone, so the approval rewrote the
+        # comment and took the only copy of the line with it. The author was
+        # then left with a red Blocking Checks and nothing saying what to add.
+        ack_followup() {
+          [ "$ACKNOWLEDGED" = "false" ] && [ -n "$ACK_LINE" ] || return 0
+          printf '<details>\n<summary><b>Blocking Checks</b> also needs the author acknowledgement</summary>\n\n'
+          printf 'Add this exact line to the pull request description:\n\n'
+          printf '```\n%s\n```\n\n' "$ACK_LINE"
+          printf '</details>\n\n'
+        }
+
         # shellcheck disable=SC2016  # the backticks below are Markdown code spans, not command substitutions
         {
           printf '<!-- breaking-change-approval -->\n\n'
@@ -247,14 +263,7 @@ runs:
               fi
               printf '\n'
 
-              # Blocking Checks fails on a missing acknowledgement whether or
-              # not an approval is pending, so the line to add belongs here too.
-              if [ "$ACKNOWLEDGED" = "false" ] && [ -n "$ACK_LINE" ]; then
-                printf '<details>\n<summary><b>Blocking Checks</b> also needs the author acknowledgement</summary>\n\n'
-                printf 'Add this exact line to the pull request description:\n\n'
-                printf '```\n%s\n```\n\n' "$ACK_LINE"
-                printf '</details>\n\n'
-              fi
+              ack_followup
               ;;
             approved)
               printf '> [!NOTE]\n'
@@ -262,6 +271,7 @@ runs:
               printf '>\n'
               printf '> Approved by %s. 💥 The next release will be a major version.\n\n' \
                 "${linked_approvers:-a reviewer}"
+              ack_followup
               ;;
             rejected)
               printf '> [!CAUTION]\n'
@@ -284,13 +294,21 @@ runs:
                 printf '> ## 💥 Breaking change acknowledged\n'
                 printf '>\n'
                 printf '> The author has declared this break in the description. No approval is required on this branch.\n\n'
-              else
+              elif [ -n "$ACK_LINE" ]; then
                 printf '> [!IMPORTANT]\n'
                 printf '> ## 💥 Breaking change — acknowledgement missing\n'
                 printf '>\n'
                 printf '> This pull request carries a breaking change, so the next release becomes a **major** version. Add this exact line to the description:\n'
                 printf '>\n'
                 printf '> ```\n> %s\n> ```\n\n' "$ACK_LINE"
+              else
+                # No line to paste means nobody configured one — a direct
+                # caller on the composite's defaults. "Add this exact line"
+                # followed by an empty code block is worse than saying less.
+                printf '> [!IMPORTANT]\n'
+                printf '> ## 💥 Breaking change — acknowledgement missing\n'
+                printf '>\n'
+                printf '> This pull request carries a breaking change, so the next release becomes a **major** version. Declare it in the description.\n\n'
               fi
               ;;
             unresolved)
@@ -300,6 +318,19 @@ runs:
               printf '> The approval did not complete.'
               [ -n "$RUN_URL" ] && printf ' [Open the run](%s) to answer it.' "$RUN_URL"
               printf '\n\n'
+              ;;
+            blocked)
+              # Detection did not complete, so the gate has nothing to ask
+              # about and fails closed. That failure used to be silent on the
+              # pull request — a red check with no comment explaining it, which
+              # reads as a flake and gets re-run rather than looked at.
+              printf '> [!CAUTION]\n'
+              printf '> ## 💥 Breaking change gate could not run\n'
+              printf '>\n'
+              printf '> Detection did not complete, so this check fails closed — an unknown is not the same as "no breaking changes".'
+              [ -n "$RUN_URL" ] && printf ' [Open the run](%s) to see why.' "$RUN_URL"
+              printf '\n\n'
+              ack_followup
               ;;
           esac
 
