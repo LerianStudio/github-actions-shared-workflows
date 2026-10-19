@@ -358,10 +358,13 @@ jobs:
                 ;;
               unknown )
                 # The documented way for a caller to say "my own detection did not
-                # complete". It must not read as "no breaking changes".
+                # complete". It must not read as "no breaking changes" — and the
+                # acknowledgement it reported alongside is just as unevaluated.
+                acknowledged=""
                 echo "The caller reported that its breaking-change detection did not complete — failing closed." >&2
                 ;;
               * )
+                acknowledged=""
                 echo "detected_breaking_changes must be 'true', 'false', 'unknown' or empty; got '${SUPPLIED_HAS_BREAKING_CHANGES}'." >&2
                 ;;
             esac
@@ -375,6 +378,11 @@ jobs:
             # after a line no check is asking for.
             acknowledged=""
           else
+            # Empty, not false. Detection did not complete, so nothing read the
+            # description — and `false` here reaches the blocked comment as
+            # "your acknowledgement is missing", sending an author who may well
+            # have written the line after a line no check evaluated.
+            acknowledged=""
             echo "Breaking change detection failed: commits=${COMMITS_OUTCOME} count=${BREAKING_COUNT:-missing}" >&2
           fi
 
@@ -399,7 +407,6 @@ jobs:
     outputs:
       already-approved: ${{ steps.prior.outputs.already-approved }}
       approved-by: ${{ steps.prior.outputs.approved-by }}
-      approving-run: ${{ steps.prior.outputs.approving-run }}
     steps:
       # Has this exact breaking change already been approved on this pull
       # request? The approval comment records the fingerprint it approved, so a
@@ -540,10 +547,19 @@ jobs:
           # "a reviewer" — erasing the name of whoever actually gave it. Both
           # values are verified against the Environment log above; neither is
           # read from the comment.
+          # One login per line is what the approvals API gives back, and an
+          # Environment can require more than one reviewer. Written straight
+          # out, the second login lands on its own line with no `=`, the runner
+          # rejects it, and this step fails — taking the whole reuse contract
+          # with it: `request` fails, the verdict reads `blocked`, and a
+          # previously approved breaking set is blocked on every push.
+          #
+          # Comma-separated is also what the reporter already parses.
+          approved_by=$(printf '%s' "$approved_by" | awk 'NF' | paste -sd, -)
+
           {
             echo "already-approved=$already"
             echo "approved-by=${approved_by}"
-            [ "$already" = "true" ] && echo "approving-run=${approving_run}" || echo "approving-run="
           } >> "$GITHUB_OUTPUT"
 
       # Read from the BASE ref, never the head: a CODEOWNERS taken from the pull

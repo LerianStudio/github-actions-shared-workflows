@@ -24,6 +24,7 @@ comment, and it ends as the record of who decided what — nothing is deleted.
 | `approved` | Approved by whom, and that the next release will be a major version |
 | `rejected` | Rejected by whom, the reason they gave, and what to do next |
 | `unresolved` | The approval ended without a recorded decision — open the run |
+| `blocked` | The gate could not reach a verdict at all — detection or the request stage failed, and the check fails closed. Deliberately neutral about which: `blocked` is reached from both. The only state that does **not** apply the fact label, because nothing was established — labels already on the pull request are left alone |
 
 Any other value fails the step. A typo in `state` must not produce a confidently
 worded comment about the wrong thing.
@@ -115,7 +116,7 @@ side effect in the caller is what makes this safe to run with
 | `github-token` | Token used to comment and label. Needs `pull-requests: write`. | Yes | — |
 | `pr-number` | Pull request to report on. | Yes | — |
 | `repository` | Repository owning it, as `owner/name`. | No | `${{ github.repository }}` |
-| `state` | `waiting`, `approved`, `rejected` or `unresolved`. | Yes | — |
+| `state` | `waiting`, `acknowledgement`, `approved`, `rejected`, `unresolved` or `blocked`. | Yes | — |
 | `reason` | Why the pull request is gated, from `pr-gate-scope`. | No | `''` |
 | `head-sha` | Head commit the report refers to. | No | `''` |
 | `acknowledged` | Whether the author acknowledgement line is present. | No | `false` |

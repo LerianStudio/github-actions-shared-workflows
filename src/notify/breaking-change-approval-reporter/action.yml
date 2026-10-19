@@ -13,7 +13,7 @@ inputs:
     required: false
     default: ${{ github.repository }}
   state:
-    description: "What to report — `waiting`, `approved`, `rejected`, `unresolved` when the approval ended without a recorded decision, or `acknowledgement` where no approval is required and only the author's acknowledgement is at stake. Any other value fails the step."
+    description: "What to report — `waiting`, `approved`, `rejected`, `unresolved` when the approval ended without a recorded decision, `acknowledgement` where no approval is required and only the author's acknowledgement is at stake, or `blocked` when the gate could not reach a verdict at all. `blocked` does not apply the fact label: nothing was established. Any other value fails the step."
     required: true
   reason:
     description: Why the pull request is gated, as resolved by `pr-gate-scope`.
@@ -347,16 +347,25 @@ runs:
               printf '\n\n'
               ;;
             blocked)
-              # Detection did not complete, so the gate has nothing to ask
-              # about and fails closed. That failure used to be silent on the
-              # pull request — a red check with no comment explaining it, which
-              # reads as a flake and gets re-run rather than looked at.
+              # The gate could not reach a verdict, so it fails closed. That
+              # used to be silent on the pull request — a red check with no
+              # comment explaining it, which reads as a flake and gets re-run
+              # rather than looked at.
+              #
+              # Deliberately neutral about which stage failed. `blocked` is
+              # also reached when detection succeeded and the request stage
+              # did not — an Environment preflight refusing an unprotected
+              # `breaking-approval`, say — and blaming detection there sends
+              # the reader to the wrong log.
               printf '> [!CAUTION]\n'
               printf '> ## 💥 Breaking change gate could not run\n'
               printf '>\n'
-              printf '> Detection did not complete, so this check fails closed — an unknown is not the same as "no breaking changes".'
-              [ -n "$RUN_URL" ] && printf ' [Open the run](%s) to see why.' "$RUN_URL"
+              printf '> The gate did not reach a verdict, so this check fails closed — an unknown is not the same as "no breaking changes".'
+              [ -n "$RUN_URL" ] && printf ' [Open the run](%s) to see which step failed.' "$RUN_URL"
               printf '\n\n'
+              # `ack_followup` is a no-op unless the acknowledgement was
+              # actually evaluated: the gate sends an empty value, not
+              # `false`, when nothing read the description.
               ack_followup
               ;;
           esac
@@ -486,9 +495,13 @@ runs:
         # on a decision is a state, and it ends.
         #
         # Every state reaching this composite means a breaking change is
-        # present — the caller skips it entirely when there is none — so the
-        # fact label is applied throughout and only the caller removes it.
-        if [ -n "$LABEL" ]; then
+        # present — the caller skips it entirely when there is none — with one
+        # exception. `blocked` means the gate never established anything, so
+        # labelling the pull request `breaking-change` there asserts exactly
+        # what the comment beside it says is unknown, and a transient detection
+        # failure would brand a clean pull request. Labels already on it stay:
+        # removing them would be the same mistake inverted.
+        if [ -n "$LABEL" ] && [ "$STATE" != "blocked" ]; then
           if ! gh pr edit "$PR_NUMBER" --repo "$REPO" --add-label "$LABEL" >/dev/null 2>&1; then
             echo "::notice::Label '${LABEL}' not applied — it is not declared in ${REPO}. Cosmetic only."
           fi

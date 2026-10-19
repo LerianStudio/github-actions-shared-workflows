@@ -446,6 +446,7 @@ Declare them with [`labels-sync`](labels-sync.md), or pass `label: ''` /
 | `require_protected_environment` | boolean | `true` | Refuse to gate when `breaking-approval` exists without required reviewers. Leave on. |
 | `label` | string | `breaking-change` | States that the change is breaking. A fact, so it survives the decision and comes off only when the breaking commits are gone. Cosmetic. |
 | `pending_label` | string | `awaiting-breaking-approval` | States that a decision is pending. A state, so it comes off once approved or rejected. Cosmetic. |
+| `enable_approval` | boolean | `true` | Hold breaking changes at the Environment. `false` keeps the gate reporting and labelling but never asks for a decision — the author acknowledgement is a separate control the caller still enforces, and the comment carrying the line to paste comes from here. Not the same as not calling the workflow. |
 | `enable_comment` | boolean | `true` | Post and keep the comment updated. |
 | `dry_run` | boolean | `false` | Report what would be gated without commenting, labelling, requesting an approval, or failing. |
 | `runner_type` | string | `blacksmith-4vcpu-ubuntu-2404` | Runner label. Overridden by `vars.GENERAL_RUNNERS`. |
