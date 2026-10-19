@@ -456,7 +456,7 @@ Whitespace around commas is tolerated.
 | Output | Description |
 |--------|-------------|
 | `in_scope` | Whether the pull request was gated at all (`true`/`false`). |
-| `has_breaking_changes` | Whether a breaking commit was found (`true`/`false`). Always `false` out of scope — nothing was scanned. |
+| `has_breaking_changes` | Whether a breaking commit was found (`true`/`false`). Reports the detection out of scope too — not gating a pull request is not the same as it carrying no break. Gate on `in_scope` alongside it for the pre-v2 reading. |
 | `approved` | Whether a reviewer approved through the Environment (`true`/`false`). |
 | `result` | Gate verdict (`success`/`failure`). |
 
@@ -464,6 +464,45 @@ Through the umbrellas these surface as `breaking_change_approval_result`
 (`success` / `failure` / `skipped`) and `breaking_change_approved_by_reviewer`.
 `skipped` is reported rather than folded into `success`: a gate that never ran
 and a gate that passed are not the same fact.
+
+## Migrating to v2
+
+Two supported contracts changed. Both were deliberate, and both are breaking
+for a caller relying on the old behaviour.
+
+**`label` survives the decision.** It used to come off on approval. It is a
+fact about the change — approving a break does not make it stop being one, and
+somebody filtering for `breaking-change` three months from now wants this pull
+request in the results. It is removed only when the breaking commits are gone.
+
+The waiting marker moved to its own input:
+
+```yaml
+# before v2 — one label doing both jobs
+with:
+  label: waiting-for-review
+
+# v2 — the fact and the state, separately
+with:
+  label: ''                          # or breaking-change, the default
+  pending_label: waiting-for-review  # comes off on approval or rejection
+```
+
+A caller that left `label` at its default needs no change.
+
+**`has_breaking_changes` reports detection out of scope.** It used to be forced
+to `false` whenever the gate did not apply, which conflated "not gated here"
+with "carries no break". It now passes through what the caller detected. To get
+the old reading, gate on `in_scope`:
+
+```yaml
+if: >-
+  needs.gate.outputs.in_scope == 'true'
+  && needs.gate.outputs.has_breaking_changes == 'true'
+```
+
+Nothing supplied is still `false` — the gate does not scan out of scope, so
+there is no answer to report.
 
 ## Secrets
 
