@@ -19,6 +19,14 @@ cat > "${TEST_ROOT}/bin/gh" <<'STUB'
 #!/usr/bin/env bash
 case "$*" in
   *"/commits"*) printf '%s\n' ${COMMITS_B64} ;;
+  # The declared total. DECLARED_COMMITS overrides it to simulate the 250 cap,
+  # where the endpoint returns fewer commits than the pull request has.
+  *"/pulls/"*)
+    if [ -n "${DECLARED_COMMITS:-}" ]; then
+      printf '%s\n' "${DECLARED_COMMITS}"
+    else
+      printf '%s\n' ${COMMITS_B64} | grep -c . || true
+    fi ;;
   *) exit 1 ;;
 esac
 STUB
@@ -177,6 +185,41 @@ assert 'the same set fingerprints the same' "${same_a}" "${same_b}"
 assert 'adding an ordinary commit does not change it' "${same_a}" "${ordinary_added}"
 refute 'adding a breaking commit changes it' "${same_a}" "${added}"
 assert 'no breaking commits means no fingerprint' "${none}" ''
+
+# ----------------- The 250-commit cap -----------------
+# The endpoint returns at most 250 commits however much you paginate. Answering
+# from a truncated list reports "no breaking change" for a break living past the
+# cap — and, with approval reuse, leaves the fingerprint unchanged while the
+# change gained a break nobody approved.
+# `|| capped_status=$?` on the assignment itself: under `set -e` a command
+# substitution that exits non-zero takes the script down before the next line
+# can read `$?`. This is the same trap the `run` helper above already sidesteps.
+capped_status=0
+capped=$(
+  env GH_TOKEN=stub REPO=LerianStudio/example PR_NUMBER=42 \
+    COMMITS_B64="${PLAIN}" DECLARED_COMMITS=300 \
+    bash "${RESOLVER}" 2>/dev/null
+) || capped_status=$?
+if [[ ${capped_status} -ne 0 && -z "${capped}" ]]; then
+  PASSED=$((PASSED + 1))
+  printf 'ok - an incomplete enumeration is refused, not answered\n'
+else
+  FAILED=$((FAILED + 1))
+  printf 'not ok - a truncated commit list produced a verdict (%s)\n' "${capped}"
+fi
+
+complete=$(
+  env GH_TOKEN=stub REPO=LerianStudio/example PR_NUMBER=42 \
+    COMMITS_B64="${BANG} ${PLAIN}" DECLARED_COMMITS=2 \
+    bash "${RESOLVER}" 2>/dev/null | sed -n 's/^count=//p'
+)
+if [[ "${complete}" == '1' ]]; then
+  PASSED=$((PASSED + 1))
+  printf 'ok - a complete enumeration is answered normally\n'
+else
+  FAILED=$((FAILED + 1))
+  printf 'not ok - a complete enumeration was refused (count=%s)\n' "${complete}"
+fi
 
 printf '\n%s passed, %s failed\n' "${PASSED}" "${FAILED}"
 [[ ${FAILED} -eq 0 ]]

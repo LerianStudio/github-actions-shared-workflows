@@ -45,6 +45,30 @@ if ! commits=$(gh api "repos/${REPO}/pulls/${PR_NUMBER}/commits" --paginate \
   exit 1
 fi
 
+# The commits endpoint returns at most 250, pagination or not. GitHub documents
+# this, and answering from a truncated list is worse than not answering: a break
+# living past the cap reads as "no breaking change", and — with reuse — an
+# approved break inside the window plus an omitted one outside it leaves the
+# fingerprint unchanged, so an approval is honoured for a change it never
+# covered.
+#
+# Refuse instead. A gate that cannot see the whole change says so.
+returned=$(grep -c . <<< "${commits}" || true)
+[[ -z "${commits}" ]] && returned=0
+
+if ! declared=$(gh api "repos/${REPO}/pulls/${PR_NUMBER}" --jq '.commits' 2>/dev/null); then
+  printf 'Breaking Change Commits: could not read the commit count of PR #%s in %s.\n' \
+    "${PR_NUMBER}" "${REPO}" >&2
+  exit 1
+fi
+
+if [[ "${returned}" -ne "${declared}" ]]; then
+  printf 'Breaking Change Commits: PR #%s declares %s commits but the API returned %s.\n' \
+    "${PR_NUMBER}" "${declared}" "${returned}" >&2
+  printf 'The commits endpoint caps at 250, so this enumeration is incomplete and a verdict from it would be a guess.\n' >&2
+  exit 1
+fi
+
 shas=''
 subjects=''
 count=0

@@ -319,6 +319,9 @@ def run_verdict(**overrides):
         "DRY_RUN": "false",
         "LIVE_SHA": "abc123",
         "ALREADY_APPROVED": "false",
+        "HEAD_REF": "feat/x",
+        "RUN_ID": "100",
+        "MOCK_NEWER_RUNS": "0",
     }
     env.update(overrides)
 
@@ -328,6 +331,7 @@ def run_verdict(**overrides):
             "#!/usr/bin/env bash\n"
             'case "$*" in\n'
             '  *headRefOid*) printf \'%s\\n\' "$LIVE_SHA" ;;\n'
+            '  *"actions/runs?branch"*) printf \'%s\\n\' "$MOCK_NEWER_RUNS" ;;\n'
             "  *) exit 1 ;;\n"
             "esac\n",
             encoding="utf-8",
@@ -1111,21 +1115,26 @@ class ApprovalGateStructureTests(unittest.TestCase):
         # on its own. Observed on #906 — editing the description replaced the
         # run, and the comparison above saw nothing wrong while the comment was
         # overwritten with "decision not recorded".
-        self.assertIn('if [ "$APPROVAL_RESULT" = "cancelled" ]; then', body)
-        cancelled_at = body.index('"$APPROVAL_RESULT" = "cancelled"')
-        head_compare_at = body.index('"$live_sha" != "$HEAD_SHA"')
-        self.assertLess(
-            cancelled_at,
-            head_compare_at,
-            "the cancelled check must come first — it is the broader signal",
-        )
+        # A cancellation is a reason to look, not a verdict. It passes only
+        # with supersession established — a newer run, or the head having moved
+        # on. Treating every cancellation as supersession reported success for
+        # revisions nobody approved, which is what Radagast caught on #926.
+        self.assertIn('[ "$APPROVAL_RESULT" = "cancelled" ]', body)
+        self.assertIn("actions/runs?branch=${HEAD_REF}", body)
+        _, stranded = run_verdict(APPROVAL_RESULT="cancelled", MOCK_NEWER_RUNS="0")
+        self.assertEqual("unresolved", stranded["state"])
 
     def test_a_cancelled_approval_stops_before_anything_can_act_on_it(self):
         # Run it, with a recorded rejection sitting right there. The branch has
         # to stop: if it falls through, the rejection downstream wins, the
         # verdict comes back `rejected`, and the pull request gets closed —
         # because a concurrency cancellation raced a reviewer.
-        _, outputs = run_verdict(APPROVAL_RESULT="cancelled", REJECTERS="dave")
+        # With a newer run established, so the branch under test is the
+        # cancellation one. The guarantee is that it stops before the rejection
+        # downstream can close the pull request.
+        _, outputs = run_verdict(
+            APPROVAL_RESULT="cancelled", REJECTERS="dave", MOCK_NEWER_RUNS="1"
+        )
         self.assertEqual("superseded", outputs["state"])
         self.assertNotEqual("rejected", outputs["state"])
 
@@ -1176,6 +1185,48 @@ class ApprovalGateStructureTests(unittest.TestCase):
             job,
             "the Environment gate must be skipped when the change was already approved",
         )
+
+    def test_environment_work_stays_inside_its_scope(self):
+        workflow = yaml.safe_load(APPROVAL_WORKFLOW)
+        # Out of scope no approval is required, so nothing that touches the
+        # Environment may run there. #918 removed the only thing enforcing this
+        # when it started preserving the caller's real detection.
+        self.assertIn(
+            "needs.detect.outputs.in-scope == 'true'",
+            str(workflow["jobs"]["approval"]["if"]),
+        )
+        gated = {
+            "Check for a prior approval of the same change",
+            "Derive the reviewers from CODEOWNERS",
+            "Verify the breaking-approval Environment is protected",
+            "Request the approval on the pull request",
+        }
+        for step in workflow["jobs"]["request"]["steps"]:
+            name = step.get("name")
+            if name in gated:
+                with self.subTest(step=name):
+                    self.assertIn("in-scope == 'true'", str(step.get("if", "")))
+            elif name == "Report the acknowledgement requirement":
+                # The one that must run outside scope: the acknowledgement is
+                # enforced everywhere, so the author still needs the line.
+                self.assertIn("in-scope != 'true'", str(step.get("if", "")))
+
+    def test_a_cancellation_passes_only_when_superseded(self):
+        body = extract_run_body(
+            extract_job(APPROVAL_WORKFLOW, "outcome"), "Resolve the verdict"
+        )
+        # Run it: cancelled with nothing replacing it must not pass.
+        _, outputs = run_verdict(APPROVAL_RESULT="cancelled", MOCK_NEWER_RUNS="0")
+        self.assertEqual("unresolved", outputs["state"])
+        self.assertNotEqual("superseded", outputs["state"])
+
+        # And the two ways supersession is genuinely established.
+        _, by_run = run_verdict(APPROVAL_RESULT="cancelled", MOCK_NEWER_RUNS="2")
+        self.assertEqual("superseded", by_run["state"])
+        _, by_head = run_verdict(APPROVAL_RESULT="cancelled", LIVE_SHA="def456")
+        self.assertEqual("superseded", by_head["state"])
+
+        self.assertIn("actions/runs?branch=${HEAD_REF}", body)
 
     def test_a_reused_approval_must_belong_to_this_pull_request(self):
         step = extract_step(
@@ -1428,9 +1479,14 @@ class ApprovalGateStructureTests(unittest.TestCase):
                 "rejected",
             ),
             (
-                "cancelled, same head",
-                {"APPROVAL_RESULT": "cancelled"},
+                "cancelled, same head, a newer run carries it",
+                {"APPROVAL_RESULT": "cancelled", "MOCK_NEWER_RUNS": "1"},
                 "superseded",
+            ),
+            (
+                "cancelled, same head, nothing replacing it",
+                {"APPROVAL_RESULT": "cancelled", "MOCK_NEWER_RUNS": "0"},
+                "unresolved",
             ),
             (
                 "head moved under us",
