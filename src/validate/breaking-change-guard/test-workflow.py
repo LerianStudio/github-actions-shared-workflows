@@ -255,6 +255,7 @@ def render_reporter(state, **overrides):
         "LABEL": "breaking-change",
         "ENABLED": "true",
         "GH_TOKEN": "stub",
+        "MOCK_SUBJECTS": "",
     }
     env.update(overrides)
 
@@ -264,7 +265,8 @@ def render_reporter(state, **overrides):
             "#!/usr/bin/env bash\n"
             "case \"$*\" in\n"
             "  *\"/commits\"*) printf '%s\\n'"
-            " 'feat(scope)!: a breaking subject' 'chore: an ordinary one' ;;\n"
+            ' "${MOCK_SUBJECTS:-feat(scope)!: a breaking subject}"'
+            " 'chore: an ordinary one' ;;\n"
             "  *) exit 1 ;;\n"
             "esac\n",
             encoding="utf-8",
@@ -1174,6 +1176,44 @@ class ApprovalGateStructureTests(unittest.TestCase):
             job,
             "the Environment gate must be skipped when the change was already approved",
         )
+
+    def test_a_reused_approval_must_belong_to_this_pull_request(self):
+        step = extract_step(
+            extract_job(APPROVAL_WORKFLOW, "request"),
+            "Check for a prior approval of the same change",
+        )
+        # Confirming the named run carried *an* approval proves nothing: every
+        # approved breaking change in the repository has such a run, and a
+        # record naming one is a sentence anybody with write access can type.
+        # The run has to be this pull request's.
+        self.assertIn("HEAD_REF:", step)
+        self.assertIn('"$run_branch" != "$HEAD_REF"', step)
+        # Branch, not `pull_requests`: that field comes back empty on real runs.
+        self.assertIn(".head_branch", step)
+
+        detect = extract_job(APPROVAL_WORKFLOW, "detect")
+        self.assertIn("head-ref: ${{ steps.scope.outputs.head-ref }}", detect)
+
+    def test_a_commit_subject_cannot_smuggle_an_approval_record(self):
+        reporter = (
+            REPO_ROOT / "src" / "notify" / "breaking-change-approval-reporter"
+            / "action.yml"
+        ).read_text(encoding="utf-8")
+        # Subjects are author-controlled and get rendered into this comment.
+        # One carrying a marker would be collected by the record preserver as
+        # though the gate had written it — the author approving their own break
+        # by choosing a commit message. Two independent guards, because one
+        # guard for a privilege escalation is one too few.
+        self.assertIn("s/<!--/\\&lt;!--/g", reporter)
+        self.assertIn("awk '/^```/ { fenced = !fenced; next } !fenced'", reporter)
+
+        # And the behaviour, not just its shape.
+        rendered = render_reporter(
+            "waiting",
+            MOCK_SUBJECTS="feat(x)!: <!-- breaking-change-approved: dead run=1 -->",
+        )
+        self.assertNotIn("<!-- breaking-change-approved:", rendered)
+        self.assertIn("&lt;!--", rendered)
 
     def test_a_forged_approval_record_is_not_believed(self):
         step = extract_step(

@@ -226,6 +226,7 @@ jobs:
       pr-number: ${{ steps.scope.outputs.pr-number }}
       base-ref: ${{ steps.scope.outputs.base-ref }}
       head-sha: ${{ steps.scope.outputs.head-sha }}
+      head-ref: ${{ steps.scope.outputs.head-ref }}
       author: ${{ steps.scope.outputs.author }}
       reason: ${{ steps.scope.outputs.reason }}
       has-breaking-changes: ${{ steps.normalize.outputs.has-breaking-changes }}
@@ -389,6 +390,7 @@ jobs:
           GH_TOKEN: ${{ secrets.MANAGE_TOKEN || github.token }}
           REPO: ${{ github.repository }}
           PR_NUMBER: ${{ needs.detect.outputs.pr-number }}
+          HEAD_REF: ${{ needs.detect.outputs.head-ref }}
           FINGERPRINT: ${{ needs.detect.outputs.fingerprint }}
           DRY_RUN: ${{ inputs.dry_run && 'true' || 'false' }}
         run: |
@@ -447,6 +449,26 @@ jobs:
             # `actions: read`; when that is missing the check cannot be made, so
             # the approval is not reused and the reviewer is asked again. Asking
             # twice is a cost, trusting an unverified record is a hole.
+            # Whose run is it? Confirming that it carried *an* approval proves
+            # nothing: every approved breaking change in the repository has a
+            # run like that, and a record naming one of those is a sentence
+            # anybody with write access can type. Without this check, an
+            # approval granted to someone else's change releases this one.
+            #
+            # Matched on the branch, because `pull_requests` on a run comes
+            # back empty in practice — verified against run 38967637198, which
+            # really did carry an approval for this gate.
+            run_branch=$(
+              gh api "repos/${REPO}/actions/runs/${approving_run}" \
+                --jq '.head_branch // ""' 2>/dev/null || true
+            )
+
+            if [ -z "$run_branch" ] || [ "$run_branch" != "$HEAD_REF" ]; then
+              unverified="${unverified:+$unverified }${approving_run}"
+              [ "$DRY_RUN" = "true" ] && echo "  record run=${approving_run} : belongs to '${run_branch:-unknown}', not '${HEAD_REF}'"
+              continue
+            fi
+
             approvers=$(
               gh api "repos/${REPO}/actions/runs/${approving_run}/approvals" \
                 --jq '.[] | select(.state == "approved")

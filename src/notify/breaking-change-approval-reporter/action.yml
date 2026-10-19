@@ -174,10 +174,18 @@ runs:
         # the detector wins — this just falls back to generic wording.
         breaking_subjects=""
         if [ "$STATE" = "waiting" ]; then
+          # Commit subjects are written by whoever opens the pull request and
+          # are rendered into this comment. A subject carrying an approval
+          # marker would be preserved by the record-carrying code below as if
+          # the gate had written it — the author approving their own break by
+          # choosing a commit message. `<!--` is defanged so no subject can
+          # open an HTML comment here.
           breaking_subjects=$(
             gh api "repos/${REPO}/pulls/${PR_NUMBER}/commits" --paginate \
               --jq '.[] | .commit.message | split("\n")[0]' 2>/dev/null \
-              | grep -E '^[A-Za-z0-9_]*(\([^)]*\))?!: ' || true
+              | grep -E '^[A-Za-z0-9_]*(\([^)]*\))?!: ' \
+              | sed 's/<!--/\&lt;!--/g; s/-->/--\&gt;/g' \
+              || true
           )
         fi
 
@@ -348,8 +356,16 @@ runs:
             fi
 
             # A successful read with no markers is a legitimately empty set.
-            previous_records=$(grep -oE '<!-- breaking-change-approved: [a-f0-9]+ run=[0-9]+ -->' \
-              <<< "$current_body" || true)
+            # Only from outside fenced blocks. The undo example renders commit
+            # subjects inside ```diff, and a marker that arrived that way is
+            # the author's text, not the gate's record — defanged above, and
+            # refused here too, because one guard for a privilege escalation
+            # is one guard too few.
+            previous_records=$(
+              awk '/^```/ { fenced = !fenced; next } !fenced' <<< "$current_body" \
+                | grep -oE '<!-- breaking-change-approved: [a-f0-9]+ run=[0-9]+ -->' \
+                || true
+            )
           fi
 
           if [ "$STATE" = "approved" ] && [ -n "$FINGERPRINT" ]; then
