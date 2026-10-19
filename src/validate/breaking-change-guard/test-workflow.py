@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+import json
 import os
 import re
 import subprocess
@@ -319,15 +320,51 @@ def run_verdict(**overrides):
         "DRY_RUN": "false",
         "LIVE_SHA": "abc123",
         "ALREADY_APPROVED": "false",
+        "HEAD_REF": "feat/x",
+        "RUN_ID": "100",
+        "MOCK_NEWER_RUNS": "0",
     }
     env.update(overrides)
 
+    # `MOCK_NEWER_RUNS=N` is shorthand for N newer runs of this workflow, all
+    # belonging to this pull request. Pass `MOCK_RUNS_JSON` directly to say
+    # something the shorthand cannot — a run of another pull request, or a run
+    # from a fork with no `pull_requests` at all.
+    if "MOCK_RUNS_JSON" not in env:
+        run_id = int(env["RUN_ID"])
+        pr_number = int(env["PR_NUMBER"] or 0)
+        env["MOCK_RUNS_JSON"] = json.dumps(
+            {
+                "workflow_runs": [
+                    {"id": run_id + 1 + i, "pull_requests": [{"number": pr_number}]}
+                    for i in range(int(env["MOCK_NEWER_RUNS"]))
+                ]
+            }
+        )
+
     with tempfile.TemporaryDirectory() as temp_dir:
         stub = Path(temp_dir) / "gh"
+        # The stub runs the real `--jq` against a real payload. Returning the
+        # count directly was how the branch-wide query survived a whole round
+        # of review: the filter was never executed, so no test could see what
+        # it selected. Here the query is the thing under test.
         stub.write_text(
             "#!/usr/bin/env bash\n"
+            'jq_query=""\n'
+            'prev=""\n'
+            'for arg in "$@"; do\n'
+            '  [ "$prev" = "--jq" ] && jq_query="$arg"\n'
+            '  prev="$arg"\n'
+            "done\n"
             'case "$*" in\n'
             '  *headRefOid*) printf \'%s\\n\' "$LIVE_SHA" ;;\n'
+            # Only the workflow-scoped URL answers. A query against
+            # `actions/runs?branch=` — every workflow on the branch — gets
+            # nothing, so a regression to it reads as "no newer run" and fails
+            # the supersession cases rather than passing them silently.
+            '  *"/actions/workflows/"*"/runs?branch"*)'
+            ' printf \'%s\' "$MOCK_RUNS_JSON" | jq -r "$jq_query" ;;\n'
+            '  *"actions/runs/"*) printf \'%s\\n\' "4242" ;;\n'
             "  *) exit 1 ;;\n"
             "esac\n",
             encoding="utf-8",
@@ -1111,21 +1148,30 @@ class ApprovalGateStructureTests(unittest.TestCase):
         # on its own. Observed on #906 — editing the description replaced the
         # run, and the comparison above saw nothing wrong while the comment was
         # overwritten with "decision not recorded".
-        self.assertIn('if [ "$APPROVAL_RESULT" = "cancelled" ]; then', body)
-        cancelled_at = body.index('"$APPROVAL_RESULT" = "cancelled"')
-        head_compare_at = body.index('"$live_sha" != "$HEAD_SHA"')
-        self.assertLess(
-            cancelled_at,
-            head_compare_at,
-            "the cancelled check must come first — it is the broader signal",
-        )
+        # A cancellation is a reason to look, not a verdict. It passes only
+        # with supersession established — a newer run, or the head having moved
+        # on. Treating every cancellation as supersession reported success for
+        # revisions nobody approved, which is what Radagast caught on #926.
+        self.assertIn('[ "$APPROVAL_RESULT" = "cancelled" ]', body)
+        self.assertIn("actions/workflows/${workflow_id}/runs?branch=${HEAD_REF}", body)
+        # Scoped to this workflow, never to the branch at large: the sibling
+        # runs from the same push start later and carry higher ids, so the
+        # broad query answers "superseded" for every cancellation.
+        self.assertNotIn("/actions/runs?branch=", body)
+        _, stranded = run_verdict(APPROVAL_RESULT="cancelled", MOCK_NEWER_RUNS="0")
+        self.assertEqual("unresolved", stranded["state"])
 
     def test_a_cancelled_approval_stops_before_anything_can_act_on_it(self):
         # Run it, with a recorded rejection sitting right there. The branch has
         # to stop: if it falls through, the rejection downstream wins, the
         # verdict comes back `rejected`, and the pull request gets closed —
         # because a concurrency cancellation raced a reviewer.
-        _, outputs = run_verdict(APPROVAL_RESULT="cancelled", REJECTERS="dave")
+        # With a newer run established, so the branch under test is the
+        # cancellation one. The guarantee is that it stops before the rejection
+        # downstream can close the pull request.
+        _, outputs = run_verdict(
+            APPROVAL_RESULT="cancelled", REJECTERS="dave", MOCK_NEWER_RUNS="1"
+        )
         self.assertEqual("superseded", outputs["state"])
         self.assertNotEqual("rejected", outputs["state"])
 
@@ -1176,6 +1222,82 @@ class ApprovalGateStructureTests(unittest.TestCase):
             job,
             "the Environment gate must be skipped when the change was already approved",
         )
+
+    def test_environment_work_stays_inside_its_scope(self):
+        workflow = yaml.safe_load(APPROVAL_WORKFLOW)
+        # Out of scope no approval is required, so nothing that touches the
+        # Environment may run there. #918 removed the only thing enforcing this
+        # when it started preserving the caller's real detection.
+        self.assertIn(
+            "needs.detect.outputs.in-scope == 'true'",
+            str(workflow["jobs"]["approval"]["if"]),
+        )
+        gated = {
+            "Check for a prior approval of the same change",
+            "Derive the reviewers from CODEOWNERS",
+            "Verify the breaking-approval Environment is protected",
+            "Request the approval on the pull request",
+        }
+        for step in workflow["jobs"]["request"]["steps"]:
+            name = step.get("name")
+            if name in gated:
+                with self.subTest(step=name):
+                    self.assertIn("in-scope == 'true'", str(step.get("if", "")))
+            elif name == "Report the acknowledgement requirement":
+                # The one that must run outside scope: the acknowledgement is
+                # enforced everywhere, so the author still needs the line.
+                self.assertIn("in-scope != 'true'", str(step.get("if", "")))
+
+    def test_a_cancellation_passes_only_when_superseded(self):
+        body = extract_run_body(
+            extract_job(APPROVAL_WORKFLOW, "outcome"), "Resolve the verdict"
+        )
+        # Run it: cancelled with nothing replacing it must not pass.
+        _, outputs = run_verdict(APPROVAL_RESULT="cancelled", MOCK_NEWER_RUNS="0")
+        self.assertEqual("unresolved", outputs["state"])
+        self.assertNotEqual("superseded", outputs["state"])
+
+        # And the two ways supersession is genuinely established.
+        _, by_run = run_verdict(APPROVAL_RESULT="cancelled", MOCK_NEWER_RUNS="2")
+        self.assertEqual("superseded", by_run["state"])
+        _, by_head = run_verdict(APPROVAL_RESULT="cancelled", LIVE_SHA="def456")
+        self.assertEqual("superseded", by_head["state"])
+
+        self.assertIn("actions/workflows/${workflow_id}/runs?branch=${HEAD_REF}", body)
+
+    def test_a_newer_run_of_another_pull_request_is_not_supersession(self):
+        # One head branch can carry two pull requests — same branch, different
+        # bases. Scoping the query to this workflow leaves that open: the other
+        # pull request's run is newer, on this branch, of this workflow, and
+        # without the `.pull_requests` filter it would carry a decision for a
+        # pull request it knows nothing about.
+        runs = {
+            "workflow_runs": [
+                {"id": 101, "pull_requests": [{"number": 77}]},
+                {"id": 102, "pull_requests": [{"number": 77}]},
+            ]
+        }
+        _, other_pr = run_verdict(
+            APPROVAL_RESULT="cancelled", MOCK_RUNS_JSON=json.dumps(runs)
+        )
+        self.assertEqual("unresolved", other_pr["state"])
+
+        # Mixed: the same two, plus one that is actually ours.
+        runs["workflow_runs"].append({"id": 103, "pull_requests": [{"number": 42}]})
+        _, ours = run_verdict(
+            APPROVAL_RESULT="cancelled", MOCK_RUNS_JSON=json.dumps(runs)
+        )
+        self.assertEqual("superseded", ours["state"])
+
+    def test_a_run_without_pull_requests_falls_back_to_the_branch_scope(self):
+        # Runs from forks come back with `pull_requests: []`. Dropping those
+        # would make every cancellation on a fork unresolved; keeping them
+        # leaves the branch scope as the evidence, which is what there is.
+        runs = {"workflow_runs": [{"id": 101, "pull_requests": []}]}
+        _, fork = run_verdict(
+            APPROVAL_RESULT="cancelled", MOCK_RUNS_JSON=json.dumps(runs)
+        )
+        self.assertEqual("superseded", fork["state"])
 
     def test_a_reused_approval_must_belong_to_this_pull_request(self):
         step = extract_step(
@@ -1428,9 +1550,14 @@ class ApprovalGateStructureTests(unittest.TestCase):
                 "rejected",
             ),
             (
-                "cancelled, same head",
-                {"APPROVAL_RESULT": "cancelled"},
+                "cancelled, same head, a newer run carries it",
+                {"APPROVAL_RESULT": "cancelled", "MOCK_NEWER_RUNS": "1"},
                 "superseded",
+            ),
+            (
+                "cancelled, same head, nothing replacing it",
+                {"APPROVAL_RESULT": "cancelled", "MOCK_NEWER_RUNS": "0"},
+                "unresolved",
             ),
             (
                 "head moved under us",
