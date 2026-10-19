@@ -1695,7 +1695,7 @@ class ApprovalGateStructureTests(unittest.TestCase):
         #
         # This was pinned by grepping the composite for its own error message,
         # which proves the words exist and nothing about what runs. A branch
-        # that printed them and then PATCHed anyway would have passed.
+        # that printed them and issued the PATCH anyway would have passed.
         failed, calls = run_reporter_comment("waiting", read_fails=True)
         self.assertEqual(1, failed.returncode)
         self.assertIn("Refusing to rewrite it", failed.stderr)
