@@ -51,6 +51,15 @@ inputs:
     description: 'Image used as the call-to-action button. Markdown has no button, so this is a badge image wrapped in the link. Its alt text carries the full call to action, so a reader whose network blocks the image still sees a described link. Set to empty for a plain text link instead.'
     required: false
     default: 'https://img.shields.io/badge/%E2%9E%A1%EF%B8%8F%20Review%20pending%20deployment-1f6feb?style=for-the-badge'
+  subjects:
+    description: >-
+      The breaking commit subjects, newline-separated, as resolved by
+      `breaking-change-commits`. Shown in the "how to undo it" example so it
+      names this pull request's own commits. Leave empty and the composite
+      reads them itself — a standalone caller does not have to run the
+      resolver first.
+    required: false
+    default: ''
   fingerprint:
     description: 'Digest of the breaking-change commit set, from `breaking-change-commits`. Recorded in the comment when the state is `approved`, alongside the run that carried the approval, so a later run can verify it against the Environment log rather than trusting the text. Previous records are preserved.'
     required: false
@@ -111,6 +120,7 @@ runs:
         REASON: ${{ inputs.reason }}
         HEAD_SHA: ${{ inputs.head-sha }}
         ACKNOWLEDGED: ${{ inputs.acknowledged }}
+        SUBJECTS: ${{ inputs.subjects }}
         ACK_LINE: ${{ inputs.author-acknowledgement }}
         RUN_URL: ${{ inputs.run-url }}
         REVIEWERS: ${{ inputs.actual-reviewers != '' && inputs.actual-reviewers || inputs.reviewers }}
@@ -172,21 +182,38 @@ runs:
         # below illustrates. This is a view, never a verdict: the canonical rule
         # lives in the breaking-change-guard composite, and when the two disagree
         # the detector wins — this just falls back to generic wording.
+        #
+        # The caller usually has them already — `breaking-change-commits` ran
+        # over the same pull request to produce the fingerprint, and its
+        # `subjects` output went unused while this listed them a second time.
+        # Reading them twice costs an API call and lets the comment disagree
+        # with the set the gate actually judged. Supplied wins; empty still
+        # reads them, so a standalone caller needs no resolver.
+        #
+        # Commit subjects are written by whoever opens the pull request and are
+        # rendered into this comment. A subject carrying an approval marker
+        # would be preserved by the record-carrying code below as if the gate
+        # had written it — the author approving their own break by choosing a
+        # commit message. `<!--` is defanged on both paths so no subject can
+        # open an HTML comment here.
         breaking_subjects=""
         if [ "$STATE" = "waiting" ]; then
-          # Commit subjects are written by whoever opens the pull request and
-          # are rendered into this comment. A subject carrying an approval
-          # marker would be preserved by the record-carrying code below as if
-          # the gate had written it — the author approving their own break by
-          # choosing a commit message. `<!--` is defanged so no subject can
-          # open an HTML comment here.
-          breaking_subjects=$(
-            gh api "repos/${REPO}/pulls/${PR_NUMBER}/commits" --paginate \
-              --jq '.[] | .commit.message | split("\n")[0]' 2>/dev/null \
-              | grep -E '^[A-Za-z0-9_]*(\([^)]*\))?!: ' \
-              | sed 's/<!--/\&lt;!--/g; s/-->/--\&gt;/g' \
-              || true
-          )
+          if [ -n "$SUBJECTS" ]; then
+            breaking_subjects=$(
+              printf '%s\n' "$SUBJECTS" \
+                | grep -E '^[A-Za-z0-9_]*(\([^)]*\))?!: ' \
+                | sed 's/<!--/\&lt;!--/g; s/-->/--\&gt;/g' \
+                || true
+            )
+          else
+            breaking_subjects=$(
+              gh api "repos/${REPO}/pulls/${PR_NUMBER}/commits" --paginate \
+                --jq '.[] | .commit.message | split("\n")[0]' 2>/dev/null \
+                | grep -E '^[A-Za-z0-9_]*(\([^)]*\))?!: ' \
+                | sed 's/<!--/\&lt;!--/g; s/-->/--\&gt;/g' \
+                || true
+            )
+          fi
         fi
 
         # `carol` -> `[@carol](https://github.com/carol)`. Linked, not a bare
@@ -413,6 +440,31 @@ runs:
               printf '%s\n' "$previous_records" | awk 'NF' | sort -u
             } >> "$body_file"
           fi
+
+          # The comment this one replaced. `breaking-change-comment` used to
+          # own `<!-- lerian-breaking-change-guard -->` and retired it when the
+          # acknowledgement arrived or the break went away; removing that job
+          # removed its cleanup too, so a pull request opened before the
+          # changeover keeps an "awaiting acknowledgement" notice forever —
+          # beside this comment, contradicting it.
+          #
+          # Deliberately narrow. Only a comment the marker *opens*, which is
+          # how that job wrote them, so quoting the marker in a human comment
+          # is not enough to get it deleted. The records live in this
+          # comment's own body and are never read from there.
+          #
+          # Transitional: delete this block once no open pull request predates
+          # the changeover.
+          legacy_marker='<!-- lerian-breaking-change-guard -->'
+          gh api "repos/${REPO}/issues/${PR_NUMBER}/comments" --paginate \
+            --jq "[.[]
+                   | select(.user.type == \"Bot\")
+                   | select(.body | startswith(\"${legacy_marker}\"))
+                   | .id] | .[]" 2>/dev/null \
+            | while IFS= read -r stale; do
+                [ -n "$stale" ] || continue
+                gh api --method DELETE "repos/${REPO}/issues/comments/${stale}" >/dev/null 2>&1 || true
+              done
 
           if [ -n "$existing" ]; then
             gh api --method PATCH "repos/${REPO}/issues/comments/${existing}" \

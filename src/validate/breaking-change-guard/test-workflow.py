@@ -256,6 +256,10 @@ def render_reporter(state, **overrides):
         "LABEL": "breaking-change",
         "ENABLED": "true",
         "GH_TOKEN": "stub",
+        # Empty: these fixtures exercise the standalone path, where the
+        # composite reads the commits itself and `MOCK_SUBJECTS` feeds the
+        # stubbed API. Pass `SUBJECTS` to exercise the forwarded set instead.
+        "SUBJECTS": "",
         "MOCK_SUBJECTS": "",
     }
     env.update(overrides)
@@ -430,22 +434,16 @@ def run_detect_normalization(**overrides):
     }
     env.update(overrides)
 
-    with tempfile.TemporaryDirectory() as temp_dir:
-        output_path = Path(temp_dir) / "github-output"
-        output_path.touch()
-        env["GITHUB_OUTPUT"] = str(output_path)
-        subprocess.run(
-            ["bash", "-c", step["run"]],
-            cwd=temp_dir,
-            env=env,
-            text=True,
-            capture_output=True,
-            check=False,
-        )
-        return parse_github_output(output_path.read_text(encoding="utf-8"))
+    # Selection and defaults here, execution in `execute_body` — which already
+    # owns the temporary directory, `GITHUB_OUTPUT` and the parsing. This used
+    # to carry its own copy of all three.
+    _, outputs = execute_body(step["run"], env)
+    return outputs
 
 
-def run_reporter_comment(state, existing_body=None, read_fails=False, **overrides):
+def run_reporter_comment(
+    state, existing_body=None, read_fails=False, legacy_ids="", **overrides
+):
     """Run the reporter with commenting on, and report what it did to the comment.
 
     Returns (process, calls) where `calls` lists every `gh` invocation, so a
@@ -473,6 +471,7 @@ def run_reporter_comment(state, existing_body=None, read_fails=False, **override
         "HEAD_SHA": "abc1234567",
         "ACKNOWLEDGED": "true",
         "ACK_LINE": "Breaking change acknowledged: …",
+        "SUBJECTS": "",
         "RUN_URL": "https://github.com/LerianStudio/example/actions/runs/1",
         "REVIEWERS": "team:devops",
         "SERVER_URL": "https://github.com",
@@ -520,8 +519,14 @@ def run_reporter_comment(state, existing_body=None, read_fails=False, **override
             'case "$*" in\n'
             "  *\"pr edit\"*) exit 0 ;;\n"
             "  *\"/commits\"*) printf '%s\\n' 'feat(x)!: breaks' ;;\n"
-            # the listing: one existing comment, id 7
-            "  *\"issues/42/comments\"*) printf '%s\\n' '7' ;;\n"
+            # The listing is queried twice with different `--jq`: once for
+            # this composite's own comment, once for legacy ones to retire.
+            # Answer each by what it asked for.
+            "  *\"issues/42/comments\"*)\n"
+            '    case "$*" in\n'
+            f"      *lerian-breaking-change-guard*) printf '%s\\n' '{legacy_ids}' ;;\n"
+            "      *) printf '%s\\n' '7' ;;\n"
+            "    esac ;;\n"
             + read_arm
             + "  *) exit 1 ;;\n"
             "esac\n",
@@ -580,6 +585,7 @@ def run_reporter_labels(state, **overrides):
         "LABEL": "breaking-change",
         "PENDING_LABEL": "awaiting-breaking-approval",
         "ENABLED": "false",
+        "SUBJECTS": "",
         "FINGERPRINT": "",
         "RUN_ID": "1",
         "GH_TOKEN": "stub",
@@ -614,6 +620,12 @@ def run_reporter_labels(state, **overrides):
         )
         if result.returncode != 0:
             raise AssertionError(f"reporter failed for {state!r}: {result.stderr}")
+        # `set -u` firing inside a command substitution kills the subshell and
+        # leaves the script running with exit 0. A fixture missing a variable
+        # then reads as "the step made no calls" — a green test on a step that
+        # half ran. The exit code cannot see it; stderr can.
+        if "unbound variable" in result.stderr:
+            raise AssertionError(f"incomplete fixture for {state!r}: {result.stderr}")
         return calls.read_text(encoding="utf-8").split()
 
 
@@ -1692,6 +1704,75 @@ class ApprovalGateStructureTests(unittest.TestCase):
                     "a standing approval is not a reason to skip the checks that "
                     "say whether this run may speak at all",
                 )
+
+    def test_the_waiting_comment_names_the_commits_the_gate_judged(self):
+        # The gate already resolved these to build the fingerprint, and its
+        # `subjects` output had no consumer while the reporter listed them a
+        # second time off its own API call. Two readings of the same pull
+        # request that can disagree, for one extra call per run.
+        rendered = render_reporter(
+            "waiting",
+            SUBJECTS="feat(x)!: drops the old flag\nchore(y): ordinary",
+            MOCK_SUBJECTS="feat(api)!: something else entirely",
+        )
+        self.assertIn("drops the old flag", rendered)
+        # Supplied wins over what the API would have said.
+        self.assertNotIn("something else entirely", rendered)
+        # And it is still a filter, not a passthrough.
+        self.assertNotIn("chore(y): ordinary", rendered)
+
+        # Empty still reads them, so a standalone caller needs no resolver.
+        standalone = render_reporter(
+            "waiting", MOCK_SUBJECTS="feat(api)!: read from the API"
+        )
+        self.assertIn("read from the API", standalone)
+
+        # The defang applies to the supplied set too — it arrives from the
+        # same author-written commit messages.
+        smuggled = render_reporter(
+            "waiting", SUBJECTS="feat(z)!: <!-- breaking-change-approved: dead run=1 -->"
+        )
+        self.assertNotIn("<!-- breaking-change-approved:", smuggled)
+
+        # And the gate forwards it.
+        workflow = yaml.safe_load(APPROVAL_WORKFLOW)
+        step = next(
+            s
+            for s in workflow["jobs"]["request"]["steps"]
+            if s.get("with", {}).get("state") == "waiting"
+        )
+        self.assertEqual(
+            "${{ needs.detect.outputs.subjects }}", step["with"]["subjects"]
+        )
+
+    def test_the_comment_this_one_replaced_is_retired(self):
+        # `breaking-change-comment` owned `<!-- lerian-breaking-change-guard -->`
+        # and retired it when the acknowledgement arrived. Removing that job
+        # removed its cleanup, so a pull request opened before the changeover
+        # keeps an "awaiting acknowledgement" notice forever, beside this
+        # comment and contradicting it.
+        _, calls = run_reporter_comment(
+            "waiting", existing_body="<!-- breaking-change-approval -->\n",
+            legacy_ids="3",
+        )
+        deletes = [call for call in calls if "DELETE" in call]
+        self.assertEqual(1, len(deletes), calls)
+        self.assertIn("issues/comments/3", deletes[0])
+
+        # Nothing to retire, nothing deleted.
+        _, clean = run_reporter_comment(
+            "waiting", existing_body="<!-- breaking-change-approval -->\n"
+        )
+        self.assertFalse([call for call in clean if "DELETE" in call])
+
+        # Narrow on purpose: only a comment the marker opens, and only one
+        # written by a bot. Quoting the marker must not get a comment deleted.
+        action = (
+            REPO_ROOT / "src" / "notify" / "breaking-change-approval-reporter"
+            / "action.yml"
+        ).read_text(encoding="utf-8")
+        self.assertIn('select(.user.type == \\"Bot\\")', action)
+        self.assertIn("startswith", action)
 
     def test_the_records_are_never_rewritten_blind(self):
         # A failed read must not look like "there were none": the rewrite would
