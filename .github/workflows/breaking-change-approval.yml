@@ -185,7 +185,14 @@ on:
         description: 'Whether the pull request was gated by this workflow (true/false)'
         value: ${{ jobs.detect.outputs.in-scope == 'true' && 'true' || 'false' }}
       has_breaking_changes:
-        description: 'Whether at least one pull request commit is breaking (true/false). Always false when out of scope — nothing was scanned.'
+        description: >-
+          Whether at least one pull request commit is breaking (true/false).
+          Reports what was detected, including out of scope — a pull request
+          this workflow does not gate can still carry a break, and a caller
+          asking the question deserves the answer rather than a false.
+
+          Behaviour change: this used to be forced to `false` out of scope.
+          Gate `in_scope` alongside it to get the old reading.
         value: ${{ jobs.detect.outputs.has-breaking-changes == 'true' && 'true' || 'false' }}
       approved:
         description: 'Whether a reviewer approved the breaking change through the Environment (true/false)'

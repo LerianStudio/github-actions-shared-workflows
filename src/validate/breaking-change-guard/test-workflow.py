@@ -386,6 +386,44 @@ def run_verdict(**overrides):
         return result, parse_github_output(output_path.read_text(encoding="utf-8"))
 
 
+def run_detect_normalization(**overrides):
+    """Run the gate's own normalization step and return its outputs.
+
+    The public `has_breaking_changes` output is this step's value passed
+    straight through, so the documented contract — what a caller reads out of
+    scope — lives here and nowhere else.
+    """
+    workflow = yaml.safe_load(APPROVAL_WORKFLOW)
+    step = next(
+        s
+        for s in workflow["jobs"]["detect"]["steps"]
+        if s.get("name") == "Normalize detection result"
+    )
+
+    env = {
+        "IN_SCOPE": "true",
+        "SUPPLIED_HAS_BREAKING_CHANGES": "",
+        "SUPPLIED_ACKNOWLEDGED": "",
+        "COMMITS_OUTCOME": "success",
+        "BREAKING_COUNT": "0",
+    }
+    env.update(overrides)
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        output_path = Path(temp_dir) / "github-output"
+        output_path.touch()
+        env["GITHUB_OUTPUT"] = str(output_path)
+        subprocess.run(
+            ["bash", "-c", step["run"]],
+            cwd=temp_dir,
+            env=env,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        return parse_github_output(output_path.read_text(encoding="utf-8"))
+
+
 def run_reporter_labels(state, **overrides):
     """Run the reporter end to end and return the `gh pr edit` calls it made.
 
@@ -1264,6 +1302,31 @@ class ApprovalGateStructureTests(unittest.TestCase):
         self.assertEqual("superseded", by_head["state"])
 
         self.assertIn("actions/workflows/${workflow_id}/runs?branch=${HEAD_REF}", body)
+
+    def test_the_public_breaking_output_reports_detection_out_of_scope(self):
+        # A published contract change, authorised as breaking for v2. The output
+        # used to be forced to `false` out of scope; it now reports what the
+        # caller detected, because a pull request this workflow does not gate
+        # can still carry a break and the caller asking deserves the answer.
+        out_of_scope = run_detect_normalization(
+            IN_SCOPE="false", SUPPLIED_HAS_BREAKING_CHANGES="true"
+        )
+        self.assertEqual("true", out_of_scope["has-breaking-changes"])
+        self.assertEqual("true", out_of_scope["detection-succeeded"])
+
+        # Nothing supplied is still `false` — there is no answer to report, and
+        # the gate never scans out of scope.
+        nothing_supplied = run_detect_normalization(IN_SCOPE="false")
+        self.assertEqual("false", nothing_supplied["has-breaking-changes"])
+
+        # And the description must not promise the old value back. Documenting
+        # `false` while emitting `true` is the defect Radagast caught on #926.
+        workflow = yaml.safe_load(APPROVAL_WORKFLOW)
+        described = workflow[True]["workflow_call"]["outputs"]["has_breaking_changes"][
+            "description"
+        ]
+        self.assertNotIn("Always false when out of scope", described)
+        self.assertIn("Behaviour change", described)
 
     def test_a_newer_run_of_another_pull_request_is_not_supersession(self):
         # One head branch can carry two pull requests — same branch, different
