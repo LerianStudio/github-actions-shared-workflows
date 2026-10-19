@@ -672,6 +672,8 @@ jobs:
           GH_TOKEN: ${{ secrets.MANAGE_TOKEN || github.token }}
           REPO: ${{ github.repository }}
           HEAD_SHA: ${{ needs.detect.outputs.head-sha }}
+          HEAD_REF: ${{ needs.detect.outputs.head-ref }}
+          RUN_ID: ${{ github.run_id }}
           DETECT_RESULT: ${{ needs.detect.result }}
           REQUEST_RESULT: ${{ needs.request.result }}
           APPROVAL_RESULT: ${{ needs.approval.result }}
@@ -713,18 +715,32 @@ jobs:
           # approval did not complete", which is true of the dead run and
           # misleading about the live one.
           #
-          # A cancelled approval is the first and broader signal. Nothing cancels
-          # it except the concurrency group replacing this run, or a human
-          # cancelling by hand, and neither is a decision to report. It matters
-          # on its own because the head does not have to change for a run to be
-          # replaced: editing the description fires `edited`, which queues a new
-          # run on the very same commit — and the comparison below would see
-          # nothing wrong.
-          if [ "$APPROVAL_RESULT" = "cancelled" ]; then
-            state=superseded
-            emit
-            echo "::notice::This run's approval was cancelled — another run is carrying the decision; leaving PR #${PR_NUMBER} alone"
-            exit 0
+          # A cancelled approval is a reason to look, not a verdict on its own.
+          # #912 treated every cancellation as supersession, because a run can
+          # be replaced without the head moving — editing the description fires
+          # `edited`, which queues a new run on the same commit. True, and too
+          # wide: a cancellation with nothing replacing it then reported success
+          # for a revision nobody approved, while `result=failure` sat in the
+          # outputs saying the opposite.
+          #
+          # Supersession has to be established. Either the head moved on (the
+          # comparison below), or a newer run exists for this branch to carry
+          # the decision. Neither means the cancellation stands unresolved,
+          # which does not pass.
+          if [ "$APPROVAL_RESULT" = "cancelled" ] && [ -n "${PR_NUMBER:-}" ]; then
+            newer=$(
+              gh api "repos/${REPO}/actions/runs?branch=${HEAD_REF}&per_page=50" \
+                --jq "[.workflow_runs[] | select(.id > ${RUN_ID})] | length" 2>/dev/null || echo 0
+            )
+
+            if [ "${newer:-0}" -gt 0 ]; then
+              state=superseded
+              emit
+              echo "::notice::This run's approval was cancelled and ${newer} newer run(s) exist for ${HEAD_REF} — leaving PR #${PR_NUMBER} alone"
+              exit 0
+            fi
+
+            echo "::warning::This run's approval was cancelled and nothing was found replacing it. Not treating that as supersession."
           fi
 
           if [ -n "${PR_NUMBER:-}" ] && [ -n "${HEAD_SHA:-}" ]; then
