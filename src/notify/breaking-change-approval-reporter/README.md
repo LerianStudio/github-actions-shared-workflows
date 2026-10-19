@@ -69,11 +69,15 @@ of the way of whoever does not.
 already notifies exactly these people; a mention would ping the whole team a
 second time for the same thing.
 
-**The undo example uses this pull request's own commits.** The composite lists
-the pull request's commits and shows the real subjects in a `diff` block,
-instead of a made-up `feat(scope)!: subject`. Only the `!` form is matched
-there, because that is the form the example illustrates — it is a view, never a
-verdict. The canonical rule lives in
+**The undo example uses this pull request's own commits.** It shows the real
+subjects in a `diff` block instead of a made-up `feat(scope)!: subject`. Pass
+`subjects` and it uses that set — the caller that ran `breaking-change-commits`
+to build the fingerprint already has it, and reading the commits a second time
+costs an API call and lets this comment disagree with the set the gate judged.
+Leave it empty and the composite reads them itself, so a standalone caller
+needs no resolver. Only the `!` form is matched either way, because that is the
+form the example illustrates — it is a view, never a verdict. The canonical
+rule lives in
 [`breaking-change-guard`](../../validate/breaking-change-guard/README.md); when
 the two disagree the detector wins and this falls back to generic wording.
 
@@ -116,6 +120,7 @@ side effect in the caller is what makes this safe to run with
 | `head-sha` | Head commit the report refers to. | No | `''` |
 | `acknowledged` | Whether the author acknowledgement line is present. | No | `false` |
 | `author-acknowledgement` | The exact line the author must add when it is missing. | No | `''` |
+| `subjects` | Breaking commit subjects, newline-separated, as resolved by `breaking-change-commits`. Empty and the composite reads them itself. | No | `''` |
 | `fingerprint` | Digest of the breaking-change commit set. Recorded when the state is `approved`, with the run that carried the approval. | No | `''` |
 | `run-id` | Run recorded alongside the fingerprint, so a later run can verify the approval against the Environment log. | No | `${{ github.run_id }}` |
 | `run-url` | Link to the run carrying the pending deployment. | No | `''` |

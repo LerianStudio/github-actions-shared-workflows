@@ -56,9 +56,18 @@ two disagree it **exits non-zero** instead of reporting on a partial list — a
 fingerprint built from the first 250 of 300 commits would miss a break living
 in the tail and say "already approved" about a change nobody saw.
 
-So a pull request over 250 commits fails the step rather than passing it. The
-gate reads that as `unknown`, which blocks, and the way through is to split the
-pull request — not to widen the cap, since the endpoint has no page beyond it.
+So a pull request over 250 commits fails the step rather than passing it. What
+that costs depends on who is asking, and the two cases are not the same:
+
+- **Detecting here** — nothing else looked, so the gate reads the failure as
+  `unknown` and blocks. The way through is to split the pull request, not to
+  widen the cap: the endpoint has no page beyond it.
+- **Detection supplied by the caller** — `pr-validation` and the other
+  umbrellas run the detector over the real commit range and pass the answer in.
+  That answer stands, and the gate is not blocked by this step failing. What is
+  lost is the fingerprint, so no earlier approval is reused and the reviewer is
+  asked for a fresh decision. Nothing to split.
+
 The same refusal fires if the declared count cannot be read at all.
 
 ## Commit subjects are untrusted text

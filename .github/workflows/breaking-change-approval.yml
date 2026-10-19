@@ -619,6 +619,11 @@ jobs:
           github-token: ${{ secrets.MANAGE_TOKEN || github.token }}
           pr-number: ${{ needs.detect.outputs.pr-number }}
           state: waiting
+          # Already resolved by `breaking-change-commits` in `detect`, to build
+          # the fingerprint. Forwarded so the comment names the commits the
+          # gate actually judged, instead of the reporter listing them a second
+          # time off its own API call.
+          subjects: ${{ needs.detect.outputs.subjects }}
           author-acknowledgement: ${{ inputs.author_acknowledgement }}
           fingerprint: ${{ needs.detect.outputs.fingerprint }}
           reviewers: ${{ inputs.approval_reviewers != '' && inputs.approval_reviewers || steps.codeowners.outputs.reviewers }}
