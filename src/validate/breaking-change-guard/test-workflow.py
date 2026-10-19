@@ -291,7 +291,7 @@ def render_reporter(state, **overrides):
     return result.stdout
 
 
-def run_verdict(expect_failure=None, **overrides):
+def run_verdict(**overrides):
     """Run the gate's verdict step and return its outputs.
 
     Asserting that the cancellation branch contains `exit 0` would only prove
@@ -403,7 +403,7 @@ def run_verdict(expect_failure=None, **overrides):
             check=False,
         )
         result.gh_calls = calls_path.read_text(encoding="utf-8").splitlines()
-        if expect_failure is None and result.returncode != 0:
+        if result.returncode != 0:
             raise AssertionError(
                 "the verdict step exited %d:\n%s"
                 % (result.returncode, result.stderr.strip())
@@ -1705,6 +1705,101 @@ class ApprovalGateStructureTests(unittest.TestCase):
                     "say whether this run may speak at all",
                 )
 
+    def test_two_approvers_serialise_into_one_output_value(self):
+        # An Environment can require more than one reviewer, and the approvals
+        # API answers one login per line. Written straight out, the second
+        # lands on its own line with no `=`, the runner rejects it, and this
+        # step fails — which takes the whole reuse contract down with it:
+        # `request` fails, the verdict reads `blocked`, and a breaking set that
+        # was already approved is blocked again on every push.
+        #
+        # Asserting on the source order of the statements could not see this.
+        # Run the serialisation and read it back the way the runner does.
+        step = extract_step(
+            extract_job(APPROVAL_WORKFLOW, "request"),
+            "Check for a prior approval of the same change",
+        )
+        serialise = next(
+            line.strip()
+            for line in step.splitlines()
+            if line.strip().startswith("approved_by=$(printf")
+        )
+        emit = 'echo "approved-by=${approved_by}" >> "$GITHUB_OUTPUT"'
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            output = Path(temp_dir) / "out"
+            output.touch()
+            result = subprocess.run(
+                ["bash", "-c", f'set -euo pipefail\n{serialise}\n{emit}'],
+                env={
+                    "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
+                    "approved_by": "alice\nbob",
+                    "GITHUB_OUTPUT": str(output),
+                },
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(0, result.returncode, result.stderr)
+            written = output.read_text(encoding="utf-8").splitlines()
+
+        # Every line the runner reads has to be an assignment. This is the
+        # check that fails on the unserialised value.
+        for line in written:
+            self.assertIn("=", line, f"the runner would reject {line!r}")
+        self.assertEqual(["approved-by=alice,bob"], written)
+
+        # Comma-separated because that is what the reporter parses: both
+        # names come through linked, not one name and a stray word.
+        rendered = render_reporter("approved", APPROVERS="alice,bob")
+        self.assertIn("[@alice](", rendered)
+        self.assertIn("[@bob](", rendered)
+
+    def test_a_blocked_gate_does_not_assert_what_it_could_not_establish(self):
+        # `blocked` means nothing was established. Labelling the pull request
+        # `breaking-change` there asserts exactly what the comment beside it
+        # calls unknown — and a transient detection failure would brand a pull
+        # request that carries no break at all.
+        blocked = run_reporter_labels("blocked")
+        self.assertNotIn(("add-label", "breaking-change"), list(zip(blocked, blocked[1:])))
+        # The pending label still comes off — nothing is waiting on a decision
+        # when the gate never got far enough to ask for one.
+        self.assertEqual(["remove-label", "awaiting-breaking-approval"], blocked)
+        # And the states that did establish the fact still assert it.
+        self.assertIn("breaking-change", run_reporter_labels("waiting"))
+
+        # Nor does it blame a stage it cannot know failed: `blocked` is also
+        # reached with detection successful and the request stage failing —
+        # an Environment preflight refusing an unprotected `breaking-approval`.
+        _, from_request = run_verdict(
+            REQUEST_RESULT="failure", DETECTION_SUCCEEDED="true"
+        )
+        self.assertEqual("blocked", from_request["state"])
+        rendered = render_reporter("blocked", ACKNOWLEDGED="")
+        self.assertIn("did not reach a verdict", rendered)
+        self.assertNotIn("Detection did not complete", rendered)
+
+    def test_an_unevaluated_acknowledgement_is_never_reported_as_missing(self):
+        # Chained: what normalization emits when detection fails is what the
+        # reporter renders. `false` there would tell an author who may well
+        # have written the line to add a line no check evaluated.
+        for description, overrides in (
+            ("local enumeration failed", {"COMMITS_OUTCOME": "failure", "BREAKING_COUNT": ""}),
+            ("the caller reported unknown", {"SUPPLIED_HAS_BREAKING_CHANGES": "unknown"}),
+            ("the caller sent nonsense", {"SUPPLIED_HAS_BREAKING_CHANGES": "maybe"}),
+        ):
+            with self.subTest(description):
+                normalized = run_detect_normalization(**overrides)
+                self.assertEqual("", normalized["acknowledged"], description)
+                rendered = render_reporter(
+                    "blocked", ACKNOWLEDGED=normalized["acknowledged"]
+                )
+                self.assertNotIn("Add this exact line", rendered, description)
+
+        # And one that really was evaluated still gets its instructions.
+        asked = render_reporter("blocked", ACKNOWLEDGED="false", ACK_LINE="the line")
+        self.assertIn("Add this exact line", asked)
+
     def test_the_waiting_comment_names_the_commits_the_gate_judged(self):
         # The gate already resolved these to build the fingerprint, and its
         # `subjects` output had no consumer while the reporter listed them a
@@ -2001,7 +2096,6 @@ class ApprovalGateStructureTests(unittest.TestCase):
         workflow = yaml.safe_load(APPROVAL_WORKFLOW)
         request = workflow["jobs"]["request"]
         self.assertIn("approved-by", request["outputs"])
-        self.assertIn("approving-run", request["outputs"])
 
         step = next(
             s
