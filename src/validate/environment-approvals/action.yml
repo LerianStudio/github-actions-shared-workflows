@@ -1,0 +1,79 @@
+name: Environment Approvals
+description: "Reads who approved or rejected a workflow run's pending deployment to a given Environment. Reports only; the caller decides what the verdict means."
+
+inputs:
+  github-token:
+    description: 'Token used to read the approvals. Needs `actions: read`, which a called workflow often cannot request — see `api-readable`.'
+    required: true
+  environment:
+    description: Environment whose decisions are collected.
+    required: true
+  run-id:
+    description: Workflow run whose approvals are read.
+    required: false
+    default: ${{ github.run_id }}
+  repository:
+    description: Repository owning the run, as `owner/name`.
+    required: false
+    default: ${{ github.repository }}
+
+outputs:
+  approvers:
+    description: "Comma-separated logins that approved. Empty when none did."
+    value: ${{ steps.collect.outputs.approvers }}
+  rejecters:
+    description: "Comma-separated logins that rejected. Empty when none did."
+    value: ${{ steps.collect.outputs.rejecters }}
+  rejection-comment:
+    description: "The comment left with the most recent rejection, newlines flattened. Empty when none was given."
+    value: ${{ steps.collect.outputs.rejection-comment }}
+  api-readable:
+    description: "Whether the approvals API could be read at all (true/false). False means the other outputs are empty because the token lacks `actions: read`, NOT because nobody decided — a caller must not read that as 'no rejection'."
+    value: ${{ steps.collect.outputs.api-readable }}
+
+runs:
+  using: composite
+  steps:
+    - name: Collect the Environment decisions
+      id: collect
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+        REPO: ${{ inputs.repository }}
+        RUN_ID: ${{ inputs.run-id }}
+        ENVIRONMENT: ${{ inputs.environment }}
+      run: |
+        set -euo pipefail
+
+        api_readable=true
+        decisions=$(gh api "repos/${REPO}/actions/runs/${RUN_ID}/approvals" \
+          --jq '.[] | select((.environments // []) | map(.name) | index(env.ENVIRONMENT)) | [.state, .user.login, (.comment // "" | gsub("[\r\n]+"; " "))] | @tsv' \
+          2>/dev/null) || { api_readable=false; decisions=""; }
+
+        approvers=""
+        rejecters=""
+        rejection_comment=""
+
+        # `|| [ -n "$state" ]` so a final line with no trailing newline is still
+        # processed — losing the last decision would silently invert a verdict.
+        while IFS=$'\t' read -r state login comment || [ -n "$state" ]; do
+          [ -z "$state" ] && continue
+          case "$state" in
+            approved) approvers="${approvers:+$approvers, }${login}" ;;
+            rejected)
+              rejecters="${rejecters:+$rejecters, }${login}"
+              [ -n "$comment" ] && rejection_comment="$comment"
+              ;;
+          esac
+        done <<< "$decisions"
+
+        if [ "$api_readable" != "true" ]; then
+          echo "::warning::Could not read the approvals for run ${RUN_ID} — the token needs 'actions: read'. Reporting api-readable=false so the caller can fall back."
+        fi
+
+        {
+          echo "approvers=$approvers"
+          echo "rejecters=$rejecters"
+          echo "rejection-comment=$rejection_comment"
+          echo "api-readable=$api_readable"
+        } >> "$GITHUB_OUTPUT"

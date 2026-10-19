@@ -159,6 +159,46 @@ on:
         description: 'Block the PR when any of its commits is unsigned or has an unverified signature'
         type: boolean
         default: true
+      enable_breaking_change_approval:
+        description: >-
+          Hold a pull request carrying breaking-change commits at the
+          `breaking-approval` Environment until a reviewer approves it. Requires the
+          Environment to exist with required reviewers — see
+          docs/breaking-change-approval.md. Set to false until it is created.
+        type: boolean
+        default: true
+      breaking_change_scope_rules:
+        description: 'JSON object mapping an exact base branch to the pipe-separated head globs gated for breaking changes.'
+        type: string
+        default: '{"develop": "*", "main": "hotfix/*"}'
+      breaking_change_additional_scope_rules:
+        description: 'JSON object merged over `breaking_change_scope_rules`, key by key, for repository-specific promotion paths.'
+        type: string
+        default: ''
+      breaking_change_force_labels:
+        description: 'Comma-separated labels that put an out-of-scope pull request into the breaking-change gate.'
+        type: string
+        default: breaking-change-review
+      breaking_change_skip_labels:
+        description: 'Comma-separated labels that take a pull request out of the breaking-change gate. Empty keeps it closed.'
+        type: string
+        default: ''
+      breaking_change_close_on_rejection:
+        description: 'Close the pull request when a reviewer rejects the breaking change.'
+        type: boolean
+        default: true
+      breaking_change_approval_reviewers:
+        description: 'Who may answer the breaking-change gate, as comma-separated `team:<slug>` or `user:<login>`. Empty takes the repository own CODEOWNERS. Used only to create the `breaking-approval` Environment when it does not exist.'
+        type: string
+        default: ''
+      breaking_change_create_environment:
+        description: 'Create `breaking-approval` when missing. Needs a MANAGE_TOKEN with repository administration rights.'
+        type: boolean
+        default: true
+      breaking_change_require_protected_environment:
+        description: 'Refuse to gate when `breaking-approval` has no required reviewers, instead of silently passing. Leave on.'
+        type: boolean
+        default: true
 
       # ----------------- Frontend analysis (frontend-pr-analysis.yml) -----------------
       node_version:
@@ -545,6 +585,15 @@ jobs:
       automation_only_source_patterns: ${{ inputs.automation_only_source_patterns }}
       automation_source_actors: ${{ inputs.automation_source_actors }}
       require_verified_commits: ${{ inputs.require_verified_commits }}
+      enable_breaking_change_approval: ${{ inputs.enable_breaking_change_approval }}
+      breaking_change_scope_rules: ${{ inputs.breaking_change_scope_rules }}
+      breaking_change_additional_scope_rules: ${{ inputs.breaking_change_additional_scope_rules }}
+      breaking_change_force_labels: ${{ inputs.breaking_change_force_labels }}
+      breaking_change_skip_labels: ${{ inputs.breaking_change_skip_labels }}
+      breaking_change_close_on_rejection: ${{ inputs.breaking_change_close_on_rejection }}
+      breaking_change_approval_reviewers: ${{ inputs.breaking_change_approval_reviewers }}
+      breaking_change_create_environment: ${{ inputs.breaking_change_create_environment }}
+      breaking_change_require_protected_environment: ${{ inputs.breaking_change_require_protected_environment }}
     secrets:
       MANAGE_TOKEN: ${{ secrets.MANAGE_TOKEN }}
       SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
