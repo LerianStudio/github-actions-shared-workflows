@@ -287,7 +287,7 @@ def render_reporter(state, **overrides):
     return result.stdout
 
 
-def run_verdict(**overrides):
+def run_verdict(expect_failure=None, **overrides):
     """Run the gate's verdict step and return its outputs.
 
     Asserting that the cancellation branch contains `exit 0` would only prove
@@ -323,6 +323,13 @@ def run_verdict(**overrides):
         "HEAD_REF": "feat/x",
         "RUN_ID": "100",
         "MOCK_NEWER_RUNS": "0",
+        # Production always supplies these; the fixture did not, so the label
+        # cleanup expanded them under `set -u` and the step died with
+        # `LABEL: unbound variable` after emitting its outputs. Every caller
+        # read the outputs and ignored the exit code, so the suite stayed green
+        # on a step that had crashed.
+        "LABEL": "breaking-change",
+        "PENDING_LABEL": "awaiting-breaking-approval",
     }
     env.update(overrides)
 
@@ -392,6 +399,11 @@ def run_verdict(**overrides):
             check=False,
         )
         result.gh_calls = calls_path.read_text(encoding="utf-8").splitlines()
+        if expect_failure is None and result.returncode != 0:
+            raise AssertionError(
+                "the verdict step exited %d:\n%s"
+                % (result.returncode, result.stderr.strip())
+            )
         return result, parse_github_output(output_path.read_text(encoding="utf-8"))
 
 
@@ -431,6 +443,105 @@ def run_detect_normalization(**overrides):
             check=False,
         )
         return parse_github_output(output_path.read_text(encoding="utf-8"))
+
+
+def run_reporter_comment(state, existing_body=None, read_fails=False, **overrides):
+    """Run the reporter with commenting on, and report what it did to the comment.
+
+    Returns (process, calls) where `calls` lists every `gh` invocation, so a
+    test can say whether a PATCH was issued and what body it carried.
+
+    `render_reporter` stops before the comment handling and
+    `run_reporter_labels` turns commenting off, so the record-preservation
+    path — the one thing standing between a transient API error and every
+    approval on the pull request being erased — had no executable coverage at
+    all. It was pinned by grepping the composite for its own error message.
+    """
+    action = yaml.safe_load(
+        (
+            REPO_ROOT / "src" / "notify" / "breaking-change-approval-reporter"
+            / "action.yml"
+        ).read_text(encoding="utf-8")
+    )
+    body = action["runs"]["steps"][0]["run"]
+
+    env = {
+        "REPO": "LerianStudio/example",
+        "PR_NUMBER": "42",
+        "STATE": state,
+        "REASON": "rule develop <- '*'",
+        "HEAD_SHA": "abc1234567",
+        "ACKNOWLEDGED": "true",
+        "ACK_LINE": "Breaking change acknowledged: …",
+        "RUN_URL": "https://github.com/LerianStudio/example/actions/runs/1",
+        "REVIEWERS": "team:devops",
+        "SERVER_URL": "https://github.com",
+        "BADGE_URL": "https://img.shields.io/badge/x-1f6feb",
+        "DOCS_URL": "https://example.invalid/docs",
+        "APPROVERS": "carol",
+        "REJECTERS": "",
+        "REJECTION_COMMENT": "",
+        "CLOSE_ON_REJECTION": "true",
+        "LABEL": "breaking-change",
+        "PENDING_LABEL": "awaiting-breaking-approval",
+        "ENABLED": "true",
+        "FINGERPRINT": "",
+        "RUN_ID": "1",
+        "GH_TOKEN": "stub",
+    }
+    env.update(overrides)
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        calls = Path(temp_dir) / "calls"
+        calls.touch()
+        bodies = Path(temp_dir) / "bodies"
+        bodies.touch()
+        existing = Path(temp_dir) / "existing-body"
+        existing.write_text(existing_body or "", encoding="utf-8")
+
+        # `read_fails` is the whole point: the composite must refuse rather
+        # than treat an unreadable comment as one holding no records.
+        read_arm = (
+            "  *\"issues/comments/\"*) exit 1 ;;\n"
+            if read_fails
+            else f"  *\"issues/comments/\"*) cat '{existing}' ;;\n"
+        )
+        stub = Path(temp_dir) / "gh"
+        stub.write_text(
+            "#!/usr/bin/env bash\n"
+            f'printf \'%s\\n\' "$*" >> "{calls}"\n'
+            # The body goes out as `-F body=@<tmpfile>` and the composite
+            # deletes that file on exit, so keep a copy while it still exists.
+            'for arg in "$@"; do\n'
+            '  case "$arg" in\n'
+            f'    body=@*) cat "${{arg#body=@}}" >> "{bodies}" ;;\n'
+            "  esac\n"
+            "done\n"
+            'case "$*" in\n'
+            "  *\"pr edit\"*) exit 0 ;;\n"
+            "  *\"/commits\"*) printf '%s\\n' 'feat(x)!: breaks' ;;\n"
+            # the listing: one existing comment, id 7
+            "  *\"issues/42/comments\"*) printf '%s\\n' '7' ;;\n"
+            + read_arm
+            + "  *) exit 1 ;;\n"
+            "esac\n",
+            encoding="utf-8",
+        )
+        stub.chmod(0o755)
+        env["PATH"] = f"{temp_dir}:{os.environ.get('PATH', '/usr/bin:/bin')}"
+        env["GITHUB_OUTPUT"] = str(Path(temp_dir) / "out")
+        env["GITHUB_STEP_SUMMARY"] = str(Path(temp_dir) / "summary")
+        Path(env["GITHUB_OUTPUT"]).touch()
+        result = subprocess.run(
+            ["bash", "-c", body],
+            cwd=temp_dir,
+            env=env,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        result.posted_body = bodies.read_text(encoding="utf-8")
+        return result, calls.read_text(encoding="utf-8").splitlines()
 
 
 def run_reporter_labels(state, **overrides):
@@ -1337,6 +1448,43 @@ class ApprovalGateStructureTests(unittest.TestCase):
         self.assertNotIn("Always false when out of scope", described)
         self.assertIn("Behaviour change", described)
 
+    def test_a_failed_enumeration_is_unknown_not_a_clean_bill(self):
+        # The step that turns the commit list into a verdict was only ever run
+        # out of scope. Radagast proved the gap by mutation: flipping the
+        # failed-enumeration branch to report success left the suite green,
+        # and that mutation turns "we could not look" into "nothing found" —
+        # the one reading the gate exists to refuse.
+        #
+        # Reached when the pull request is above the 250-commit cap, when the
+        # API is unreadable, or when the composite refuses for any other
+        # reason. In every one of them nobody has seen the whole change.
+        for description, overrides in (
+            ("the composite failed", {"COMMITS_OUTCOME": "failure", "BREAKING_COUNT": ""}),
+            ("it succeeded but emitted no count", {"BREAKING_COUNT": ""}),
+            ("it failed with a stale count", {"COMMITS_OUTCOME": "failure"}),
+        ):
+            with self.subTest(description):
+                outputs = run_detect_normalization(**overrides)
+                self.assertEqual("false", outputs["detection-succeeded"], description)
+                self.assertEqual("false", outputs["has-breaking-changes"], description)
+
+        # And the verdict downstream has to block on it rather than pass.
+        _, verdict = run_verdict(DETECTION_SUCCEEDED="false")
+        self.assertEqual("blocked", verdict["state"])
+        self.assertEqual("failure", verdict["result"])
+        self.assertEqual("false", verdict["approved"])
+
+        # A caller that did its own detection is not blocked by the local
+        # enumeration failing — it supplied the answer. The fingerprint is
+        # empty, so no approval is reused, and a fresh decision is asked for.
+        supplied = run_detect_normalization(
+            COMMITS_OUTCOME="failure",
+            BREAKING_COUNT="",
+            SUPPLIED_HAS_BREAKING_CHANGES="true",
+        )
+        self.assertEqual("true", supplied["detection-succeeded"])
+        self.assertEqual("true", supplied["has-breaking-changes"])
+
     def test_a_newer_run_of_another_pull_request_is_not_supersession(self):
         # One head branch can carry two pull requests — same branch, different
         # bases. Scoping the query to this workflow leaves that open: the other
@@ -1541,14 +1689,40 @@ class ApprovalGateStructureTests(unittest.TestCase):
                 )
 
     def test_the_records_are_never_rewritten_blind(self):
-        reporter = (
-            REPO_ROOT / "src" / "notify" / "breaking-change-approval-reporter"
-            / "action.yml"
-        ).read_text(encoding="utf-8")
         # A failed read must not look like "there were none": the rewrite would
-        # erase approvals already given.
-        self.assertIn("Refusing to rewrite it", reporter)
-        self.assertIn("if ! current_body=$(gh api", reporter)
+        # erase every approval already given on this pull request, and the
+        # reviewers would be asked again for changes they had cleared.
+        #
+        # This was pinned by grepping the composite for its own error message,
+        # which proves the words exist and nothing about what runs. A branch
+        # that printed them and then PATCHed anyway would have passed.
+        failed, calls = run_reporter_comment("waiting", read_fails=True)
+        self.assertEqual(1, failed.returncode)
+        self.assertIn("Refusing to rewrite it", failed.stderr)
+        self.assertFalse(
+            [call for call in calls if "PATCH" in call],
+            "the comment was rewritten after the records could not be read",
+        )
+
+        # And the successful path actually carries them forward — the half
+        # that gives the refusal its point.
+        previous = (
+            "<!-- breaking-change-approval -->\n\nold body\n\n"
+            "<!-- breaking-change-approved: abc123 run=99 -->\n"
+        )
+        kept, calls = run_reporter_comment("waiting", existing_body=previous)
+        self.assertEqual(0, kept.returncode)
+        self.assertTrue([call for call in calls if "PATCH" in call])
+        self.assertIn("breaking-change-approved: abc123 run=99", kept.posted_body)
+
+        # A marker inside a fenced block is the author's text, not the gate's
+        # record — the undo example renders commit subjects in ```diff.
+        fenced = (
+            "<!-- breaking-change-approval -->\n\n```diff\n"
+            "<!-- breaking-change-approved: dead run=1 -->\n```\n"
+        )
+        smuggled, _ = run_reporter_comment("waiting", existing_body=fenced)
+        self.assertNotIn("breaking-change-approved: dead", smuggled.posted_body)
 
     def test_the_approval_record_survives_the_next_run(self):
         reporter = (
