@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+import json
 import os
 import re
 import subprocess
@@ -325,10 +326,36 @@ def run_verdict(**overrides):
     }
     env.update(overrides)
 
+    # `MOCK_NEWER_RUNS=N` is shorthand for N newer runs of this workflow, all
+    # belonging to this pull request. Pass `MOCK_RUNS_JSON` directly to say
+    # something the shorthand cannot — a run of another pull request, or a run
+    # from a fork with no `pull_requests` at all.
+    if "MOCK_RUNS_JSON" not in env:
+        run_id = int(env["RUN_ID"])
+        pr_number = int(env["PR_NUMBER"] or 0)
+        env["MOCK_RUNS_JSON"] = json.dumps(
+            {
+                "workflow_runs": [
+                    {"id": run_id + 1 + i, "pull_requests": [{"number": pr_number}]}
+                    for i in range(int(env["MOCK_NEWER_RUNS"]))
+                ]
+            }
+        )
+
     with tempfile.TemporaryDirectory() as temp_dir:
         stub = Path(temp_dir) / "gh"
+        # The stub runs the real `--jq` against a real payload. Returning the
+        # count directly was how the branch-wide query survived a whole round
+        # of review: the filter was never executed, so no test could see what
+        # it selected. Here the query is the thing under test.
         stub.write_text(
             "#!/usr/bin/env bash\n"
+            'jq_query=""\n'
+            'prev=""\n'
+            'for arg in "$@"; do\n'
+            '  [ "$prev" = "--jq" ] && jq_query="$arg"\n'
+            '  prev="$arg"\n'
+            "done\n"
             'case "$*" in\n'
             '  *headRefOid*) printf \'%s\\n\' "$LIVE_SHA" ;;\n'
             # Only the workflow-scoped URL answers. A query against
@@ -336,7 +363,7 @@ def run_verdict(**overrides):
             # nothing, so a regression to it reads as "no newer run" and fails
             # the supersession cases rather than passing them silently.
             '  *"/actions/workflows/"*"/runs?branch"*)'
-            ' printf \'%s\\n\' "$MOCK_NEWER_RUNS" ;;\n'
+            ' printf \'%s\' "$MOCK_RUNS_JSON" | jq -r "$jq_query" ;;\n'
             '  *"actions/runs/"*) printf \'%s\\n\' "4242" ;;\n'
             "  *) exit 1 ;;\n"
             "esac\n",
@@ -1237,6 +1264,40 @@ class ApprovalGateStructureTests(unittest.TestCase):
         self.assertEqual("superseded", by_head["state"])
 
         self.assertIn("actions/workflows/${workflow_id}/runs?branch=${HEAD_REF}", body)
+
+    def test_a_newer_run_of_another_pull_request_is_not_supersession(self):
+        # One head branch can carry two pull requests — same branch, different
+        # bases. Scoping the query to this workflow leaves that open: the other
+        # pull request's run is newer, on this branch, of this workflow, and
+        # without the `.pull_requests` filter it would carry a decision for a
+        # pull request it knows nothing about.
+        runs = {
+            "workflow_runs": [
+                {"id": 101, "pull_requests": [{"number": 77}]},
+                {"id": 102, "pull_requests": [{"number": 77}]},
+            ]
+        }
+        _, other_pr = run_verdict(
+            APPROVAL_RESULT="cancelled", MOCK_RUNS_JSON=json.dumps(runs)
+        )
+        self.assertEqual("unresolved", other_pr["state"])
+
+        # Mixed: the same two, plus one that is actually ours.
+        runs["workflow_runs"].append({"id": 103, "pull_requests": [{"number": 42}]})
+        _, ours = run_verdict(
+            APPROVAL_RESULT="cancelled", MOCK_RUNS_JSON=json.dumps(runs)
+        )
+        self.assertEqual("superseded", ours["state"])
+
+    def test_a_run_without_pull_requests_falls_back_to_the_branch_scope(self):
+        # Runs from forks come back with `pull_requests: []`. Dropping those
+        # would make every cancellation on a fork unresolved; keeping them
+        # leaves the branch scope as the evidence, which is what there is.
+        runs = {"workflow_runs": [{"id": 101, "pull_requests": []}]}
+        _, fork = run_verdict(
+            APPROVAL_RESULT="cancelled", MOCK_RUNS_JSON=json.dumps(runs)
+        )
+        self.assertEqual("superseded", fork["state"])
 
     def test_a_reused_approval_must_belong_to_this_pull_request(self):
         step = extract_step(
