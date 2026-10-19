@@ -1424,8 +1424,13 @@ class ApprovalGateStructureTests(unittest.TestCase):
         self.assertIn("actions/workflows/${workflow_id}/runs?branch=${HEAD_REF}", body)
 
     def test_the_public_breaking_output_reports_detection_out_of_scope(self):
-        # A published contract change, authorised as breaking for v2. The output
-        # used to be forced to `false` out of scope; it now reports what the
+        # A deliberate behaviour change, documented rather than versioned. The
+        # reason is specific to this output and not the one that covers the
+        # `label` input: the umbrellas do not surface it. Their
+        # `has_breaking_changes` comes from the `breaking-change-guard` job,
+        # which is unchanged, so only a standalone caller reads this value.
+        #
+        # It used to be forced to `false` out of scope; it now reports what the
         # caller detected, because a pull request this workflow does not gate
         # can still carry a break and the caller asking deserves the answer.
         out_of_scope = run_detect_normalization(

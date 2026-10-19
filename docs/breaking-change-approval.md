@@ -444,7 +444,8 @@ Declare them with [`labels-sync`](labels-sync.md), or pass `label: ''` /
 | `approval_reviewers` | string | *(empty)* | Who may answer the gate, as comma-separated `team:<slug>` or `user:<login>`. Empty takes the repository's CODEOWNERS. Used only to create the Environment when it does not exist. |
 | `create_approval_environment` | boolean | `true` | Create `breaking-approval` when missing. Needs a token with repository administration rights. |
 | `require_protected_environment` | boolean | `true` | Refuse to gate when `breaking-approval` exists without required reviewers. Leave on. |
-| `label` | string | `breaking-change` | Applied while waiting, removed once resolved. Cosmetic. |
+| `label` | string | `breaking-change` | States that the change is breaking. A fact, so it survives the decision and comes off only when the breaking commits are gone. Cosmetic. |
+| `pending_label` | string | `awaiting-breaking-approval` | States that a decision is pending. A state, so it comes off once approved or rejected. Cosmetic. |
 | `enable_comment` | boolean | `true` | Post and keep the comment updated. |
 | `dry_run` | boolean | `false` | Report what would be gated without commenting, labelling, requesting an approval, or failing. |
 | `runner_type` | string | `blacksmith-4vcpu-ubuntu-2404` | Runner label. Overridden by `vars.GENERAL_RUNNERS`. |
@@ -456,7 +457,7 @@ Whitespace around commas is tolerated.
 | Output | Description |
 |--------|-------------|
 | `in_scope` | Whether the pull request was gated at all (`true`/`false`). |
-| `has_breaking_changes` | Whether a breaking commit was found (`true`/`false`). Reports the detection out of scope too — not gating a pull request is not the same as it carrying no break. Gate on `in_scope` alongside it for the pre-v2 reading. |
+| `has_breaking_changes` | Whether a breaking commit was found (`true`/`false`). Reports the detection out of scope too — not gating a pull request is not the same as it carrying no break. Gate on `in_scope` alongside it for the earlier reading. |
 | `approved` | Whether a reviewer approved through the Environment (`true`/`false`). |
 | `result` | Gate verdict (`success`/`failure`). |
 
@@ -465,10 +466,28 @@ Through the umbrellas these surface as `breaking_change_approval_result`
 `skipped` is reported rather than folded into `success`: a gate that never ran
 and a gate that passed are not the same fact.
 
-## Migrating to v2
+## Behaviour changes since v1.84
 
-Two supported contracts changed. Both were deliberate, and both are breaking
-for a caller relying on the old behaviour.
+Two behaviours changed after the gate's first release in `v1.84.0`. Both were
+deliberate, and neither is classified as breaking — for different reasons,
+which are worth keeping apart:
+
+- **The `label` input.** None of the umbrellas — `pr-validation`,
+  `go-pr-validation`, `js-pr-validation` — expose an input for it; they pass
+  `force_labels` and `skip_labels` and nothing else. A caller on that path
+  never had a custom label to lose. Only a standalone caller that set one
+  inside the release window can notice.
+- **The `has_breaking_changes` output.** This one is about reading, not
+  configuring, so the argument above does not reach it. What does: the
+  umbrellas do not surface *this* output. Their `has_breaking_changes` comes
+  from the `breaking-change-guard` job, which is unchanged; the only gate
+  outputs they publish are `breaking_change_approval_result` and
+  `breaking_change_approved_by_reviewer`. So again only a standalone caller
+  can see it — one that branches on the output, whether or not it sets a
+  label.
+
+Written down anyway — an unannounced behaviour change is worse than a
+documented one, whatever the version number says.
 
 **`label` survives the decision.** It used to come off on approval. It is a
 fact about the change — approving a break does not make it stop being one, and
@@ -478,11 +497,11 @@ request in the results. It is removed only when the breaking commits are gone.
 The waiting marker moved to its own input:
 
 ```yaml
-# before v2 — one label doing both jobs
+# before — one label doing both jobs
 with:
   label: waiting-for-review
 
-# v2 — the fact and the state, separately
+# after — the fact and the state, separately
 with:
   label: ''                          # or breaking-change, the default
   pending_label: waiting-for-review  # comes off on approval or rejection
