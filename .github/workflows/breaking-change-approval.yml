@@ -728,10 +728,23 @@ jobs:
           # the decision. Neither means the cancellation stands unresolved,
           # which does not pass.
           if [ "$APPROVAL_RESULT" = "cancelled" ] && [ -n "${PR_NUMBER:-}" ]; then
-            newer=$(
-              gh api "repos/${REPO}/actions/runs?branch=${HEAD_REF}&per_page=50" \
-                --jq "[.workflow_runs[] | select(.id > ${RUN_ID})] | length" 2>/dev/null || echo 0
+            # Scoped to this workflow. `actions/runs?branch=` returns runs of
+            # every workflow on the branch, and the other ones from the same
+            # push start later with higher ids — so any cancellation would have
+            # found a "newer run" and passed, which is the false success this
+            # whole change exists to remove. Measured on a real branch: a run
+            # of Self — Repository Routines sat above the gate's own run.
+            workflow_id=$(
+              gh api "repos/${REPO}/actions/runs/${RUN_ID}" --jq '.workflow_id' 2>/dev/null || true
             )
+
+            newer=0
+            if [ -n "$workflow_id" ]; then
+              newer=$(
+                gh api "repos/${REPO}/actions/workflows/${workflow_id}/runs?branch=${HEAD_REF}&per_page=50" \
+                  --jq "[.workflow_runs[] | select(.id > ${RUN_ID})] | length" 2>/dev/null || echo 0
+              )
+            fi
 
             if [ "${newer:-0}" -gt 0 ]; then
               state=superseded

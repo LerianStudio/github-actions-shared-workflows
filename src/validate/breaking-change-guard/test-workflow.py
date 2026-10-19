@@ -331,7 +331,13 @@ def run_verdict(**overrides):
             "#!/usr/bin/env bash\n"
             'case "$*" in\n'
             '  *headRefOid*) printf \'%s\\n\' "$LIVE_SHA" ;;\n'
-            '  *"actions/runs?branch"*) printf \'%s\\n\' "$MOCK_NEWER_RUNS" ;;\n'
+            # Only the workflow-scoped URL answers. A query against
+            # `actions/runs?branch=` — every workflow on the branch — gets
+            # nothing, so a regression to it reads as "no newer run" and fails
+            # the supersession cases rather than passing them silently.
+            '  *"/actions/workflows/"*"/runs?branch"*)'
+            ' printf \'%s\\n\' "$MOCK_NEWER_RUNS" ;;\n'
+            '  *"actions/runs/"*) printf \'%s\\n\' "4242" ;;\n'
             "  *) exit 1 ;;\n"
             "esac\n",
             encoding="utf-8",
@@ -1120,7 +1126,11 @@ class ApprovalGateStructureTests(unittest.TestCase):
         # on. Treating every cancellation as supersession reported success for
         # revisions nobody approved, which is what Radagast caught on #926.
         self.assertIn('[ "$APPROVAL_RESULT" = "cancelled" ]', body)
-        self.assertIn("actions/runs?branch=${HEAD_REF}", body)
+        self.assertIn("actions/workflows/${workflow_id}/runs?branch=${HEAD_REF}", body)
+        # Scoped to this workflow, never to the branch at large: the sibling
+        # runs from the same push start later and carry higher ids, so the
+        # broad query answers "superseded" for every cancellation.
+        self.assertNotIn("/actions/runs?branch=", body)
         _, stranded = run_verdict(APPROVAL_RESULT="cancelled", MOCK_NEWER_RUNS="0")
         self.assertEqual("unresolved", stranded["state"])
 
@@ -1226,7 +1236,7 @@ class ApprovalGateStructureTests(unittest.TestCase):
         _, by_head = run_verdict(APPROVAL_RESULT="cancelled", LIVE_SHA="def456")
         self.assertEqual("superseded", by_head["state"])
 
-        self.assertIn("actions/runs?branch=${HEAD_REF}", body)
+        self.assertIn("actions/workflows/${workflow_id}/runs?branch=${HEAD_REF}", body)
 
     def test_a_reused_approval_must_belong_to_this_pull_request(self):
         step = extract_step(

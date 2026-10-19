@@ -48,6 +48,19 @@ and no others:
 mentions the phrase mid-sentence — because the release parser treats neither as
 breaking.
 
+## Pull requests above 250 commits
+
+`/pulls/{n}/commits` caps at 250. The action compares what the endpoint
+returned against the `commits` count the pull request declares, and when the
+two disagree it **exits non-zero** instead of reporting on a partial list — a
+fingerprint built from the first 250 of 300 commits would miss a break living
+in the tail and say "already approved" about a change nobody saw.
+
+So a pull request over 250 commits fails the step rather than passing it. The
+gate reads that as `unknown`, which blocks, and the way through is to split the
+pull request — not to widen the cap, since the endpoint has no page beyond it.
+The same refusal fires if the declared count cannot be read at all.
+
 ## Commit subjects are untrusted text
 
 The subjects go into `GITHUB_OUTPUT` as a multiline value, and whoever opens the
