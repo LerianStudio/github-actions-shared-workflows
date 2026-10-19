@@ -165,6 +165,19 @@ on:
         required: false
         type: string
         default: awaiting-breaking-approval
+      enable_approval:
+        description: >-
+          Hold breaking changes at the `breaking-approval` Environment. Off
+          leaves the gate reporting and labelling without ever asking for a
+          decision — the author acknowledgement is a separate control and is
+          still enforced by the caller.
+
+          Off is not the same as not calling this workflow: the acknowledgement
+          comment, the one place that tells the author which line to paste,
+          comes from here.
+        required: false
+        type: boolean
+        default: true
       enable_comment:
         description: Post (and keep updated) a single comment carrying the request, the approval link and the outcome.
         required: false
@@ -229,13 +242,17 @@ jobs:
       contents: read
       pull-requests: read
     outputs:
-      in-scope: ${{ steps.scope.outputs.in-scope }}
+      # `enable_approval: false` is out of scope for the approval and nothing
+      # more. Everything downstream already does the right thing with that —
+      # it reports, it labels, it keeps the acknowledgement instructions, and
+      # it never touches an Environment.
+      in-scope: ${{ inputs.enable_approval && steps.scope.outputs.in-scope || 'false' }}
       pr-number: ${{ steps.scope.outputs.pr-number }}
       base-ref: ${{ steps.scope.outputs.base-ref }}
       head-sha: ${{ steps.scope.outputs.head-sha }}
       head-ref: ${{ steps.scope.outputs.head-ref }}
       author: ${{ steps.scope.outputs.author }}
-      reason: ${{ steps.scope.outputs.reason }}
+      reason: ${{ inputs.enable_approval && steps.scope.outputs.reason || 'approval is disabled by the caller' }}
       has-breaking-changes: ${{ steps.normalize.outputs.has-breaking-changes }}
       fingerprint: ${{ steps.commits.outputs.fingerprint }}
       subjects: ${{ steps.commits.outputs.subjects }}
@@ -259,13 +276,18 @@ jobs:
       - name: Announce the scope verdict
         env:
           IN_SCOPE: ${{ steps.scope.outputs.in-scope }}
+          APPROVAL_ENABLED: ${{ inputs.enable_approval && 'true' || 'false' }}
           REASON: ${{ steps.scope.outputs.reason }}
           PR_NUMBER: ${{ steps.scope.outputs.pr-number }}
           HEAD_REF: ${{ steps.scope.outputs.head-ref }}
           BASE_REF: ${{ steps.scope.outputs.base-ref }}
         run: |
           set -euo pipefail
-          if [ "$IN_SCOPE" = "true" ]; then
+          if [ "$APPROVAL_ENABLED" != "true" ]; then
+            # Detection still runs below — the acknowledgement comment needs to
+            # know whether there is a break to acknowledge.
+            echo "::notice::PR #${PR_NUMBER} will not be held for approval — the caller disabled it. Reporting and labelling only."
+          elif [ "$IN_SCOPE" = "true" ]; then
             echo "::notice::PR #${PR_NUMBER} is gated for breaking changes via ${REASON}"
           else
             echo "::notice::PR #${PR_NUMBER} (${HEAD_REF} → ${BASE_REF}) is not gated — ${REASON}"
@@ -376,6 +398,8 @@ jobs:
       pull-requests: write
     outputs:
       already-approved: ${{ steps.prior.outputs.already-approved }}
+      approved-by: ${{ steps.prior.outputs.approved-by }}
+      approving-run: ${{ steps.prior.outputs.approving-run }}
     steps:
       # Has this exact breaking change already been approved on this pull
       # request? The approval comment records the fingerprint it approved, so a
@@ -406,6 +430,7 @@ jobs:
 
           already=false
           approved_by=""
+          approving_run=""
           unverified=""
 
           # Two things have to be true, because the comment alone is not
@@ -509,7 +534,17 @@ jobs:
             echo "::warning::A recorded approval of ${FINGERPRINT} exists but could not be verified against the Environment log (runs: ${unverified:-none}). Asking again."
           fi
 
-          echo "already-approved=$already" >> "$GITHUB_OUTPUT"
+          # The identity goes out with the verdict. Reuse skips the approval
+          # job, so the outcome reporter reads an empty `approvers` from a run
+          # that held no Environment decision and attributes the approval to
+          # "a reviewer" — erasing the name of whoever actually gave it. Both
+          # values are verified against the Environment log above; neither is
+          # read from the comment.
+          {
+            echo "already-approved=$already"
+            echo "approved-by=${approved_by}"
+            [ "$already" = "true" ] && echo "approving-run=${approving_run}" || echo "approving-run="
+          } >> "$GITHUB_OUTPUT"
 
       # Read from the BASE ref, never the head: a CODEOWNERS taken from the pull
       # request branch would let an author edit who is allowed to approve their
@@ -816,15 +851,29 @@ jobs:
             state=none
             emit
 
-            # The only moment the break actually stopped existing, so the only
-            # place the fact label comes off. A reword dropping the `!` left
-            # `breaking-change` on the pull request for good — the cleanup was
-            # lost in an earlier rewrite of this job and is restored here.
+            # Two labels, two different reasons to come off, and this branch
+            # is reached for two different reasons — so they cannot share a
+            # loop. `state=none` means either the break is gone or the gate
+            # has no say over this pull request, and only the first of those
+            # makes `breaking-change` untrue.
+            #
+            # Removing it out of scope was worse than cosmetic: the
+            # acknowledgement reporter had just applied it, because the break
+            # is real and the author still has to declare it. The gate then
+            # took it straight back off.
             if [ "$DRY_RUN" != "true" ] && [ -n "${PR_NUMBER:-}" ]; then
-              for stale in "$LABEL" "$PENDING_LABEL"; do
-                [ -n "$stale" ] || continue
-                gh pr edit "$PR_NUMBER" --repo "$REPO" --remove-label "$stale" >/dev/null 2>&1 || true
-              done
+              # Nothing is waiting on a decision either way, so the state
+              # label ends here.
+              if [ -n "$PENDING_LABEL" ]; then
+                gh pr edit "$PR_NUMBER" --repo "$REPO" --remove-label "$PENDING_LABEL" >/dev/null 2>&1 || true
+              fi
+
+              # The fact label only when the fact stopped being true. A reword
+              # dropping the `!` left `breaking-change` on the pull request for
+              # good — the cleanup was lost in an earlier rewrite of this job.
+              if [ "$HAS_BREAKING_CHANGES" != "true" ] && [ -n "$LABEL" ]; then
+                gh pr edit "$PR_NUMBER" --repo "$REPO" --remove-label "$LABEL" >/dev/null 2>&1 || true
+              fi
             fi
 
             echo "::notice::Nothing to approve on PR #${PR_NUMBER} — ${REASON}"
@@ -860,10 +909,13 @@ jobs:
           emit
 
       - name: Report the outcome on the pull request
+        # `blocked` belongs here too. Detection failing fails the check, and it
+        # used to do so without a word on the pull request — a red check with
+        # no comment reads as a flake and gets re-run instead of looked at.
         if: >-
           !inputs.dry_run
           && (steps.verdict.outputs.state == 'approved' || steps.verdict.outputs.state == 'rejected'
-              || steps.verdict.outputs.state == 'unresolved')
+              || steps.verdict.outputs.state == 'unresolved' || steps.verdict.outputs.state == 'blocked')
         continue-on-error: true
         uses: LerianStudio/github-actions-shared-workflows/src/notify/breaking-change-approval-reporter@develop
         with:
@@ -879,8 +931,16 @@ jobs:
           reason: ${{ needs.detect.outputs.reason }}
           head-sha: ${{ needs.detect.outputs.head-sha }}
           acknowledged: ${{ needs.detect.outputs.acknowledged }}
+          # Forwarded so the approved comment can keep the acknowledgement
+          # instructions. Blocking Checks still fails without the line, and the
+          # approval rewriting this comment used to take the only copy of it.
+          author-acknowledgement: ${{ inputs.author_acknowledgement }}
           run-url: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-          approvers: ${{ steps.decisions.outputs.approvers }}
+          # On reuse the approval job is skipped, so the current run holds no
+          # Environment decision and `decisions` is empty. Falling back to the
+          # verified historical approver keeps the name of whoever actually
+          # decided, instead of degrading it to "a reviewer" on the next push.
+          approvers: ${{ steps.decisions.outputs.approvers || needs.request.outputs.approved-by }}
           rejecters: ${{ steps.verdict.outputs.rejecters }}
           rejection-comment: ${{ steps.decisions.outputs.rejection-comment }}
           close-on-rejection: ${{ inputs.close_on_rejection && 'true' || 'false' }}

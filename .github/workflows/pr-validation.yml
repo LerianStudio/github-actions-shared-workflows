@@ -24,10 +24,18 @@ on:
           reported rather than folded into `success`: a gate that never ran and a
           gate that passed are not the same fact, and only the caller knows which
           one it is willing to merge on.
-        value: ${{ jobs.breaking-change-approval.outputs.result || 'skipped' }}
+        # The disabled case is spelled out rather than inferred from the job
+        # being skipped. The job now runs with approval off, so that it can
+        # still carry the acknowledgement feedback — but nothing was approved,
+        # and reporting `success` here would claim otherwise.
+        value: >-
+          ${{ !inputs.enable_breaking_change_approval && 'skipped'
+              || (jobs.breaking-change-approval.outputs.result || 'skipped') }}
       breaking_change_approved_by_reviewer:
         description: 'Whether a reviewer approved the breaking change through the `breaking-approval` Environment (true/false)'
-        value: ${{ jobs.breaking-change-approval.outputs.approved == 'true' && 'true' || 'false' }}
+        value: >-
+          ${{ inputs.enable_breaking_change_approval
+              && jobs.breaking-change-approval.outputs.approved == 'true' && 'true' || 'false' }}
     inputs:
       runner_type:
         description: 'GitHub runner type to use'
@@ -288,13 +296,18 @@ jobs:
   breaking-change-approval:
     name: Breaking Change Approval
     needs: [breaking-change-guard]
+    # Deliberately not gated on `enable_breaking_change_approval`. That input
+    # turns off the human approval, not the acknowledgement — which Blocking
+    # Checks still enforces. Skipping the whole job took the only comment
+    # carrying the line to paste with it, leaving the author a red check and
+    # no instructions. The flag is passed through instead.
     if: >-
       always()
       && github.event_name == 'pull_request'
       && github.event.pull_request.draft != true
-      && inputs.enable_breaking_change_approval
     uses: ./.github/workflows/breaking-change-approval.yml
     with:
+      enable_approval: ${{ inputs.enable_breaking_change_approval }}
       detected_breaking_changes: ${{ needs.breaking-change-guard.result == 'success' && needs.breaking-change-guard.outputs.detection-succeeded == 'true' && needs.breaking-change-guard.outputs.has-breaking-changes || 'unknown' }}
       # The acknowledgement state travels with it, so one comment can speak for
       # both controls. It replaces `breaking-change-comment`, removed here: two

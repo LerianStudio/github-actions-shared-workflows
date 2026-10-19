@@ -350,6 +350,11 @@ def run_verdict(**overrides):
         # it selected. Here the query is the thing under test.
         stub.write_text(
             "#!/usr/bin/env bash\n"
+            # Every invocation is recorded. Label behaviour was pinned by
+            # grepping the step for its loop, which is how a loop removing the
+            # wrong label stayed green — the assertion described the code
+            # rather than what it did.
+            'printf \'%s\\n\' "$*" >> "$GH_CALLS"\n'
             'jq_query=""\n'
             'prev=""\n'
             'for arg in "$@"; do\n'
@@ -372,6 +377,9 @@ def run_verdict(**overrides):
         stub.chmod(0o755)
         output_path = Path(temp_dir) / "github-output"
         output_path.touch()
+        calls_path = Path(temp_dir) / "gh-calls"
+        calls_path.touch()
+        env["GH_CALLS"] = str(calls_path)
         env["GITHUB_OUTPUT"] = str(output_path)
         env["GITHUB_STEP_SUMMARY"] = str(Path(temp_dir) / "summary")
         env["PATH"] = f"{temp_dir}:{os.environ.get('PATH', '/usr/bin:/bin')}"
@@ -383,6 +391,7 @@ def run_verdict(**overrides):
             capture_output=True,
             check=False,
         )
+        result.gh_calls = calls_path.read_text(encoding="utf-8").splitlines()
         return result, parse_github_output(output_path.read_text(encoding="utf-8"))
 
 
@@ -1441,10 +1450,28 @@ class ApprovalGateStructureTests(unittest.TestCase):
         code = "\n".join(
             line for line in step.splitlines() if not line.strip().startswith("#")
         )
+        # Writing outputs is not diagnostics. A `{ ... } >> "$GITHUB_OUTPUT"`
+        # group puts the redirect on the closing brace, so the `echo` lines
+        # inside carry no marker of their own — scan for the group and exempt
+        # its contents rather than matching the word on each line.
+        in_output_group = False
+        output_lines = set()
+        group = []
+        for index, line in enumerate(code.splitlines()):
+            stripped_line = line.strip()
+            if stripped_line == "{":
+                in_output_group, group = True, []
+            elif in_output_group and stripped_line.startswith("}"):
+                if "GITHUB_OUTPUT" in stripped_line:
+                    output_lines.update(group)
+                in_output_group = False
+            elif in_output_group:
+                group.append(index)
+
         # Every diagnostic beyond the single summary sits behind the dry-run
         # branch; count them to keep a future one from slipping out.
-        for line in code.splitlines():
-            if "echo " not in line or "GITHUB_OUTPUT" in line:
+        for index, line in enumerate(code.splitlines()):
+            if "echo " not in line or "GITHUB_OUTPUT" in line or index in output_lines:
                 continue
             stripped = line.strip()
             guarded = (
@@ -1586,17 +1613,153 @@ class ApprovalGateStructureTests(unittest.TestCase):
             run_reporter_labels("waiting", PENDING_LABEL=""),
         )
 
-    def test_both_labels_go_when_the_break_does(self):
-        body = extract_run_body(
-            extract_job(APPROVAL_WORKFLOW, "outcome"), "Resolve the verdict"
+    def test_the_fact_label_goes_only_when_the_break_does(self):
+        # `state=none` is reached two ways and they are not the same fact. The
+        # previous assertion pinned the loop that removed both labels in both
+        # cases — describing the code, which is how a loop taking off a true
+        # label stayed green. Run it instead, and read the calls.
+        def labels_removed(**overrides):
+            result, outputs = run_verdict(
+                LABEL="breaking-change",
+                PENDING_LABEL="awaiting-breaking-approval",
+                **overrides,
+            )
+            self.assertEqual("none", outputs["state"])
+            return {
+                call.rsplit(" ", 1)[-1]
+                for call in result.gh_calls
+                if "--remove-label" in call
+            }
+
+        # Out of scope with the break still there. The acknowledgement reporter
+        # has just applied `breaking-change` because the break is real and the
+        # author still has to declare it — taking it back off here was the gate
+        # undoing its own correct labelling.
+        self.assertEqual(
+            {"awaiting-breaking-approval"},
+            labels_removed(IN_SCOPE="false", HAS_BREAKING_CHANGES="true"),
         )
-        # The one moment the fact stops being true. This cleanup was lost in an
-        # earlier rewrite, leaving `breaking-change` on a pull request whose
-        # breaking commit had been reworded away.
-        self.assertIn('for stale in "$LABEL" "$PENDING_LABEL"', body)
-        none_at = body.index("state=none")
-        cleanup_at = body.index('for stale in "$LABEL" "$PENDING_LABEL"')
-        self.assertLess(none_at, cleanup_at)
+
+        # The break actually gone — a reword dropping the `!`. Now the fact
+        # stopped being true, so both come off.
+        self.assertEqual(
+            {"awaiting-breaking-approval", "breaking-change"},
+            labels_removed(IN_SCOPE="true", HAS_BREAKING_CHANGES="false"),
+        )
+
+    def test_the_acknowledgement_line_survives_the_decision(self):
+        # The approval and the acknowledgement are different controls. A
+        # reviewer saying yes to a break is not the author declaring it, and
+        # Blocking Checks keeps failing until the line is in the description.
+        #
+        # The instructions used to live in `waiting` alone, so the approval
+        # rewrote the comment and took the only copy with it: red check, no
+        # instructions, nothing on the pull request saying what to paste.
+        line = "Breaking change acknowledged: I understand ..."
+        for state in ("waiting", "approved", "blocked"):
+            rendered = render_reporter(state, ACKNOWLEDGED="false", ACK_LINE=line)
+            self.assertIn("Add this exact line", rendered, state)
+            self.assertIn(line, rendered, state)
+
+        # And it goes away once the line is there — it is remediation, not
+        # decoration.
+        done = render_reporter("approved", ACKNOWLEDGED="true", ACK_LINE=line)
+        self.assertNotIn("Add this exact line", done)
+
+        # The outcome job has to forward the literal, or there is nothing to
+        # print no matter what the renderer does.
+        workflow = yaml.safe_load(APPROVAL_WORKFLOW)
+        step = next(
+            s
+            for s in workflow["jobs"]["outcome"]["steps"]
+            if s.get("name") == "Report the outcome on the pull request"
+        )
+        self.assertIn("author-acknowledgement", step["with"])
+
+    def test_no_instruction_is_better_than_an_empty_one(self):
+        # `author-acknowledgement` is empty by default, so a direct caller on
+        # the composite's defaults was told to "add this exact line" above an
+        # empty code block. The waiting branch already checked; this one did
+        # not.
+        rendered = render_reporter("acknowledgement", ACKNOWLEDGED="false", ACK_LINE="")
+        self.assertNotIn("Add this exact line", rendered)
+        self.assertNotIn("```", rendered)
+        # The break is still announced — only the unusable instruction is gone.
+        self.assertIn("acknowledgement missing", rendered)
+
+    def test_a_blocked_gate_says_so_on_the_pull_request(self):
+        # Detection failing fails the check. It used to do that silently: a red
+        # check with no comment reads as a flake and gets re-run rather than
+        # looked at.
+        rendered = render_reporter("blocked", ACKNOWLEDGED="")
+        self.assertIn("could not run", rendered)
+        self.assertIn("fails closed", rendered)
+
+        workflow = yaml.safe_load(APPROVAL_WORKFLOW)
+        step = next(
+            s
+            for s in workflow["jobs"]["outcome"]["steps"]
+            if s.get("name") == "Report the outcome on the pull request"
+        )
+        self.assertIn("'blocked'", step["if"])
+
+    def test_disabling_approval_keeps_the_acknowledgement_feedback(self):
+        # `enable_breaking_change_approval: false` turns off the human
+        # approval, not the acknowledgement — Blocking Checks still fails
+        # without the line. Skipping the whole job took the only comment
+        # carrying that line with it.
+        validation = yaml.safe_load(
+            (REPO_ROOT / ".github" / "workflows" / "pr-validation.yml").read_text(
+                encoding="utf-8"
+            )
+        )
+        job = validation["jobs"]["breaking-change-approval"]
+        self.assertNotIn("inputs.enable_breaking_change_approval", job["if"])
+        self.assertEqual(
+            "${{ inputs.enable_breaking_change_approval }}",
+            job["with"]["enable_approval"],
+        )
+
+        # The gate treats it as out of scope for the approval and nothing more,
+        # so no Environment is ever touched.
+        approval = yaml.safe_load(APPROVAL_WORKFLOW)
+        in_scope = approval["jobs"]["detect"]["outputs"]["in-scope"]
+        self.assertIn("inputs.enable_approval", in_scope)
+
+        # And the published result still says `skipped`, not `success`: the job
+        # runs now, but nothing was approved.
+        result = validation[True]["workflow_call"]["outputs"][
+            "breaking_change_approval_result"
+        ]["value"]
+        self.assertIn("!inputs.enable_breaking_change_approval && 'skipped'", result)
+
+    def test_the_historical_approver_survives_a_reused_approval(self):
+        # Reuse skips the approval job, so the current run holds no Environment
+        # decision and `decisions` comes back empty. Without the fallback the
+        # comment degrades to "Approved by a reviewer" on the next push, losing
+        # the name of whoever actually decided.
+        workflow = yaml.safe_load(APPROVAL_WORKFLOW)
+        request = workflow["jobs"]["request"]
+        self.assertIn("approved-by", request["outputs"])
+        self.assertIn("approving-run", request["outputs"])
+
+        step = next(
+            s
+            for s in workflow["jobs"]["outcome"]["steps"]
+            if s.get("name") == "Report the outcome on the pull request"
+        )
+        self.assertIn(
+            "needs.request.outputs.approved-by", step["with"]["approvers"]
+        )
+        # And it is the verified identity, not one read from the comment: the
+        # lookup only sets it after the Environment log confirms the run.
+        lookup = extract_step(
+            extract_job(APPROVAL_WORKFLOW, "request"),
+            "Check for a prior approval of the same change",
+        )
+        verified_at = lookup.index('approved_by="$approvers"')
+        guard_at = lookup.index('select(.state == "approved")')
+        self.assertLess(guard_at, verified_at)
 
     def test_the_fingerprint_comes_from_the_breaking_commits(self):
         detect = extract_job(APPROVAL_WORKFLOW, "detect")
