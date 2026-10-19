@@ -549,6 +549,10 @@ correct fix, since the commit message is what the release reads.
 
 ## Local test
 
+All five run in self CI under **Breaking Change Guard Detector Tests**. Three
+of them did not until recently — 76 cases, including the output-forgery and
+fingerprint ones, that a change could walk past without anything going red.
+
 ```bash
 bash    src/validate/pr-gate-scope/test.sh
 bash    src/validate/breaking-change-commits/test.sh
@@ -561,7 +565,7 @@ python3 src/validate/breaking-change-guard/test-workflow.py
   their globs, the merge semantics of `additional-scope-rules`, both label
   overrides and their precedence, the three bot spellings, and every input that
   must fail closed. No network, no repository fixture.
-- **`breaking-change-commits/test.sh`** — 20 cases: both breaking forms, the
+- **`breaking-change-commits/test.sh`** — 22 cases: both breaking forms, the
   lookalikes that must not count, parity with the detector on case and on scopes
   containing parens, the fingerprint holding still for an ordinary commit while
   changing for a breaking one, and the output-injection attack a commit subject
