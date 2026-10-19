@@ -1,5 +1,25 @@
 # Github-actions-shared-workflows Changelog
 
+## [1.83.0](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.83.0)
+
+Features:
+- Allow callers to skip analysis on pipeline-only pull requests in the Go PR validation workflow. (@bedatty)
+- Allow callers to skip analysis on pipeline-only pull requests in the JS PR validation workflow. (@bedatty)
+
+Fixes:
+- Ensure the release process can transition from `develop` to `main`. (@bedatty)
+- Skip the documentation gate during this repository's own release process. (@bedatty)
+- Enable dispatch events to trigger releases when a push cannot. (@bedatty)
+- Allow the repository to release when only reusable workflows have changed. (@bedatty) 
+
+Improvements:
+- Update documentation to standardize the agent compatibility policy. (@fredcamaral)
+- Clarify that `ignore_globs` determines behavior once workflow analysis is off in the PR validation documentation. (@bedatty)
+
+[Compare changes](https://github.com/LerianStudio/github-actions-shared-workflows/compare/v1.82.0...v1.83.0)
+
+---
+
 ## [1.82.0](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.82.0)
 
 Features:

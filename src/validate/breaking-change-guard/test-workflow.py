@@ -35,6 +35,44 @@ ACKNOWLEDGEMENT = (
     "introduces a breaking change and requires the next release to be a major version."
 )
 
+APPROVAL_WORKFLOW_PATH = (
+    REPO_ROOT / ".github" / "workflows" / "breaking-change-approval.yml"
+)
+APPROVAL_WORKFLOW = APPROVAL_WORKFLOW_PATH.read_text(encoding="utf-8")
+
+# Composites the approval gate orchestrates. Each must exist with the action.yml
+# + README.md pair the repository requires.
+APPROVAL_COMPOSITES = (
+    "src/validate/pr-gate-scope",
+    "src/validate/environment-protection",
+    "src/validate/environment-approvals",
+    "src/notify/breaking-change-approval-reporter",
+    "src/validate/codeowners-reviewers",
+)
+ENVIRONMENT_PROTECTION = (
+    REPO_ROOT / "src" / "validate" / "environment-protection" / "action.yml"
+).read_text(encoding="utf-8")
+ENVIRONMENT_APPROVALS = (
+    REPO_ROOT / "src" / "validate" / "environment-approvals" / "action.yml"
+).read_text(encoding="utf-8")
+
+# The mandatory author-acknowledgement guard must stay unconfigurable, which the
+# tests below enforce by rejecting any input whose name mentions "breaking" or
+# "acknowledgement". The human approval gate is a separate control and is meant to
+# be configurable, so its inputs are allowed — by name, one at a time. Adding to
+# this set is the deliberate act; forgetting to is a failing test.
+APPROVAL_GATE_INPUTS = {
+    "enable_breaking_change_approval",
+    "breaking_change_scope_rules",
+    "breaking_change_additional_scope_rules",
+    "breaking_change_force_labels",
+    "breaking_change_skip_labels",
+    "breaking_change_close_on_rejection",
+    "breaking_change_require_protected_environment",
+    "breaking_change_approval_reviewers",
+    "breaking_change_create_environment",
+}
+
 
 def indentation(line):
     return len(line) - len(line.lstrip(" "))
@@ -451,9 +489,13 @@ class WorkflowStructureTests(unittest.TestCase):
         self.assertTrue(
             forbidden.isdisjoint(keys), sorted(forbidden.intersection(keys))
         )
-        self.assertFalse(
-            any("breaking" in key or "acknowledgement" in key for key in keys)
-        )
+        unexpected = [
+            key
+            for key in keys
+            if ("breaking" in key or "acknowledgement" in key)
+            and key not in APPROVAL_GATE_INPUTS
+        ]
+        self.assertFalse(unexpected, unexpected)
 
     def test_guard_uses_fixed_author_acknowledgement_exact_mode_and_released_action(
         self,
@@ -617,13 +659,13 @@ class WorkflowStructureTests(unittest.TestCase):
                     "jobs.metadata.outputs.breaking_change_result || 'failure'", outputs
                 )
                 input_keys = mapping_keys(inputs, 6)
-                self.assertFalse(
-                    any(
-                        "breaking" in key or "acknowledgement" in key
-                        for key in input_keys
-                    ),
-                    input_keys,
-                )
+                unexpected = [
+                    key
+                    for key in input_keys
+                    if ("breaking" in key or "acknowledgement" in key)
+                    and key not in APPROVAL_GATE_INPUTS
+                ]
+                self.assertFalse(unexpected, unexpected)
 
     def test_analysis_workflows_expose_scoped_test_runner_overrides(self):
         cases = (
@@ -667,6 +709,189 @@ class WorkflowStructureTests(unittest.TestCase):
                     f"runs-on: ${{{{ inputs.{input_name} || vars.GENERAL_RUNNERS || inputs.runner_type }}}}",
                     extract_job(analysis, analysis_job),
                 )
+
+
+class ApprovalGateStructureTests(unittest.TestCase):
+    """The human approval gate — wiring that must not drift.
+
+    Every assertion here corresponds to a way the gate could keep reporting green
+    while gating nothing, which is the only failure mode that matters for a
+    control like this.
+    """
+
+    def test_reusable_workflow_offers_no_manual_trigger(self):
+        self.assertIn("workflow_call:", APPROVAL_WORKFLOW)
+        self.assertNotIn("workflow_dispatch:", APPROVAL_WORKFLOW)
+
+    def test_environment_is_a_literal_not_an_expression(self):
+        job = extract_job(APPROVAL_WORKFLOW, "approval")
+        self.assertIn("environment: breaking-approval", job)
+        # An `environment:` built from an input could be pointed at an ungated
+        # Environment by a caller. Same reasoning as tier-promotion.yml.
+        self.assertNotIn("environment: ${{", APPROVAL_WORKFLOW)
+
+    def test_approval_job_only_runs_when_there_is_something_to_approve(self):
+        job = extract_job(APPROVAL_WORKFLOW, "approval")
+        self.assertIn(
+            "needs.detect.outputs.has-breaking-changes == 'true'",
+            job,
+        )
+        self.assertIn("!inputs.dry_run", job)
+        # The preflight lives in `request`; approving must not be reachable when
+        # it failed, or an unprotected Environment would wave the change through.
+        self.assertIn("needs.request.result == 'success'", job)
+
+    def test_every_orchestrated_composite_exists_with_its_readme(self):
+        for path in APPROVAL_COMPOSITES:
+            with self.subTest(composite=path):
+                directory = REPO_ROOT / path
+                self.assertTrue((directory / "action.yml").is_file(), path)
+                self.assertTrue((directory / "README.md").is_file(), path)
+                # Ref deliberately not asserted while the composites are still
+                # unreleased: `@v1` cannot resolve a composite this very pull
+                # request introduces. test_composite_refs_are_pinned below is
+                # what keeps the ref honest.
+                self.assertIn(
+                    f"LerianStudio/github-actions-shared-workflows/{path}@",
+                    APPROVAL_WORKFLOW,
+                )
+
+    def test_composite_refs_are_pinned_to_a_channel_not_a_feature_branch(self):
+        refs = set(
+            re.findall(
+                r"LerianStudio/github-actions-shared-workflows/src/[^@\s]+@(\S+)",
+                APPROVAL_WORKFLOW,
+            )
+        )
+        allowed = {"v1", "develop"}
+        stray = sorted(refs - allowed)
+        self.assertFalse(
+            stray,
+            f"composites must resolve through {sorted(allowed)}, not a feature "
+            f"branch that disappears when it is deleted: {stray}",
+        )
+
+    def test_preflight_runs_before_the_gate_and_fails_closed(self):
+        step = extract_step(
+            extract_job(APPROVAL_WORKFLOW, "request"),
+            "Verify the breaking-approval Environment is protected",
+        )
+        self.assertIn("src/validate/environment-protection@", step)
+        self.assertIn("environment: breaking-approval", step)
+        # Where the reviewers come from is asserted in the CODEOWNERS test.
+        # The composite is what must refuse. Every branch that cannot prove the
+        # Environment gates something has to exit non-zero, never warn.
+        self.assertIn("required_reviewers", ENVIRONMENT_PROTECTION)
+        self.assertGreaterEqual(ENVIRONMENT_PROTECTION.count("exit 1"), 7)
+
+    def test_environment_is_never_created_without_reviewers(self):
+        # Creating it without reviewers would produce the exact failure the
+        # preflight exists to prevent: a gate that approves itself.
+        self.assertIn('if [ -z "$REVIEWERS" ]; then', ENVIRONMENT_PROTECTION)
+        self.assertIn("cannot be created as a gate", ENVIRONMENT_PROTECTION)
+
+    def test_an_existing_environment_is_never_rewritten(self):
+        # A PUT replaces the whole configuration, so repairing an existing
+        # Environment would silently drop a wait timer or branch policy.
+        self.assertIn("Not changing it from here", ENVIRONMENT_PROTECTION)
+        # The only PUT must sit on the creation path, after the 404 branch.
+        created_at = ENVIRONMENT_PROTECTION.index("created=true")
+        put_at = ENVIRONMENT_PROTECTION.index("--method PUT")
+        self.assertLess(put_at, created_at)
+        self.assertEqual(1, ENVIRONMENT_PROTECTION.count("--method PUT"))
+
+    def test_reviewers_come_from_codeowners_on_the_base_ref(self):
+        step = extract_step(
+            extract_job(APPROVAL_WORKFLOW, "request"),
+            "Derive the reviewers from CODEOWNERS",
+        )
+        self.assertIn("src/validate/codeowners-reviewers@", step)
+        # The base ref, never the head: a CODEOWNERS from the pull request
+        # branch would let the author choose who approves their own change.
+        self.assertIn("ref: ${{ needs.detect.outputs.base-ref }}", step)
+        self.assertNotIn("head", step)
+        # Explicit reviewers win; CODEOWNERS is the fallback.
+        preflight = extract_step(
+            extract_job(APPROVAL_WORKFLOW, "request"),
+            "Verify the breaking-approval Environment is protected",
+        )
+        self.assertIn(
+            "inputs.approval_reviewers != '' && inputs.approval_reviewers"
+            " || steps.codeowners.outputs.reviewers",
+            preflight,
+        )
+
+    def test_a_missing_environment_is_told_apart_from_an_unreadable_one(self):
+        # Creating on top of a 403 would be guessing; only a 404 is ours to fix.
+        self.assertIn('*"HTTP 404"* | *"Not Found"* )', ENVIRONMENT_PROTECTION)
+
+    def test_approvals_composite_reports_whether_it_could_read(self):
+        # Empty lists mean "nobody decided" only when the API was readable.
+        # Without this flag a 403 would be indistinguishable from an approval
+        # that never happened.
+        self.assertIn("api-readable:", ENVIRONMENT_APPROVALS)
+        self.assertIn("api_readable=false", ENVIRONMENT_APPROVALS)
+        self.assertIn('|| [ -n "$state" ]', ENVIRONMENT_APPROVALS)
+
+    def test_outcome_does_not_escalate_permissions(self):
+        job = extract_job(APPROVAL_WORKFLOW, "outcome")
+        permissions = extract_mapping_entry(job, "permissions", indent=4)
+        # A called workflow may only request permissions the caller already holds,
+        # so declaring `actions: read` here would break every consumer whose
+        # entrypoint does not grant it. Scoped to the `permissions:` block —
+        # the step text mentions it on purpose, explaining the fallback.
+        self.assertNotIn("actions:", permissions)
+        self.assertIn("pull-requests: write", permissions)
+
+    def test_pull_request_is_closed_only_on_a_recorded_rejection(self):
+        job = extract_job(APPROVAL_WORKFLOW, "outcome")
+        step = extract_step(job, "Close the pull request on rejection")
+        # Gated on the resolved state, never on the raw job conclusion: a
+        # cancelled run must not close a pull request.
+        self.assertIn(
+            "if: steps.verdict.outputs.state == 'rejected'"
+            " && inputs.close_on_rejection && !inputs.dry_run",
+            step,
+        )
+        body = extract_run_body(job, "Resolve the verdict")
+        self.assertIn('state=rejected', body)
+        # `rejected` is only reachable from a recorded rejecter, or from a failed
+        # approval job when the approvals API could not be read at all.
+        self.assertIn('"$API_READABLE" != "true" ]', body)
+        self.assertIn('"$APPROVAL_RESULT" = "failure"', body)
+
+    def test_pr_validation_hands_detection_over_and_fails_closed(self):
+        job = extract_job(WORKFLOW, "breaking-change-approval")
+        self.assertIn("uses: ./.github/workflows/breaking-change-approval.yml", job)
+        self.assertIn("inputs.enable_breaking_change_approval", job)
+        # `unknown` rather than the normalised `false`: a detection that did not
+        # complete must not read as "no breaking changes".
+        self.assertIn("|| 'unknown'", job)
+        self.assertIn(
+            "needs.breaking-change-guard.outputs.detection-succeeded == 'true'", job
+        )
+
+    def test_approval_gate_is_a_side_branch_of_the_validation_graph(self):
+        # Nothing may depend on it: a pull request waiting days for its approval
+        # must still get its title, source-branch and signature verdicts.
+        for job_id in (
+            "blocking-checks",
+            "advisory-checks",
+            "pr-checks-summary",
+            "pr-validation-report",
+        ):
+            with self.subTest(job=job_id):
+                job = extract_job(WORKFLOW, job_id)
+                self.assertNotIn("breaking-change-approval", job)
+
+    def test_umbrellas_forward_every_approval_gate_input(self):
+        for name, text in (("go", GO_WORKFLOW), ("js", JS_WORKFLOW)):
+            for key in sorted(APPROVAL_GATE_INPUTS):
+                with self.subTest(workflow=name, input=key):
+                    self.assertIn(f"{key}: ${{{{ inputs.{key} }}}}", text)
+
+    def test_self_validation_states_the_gate_explicitly(self):
+        self.assertIn("enable_breaking_change_approval: true", SELF_WORKFLOW)
 
 
 class ActionMetadataTests(unittest.TestCase):
