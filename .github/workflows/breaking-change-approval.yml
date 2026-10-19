@@ -384,6 +384,7 @@ jobs:
         # that matters most here.
         if: >-
           needs.detect.result == 'success'
+          && needs.detect.outputs.in-scope == 'true'
           && needs.detect.outputs.has-breaking-changes == 'true'
           && needs.detect.outputs.fingerprint != ''
         env:
@@ -510,6 +511,7 @@ jobs:
         id: codeowners
         if: >-
           needs.detect.result == 'success'
+          && needs.detect.outputs.in-scope == 'true'
           && needs.detect.outputs.has-breaking-changes == 'true'
           && inputs.approval_reviewers == ''
           && inputs.create_approval_environment
@@ -519,10 +521,14 @@ jobs:
           github-token: ${{ secrets.MANAGE_TOKEN || github.token }}
           ref: ${{ needs.detect.outputs.base-ref }}
 
+      # Creating or verifying the Environment is only meaningful when an
+      # approval is actually coming. Out of scope this fails the job over an
+      # Environment nobody is going to use.
       - name: Verify the breaking-approval Environment is protected
         id: environment
         if: >-
           needs.detect.result == 'success'
+          && needs.detect.outputs.in-scope == 'true'
           && needs.detect.outputs.has-breaking-changes == 'true'
           && inputs.require_protected_environment
           && !inputs.dry_run
@@ -593,8 +599,15 @@ jobs:
     name: Approve Breaking Change
     runs-on: ${{ vars.GENERAL_RUNNERS || inputs.runner_type }}
     needs: [detect, request]
+    # `in-scope` is not optional here. Out of scope means no approval is
+    # required — #918 started preserving the caller's real detection so the
+    # acknowledgement could still be reported, and in doing so removed the only
+    # thing keeping this job out of scope. A pull request excluded by a branch
+    # rule, a skip label or an ignored author would wait on an Environment it
+    # has no business touching, and the verdict would discard the answer.
     if: >-
       needs.detect.result == 'success'
+      && needs.detect.outputs.in-scope == 'true'
       && needs.request.result == 'success'
       && needs.detect.outputs.has-breaking-changes == 'true'
       && needs.request.outputs.already-approved != 'true'
