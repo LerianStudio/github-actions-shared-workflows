@@ -468,13 +468,26 @@ and a gate that passed are not the same fact.
 
 ## Behaviour changes since v1.84
 
-Two behaviours changed after the gate's first release. Both were deliberate,
-and neither is classified as breaking: the gate shipped in `v1.84.0` and the
-umbrellas (`pr-validation`, `go-pr-validation`, `js-pr-validation`) expose no
-input for `label` at all, so the only configuration that could notice is a
-standalone caller that set a custom label inside that window. Written down
-here anyway — an unannounced behaviour change is worse than a documented one,
-whatever the version number says.
+Two behaviours changed after the gate's first release in `v1.84.0`. Both were
+deliberate, and neither is classified as breaking — for different reasons,
+which are worth keeping apart:
+
+- **The `label` input.** None of the umbrellas — `pr-validation`,
+  `go-pr-validation`, `js-pr-validation` — expose an input for it; they pass
+  `force_labels` and `skip_labels` and nothing else. A caller on that path
+  never had a custom label to lose. Only a standalone caller that set one
+  inside the release window can notice.
+- **The `has_breaking_changes` output.** This one is about reading, not
+  configuring, so the argument above does not reach it. What does: the
+  umbrellas do not surface *this* output. Their `has_breaking_changes` comes
+  from the `breaking-change-guard` job, which is unchanged; the only gate
+  outputs they publish are `breaking_change_approval_result` and
+  `breaking_change_approved_by_reviewer`. So again only a standalone caller
+  can see it — one that branches on the output, whether or not it sets a
+  label.
+
+Written down anyway — an unannounced behaviour change is worse than a
+documented one, whatever the version number says.
 
 **`label` survives the decision.** It used to come off on approval. It is a
 fact about the change — approving a break does not make it stop being one, and
