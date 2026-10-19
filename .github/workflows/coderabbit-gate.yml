@@ -30,6 +30,10 @@ name: CodeRabbit Gate
 # human work and would otherwise spend the hourly review allowance on diffs that
 # are a version number.
 #
+# The organization variable `RADAGAST_AUTHORS` (comma-separated logins) is a second
+# veto: Radagast reviews those authors instead. Unset or empty, it vetoes nobody —
+# which is the case in every organization that does not define it.
+#
 # NOTE for callers: the caller's own `pull_request` trigger bounds this. A base
 # branch listed here but absent from `on.pull_request.branches` never sees the
 # workflow run at all, so the command is never posted. The effective scope is the
@@ -111,6 +115,7 @@ jobs:
           REVIEW_BASE_BRANCHES: ${{ inputs.review_base_branches }}
           REVIEW_HEAD_PATTERNS: ${{ inputs.review_head_patterns }}
           IGNORE_AUTHORS: ${{ inputs.ignore_authors }}
+          RADAGAST_AUTHORS: ${{ vars.RADAGAST_AUTHORS }}
           LABEL: ${{ inputs.label }}
           DRY_RUN: ${{ inputs.dry_run }}
         run: |
@@ -138,6 +143,7 @@ jobs:
             echo "  scope bases       : [${REVIEW_BASE_BRANCHES}]"
             echo "  scope head globs  : [${REVIEW_HEAD_PATTERNS}]"
             echo "  ignored authors   : [${IGNORE_AUTHORS}]"
+            echo "  radagast authors  : [${RADAGAST_AUTHORS}]"
           fi
 
           # `checks_passed` describes one specific commit. Without concurrency
@@ -178,13 +184,24 @@ jobs:
 
           author_key=$(normalise_login "$author")
 
-          while IFS= read -r entry; do
-            [ -z "$entry" ] && continue
-            if [ "$author_key" = "$(normalise_login "$entry")" ]; then
-              echo "::notice::PR #${PR_NUMBER} was opened by ${author}, an ignored author — not requesting a review"
-              exit 0
-            fi
-          done < <(tr ',' '\n' <<< "$IGNORE_AUTHORS" | xargs -n1 2>/dev/null)
+          listed() {
+            local entry
+            while IFS= read -r entry; do
+              [ -z "$entry" ] && continue
+              [ "$author_key" = "$(normalise_login "$entry")" ] && return 0
+            done < <(tr ',' '\n' <<< "$1" | xargs -n1 2>/dev/null)
+            return 1
+          }
+
+          if listed "$IGNORE_AUTHORS"; then
+            echo "::notice::PR #${PR_NUMBER} was opened by ${author}, an ignored author — not requesting a review"
+            exit 0
+          fi
+
+          if listed "$RADAGAST_AUTHORS"; then
+            echo "::notice::PR #${PR_NUMBER} was opened by ${author}, whose pull requests are reviewed by Radagast — not requesting a CodeRabbit review"
+            exit 0
+          fi
 
           matched=""
 

@@ -147,6 +147,7 @@ apps:
     - billing-worker
     - br-pcr
     - br-sfn-sims
+    - cleanup-severino-test
     - finance-hub
     - lerian-clients-dev
     - plugin-br-ted-lerian
@@ -292,8 +293,14 @@ clusters:
         beta: ["stg-mt"]
       notifications:
         beta: ["stg-mt"]
+      # plugin-access-manager also runs a multi-tenant install under cross/
+      # (ArgoCD app benedita-plugin-access-manager-cross) that tracks every
+      # release type. It cannot use app_helmfile_env: that override would
+      # replace dev-st/stg-*/prd-st instead of adding cross to them.
       plugin-access-manager:
-        beta: ["stg-mt"]
+        beta: ["stg-mt", "cross"]
+        rc: ["cross"]
+        stable: ["cross"]
       plugin-br-bank-transfer:
         beta: ["stg-mt"]
       plugin-br-payments:
@@ -379,6 +386,7 @@ clusters:
       - billing-worker
       - br-pcr
       - br-sfn-sims
+      - cleanup-severino-test
       - finance-hub
       - lerian-clients-dev
       - plugin-br-ted-lerian

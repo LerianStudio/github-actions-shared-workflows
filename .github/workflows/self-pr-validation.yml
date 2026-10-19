@@ -221,6 +221,25 @@ jobs:
       - name: Run coderabbit-collapse behavioural tests
         run: python3 src/notify/coderabbit-collapse/test.py
 
+  # ----------------- CodeRabbit Gate Tests -----------------
+  coderabbit-gate-tests:
+    name: CodeRabbit Gate Tests
+    runs-on: ${{ vars.GENERAL_RUNNERS || 'blacksmith-4vcpu-ubuntu-2404' }}
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+        with:
+          persist-credentials: false
+
+      # The shellcheck job lints `run:` blocks inside YAML, not standalone scripts.
+      - name: Lint coderabbit-gate test scripts
+        run: shellcheck tests/coderabbit-gate/*.sh
+
+      - name: Run coderabbit-gate author veto tests
+        run: bash tests/coderabbit-gate/test-workflow.sh
+
   # ----------------- Lerian Lib Version Advisory Tests -----------------
   lerian-lib-version-tests:
     name: Lerian Lib Version Advisory Tests
@@ -587,6 +606,7 @@ jobs:
       - permission-manifest-publish-tests
       - pr-commit-signatures-tests
       - coderabbit-collapse-tests
+      - coderabbit-gate-tests
       - prerelease-check-tests
       - socket-app-gate-tests
       - non-doc-changes-tests
