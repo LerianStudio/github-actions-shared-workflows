@@ -105,11 +105,19 @@ approving run's own head closes that: the head is not writable.
 The 250 cap applies here too, measured against `total_commits`, and is refused
 the same way.
 
+**This path needs `contents: read`.** The comparison API is repository
+contents, not pull request data, so a token carrying only `pull-requests: read`
+fails every comparison — and a failed comparison reads as "cannot confirm what
+that approval covered", which means the approval is not reused and the reviewer
+is asked again on every push. Nothing says why, so grant the scope.
+`breaking-change-approval.yml` already does for its own `request` job; this
+applies to anything calling the composite directly.
+
 ## Inputs
 
 | Input | Description | Required | Default |
 |-------|-------------|----------|---------|
-| `github-token` | Token used to read the commits. Needs `pull-requests: read`. | Yes | — |
+| `github-token` | Token used to read the commits. Needs `pull-requests: read` — and `contents: read` as well when `at-sha` is given. | Yes | — |
 | `pr-number` | Pull request whose commits are listed. | Yes | — |
 | `repository` | Repository owning it, as `owner/name`. | No | `${{ github.repository }}` |
 | `at-sha` | Resolve the set as it stood at this revision instead of at the current head. Requires `base-ref`. | No | `''` |

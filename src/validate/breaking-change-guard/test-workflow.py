@@ -1827,6 +1827,25 @@ class ApprovalGateStructureTests(unittest.TestCase):
         self.assertEqual("false", self.run_reuse(APPROVED_FINGERPRINT=""))
         self.assertEqual("false", self.run_reuse(CANDIDATE_RUN=""))
 
+    def test_the_reuse_lookup_can_read_the_comparison_it_depends_on(self):
+        # The `at-sha` path reads the comparison API, which is repository
+        # contents rather than pull request data. Without `contents: read` the
+        # comparison fails, the gate reads that as "cannot confirm what that
+        # approval covered", and the reviewer is asked again on every push —
+        # silently, since the step is `continue-on-error`.
+        workflow = yaml.safe_load(APPROVAL_WORKFLOW)
+        self.assertEqual("read", workflow["jobs"]["request"]["permissions"]["contents"])
+
+        # And the composite says so, for anyone calling it directly.
+        action = yaml.safe_load(
+            (
+                REPO_ROOT / "src" / "validate" / "breaking-change-commits"
+                / "action.yml"
+            ).read_text(encoding="utf-8")
+        )
+        self.assertIn("contents: read", action["inputs"]["github-token"]["description"])
+        self.assertIn("contents: read", action["inputs"]["at-sha"]["description"])
+
     def test_the_approved_set_is_read_from_the_run_not_the_record(self):
         workflow = yaml.safe_load(APPROVAL_WORKFLOW)
         steps = workflow["jobs"]["request"]["steps"]

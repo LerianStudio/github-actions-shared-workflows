@@ -3,7 +3,13 @@ description: "Lists the commits in a pull request that carry a breaking change, 
 
 inputs:
   github-token:
-    description: 'Token used to read the pull request commits. Needs `pull-requests: read`.'
+    description: >-
+      Token used to read the commits. Needs `pull-requests: read`, and
+      `contents: read` as well when `at-sha` is given — that path reads the
+      comparison API, which is repository contents rather than pull request
+      data. Granting only the first makes every comparison fail, and the gate
+      reads a failed comparison as "cannot confirm", so it asks the reviewer
+      again on every push without saying why.
     required: true
   pr-number:
     description: Pull request whose commits are listed.
@@ -15,9 +21,9 @@ inputs:
   at-sha:
     description: >-
       Resolve the set as it stood at this revision instead of at the pull
-      request's current head. Requires `base-ref`. The gate uses it to ask what
-      an approval actually approved, rather than believing a fingerprint
-      written in a comment.
+      request's current head. Requires `base-ref`, and a token carrying
+      `contents: read`. The gate uses it to ask what an approval actually
+      approved, rather than believing a fingerprint written in a comment.
     required: false
     default: ''
   base-ref:
