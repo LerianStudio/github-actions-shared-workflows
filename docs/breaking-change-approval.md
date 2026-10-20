@@ -52,7 +52,8 @@ own:
 | Composite | Responsibility |
 |---|---|
 | [`pr-gate-scope`](../src/validate/pr-gate-scope/README.md) | Is this pull request in scope, and why — base → head rules, label overrides, author vetoes |
-| [`breaking-change-guard`](../src/validate/breaking-change-guard/README.md) | Does the branch carry a breaking-change commit |
+| [`breaking-change-guard`](../src/validate/breaking-change-guard/README.md) | The canonical detector, over the real commit range. Runs in `pr-validation.yml`, whose verdict this gate is handed |
+| [`breaking-change-commits`](../src/validate/breaking-change-commits/README.md) | Which commits carry the break, and a digest of the set |
 | [`codeowners-reviewers`](../src/validate/codeowners-reviewers/README.md) | Who owns this repository, per its CODEOWNERS |
 | [`environment-protection`](../src/validate/environment-protection/README.md) | Does `breaking-approval` exist with required reviewers — creating it when it does not |
 | [`environment-approvals`](../src/validate/environment-approvals/README.md) | Who approved or rejected, and could we read that at all |
@@ -82,6 +83,40 @@ They compose, and they share work: when this workflow runs inside
 guard job already ran the same composite over the same commits, so a second
 full-history checkout would buy nothing. The acknowledgement state is shown to
 the reviewer as context.
+
+## Who answers the gate
+
+Three sources, in order. The first that yields anybody wins:
+
+1. **`approval_reviewers`** — the caller named them explicitly.
+2. **CODEOWNERS**, read from the pull request's **base** ref. Reading the head
+   would let an author edit who is allowed to approve their own change.
+3. **`fallback_reviewers`** — through `pr-validation`, the
+   `BREAKING_APPROVAL_FALLBACK_REVIEWERS` organisation variable.
+
+The third exists because of what the second actually finds.
+`codeowners-reviewers` reads the **catch-all `*` rule**, which is the right
+question for a repository-wide gate — but most CODEOWNERS files do not have
+one. Measured across the consuming repositories before this was added: four of
+five carried rules only for specific paths (`/.github/`, `/.releaserc.yml`),
+and no `*`.
+
+In those four the gate resolved no reviewer at all. An Environment cannot be
+created without one — `environment-protection` refuses, because an Environment
+created without required reviewers is a gate that approves itself — so the
+preflight failed, and the first breaking change in each of those repositories
+would have been blocked by a gate nobody could answer.
+
+Set the organisation variable once and that stops being a per-repository
+problem:
+
+```
+BREAKING_APPROVAL_FALLBACK_REVIEWERS = team:your-devops-team
+```
+
+Leaving it unset keeps the old behaviour: no reviewer, no Environment, and a
+refusal rather than an invented approver. That is deliberate — a gate that
+quietly picks someone to ask is worse than one that says it cannot run.
 
 ## Setup
 
@@ -176,10 +211,19 @@ jobs:
       MANAGE_TOKEN: ${{ secrets.MANAGE_TOKEN }}
 ```
 
-Called this way the workflow detects on its own, with two checkouts: a plain one
-for the `origin/<base>` remote-tracking refs, then `refs/pull/<n>/head` with
-`clean: false` to move `HEAD` onto the pull request. Nothing from the tree is
-executed — only commit messages are read — so fork code never runs.
+Called this way the workflow detects on its own, through the API — it checks
+out nothing at all.
+
+It used to use two checkouts and read Git directly. CodeQL flagged that as
+`actions/untrusted-checkout`, and the alert was fair: a non-privileged workflow
+was placing a contributor's tree on disk next to `MANAGE_TOKEN`. Nothing ever
+executed it, but nothing needed it either, and the tree, the token exposure and
+the alert all went away together.
+
+The acknowledgement is **not** evaluated on this path — the detector that reads
+the pull request description runs in `pr-validation.yml`. The comment omits that
+row rather than reporting it missing, because telling an author to add a line no
+check is asking for is worse than saying nothing.
 
 ### Testing before adoption
 
@@ -249,6 +293,122 @@ them match: REST returns `dependabot[bot]`, GraphQL returns `dependabot`, and
 `gh pr view --json author` — what this job reads — returns `app/dependabot`. Both
 affixes are stripped before comparing.
 
+## An approval survives a push that did not change the breaking change
+
+The gate asks about a specific breaking change, not about a pull request. So it
+remembers which one was approved, and only asks again when that changes.
+
+| The author… | Asked again? |
+|---|---|
+| fixes a typo the review pointed out | no |
+| adds an ordinary commit | no |
+| rewords the breaking commit | **yes** — it is different text now |
+| adds another breaking commit | **yes** |
+
+This matters more than convenience, because of how the review gate is wired:
+CodeRabbit only runs once every check has passed, which includes this one. So
+without the memory, every iteration of *approve → review → fix → push* would
+need a fresh human approval to get the next review — and the reviewer would be
+answering the identical question each time. A question asked five times gets a
+reflex answer by the third.
+
+**How it is remembered.** `breaking-change-commits` digests the SHAs of the
+breaking commits. When an approval lands, the comment records that digest
+together with the run that carried the approval:
+
+```html
+<!-- breaking-change-approved: 4f2a9c1e8b3d7a60 run=38905110563 -->
+```
+
+Every later run rebuilds the digest and looks for its record. A match skips the
+Environment gate entirely; anything else asks again. Records accumulate, so
+returning to a previously approved set is still approved.
+
+Built from SHAs, so a reword counts as a change — the approval was given to the
+text that was read, and the subject is what the release parser acts on.
+
+### The record is checked, not believed
+
+A comment is not evidence. Anyone who can read the repository can comment on a
+pull request, and the fingerprint is computable from public data: the commit
+SHAs are on the pull request and the digest is defined in this repository. A
+record on its own is therefore something a stranger can write.
+
+So three things must hold before an approval is reused:
+
+1. the record sits in a comment from an **owner or member** of the
+   organisation, or from `github-actions[bot]` — the identity the reporter
+   writes under when no `MANAGE_TOKEN` is passed, and one nobody but Actions
+   can author as
+2. the **run it names really was approved** for the `breaking-approval`
+   Environment, read from the Environment's own approval log, and that run is
+   on this head branch
+3. the **set that run approved** is this set — resolved from the run's own
+   `head_sha`, never from the fingerprint written in the record
+
+Every record for the fingerprint is tried, not only the first: runs are deleted
+on the repository's retention schedule, so the oldest record goes unverifiable
+while a newer one is still good.
+
+The third was missing until @fredcamaral demonstrated what it cost. The first
+two establish that *an* approval happened on this branch; neither says what it
+approved. Since the fingerprint is derived from public commit SHAs it is
+computable before the commit exists, so a member could post a record carrying
+`fp(A,B)` pointing at the run that approved only `A`, then push the breaking
+commit `B` — and the gate would read "already approved" and return success with
+no reviewer involved. Resolving the approved set from the run's own head closes
+it: the record now says only *which run to ask*, and the run answers.
+
+When that resolution fails — a deleted run, an unreadable comparison, a pull
+request past the commit cap — the approval is not reused. Not knowing is not
+evidence that it still applies.
+
+Only a run whose Environment approval actually happened writes a record. A
+reused approval reports `approved` with the gate job skipped, and a record
+naming *that* run would assert something no log can confirm — then outlive the
+real one.
+
+The second is what carries the weight. Writing the text is easy; producing a run
+whose Environment approval actually happened is not.
+
+Verifying needs `actions: read`. Where that is unavailable the check cannot be
+made, so the approval is **not** reused and the reviewer is asked again — asking
+twice costs attention, trusting an unverified record costs the gate.
+
+**The records are never rewritten blind.** If the comment cannot be read back,
+the reporter fails rather than replacing it, because a rewrite without the
+records would erase approvals already given and send reviewers questions they
+had already answered.
+
+## One open request, and approvals expire on a push
+
+Every push queues another pending deployment, and GitHub does not retire the
+previous one. Left alone, a reviewer's queue fills with requests tied to commits
+that are no longer the head — and approving one of those approves a revision
+nobody is merging, while the live one still waits.
+
+The approval job is therefore under a `concurrency` group keyed to the pull
+request, with `cancel-in-progress`. A push cancels the pending request and
+replaces it with one for the new head.
+
+That is what retires a *pending* request. An approval that already landed is a
+different matter — see above: it is remembered against the change it approved,
+and only a change to that change asks again.
+
+**A cancelled run never touches the pull request.** The verdict job still runs
+when its approval is cancelled, and without a guard it would overwrite the live
+revision's comment with *"the approval did not complete"* — true of the dead run,
+misleading about the live one.
+
+Two signals, and the order matters. A **cancelled approval** is the broad one:
+nothing cancels it except the concurrency group replacing the run or a human
+doing it by hand, and neither is a decision to report. A **changed head** is the
+narrower one, for anything that slipped past the first.
+
+The cancelled check cannot be dropped in favour of the head comparison, because
+a run can be replaced without the head moving at all: editing the description
+fires `edited`, which queues a new run on the very same commit.
+
 ## Fails closed
 
 Detection failing is not "no breaking changes" — it is "we do not know", and an
@@ -298,8 +458,24 @@ ends as the record of who decided what:
 > 👉 **[Review the pending deployment](#)** — *Review deployments* →
 > `breaking-approval`.
 
-The `breaking-change` label is applied while it waits and removed once resolved —
-cosmetic, and a repository that never declared it still gets its gate.
+Two labels, and they expire at different times. `breaking-change` states a fact
+about the commits and **survives the approval** — the break does not stop being a
+break because somebody agreed to it, and a search for that label months later
+should still find this pull request. It comes off only when the breaking commits
+are gone. `awaiting-breaking-approval` states that a decision is pending, and
+comes off the moment one is made.
+
+Both are cosmetic: a repository that never declared them still gets its gate.
+Declare them with [`labels-sync`](labels-sync.md), or pass `label: ''` /
+`pending_label: ''` to turn them off.
+
+> **Behaviour change.** `label` used to be removed once the change was approved
+> or rejected. If you set it as a temporary waiting marker, move that value to
+> `pending_label` and set `label: ''` — otherwise the marker now stays on the
+> pull request after the decision.
+>
+> Callers on the default need nothing: `breaking-change` staying put is the
+> point, and `awaiting-breaking-approval` takes over the transient role.
 
 ## Inputs
 
@@ -316,9 +492,12 @@ cosmetic, and a repository that never declared it still gets its gate.
 | `author_acknowledgement` | string | the `pr-validation` line | Shown to the reviewer as context. Never substitutes for the approval. |
 | `close_on_rejection` | boolean | `true` | Close the pull request when a reviewer rejects. |
 | `approval_reviewers` | string | *(empty)* | Who may answer the gate, as comma-separated `team:<slug>` or `user:<login>`. Empty takes the repository's CODEOWNERS. Used only to create the Environment when it does not exist. |
+| `fallback_reviewers` | string | *(empty)* | Who answers when `approval_reviewers` is empty **and** CODEOWNERS yields nobody. Through `pr-validation` this defaults to the `BREAKING_APPROVAL_FALLBACK_REVIEWERS` organisation variable. Empty refuses rather than inventing a reviewer. |
 | `create_approval_environment` | boolean | `true` | Create `breaking-approval` when missing. Needs a token with repository administration rights. |
 | `require_protected_environment` | boolean | `true` | Refuse to gate when `breaking-approval` exists without required reviewers. Leave on. |
-| `label` | string | `breaking-change` | Applied while waiting, removed once resolved. Cosmetic. |
+| `label` | string | `breaking-change` | States that the change is breaking. A fact, so it survives the decision and comes off only when the breaking commits are gone. Cosmetic. |
+| `pending_label` | string | `awaiting-breaking-approval` | States that a decision is pending. A state, so it comes off once approved or rejected. Cosmetic. |
+| `enable_approval` | boolean | `true` | Hold breaking changes at the Environment. `false` keeps the gate reporting and labelling but never asks for a decision — the author acknowledgement is a separate control the caller still enforces, and the comment carrying the line to paste comes from here. Not the same as not calling the workflow. |
 | `enable_comment` | boolean | `true` | Post and keep the comment updated. |
 | `dry_run` | boolean | `false` | Report what would be gated without commenting, labelling, requesting an approval, or failing. |
 | `runner_type` | string | `blacksmith-4vcpu-ubuntu-2404` | Runner label. Overridden by `vars.GENERAL_RUNNERS`. |
@@ -330,7 +509,7 @@ Whitespace around commas is tolerated.
 | Output | Description |
 |--------|-------------|
 | `in_scope` | Whether the pull request was gated at all (`true`/`false`). |
-| `has_breaking_changes` | Whether a breaking commit was found (`true`/`false`). Always `false` out of scope — nothing was scanned. |
+| `has_breaking_changes` | Whether a breaking commit was found (`true`/`false`). Reports the detection out of scope too — not gating a pull request is not the same as it carrying no break. Gate on `in_scope` alongside it for the earlier reading. |
 | `approved` | Whether a reviewer approved through the Environment (`true`/`false`). |
 | `result` | Gate verdict (`success`/`failure`). |
 
@@ -338,6 +517,63 @@ Through the umbrellas these surface as `breaking_change_approval_result`
 (`success` / `failure` / `skipped`) and `breaking_change_approved_by_reviewer`.
 `skipped` is reported rather than folded into `success`: a gate that never ran
 and a gate that passed are not the same fact.
+
+## Behaviour changes since v1.84
+
+Two behaviours changed after the gate's first release in `v1.84.0`. Both were
+deliberate, and neither is classified as breaking — for different reasons,
+which are worth keeping apart:
+
+- **The `label` input.** None of the umbrellas — `pr-validation`,
+  `go-pr-validation`, `js-pr-validation` — expose an input for it; they pass
+  `force_labels` and `skip_labels` and nothing else. A caller on that path
+  never had a custom label to lose. Only a standalone caller that set one
+  inside the release window can notice.
+- **The `has_breaking_changes` output.** This one is about reading, not
+  configuring, so the argument above does not reach it. What does: the
+  umbrellas do not surface *this* output. Their `has_breaking_changes` comes
+  from the `breaking-change-guard` job, which is unchanged; the only gate
+  outputs they publish are `breaking_change_approval_result` and
+  `breaking_change_approved_by_reviewer`. So again only a standalone caller
+  can see it — one that branches on the output, whether or not it sets a
+  label.
+
+Written down anyway — an unannounced behaviour change is worse than a
+documented one, whatever the version number says.
+
+**`label` survives the decision.** It used to come off on approval. It is a
+fact about the change — approving a break does not make it stop being one, and
+somebody filtering for `breaking-change` three months from now wants this pull
+request in the results. It is removed only when the breaking commits are gone.
+
+The waiting marker moved to its own input:
+
+```yaml
+# before — one label doing both jobs
+with:
+  label: waiting-for-review
+
+# after — the fact and the state, separately
+with:
+  label: ''                          # or breaking-change, the default
+  pending_label: waiting-for-review  # comes off on approval or rejection
+```
+
+A caller that left `label` at its default needs no change.
+
+**`has_breaking_changes` reports detection out of scope.** It used to be forced
+to `false` whenever the gate did not apply, which conflated "not gated here"
+with "carries no break". It now passes through what the caller detected. To get
+the old reading, gate on `in_scope`:
+
+```yaml
+if: >-
+  needs.gate.outputs.in_scope == 'true'
+  && needs.gate.outputs.has_breaking_changes == 'true'
+```
+
+Nothing supplied is still `false` — the gate does not scan out of scope, so
+there is no answer to report.
 
 ## Secrets
 
@@ -384,8 +620,13 @@ correct fix, since the commit message is what the release reads.
 
 ## Local test
 
+All five run in self CI under **Breaking Change Guard Detector Tests**. Three
+of them did not until recently — 76 cases, including the output-forgery and
+fingerprint ones, that a change could walk past without anything going red.
+
 ```bash
 bash    src/validate/pr-gate-scope/test.sh
+bash    src/validate/breaking-change-commits/test.sh
 bash    src/validate/codeowners-reviewers/test.sh
 bash    src/validate/breaking-change-guard/test.sh
 python3 src/validate/breaking-change-guard/test-workflow.py
@@ -395,6 +636,11 @@ python3 src/validate/breaking-change-guard/test-workflow.py
   their globs, the merge semantics of `additional-scope-rules`, both label
   overrides and their precedence, the three bot spellings, and every input that
   must fail closed. No network, no repository fixture.
+- **`breaking-change-commits/test.sh`** — 22 cases: both breaking forms, the
+  lookalikes that must not count, parity with the detector on case and on scopes
+  containing parens, the fingerprint holding still for an ordinary commit while
+  changing for a breaking one, and the output-injection attack a commit subject
+  can otherwise mount.
 - **`codeowners-reviewers/test.sh`** — 22 cases: both owner forms, comments,
   last-rule-wins, Enterprise section headers, the three file locations, the
   reviewer cap, and every shape that yields nothing.

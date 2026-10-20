@@ -211,6 +211,21 @@ The two modes have opposite goals — design them accordingly:
 
 **Real run (`false`):** no extra `echo`, no debug flags, let failures surface via exit codes, one `::notice::` summary on success at most.
 
+**Exception — `continue-on-error` steps must annotate their own failures.** The
+rule above leans on the exit code to carry a failure. A step that deliberately
+swallows its exit code has no such channel, so a failure there is invisible: the
+job reports success and nobody looks at the log. Emit `::warning::` on the
+failure path.
+
+This is not hypothetical. `pr-validation.yml`'s breaking-change comment took a
+403 on every run from 2026-08-06 and reported success each time, because the
+step was `continue-on-error` and said nothing. The comment it posts explains to
+an author what to add; for two months it never arrived, and the only symptom was
+a blocking check failing with no explanation.
+
+Gate the annotation on the failure itself (`if: steps.<id>.outcome == 'failure'`)
+so a successful run stays silent.
+
 ## Step section titles
 
 When a job has more than one logical group of steps, separate each group with a titled section comment:
