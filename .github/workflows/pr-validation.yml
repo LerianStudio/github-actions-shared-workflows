@@ -158,6 +158,19 @@ on:
         description: 'Close the pull request when a reviewer rejects the breaking change.'
         type: boolean
         default: true
+      breaking_change_fallback_reviewers:
+        description: >-
+          Who answers the breaking-change gate in a repository whose CODEOWNERS
+          has no catch-all `*` rule — the common case, which otherwise leaves
+          the Environment uncreatable and the first breaking change blocked by
+          a gate nobody can answer.
+
+          Defaults to the `BREAKING_APPROVAL_FALLBACK_REVIEWERS` organisation
+          variable, so it is set once for the organisation rather than per
+          repository. Same `team:<slug>` / `user:<login>` form.
+        required: false
+        type: string
+        default: ''
       breaking_change_approval_reviewers:
         description: >-
           Who may answer the breaking-change gate, as comma-separated `team:<slug>`
@@ -326,6 +339,9 @@ jobs:
       skip_labels: ${{ inputs.breaking_change_skip_labels }}
       close_on_rejection: ${{ inputs.breaking_change_close_on_rejection }}
       approval_reviewers: ${{ inputs.breaking_change_approval_reviewers }}
+      # The caller's value wins; the organisation variable is the default, so
+      # a repository that never heard of this gate still has someone to ask.
+      fallback_reviewers: ${{ inputs.breaking_change_fallback_reviewers != '' && inputs.breaking_change_fallback_reviewers || vars.BREAKING_APPROVAL_FALLBACK_REVIEWERS }}
       create_approval_environment: ${{ inputs.breaking_change_create_environment }}
       require_protected_environment: ${{ inputs.breaking_change_require_protected_environment }}
       dry_run: ${{ inputs.dry_run }}

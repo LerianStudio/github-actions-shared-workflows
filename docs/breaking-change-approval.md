@@ -84,6 +84,40 @@ guard job already ran the same composite over the same commits, so a second
 full-history checkout would buy nothing. The acknowledgement state is shown to
 the reviewer as context.
 
+## Who answers the gate
+
+Three sources, in order. The first that yields anybody wins:
+
+1. **`approval_reviewers`** — the caller named them explicitly.
+2. **CODEOWNERS**, read from the pull request's **base** ref. Reading the head
+   would let an author edit who is allowed to approve their own change.
+3. **`fallback_reviewers`** — through `pr-validation`, the
+   `BREAKING_APPROVAL_FALLBACK_REVIEWERS` organisation variable.
+
+The third exists because of what the second actually finds.
+`codeowners-reviewers` reads the **catch-all `*` rule**, which is the right
+question for a repository-wide gate — but most CODEOWNERS files do not have
+one. Measured across the consuming repositories before this was added: four of
+five carried rules only for specific paths (`/.github/`, `/.releaserc.yml`),
+and no `*`.
+
+In those four the gate resolved no reviewer at all. An Environment cannot be
+created without one — `environment-protection` refuses, because an Environment
+created without required reviewers is a gate that approves itself — so the
+preflight failed, and the first breaking change in each of those repositories
+would have been blocked by a gate nobody could answer.
+
+Set the organisation variable once and that stops being a per-repository
+problem:
+
+```
+BREAKING_APPROVAL_FALLBACK_REVIEWERS = team:your-devops-team
+```
+
+Leaving it unset keeps the old behaviour: no reviewer, no Environment, and a
+refusal rather than an invented approver. That is deliberate — a gate that
+quietly picks someone to ask is worse than one that says it cannot run.
+
 ## Setup
 
 ### The Environment creates itself, owned by CODEOWNERS
@@ -458,6 +492,7 @@ Declare them with [`labels-sync`](labels-sync.md), or pass `label: ''` /
 | `author_acknowledgement` | string | the `pr-validation` line | Shown to the reviewer as context. Never substitutes for the approval. |
 | `close_on_rejection` | boolean | `true` | Close the pull request when a reviewer rejects. |
 | `approval_reviewers` | string | *(empty)* | Who may answer the gate, as comma-separated `team:<slug>` or `user:<login>`. Empty takes the repository's CODEOWNERS. Used only to create the Environment when it does not exist. |
+| `fallback_reviewers` | string | *(empty)* | Who answers when `approval_reviewers` is empty **and** CODEOWNERS yields nobody. Through `pr-validation` this defaults to the `BREAKING_APPROVAL_FALLBACK_REVIEWERS` organisation variable. Empty refuses rather than inventing a reviewer. |
 | `create_approval_environment` | boolean | `true` | Create `breaking-approval` when missing. Needs a token with repository administration rights. |
 | `require_protected_environment` | boolean | `true` | Refuse to gate when `breaking-approval` exists without required reviewers. Leave on. |
 | `label` | string | `breaking-change` | States that the change is breaking. A fact, so it survives the decision and comes off only when the breaking commits are gone. Cosmetic. |

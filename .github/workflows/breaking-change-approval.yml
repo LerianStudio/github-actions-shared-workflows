@@ -125,6 +125,20 @@ on:
         required: false
         type: string
         default: ''
+      fallback_reviewers:
+        description: >-
+          Who may answer the gate when `approval_reviewers` is empty and
+          CODEOWNERS yields nobody — same `team:<slug>` / `user:<login>` form.
+
+          Most repositories have a CODEOWNERS without a catch-all `*` rule, so
+          a repository-wide gate finds no owner to ask. Without a fallback the
+          Environment cannot be created, the preflight fails, and the first
+          breaking change in that repository is blocked by a gate nobody can
+          answer. Empty keeps that behaviour — refusing rather than inventing a
+          reviewer.
+        required: false
+        type: string
+        default: ''
       create_approval_environment:
         description: >-
           Create `breaking-approval` when it is missing, using `approval_reviewers`.
@@ -675,7 +689,14 @@ jobs:
           github-token: ${{ secrets.MANAGE_TOKEN || github.token }}
           environment: breaking-approval
           create-if-missing: ${{ inputs.create_approval_environment && 'true' || 'false' }}
-          reviewers: ${{ inputs.approval_reviewers != '' && inputs.approval_reviewers || steps.codeowners.outputs.reviewers }}
+          # Explicit, then CODEOWNERS, then the fallback. The caller's own
+          # answer wins; the fallback only covers a repository that has no
+          # catch-all rule to read.
+          reviewers: >-
+            ${{ inputs.approval_reviewers != '' && inputs.approval_reviewers
+                || (steps.codeowners.outputs.reviewers != ''
+                    && steps.codeowners.outputs.reviewers
+                    || inputs.fallback_reviewers) }}
 
       # Out of scope, so no approval is coming — but the acknowledgement is
       # enforced on every pull request, and an author who omits it otherwise
@@ -722,7 +743,14 @@ jobs:
           subjects: ${{ needs.detect.outputs.subjects }}
           author-acknowledgement: ${{ inputs.author_acknowledgement }}
           fingerprint: ${{ needs.detect.outputs.fingerprint }}
-          reviewers: ${{ inputs.approval_reviewers != '' && inputs.approval_reviewers || steps.codeowners.outputs.reviewers }}
+          # Explicit, then CODEOWNERS, then the fallback. The caller's own
+          # answer wins; the fallback only covers a repository that has no
+          # catch-all rule to read.
+          reviewers: >-
+            ${{ inputs.approval_reviewers != '' && inputs.approval_reviewers
+                || (steps.codeowners.outputs.reviewers != ''
+                    && steps.codeowners.outputs.reviewers
+                    || inputs.fallback_reviewers) }}
           actual-reviewers: ${{ steps.environment.outputs.reviewers }}
           reason: ${{ needs.detect.outputs.reason }}
           head-sha: ${{ needs.detect.outputs.head-sha }}
