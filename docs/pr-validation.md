@@ -182,6 +182,7 @@ jobs:
 | `breaking_change_close_on_rejection` | boolean | `true` | Close the PR when a reviewer rejects the breaking change |
 | `breaking_change_require_protected_environment` | boolean | `true` | Refuse to gate when `breaking-approval` has no required reviewers, instead of silently passing |
 | `breaking_change_approval_reviewers` | string | *(empty)* | Who may answer the gate, as comma-separated `team:<slug>` or `user:<login>`. Empty takes the repository's CODEOWNERS |
+| `breaking_change_fallback_reviewers` | string | *(empty)* | Who answers when the above is empty **and** CODEOWNERS yields nobody — the common case, since most CODEOWNERS have no catch-all `*` rule. Defaults to the `BREAKING_APPROVAL_FALLBACK_REVIEWERS` organisation variable |
 | `breaking_change_create_environment` | boolean | `true` | Create `breaking-approval` when missing. Needs a `MANAGE_TOKEN` with repository administration rights |
 
 The breaking change guard has no enable input, target-branch input, acknowledgement input, or opt-out. It applies to every caller and every PR target branch. `dry_run: true` remains a global preview mode without guard enforcement; it is not a guard-specific opt-out and does not change normal `dry_run: false` operation. Existing callers must migrate their `pull_request.types` list to include both `edited` and `ready_for_review`; otherwise body edits and draft-to-ready transitions do not rerun validation.
@@ -210,20 +211,45 @@ The guard is mandatory on every target branch. There is no opt-out. The action s
 
 ### Feedback comments
 
-For every non-draft live run, including detector failure or cancellation, the workflow uses `github.token` to manage one best-effort comment owned only when the author is exactly `github-actions[bot]` and the body starts with the exact marker line:
+The guard posts nothing of its own. Everything an author needs to read about a
+breaking change — including the exact acknowledgement line to paste — lives in
+the single comment described under [One comment, not two](#one-comment-not-two),
+written by the breaking-change gate.
 
-- A breaking change creates or updates the comment with `Author acknowledged` or `Awaiting author acknowledgement` state and the exact acknowledgement.
-- Detection or guard-job failure replaces stale acknowledgement with one `Detection failed` comment and deletes duplicate owned comments.
-- Duplicate owned marker comments are deleted.
-- When breaking changes disappear, all owned guard comments are deleted.
-- Before any comment mutation, the workflow fetches the current PR and stops if its current head SHA differs from the event head SHA.
-- Fork token write restrictions and comment API failures never affect enforcement. The workflow never falls back to another bot identity.
+Enforcement never depends on that comment. A comment API failure leaves the
+verdict exactly as it was — passing or failing on the acknowledgement alone,
+which is what `Blocking Checks` decides either way.
 
 ### Default PR Title Types
 
 ```
 feat fix docs style refactor perf test chore ci build revert
 ```
+
+### Advisory checks always run
+
+PR Size, Auto Labels and PR Metadata are advisory — none of them can block a
+merge. They are therefore **not** gated on the blocking tier passing.
+
+They used to be. The 2-tier fail-fast model skipped them whenever a blocking
+check failed, which saved a runner at the cost of the pull request that most
+needed the help: a wrong title or a missing signature also meant no size label,
+no auto-labels and no assignee. A pull request already in trouble is exactly
+where that information is worth having.
+
+They still skip on drafts, and on anything that is not a `pull_request` event.
+
+## One comment, not two
+
+The acknowledgement guard used to post its own comment. It no longer does: the
+breaking-change gate's comment carries both controls, because two bot comments
+about the same breaking change read as a contradiction — one headed by a ✅ for
+the author's acknowledgement, one asking for a decision. The ✅ gets taken for
+the approval.
+
+The gate now comments wherever a breaking change is found, including on branches
+outside its approval scope. There it reports only the acknowledgement and the
+exact line to paste, since that is the only thing being enforced.
 
 ## Breaking change approval
 
@@ -271,9 +297,8 @@ Full detail: [`breaking-change-approval.md`](breaking-change-approval.md).
 |-----|------|------------|-----------|
 | `breaking-change-guard` | mandatory detection | `breaking-change-guard@v1` | always, including drafts |
 | `blocking-checks` | 1 (fail-fast) | guard enforcement, `pr-source-branch`, `pr-title`, `pr-description`, `pr-commit-signatures` | always; drafts run guard enforcement only |
-| `advisory-checks` | 2 (informational) | `pr-metadata`, `pr-size`, `pr-labels` | non-draft, blocking-checks passed |
+| `advisory-checks` | 2 (informational) | `pr-metadata`, `pr-size`, `pr-labels` | non-draft, regardless of the blocking result |
 | `pr-checks-summary` | — | `pr-checks-summary` | always (writes to step summary) |
-| `breaking-change-comment` | — | `actions/github-script` | every non-draft live run, including detector failure or cancellation |
 | `pr-validation-report` | — | `pr-validation-reporter` | non-draft (upserts single PR comment) |
 | `notify` | — | `slack-notify.yml` | non-draft, `!dry_run` |
 
@@ -282,7 +307,7 @@ Full detail: [`breaking-change-approval.md`](breaking-change-approval.md).
 - Always enforce both the guard job state and its normalized output, including on drafts
 - Skip existing source branch, title, description, commit signature, and collector steps on drafts; their non-draft behavior is unchanged
 - On non-drafts, every validation runs even if one fails (`continue-on-error` per step)
-- Job fails if the guard job, normalized guard output, or **any** existing blocking check fails, preventing advisory checks from running
+- Job fails if the guard job, normalized guard output, or **any** existing blocking check fails. Advisory checks run either way
 - In dry-run mode, guard state is logged but does not fail `Blocking Checks`
 
 ### Fail-closed detection
@@ -325,7 +350,9 @@ The step runs with read-only permissions and emits no commit metadata beyond wha
 
 ### Advisory checks (Tier 2)
 - Share a single `checkout` with `fetch-depth: 0`
-- Only run if all blocking checks passed
+- Run on every non-draft pull request, **regardless of the blocking result** — a
+  pull request that failed a blocking check still gets its size label, its
+  auto-labels and its assignee
 - Never block merge — informational only
 
 ## Dry Run Behavior

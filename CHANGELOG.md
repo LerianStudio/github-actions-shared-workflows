@@ -1,5 +1,14 @@
 # Github-actions-shared-workflows Changelog
 
+## [1.85.0](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.85.0)
+
+Features:
+- Introduced a mechanism to skip authors reviewed by radagast in the `coderabbit-gate` workflow. (@fredcamaral)
+
+[Compare changes](https://github.com/LerianStudio/github-actions-shared-workflows/compare/v1.84.0...v1.85.0)
+
+---
+
 ## [1.84.0](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.84.0)
 
 Features:

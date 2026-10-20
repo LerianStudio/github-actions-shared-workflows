@@ -125,6 +125,20 @@ on:
         required: false
         type: string
         default: ''
+      fallback_reviewers:
+        description: >-
+          Who may answer the gate when `approval_reviewers` is empty and
+          CODEOWNERS yields nobody — same `team:<slug>` / `user:<login>` form.
+
+          Most repositories have a CODEOWNERS without a catch-all `*` rule, so
+          a repository-wide gate finds no owner to ask. Without a fallback the
+          Environment cannot be created, the preflight fails, and the first
+          breaking change in that repository is blocked by a gate nobody can
+          answer. Empty keeps that behaviour — refusing rather than inventing a
+          reviewer.
+        required: false
+        type: string
+        default: ''
       create_approval_environment:
         description: >-
           Create `breaking-approval` when it is missing, using `approval_reviewers`.
@@ -144,10 +158,40 @@ on:
         type: boolean
         default: true
       label:
-        description: Label applied while the pull request waits for its approval, and removed once resolved. Cosmetic — failure to apply it never fails the job. Empty disables it.
+        description: >-
+          Label stating that this pull request carries a breaking change. A fact
+          about the change, so it survives the approval — the break does not go
+          away because somebody agreed to it. Removed only when the breaking
+          commits are gone. Empty disables it.
+
+          Behaviour change: this label used to come off on approval. A caller
+          that set it as a temporary waiting marker should move that value to
+          `pending_label` and set this one to an empty string.
         required: false
         type: string
         default: breaking-change
+      pending_label:
+        description: >-
+          Label stating that the breaking change is waiting on a decision. A
+          state, so it comes off once approved or rejected. Separate from
+          `label` because the two stop being true at different moments.
+          Empty disables it.
+        required: false
+        type: string
+        default: awaiting-breaking-approval
+      enable_approval:
+        description: >-
+          Hold breaking changes at the `breaking-approval` Environment. Off
+          leaves the gate reporting and labelling without ever asking for a
+          decision — the author acknowledgement is a separate control and is
+          still enforced by the caller.
+
+          Off is not the same as not calling this workflow: the acknowledgement
+          comment, the one place that tells the author which line to paste,
+          comes from here.
+        required: false
+        type: boolean
+        default: true
       enable_comment:
         description: Post (and keep updated) a single comment carrying the request, the approval link and the outcome.
         required: false
@@ -168,7 +212,14 @@ on:
         description: 'Whether the pull request was gated by this workflow (true/false)'
         value: ${{ jobs.detect.outputs.in-scope == 'true' && 'true' || 'false' }}
       has_breaking_changes:
-        description: 'Whether at least one pull request commit is breaking (true/false). Always false when out of scope — nothing was scanned.'
+        description: >-
+          Whether at least one pull request commit is breaking (true/false).
+          Reports what was detected, including out of scope — a pull request
+          this workflow does not gate can still carry a break, and a caller
+          asking the question deserves the answer rather than a false.
+
+          Behaviour change: this used to be forced to `false` out of scope.
+          Gate `in_scope` alongside it to get the old reading.
         value: ${{ jobs.detect.outputs.has-breaking-changes == 'true' && 'true' || 'false' }}
       approved:
         description: 'Whether a reviewer approved the breaking change through the Environment (true/false)'
@@ -205,13 +256,20 @@ jobs:
       contents: read
       pull-requests: read
     outputs:
-      in-scope: ${{ steps.scope.outputs.in-scope }}
+      # `enable_approval: false` is out of scope for the approval and nothing
+      # more. Everything downstream already does the right thing with that —
+      # it reports, it labels, it keeps the acknowledgement instructions, and
+      # it never touches an Environment.
+      in-scope: ${{ inputs.enable_approval && steps.scope.outputs.in-scope || 'false' }}
       pr-number: ${{ steps.scope.outputs.pr-number }}
       base-ref: ${{ steps.scope.outputs.base-ref }}
       head-sha: ${{ steps.scope.outputs.head-sha }}
+      head-ref: ${{ steps.scope.outputs.head-ref }}
       author: ${{ steps.scope.outputs.author }}
-      reason: ${{ steps.scope.outputs.reason }}
+      reason: ${{ inputs.enable_approval && steps.scope.outputs.reason || 'approval is disabled by the caller' }}
       has-breaking-changes: ${{ steps.normalize.outputs.has-breaking-changes }}
+      fingerprint: ${{ steps.commits.outputs.fingerprint }}
+      subjects: ${{ steps.commits.outputs.subjects }}
       acknowledged: ${{ steps.normalize.outputs.acknowledged }}
       detection-succeeded: ${{ steps.normalize.outputs.detection-succeeded }}
 
@@ -232,53 +290,46 @@ jobs:
       - name: Announce the scope verdict
         env:
           IN_SCOPE: ${{ steps.scope.outputs.in-scope }}
+          APPROVAL_ENABLED: ${{ inputs.enable_approval && 'true' || 'false' }}
           REASON: ${{ steps.scope.outputs.reason }}
           PR_NUMBER: ${{ steps.scope.outputs.pr-number }}
           HEAD_REF: ${{ steps.scope.outputs.head-ref }}
           BASE_REF: ${{ steps.scope.outputs.base-ref }}
         run: |
           set -euo pipefail
-          if [ "$IN_SCOPE" = "true" ]; then
+          if [ "$APPROVAL_ENABLED" != "true" ]; then
+            # Detection still runs below — the acknowledgement comment needs to
+            # know whether there is a break to acknowledge.
+            echo "::notice::PR #${PR_NUMBER} will not be held for approval — the caller disabled it. Reporting and labelling only."
+          elif [ "$IN_SCOPE" = "true" ]; then
             echo "::notice::PR #${PR_NUMBER} is gated for breaking changes via ${REASON}"
           else
             echo "::notice::PR #${PR_NUMBER} (${HEAD_REF} → ${BASE_REF}) is not gated — ${REASON}"
           fi
 
-      # The composite reads Git history, so it needs `origin/<base>` and a HEAD
-      # that is the pull request. The second checkout exists because the first
-      # one leaves HEAD on the event's commit, which is only the pull request
-      # under `pull_request`. `clean: false` keeps what the first one fetched.
-      - name: Check out full history
-        id: checkout
-        if: steps.scope.outputs.in-scope == 'true' && inputs.detected_breaking_changes == ''
+      # Which commits tripped the gate, and a digest of the set. The digest is
+      # what lets an approval survive a push that did not touch the breaking
+      # change — see the `request` job.
+      #
+      # This also detects, when the caller did not. It replaced a pair of
+      # checkouts and the Git-reading composite: CodeQL flagged them as
+      # `actions/untrusted-checkout`, and it was right to — a non-privileged
+      # workflow was putting a contributor's tree on disk beside MANAGE_TOKEN.
+      # Nothing executed it, but nothing needed it either. Reading the API
+      # removes the tree, the token exposure and the alert together.
+      #
+      # `breaking-change-guard` stays the canonical detector and still runs in
+      # pr-validation over the real commit range; the patterns here are kept
+      # identical to it and tested against the same negative cases.
+      - name: List the breaking-change commits
+        id: commits
+        if: steps.scope.outputs.in-scope == 'true'
         continue-on-error: true
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+        # No checkout: it reads the pull request through the API.
+        uses: LerianStudio/github-actions-shared-workflows/src/validate/breaking-change-commits@develop
         with:
-          fetch-depth: 0
-          persist-credentials: false
-
-      - name: Move HEAD onto the pull request head
-        id: checkout-head
-        if: steps.scope.outputs.in-scope == 'true' && steps.checkout.outcome == 'success'
-        continue-on-error: true
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
-        with:
-          ref: refs/pull/${{ steps.scope.outputs.pr-number }}/head
-          fetch-depth: 0
-          clean: false
-          persist-credentials: false
-
-      # Nothing from the checked-out tree is executed — the composite only reads
-      # commit messages — so fork code never runs here.
-      - name: Detect breaking changes
-        id: guard
-        if: steps.scope.outputs.in-scope == 'true' && steps.checkout-head.outcome == 'success' && inputs.detected_breaking_changes == ''
-        continue-on-error: true
-        uses: LerianStudio/github-actions-shared-workflows/src/validate/breaking-change-guard@v1
-        with:
-          base-ref: ${{ steps.scope.outputs.base-ref }}
-          breaking-change-acknowledgement: ${{ inputs.author_acknowledgement }}
-          acknowledgement-match-mode: exact-visible-line
+          github-token: ${{ secrets.MANAGE_TOKEN || github.token }}
+          pr-number: ${{ steps.scope.outputs.pr-number }}
 
       - name: Normalize detection result
         id: normalize
@@ -287,11 +338,8 @@ jobs:
           IN_SCOPE: ${{ steps.scope.outputs.in-scope }}
           SUPPLIED_HAS_BREAKING_CHANGES: ${{ inputs.detected_breaking_changes }}
           SUPPLIED_ACKNOWLEDGED: ${{ inputs.detected_acknowledged }}
-          CHECKOUT_OUTCOME: ${{ steps.checkout.outcome }}
-          CHECKOUT_HEAD_OUTCOME: ${{ steps.checkout-head.outcome }}
-          GUARD_OUTCOME: ${{ steps.guard.outcome }}
-          RAW_HAS_BREAKING_CHANGES: ${{ steps.guard.outputs.has-breaking-changes }}
-          RAW_ACKNOWLEDGED: ${{ steps.guard.outputs.approved }}
+          COMMITS_OUTCOME: ${{ steps.commits.outcome }}
+          BREAKING_COUNT: ${{ steps.commits.outputs.count }}
         run: |
           set -euo pipefail
 
@@ -300,9 +348,18 @@ jobs:
           detection_succeeded=false
 
           if [ "$IN_SCOPE" != "true" ]; then
-            # Nothing was scanned, and nothing needs to be: an out-of-scope pull
-            # request is a successful no-op, not a failed detection.
+            # Out of scope means no approval is required — it does not mean
+            # nothing was found. When the caller already detected, keep that
+            # answer: the acknowledgement is still enforced everywhere, and the
+            # author needs to be told which line to add. Scanning here is what
+            # would be pointless, not knowing.
             detection_succeeded=true
+            case "$SUPPLIED_HAS_BREAKING_CHANGES" in
+              true | false )
+                has_breaking_changes="$SUPPLIED_HAS_BREAKING_CHANGES"
+                [ "$SUPPLIED_ACKNOWLEDGED" = "true" ] && acknowledged=true
+                ;;
+            esac
           elif [ -n "$SUPPLIED_HAS_BREAKING_CHANGES" ]; then
             # The caller already ran the same composite over the same commits.
             # Anything but a clean boolean is a wiring mistake, and a wiring
@@ -315,22 +372,32 @@ jobs:
                 ;;
               unknown )
                 # The documented way for a caller to say "my own detection did not
-                # complete". It must not read as "no breaking changes".
+                # complete". It must not read as "no breaking changes" — and the
+                # acknowledgement it reported alongside is just as unevaluated.
+                acknowledged=""
                 echo "The caller reported that its breaking-change detection did not complete — failing closed." >&2
                 ;;
               * )
+                acknowledged=""
                 echo "detected_breaking_changes must be 'true', 'false', 'unknown' or empty; got '${SUPPLIED_HAS_BREAKING_CHANGES}'." >&2
                 ;;
             esac
-          elif [ "$CHECKOUT_OUTCOME" = "success" ] && [ "$CHECKOUT_HEAD_OUTCOME" = "success" ] \
-            && [ "$GUARD_OUTCOME" = "success" ] \
-            && { [ "$RAW_HAS_BREAKING_CHANGES" = "true" ] || [ "$RAW_HAS_BREAKING_CHANGES" = "false" ]; } \
-            && { [ "$RAW_ACKNOWLEDGED" = "true" ] || [ "$RAW_ACKNOWLEDGED" = "false" ]; }; then
-            has_breaking_changes="$RAW_HAS_BREAKING_CHANGES"
-            acknowledged="$RAW_ACKNOWLEDGED"
+          elif [ "$COMMITS_OUTCOME" = "success" ] && [ -n "$BREAKING_COUNT" ]; then
+            [ "$BREAKING_COUNT" -gt 0 ] && has_breaking_changes=true
             detection_succeeded=true
+            # Left empty on purpose, not false. Without the caller's verdict
+            # the acknowledgement was never evaluated here — the detector that
+            # reads the description lives in pr-validation — and reporting
+            # "missing" for something nobody looked at would send the author
+            # after a line no check is asking for.
+            acknowledged=""
           else
-            echo "Breaking change detection failed: checkout=${CHECKOUT_OUTCOME} checkout_head=${CHECKOUT_HEAD_OUTCOME} guard=${GUARD_OUTCOME}" >&2
+            # Empty, not false. Detection did not complete, so nothing read the
+            # description — and `false` here reaches the blocked comment as
+            # "your acknowledgement is missing", sending an author who may well
+            # have written the line after a line no check evaluated.
+            acknowledged=""
+            echo "Breaking change detection failed: commits=${COMMITS_OUTCOME} count=${BREAKING_COUNT:-missing}" >&2
           fi
 
           {
@@ -351,7 +418,244 @@ jobs:
     permissions:
       contents: read
       pull-requests: write
+    outputs:
+      already-approved: ${{ steps.reuse.outputs.already-approved }}
+      approved-by: ${{ steps.prior.outputs.approved-by }}
     steps:
+      # Has this exact breaking change already been approved on this pull
+      # request? The approval comment records the fingerprint it approved, so a
+      # push that leaves the breaking commits alone — a typo fix, a review
+      # follow-up — does not send the reviewer the same question again.
+      #
+      # Asking again for unchanged content is how a gate becomes a formality:
+      # the second time costs attention, the fifth time gets a reflex click.
+      - name: Check for a prior approval of the same change
+        id: prior
+        # Runs under dry_run too: it only reads, and a dry run that cannot say
+        # whether the approval would be reused is not previewing the decision
+        # that matters most here.
+        if: >-
+          needs.detect.result == 'success'
+          && needs.detect.outputs.in-scope == 'true'
+          && needs.detect.outputs.has-breaking-changes == 'true'
+          && needs.detect.outputs.fingerprint != ''
+        env:
+          GH_TOKEN: ${{ secrets.MANAGE_TOKEN || github.token }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ needs.detect.outputs.pr-number }}
+          HEAD_REF: ${{ needs.detect.outputs.head-ref }}
+          FINGERPRINT: ${{ needs.detect.outputs.fingerprint }}
+          DRY_RUN: ${{ inputs.dry_run && 'true' || 'false' }}
+        run: |
+          set -euo pipefail
+
+          candidate_run=""
+          candidate_head=""
+          approved_by=""
+          approving_run=""
+          unverified=""
+
+          # Two things have to be true, because the comment alone is not
+          # evidence. Anyone who can read the repository can comment on a pull
+          # request, and the fingerprint is computable from public data — the
+          # commit SHAs are on the pull request and the digest is in this
+          # repository. A marker on its own is therefore forgeable by a
+          # stranger, which would hand them the approval gate.
+          #
+          #   1. the record sits in a comment from someone inside the
+          #      organisation, which is where the reporter writes
+          #   2. the run it names really was approved for this Environment
+          #
+          # The second is the one that matters: forging the text is easy,
+          # producing a run whose Environment approval actually happened is not.
+          #
+          # No `grep -q` anywhere below: with `pipefail`, it can exit on the
+          # first match while `--paginate` is still writing, and the broken pipe
+          # would read as "no match" — asking for an approval already given.
+          #
+          # `github-actions[bot]` is accepted by login because GitHub can report
+          # `author_association: NONE` for it — and that is the identity the
+          # reporter writes under whenever no MANAGE_TOKEN is passed, which is
+          # most callers. Filtering it out would quietly disable the whole
+          # feature for them. It is not a weakening: nobody but Actions can
+          # author a comment under that login.
+          records=$(
+            gh api "repos/${REPO}/issues/${PR_NUMBER}/comments" --paginate \
+              --jq '.[]
+                    | select(.author_association == "OWNER"
+                             or .author_association == "MEMBER"
+                             or .user.login == "github-actions[bot]")
+                    | .body' 2>/dev/null \
+            | grep -oE "<!-- breaking-change-approved: ${FINGERPRINT} run=[0-9]+ -->" \
+            || true
+          )
+
+          # Every record, not just the first. The reporter keeps them all, and
+          # runs are deleted on the repository's retention schedule — 90 days by
+          # default — so the oldest record for a fingerprint is the first to
+          # become unverifiable while a newer one is still perfectly good.
+          # Stopping at the first would ask for an approval that is on file.
+          while IFS= read -r record; do
+            [ -z "$record" ] && continue
+            approving_run=$(grep -oE 'run=[0-9]+' <<< "$record" | cut -d= -f2)
+            [ -z "$approving_run" ] && continue
+
+            # Verified against the Environment's own approval log. Needs
+            # `actions: read`; when that is missing the check cannot be made, so
+            # the approval is not reused and the reviewer is asked again. Asking
+            # twice is a cost, trusting an unverified record is a hole.
+            # Whose run is it? Confirming that it carried *an* approval proves
+            # nothing: every approved breaking change in the repository has a
+            # run like that, and a record naming one of those is a sentence
+            # anybody with write access can type. Without this check, an
+            # approval granted to someone else's change releases this one.
+            #
+            # Matched on the branch, because `pull_requests` on a run comes
+            # back empty in practice — verified against run 38967637198, which
+            # really did carry an approval for this gate.
+            #
+            # The run's own head is read here and nowhere else. It is the only
+            # unforgeable statement of *what* that approval covered: the
+            # fingerprint in the record says what the writer claims it covered,
+            # and anybody who can read the repository can write a record.
+            run_facts=$(
+              gh api "repos/${REPO}/actions/runs/${approving_run}" \
+                --jq '[(.head_branch // ""), (.head_sha // "")] | @tsv' 2>/dev/null || true
+            )
+            run_branch=$(printf '%s' "$run_facts" | cut -f1)
+            run_head=$(printf '%s' "$run_facts" | cut -f2)
+
+            if [ -z "$run_branch" ] || [ "$run_branch" != "$HEAD_REF" ]; then
+              unverified="${unverified:+$unverified }${approving_run}"
+              [ "$DRY_RUN" = "true" ] && echo "  record run=${approving_run} : belongs to '${run_branch:-unknown}', not '${HEAD_REF}'"
+              continue
+            fi
+
+            approvers=$(
+              gh api "repos/${REPO}/actions/runs/${approving_run}/approvals" \
+                --jq '.[] | select(.state == "approved")
+                      | select((.environments // []) | map(.name) | index("breaking-approval"))
+                      | .user.login' 2>/dev/null || true
+            )
+
+            if [ -n "$approvers" ] && [ -n "$run_head" ]; then
+              # A candidate, not a verdict. What this run approved is still
+              # unknown — the next step resolves the breaking set as it stood
+              # at `run_head` and only then is the record believed.
+              candidate_run="$approving_run"
+              candidate_head="$run_head"
+              approved_by="$approvers"
+              break
+            fi
+
+            unverified="${unverified:+$unverified }${approving_run}"
+            [ "$DRY_RUN" = "true" ] && echo "  record run=${approving_run} : approval could not be verified"
+          done <<< "$records"
+
+          # One line on a real run, per the dry_run contract. Everything else is
+          # for the preview, where being able to predict the decision is the
+          # entire point.
+          if [ "$DRY_RUN" = "true" ]; then
+            echo "::notice::DRY RUN — approval reuse lookup"
+            echo "  fingerprint       : ${FINGERPRINT}"
+            echo "  records found     : $(grep -c . <<< "$records" || true)"
+            echo "  unverified runs   : [${unverified:-}]"
+            echo "  candidate run     : ${candidate_run:-none}${approved_by:+ (by ${approved_by})}"
+            echo "  candidate head    : ${candidate_head:-none}"
+          elif [ -n "$candidate_run" ]; then
+            echo "::notice::Run ${candidate_run} carried an approval for this branch — checking what it approved"
+          elif [ -n "$records" ]; then
+            echo "::warning::A recorded approval of ${FINGERPRINT} exists but could not be verified against the Environment log (runs: ${unverified:-none}). Asking again."
+          fi
+
+          # The identity goes out with the verdict. Reuse skips the approval
+          # job, so the outcome reporter reads an empty `approvers` from a run
+          # that held no Environment decision and attributes the approval to
+          # "a reviewer" — erasing the name of whoever actually gave it. Both
+          # values are verified against the Environment log above; neither is
+          # read from the comment.
+          # One login per line is what the approvals API gives back, and an
+          # Environment can require more than one reviewer. Written straight
+          # out, the second login lands on its own line with no `=`, the runner
+          # rejects it, and this step fails — taking the whole reuse contract
+          # with it: `request` fails, the verdict reads `blocked`, and a
+          # previously approved breaking set is blocked on every push.
+          #
+          # Comma-separated is also what the reporter already parses.
+          approved_by=$(printf '%s' "$approved_by" | awk 'NF' | paste -sd, -)
+
+          {
+            echo "candidate-run=${candidate_run}"
+            echo "candidate-head=${candidate_head}"
+            echo "approved-by=${approved_by}"
+          } >> "$GITHUB_OUTPUT"
+
+      # What did that run actually approve? Resolved from the run's own head,
+      # which nobody can write, rather than from the fingerprint in the record,
+      # which anybody who can read the repository can write.
+      #
+      # @fredcamaral demonstrated the gap on #926. The fingerprint is derived
+      # from public commit SHAs, so it is computable in advance: a member posts
+      # a record carrying fp(A,B) and pointing at the run that approved only A,
+      # then pushes the breaking commit B. Every check up to here passes — the
+      # record is from a MEMBER, the run is on this branch, the run really did
+      # carry an approval — and nothing asked what it approved. The verdict
+      # came back `approved`, exit 0, no reviewer involved.
+      - name: Resolve what the approving run approved
+        id: approved-set
+        if: steps.prior.outputs.candidate-head != ''
+        continue-on-error: true
+        uses: LerianStudio/github-actions-shared-workflows/src/validate/breaking-change-commits@develop
+        with:
+          github-token: ${{ secrets.MANAGE_TOKEN || github.token }}
+          pr-number: ${{ needs.detect.outputs.pr-number }}
+          at-sha: ${{ steps.prior.outputs.candidate-head }}
+          base-ref: ${{ needs.detect.outputs.base-ref }}
+
+      - name: Confirm the approval covers this change
+        id: reuse
+        env:
+          CANDIDATE_RUN: ${{ steps.prior.outputs.candidate-run }}
+          CANDIDATE_HEAD: ${{ steps.prior.outputs.candidate-head }}
+          APPROVED_BY: ${{ steps.prior.outputs.approved-by }}
+          APPROVED_FINGERPRINT: ${{ steps.approved-set.outputs.fingerprint }}
+          RESOLVE_OUTCOME: ${{ steps.approved-set.outcome }}
+          FINGERPRINT: ${{ needs.detect.outputs.fingerprint }}
+          PR_NUMBER: ${{ needs.detect.outputs.pr-number }}
+          DRY_RUN: ${{ inputs.dry_run && 'true' || 'false' }}
+        run: |
+          set -euo pipefail
+
+          already=false
+
+          # Three ways to not reuse, and all of them ask the reviewer again.
+          # Asking twice costs attention; reusing an approval that covered
+          # something else costs the gate.
+          if [ -z "$CANDIDATE_RUN" ]; then
+            reason="no verified approval on record"
+          elif [ "$RESOLVE_OUTCOME" != "success" ] || [ -z "$APPROVED_FINGERPRINT" ]; then
+            reason="could not resolve what run ${CANDIDATE_RUN} approved"
+          elif [ "$APPROVED_FINGERPRINT" != "$FINGERPRINT" ]; then
+            reason="run ${CANDIDATE_RUN} approved ${APPROVED_FINGERPRINT}, this is ${FINGERPRINT}"
+          else
+            already=true
+            reason="run ${CANDIDATE_RUN} approved ${APPROVED_FINGERPRINT}, unchanged"
+          fi
+
+          if [ "$DRY_RUN" = "true" ]; then
+            echo "::notice::DRY RUN — approval reuse"
+            echo "  this change       : ${FINGERPRINT:-none}"
+            echo "  approved at       : ${CANDIDATE_HEAD:-none}"
+            echo "  that change was   : ${APPROVED_FINGERPRINT:-unresolved}"
+            echo "  reusing           : ${already} — ${reason}"
+          elif [ "$already" = "true" ]; then
+            echo "::notice::PR #${PR_NUMBER} — ${reason}; not asking ${APPROVED_BY} again"
+          elif [ -n "$CANDIDATE_RUN" ]; then
+            echo "::warning::Not reusing the approval on PR #${PR_NUMBER} — ${reason}."
+          fi
+
+          echo "already-approved=$already" >> "$GITHUB_OUTPUT"
+
       # Read from the BASE ref, never the head: a CODEOWNERS taken from the pull
       # request branch would let an author edit who is allowed to approve their
       # own breaking change.
@@ -359,6 +663,7 @@ jobs:
         id: codeowners
         if: >-
           needs.detect.result == 'success'
+          && needs.detect.outputs.in-scope == 'true'
           && needs.detect.outputs.has-breaking-changes == 'true'
           && inputs.approval_reviewers == ''
           && inputs.create_approval_environment
@@ -368,9 +673,14 @@ jobs:
           github-token: ${{ secrets.MANAGE_TOKEN || github.token }}
           ref: ${{ needs.detect.outputs.base-ref }}
 
+      # Creating or verifying the Environment is only meaningful when an
+      # approval is actually coming. Out of scope this fails the job over an
+      # Environment nobody is going to use.
       - name: Verify the breaking-approval Environment is protected
+        id: environment
         if: >-
           needs.detect.result == 'success'
+          && needs.detect.outputs.in-scope == 'true'
           && needs.detect.outputs.has-breaking-changes == 'true'
           && inputs.require_protected_environment
           && !inputs.dry_run
@@ -379,25 +689,76 @@ jobs:
           github-token: ${{ secrets.MANAGE_TOKEN || github.token }}
           environment: breaking-approval
           create-if-missing: ${{ inputs.create_approval_environment && 'true' || 'false' }}
-          reviewers: ${{ inputs.approval_reviewers != '' && inputs.approval_reviewers || steps.codeowners.outputs.reviewers }}
+          # Explicit, then CODEOWNERS, then the fallback. The caller's own
+          # answer wins; the fallback only covers a repository that has no
+          # catch-all rule to read.
+          reviewers: >-
+            ${{ inputs.approval_reviewers != '' && inputs.approval_reviewers
+                || (steps.codeowners.outputs.reviewers != ''
+                    && steps.codeowners.outputs.reviewers
+                    || inputs.fallback_reviewers) }}
 
+      # Out of scope, so no approval is coming — but the acknowledgement is
+      # enforced on every pull request, and an author who omits it otherwise
+      # sees Blocking Checks fail with nothing explaining what to add.
+      - name: Report the acknowledgement requirement
+        if: >-
+          needs.detect.result == 'success'
+          && needs.detect.outputs.in-scope != 'true'
+          && needs.detect.outputs.has-breaking-changes == 'true'
+          && !inputs.dry_run
+        continue-on-error: true
+        uses: LerianStudio/github-actions-shared-workflows/src/notify/breaking-change-approval-reporter@develop
+        with:
+          github-token: ${{ secrets.MANAGE_TOKEN || github.token }}
+          pr-number: ${{ needs.detect.outputs.pr-number }}
+          state: acknowledgement
+          head-sha: ${{ needs.detect.outputs.head-sha }}
+          acknowledged: ${{ needs.detect.outputs.acknowledged }}
+          author-acknowledgement: ${{ inputs.author_acknowledgement }}
+          label: ${{ inputs.label }}
+          pending-label: ''
+          enabled: ${{ inputs.enable_comment && 'true' || 'false' }}
+
+      # Nothing to request when the approval already stands. Without this the
+      # run announces "needs a decision", adds the pending label, and then the
+      # verdict takes both back seconds later — a flicker in the timeline for a
+      # decision that was never in question.
       - name: Request the approval on the pull request
         if: >-
           needs.detect.result == 'success'
           && needs.detect.outputs.in-scope == 'true'
           && needs.detect.outputs.has-breaking-changes == 'true'
+          && steps.reuse.outputs.already-approved != 'true'
           && !inputs.dry_run
         uses: LerianStudio/github-actions-shared-workflows/src/notify/breaking-change-approval-reporter@develop
         with:
           github-token: ${{ secrets.MANAGE_TOKEN || github.token }}
           pr-number: ${{ needs.detect.outputs.pr-number }}
           state: waiting
+          # Already resolved by `breaking-change-commits` in `detect`, to build
+          # the fingerprint. Forwarded so the comment names the commits the
+          # gate actually judged, instead of the reporter listing them a second
+          # time off its own API call.
+          subjects: ${{ needs.detect.outputs.subjects }}
+          author-acknowledgement: ${{ inputs.author_acknowledgement }}
+          fingerprint: ${{ needs.detect.outputs.fingerprint }}
+          # Explicit, then CODEOWNERS, then the fallback. The caller's own
+          # answer wins; the fallback only covers a repository that has no
+          # catch-all rule to read.
+          reviewers: >-
+            ${{ inputs.approval_reviewers != '' && inputs.approval_reviewers
+                || (steps.codeowners.outputs.reviewers != ''
+                    && steps.codeowners.outputs.reviewers
+                    || inputs.fallback_reviewers) }}
+          actual-reviewers: ${{ steps.environment.outputs.reviewers }}
           reason: ${{ needs.detect.outputs.reason }}
           head-sha: ${{ needs.detect.outputs.head-sha }}
           acknowledged: ${{ needs.detect.outputs.acknowledged }}
           run-url: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           close-on-rejection: ${{ inputs.close_on_rejection && 'true' || 'false' }}
           label: ${{ inputs.label }}
+          pending-label: ${{ inputs.pending_label }}
           enabled: ${{ inputs.enable_comment && 'true' || 'false' }}
 
   # ----------------- The gate itself -----------------
@@ -409,12 +770,32 @@ jobs:
     name: Approve Breaking Change
     runs-on: ${{ vars.GENERAL_RUNNERS || inputs.runner_type }}
     needs: [detect, request]
+    # `in-scope` is not optional here. Out of scope means no approval is
+    # required — #918 started preserving the caller's real detection so the
+    # acknowledgement could still be reported, and in doing so removed the only
+    # thing keeping this job out of scope. A pull request excluded by a branch
+    # rule, a skip label or an ignored author would wait on an Environment it
+    # has no business touching, and the verdict would discard the answer.
     if: >-
       needs.detect.result == 'success'
+      && needs.detect.outputs.in-scope == 'true'
       && needs.request.result == 'success'
       && needs.detect.outputs.has-breaking-changes == 'true'
+      && needs.request.outputs.already-approved != 'true'
       && !inputs.dry_run
     environment: breaking-approval
+    # One open request per pull request. Every push creates another pending
+    # deployment, and the old ones do not go away on their own — they sit in the
+    # reviewers' queue, each tied to a commit that is no longer the head. The
+    # risk is not clutter: approving a superseded one approves a revision nobody
+    # is merging, while the current one is still waiting.
+    #
+    # Cancelling the previous request is also what expires an approval. A push
+    # kills the pending job, so the next revision has to be approved again
+    # rather than inheriting a yes given to different code.
+    concurrency:
+      group: breaking-approval-${{ github.repository }}-${{ needs.detect.outputs.pr-number }}
+      cancel-in-progress: true
     permissions:
       contents: read
     steps:
@@ -459,9 +840,15 @@ jobs:
       - name: Resolve the verdict
         id: verdict
         env:
+          GH_TOKEN: ${{ secrets.MANAGE_TOKEN || github.token }}
+          REPO: ${{ github.repository }}
+          HEAD_SHA: ${{ needs.detect.outputs.head-sha }}
+          HEAD_REF: ${{ needs.detect.outputs.head-ref }}
+          RUN_ID: ${{ github.run_id }}
           DETECT_RESULT: ${{ needs.detect.result }}
           REQUEST_RESULT: ${{ needs.request.result }}
           APPROVAL_RESULT: ${{ needs.approval.result }}
+          ALREADY_APPROVED: ${{ needs.request.outputs.already-approved }}
           IN_SCOPE: ${{ needs.detect.outputs.in-scope }}
           REASON: ${{ needs.detect.outputs.reason }}
           PR_NUMBER: ${{ needs.detect.outputs.pr-number }}
@@ -470,6 +857,8 @@ jobs:
           APPROVERS: ${{ steps.decisions.outputs.approvers }}
           REJECTERS: ${{ steps.decisions.outputs.rejecters }}
           API_READABLE: ${{ steps.decisions.outputs.api-readable }}
+          LABEL: ${{ inputs.label }}
+          PENDING_LABEL: ${{ inputs.pending_label }}
           DRY_RUN: ${{ inputs.dry_run && 'true' || 'false' }}
         run: |
           set -euo pipefail
@@ -491,6 +880,92 @@ jobs:
             } >> "$GITHUB_OUTPUT"
           }
 
+          # A superseded run must not touch the pull request. When something
+          # cancels the pending approval, this job still runs — and without this
+          # guard it would overwrite the live revision's comment with "the
+          # approval did not complete", which is true of the dead run and
+          # misleading about the live one.
+          #
+          # A cancelled approval is a reason to look, not a verdict on its own.
+          # #912 treated every cancellation as supersession, because a run can
+          # be replaced without the head moving — editing the description fires
+          # `edited`, which queues a new run on the same commit. True, and too
+          # wide: a cancellation with nothing replacing it then reported success
+          # for a revision nobody approved, while `result=failure` sat in the
+          # outputs saying the opposite.
+          #
+          # Supersession has to be established. Either the head moved on (the
+          # comparison below), or a newer run exists for this branch to carry
+          # the decision. Neither means the cancellation stands unresolved,
+          # which does not pass.
+          if [ "$APPROVAL_RESULT" = "cancelled" ] && [ -n "${PR_NUMBER:-}" ]; then
+            # Scoped to this workflow, and to this pull request.
+            # `actions/runs?branch=` returns runs of every workflow on the
+            # branch, and the other ones from the same push start later with
+            # higher ids — so any cancellation would have found a "newer run"
+            # and passed, which is the false success this whole change exists
+            # to remove. Measured on a real branch: a run of Self — Repository
+            # Routines sat above the gate's own run.
+            #
+            # One head branch can carry more than one pull request — same
+            # branch, different bases — so the workflow scope alone still lets
+            # another pull request's run stand in for this one's.
+            # `.pull_requests` carries the run's own pull request and settles
+            # it.
+            #
+            # And only a `pull_request` run counts. Without that filter any
+            # newer run of this workflow on the branch qualified, including one
+            # somebody started by hand: dispatch a run, cancel the pending
+            # approval, and the verdict reads `superseded`, which exits 0 — a
+            # green gate with no approval, available to anybody with write
+            # access. Reported by @fredcamaral and reproduced; the `event`
+            # filter is applied twice, once as a query parameter and once in
+            # the selection, because the parameter alone is the server's
+            # promise and this decides whether a merge is allowed.
+            #
+            # `.pull_requests` comes back empty for runs from forks. Those are
+            # matched on the head instead, which still ties the run to this
+            # revision rather than to the branch at large — the empty arm used
+            # to accept any run with no pull request attached, which is what
+            # let a dispatched run through.
+            workflow_id=$(
+              gh api "repos/${REPO}/actions/runs/${RUN_ID}" --jq '.workflow_id' 2>/dev/null || true
+            )
+
+            newer=0
+            if [ -n "$workflow_id" ]; then
+              newer=$(
+                gh api "repos/${REPO}/actions/workflows/${workflow_id}/runs?branch=${HEAD_REF}&event=pull_request&per_page=50" \
+                  --jq "[.workflow_runs[]
+                          | select(.id > ${RUN_ID})
+                          | select(.event == \"pull_request\")
+                          | select(any(.pull_requests[]?; .number == ${PR_NUMBER})
+                                   or ((.pull_requests | length) == 0
+                                       and .head_sha == \"${HEAD_SHA}\"))]
+                         | length" 2>/dev/null || echo 0
+              )
+            fi
+
+            if [ "${newer:-0}" -gt 0 ]; then
+              state=superseded
+              emit
+              echo "::notice::This run's approval was cancelled and ${newer} newer run(s) exist for ${HEAD_REF} — leaving PR #${PR_NUMBER} alone"
+              exit 0
+            fi
+
+            echo "::warning::This run's approval was cancelled and nothing was found replacing it. Not treating that as supersession."
+          fi
+
+          if [ -n "${PR_NUMBER:-}" ] && [ -n "${HEAD_SHA:-}" ]; then
+            live_sha=$(gh pr view "$PR_NUMBER" --repo "$REPO" --json headRefOid --jq '.headRefOid' 2>/dev/null || true)
+            if [ -n "$live_sha" ] && [ "$live_sha" != "$HEAD_SHA" ]; then
+              state=superseded
+              emit
+              echo "::notice::Superseded — this run covers ${HEAD_SHA:0:7} but PR #${PR_NUMBER} now heads at ${live_sha:0:7}; leaving the pull request alone"
+              exit 0
+            fi
+          fi
+
           # Detection failing is not "no breaking changes" — it is "we do not
           # know", and the point of the gate is that an unknown blocks.
           if [ "$DETECT_RESULT" != "success" ] || [ "$DETECTION_SUCCEEDED" != "true" ] \
@@ -501,11 +976,51 @@ jobs:
             exit 0
           fi
 
+          # Only now, with the guards behind us. Placed any earlier this would
+          # report success for a run whose `request` job failed — the preflight
+          # that proves the Environment is real lives there — or for a run the
+          # head has moved out from under. An approval that still applies is not
+          # a reason to skip the checks that say whether this run may speak.
+          if [ "$ALREADY_APPROVED" = "true" ]; then
+            approved=true
+            result=success
+            state=approved
+            emit
+            echo "::notice::PR #${PR_NUMBER} carries a breaking change that was already approved — nothing changed about it"
+            exit 0
+          fi
+
           if [ "$IN_SCOPE" != "true" ] || [ "$HAS_BREAKING_CHANGES" != "true" ]; then
             approved=true
             result=success
             state=none
             emit
+
+            # Two labels, two different reasons to come off, and this branch
+            # is reached for two different reasons — so they cannot share a
+            # loop. `state=none` means either the break is gone or the gate
+            # has no say over this pull request, and only the first of those
+            # makes `breaking-change` untrue.
+            #
+            # Removing it out of scope was worse than cosmetic: the
+            # acknowledgement reporter had just applied it, because the break
+            # is real and the author still has to declare it. The gate then
+            # took it straight back off.
+            if [ "$DRY_RUN" != "true" ] && [ -n "${PR_NUMBER:-}" ]; then
+              # Nothing is waiting on a decision either way, so the state
+              # label ends here.
+              if [ -n "$PENDING_LABEL" ]; then
+                gh pr edit "$PR_NUMBER" --repo "$REPO" --remove-label "$PENDING_LABEL" >/dev/null 2>&1 || true
+              fi
+
+              # The fact label only when the fact stopped being true. A reword
+              # dropping the `!` left `breaking-change` on the pull request for
+              # good — the cleanup was lost in an earlier rewrite of this job.
+              if [ "$HAS_BREAKING_CHANGES" != "true" ] && [ -n "$LABEL" ]; then
+                gh pr edit "$PR_NUMBER" --repo "$REPO" --remove-label "$LABEL" >/dev/null 2>&1 || true
+              fi
+            fi
+
             echo "::notice::Nothing to approve on PR #${PR_NUMBER} — ${REASON}"
             exit 0
           fi
@@ -539,25 +1054,43 @@ jobs:
           emit
 
       - name: Report the outcome on the pull request
+        # `blocked` belongs here too. Detection failing fails the check, and it
+        # used to do so without a word on the pull request — a red check with
+        # no comment reads as a flake and gets re-run instead of looked at.
         if: >-
           !inputs.dry_run
           && (steps.verdict.outputs.state == 'approved' || steps.verdict.outputs.state == 'rejected'
-              || steps.verdict.outputs.state == 'unresolved')
+              || steps.verdict.outputs.state == 'unresolved' || steps.verdict.outputs.state == 'blocked')
         continue-on-error: true
         uses: LerianStudio/github-actions-shared-workflows/src/notify/breaking-change-approval-reporter@develop
         with:
           github-token: ${{ secrets.MANAGE_TOKEN || github.token }}
           pr-number: ${{ needs.detect.outputs.pr-number }}
           state: ${{ steps.verdict.outputs.state }}
+          # Only a run whose Environment approval actually happened may write a
+          # record naming itself. A reused approval reports `approved` with the
+          # gate job skipped, and a record pointing at that run would assert
+          # something no log can confirm — then outlive the real one.
+          fingerprint: ${{ needs.approval.result == 'success' && needs.detect.outputs.fingerprint || '' }}
+          run-id: ${{ github.run_id }}
           reason: ${{ needs.detect.outputs.reason }}
           head-sha: ${{ needs.detect.outputs.head-sha }}
           acknowledged: ${{ needs.detect.outputs.acknowledged }}
+          # Forwarded so the approved comment can keep the acknowledgement
+          # instructions. Blocking Checks still fails without the line, and the
+          # approval rewriting this comment used to take the only copy of it.
+          author-acknowledgement: ${{ inputs.author_acknowledgement }}
           run-url: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-          approvers: ${{ steps.decisions.outputs.approvers }}
+          # On reuse the approval job is skipped, so the current run holds no
+          # Environment decision and `decisions` is empty. Falling back to the
+          # verified historical approver keeps the name of whoever actually
+          # decided, instead of degrading it to "a reviewer" on the next push.
+          approvers: ${{ steps.decisions.outputs.approvers || needs.request.outputs.approved-by }}
           rejecters: ${{ steps.verdict.outputs.rejecters }}
           rejection-comment: ${{ steps.decisions.outputs.rejection-comment }}
           close-on-rejection: ${{ inputs.close_on_rejection && 'true' || 'false' }}
           label: ${{ inputs.label }}
+          pending-label: ${{ inputs.pending_label }}
           enabled: ${{ inputs.enable_comment && 'true' || 'false' }}
 
       # Only on a recorded rejection, never on a cancellation. Closing a pull
@@ -603,7 +1136,9 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
           # dry_run never fails: it reports what a real run would have done.
-          if [ "$DRY_RUN" = "true" ] || [ "$RESULT" = "success" ]; then
+          # Neither does a superseded run — its verdict is about a commit that is
+          # no longer the head, and the live run is the one that decides.
+          if [ "$DRY_RUN" = "true" ] || [ "$RESULT" = "success" ] || [ "$STATE" = "superseded" ]; then
             exit 0
           fi
 
