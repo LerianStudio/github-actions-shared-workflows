@@ -28,13 +28,24 @@ CHART_DIFF=$(git diff "${PREV_TAG}".."${CURRENT_TAG}" -- "${CHART_PATH}/Chart.ya
 VALUES_DIFF=$(git diff "${PREV_TAG}".."${CURRENT_TAG}" -- "${CHART_PATH}/values.yaml" 2>/dev/null | head -400 || true)
 TEMPLATE_DIFF=$(git diff "${PREV_TAG}".."${CURRENT_TAG}" -- "${CHART_PATH}/templates/" 2>/dev/null | head -300 || true)
 
+# Liquid guard: charts.lerian.studio is built by GitHub Pages (Jekyll 3.10), which runs
+# Liquid over every .md, so Helm template snippets ({{ ... }}) in a guide warn or, when
+# malformed, break the whole site build. Generated guides are wrapped in a raw block
+# hidden in HTML comments (Liquid honours it, GitHub's markdown view hides it). Markers
+# are stripped from examples and model output first: a nested raw breaks Liquid too.
+strip_liquid_raw() {
+  { grep -vE '^[[:space:]]*<!--[[:space:]]*\{%-?[[:space:]]*(end)?raw[[:space:]]*-?%\}[[:space:]]*-->[[:space:]]*$' || true; } \
+    | sed -E 's/\{%-?[[:space:]]*(end)?raw[[:space:]]*-?%\}//g'
+}
+
 # Load 2 most recent existing UPGRADE docs as few-shot examples
 EXAMPLES=""
 if [ -d "$DOCS_PATH" ]; then
   # shellcheck disable=SC2012
   while IFS= read -r doc_file; do
     DOC_NAME=$(basename "$doc_file")
-    DOC_CONTENT=$(cat "$doc_file")
+    # Drop the Liquid raw markers (see "Liquid guard" above) so the model never copies them.
+    DOC_CONTENT=$(strip_liquid_raw < "$doc_file")
     EXAMPLES="$(printf '%s\n=== %s ===\n%s\n' "$EXAMPLES" "$DOC_NAME" "$DOC_CONTENT")"
   done < <(ls -t "${DOCS_PATH}"/UPGRADE-*.md 2>/dev/null | head -2)
 fi
@@ -166,6 +177,11 @@ fi
 FIRST_LINE=$(echo "$CONTENT" | head -1)
 if echo "$FIRST_LINE" | grep -q '^```'; then
   CONTENT=$(echo "$CONTENT" | sed '1d; $d')
+fi
+
+CONTENT=$(printf '%s\n' "$CONTENT" | strip_liquid_raw)
+if printf '%s' "$CONTENT" | grep -qE '\{\{|\{%'; then
+  CONTENT=$(printf '<!-- {%% raw %%} -->\n%s\n<!-- {%% endraw %%} -->' "$CONTENT")
 fi
 
 mkdir -p "$DOCS_PATH"
