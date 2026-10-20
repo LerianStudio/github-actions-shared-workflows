@@ -300,18 +300,34 @@ pull request, and the fingerprint is computable from public data: the commit
 SHAs are on the pull request and the digest is defined in this repository. A
 record on its own is therefore something a stranger can write.
 
-So two things must hold before an approval is reused:
+So three things must hold before an approval is reused:
 
 1. the record sits in a comment from an **owner or member** of the
    organisation, or from `github-actions[bot]` — the identity the reporter
    writes under when no `MANAGE_TOKEN` is passed, and one nobody but Actions
    can author as
 2. the **run it names really was approved** for the `breaking-approval`
-   Environment, read from the Environment's own approval log
+   Environment, read from the Environment's own approval log, and that run is
+   on this head branch
+3. the **set that run approved** is this set — resolved from the run's own
+   `head_sha`, never from the fingerprint written in the record
 
 Every record for the fingerprint is tried, not only the first: runs are deleted
 on the repository's retention schedule, so the oldest record goes unverifiable
 while a newer one is still good.
+
+The third was missing until @fredcamaral demonstrated what it cost. The first
+two establish that *an* approval happened on this branch; neither says what it
+approved. Since the fingerprint is derived from public commit SHAs it is
+computable before the commit exists, so a member could post a record carrying
+`fp(A,B)` pointing at the run that approved only `A`, then push the breaking
+commit `B` — and the gate would read "already approved" and return success with
+no reviewer involved. Resolving the approved set from the run's own head closes
+it: the record now says only *which run to ask*, and the run answers.
+
+When that resolution fails — a deleted run, an unreadable comparison, a pull
+request past the commit cap — the approval is not reused. Not knowing is not
+evidence that it still applies.
 
 Only a run whose Environment approval actually happened writes a record. A
 reused approval reports `approved` with the gate job skipped, and a record

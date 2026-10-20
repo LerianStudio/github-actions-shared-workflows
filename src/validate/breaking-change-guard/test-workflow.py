@@ -347,7 +347,12 @@ def run_verdict(**overrides):
         env["MOCK_RUNS_JSON"] = json.dumps(
             {
                 "workflow_runs": [
-                    {"id": run_id + 1 + i, "pull_requests": [{"number": pr_number}]}
+                    {
+                        "id": run_id + 1 + i,
+                        "event": "pull_request",
+                        "head_sha": env["HEAD_SHA"],
+                        "pull_requests": [{"number": pr_number}],
+                    }
                     for i in range(int(env["MOCK_NEWER_RUNS"]))
                 ]
             }
@@ -1354,7 +1359,7 @@ class ApprovalGateStructureTests(unittest.TestCase):
         # announced "needs a decision" and added the pending label, and the
         # verdict took both back seconds later. A flicker in the timeline for a
         # decision that was never in question.
-        self.assertIn("steps.prior.outputs.already-approved != 'true'", step)
+        self.assertIn("steps.reuse.outputs.already-approved != 'true'", step)
 
     def test_the_decider_is_linked_not_mentioned(self):
         for state, env, who in (
@@ -1510,8 +1515,8 @@ class ApprovalGateStructureTests(unittest.TestCase):
         # pull request it knows nothing about.
         runs = {
             "workflow_runs": [
-                {"id": 101, "pull_requests": [{"number": 77}]},
-                {"id": 102, "pull_requests": [{"number": 77}]},
+                {"id": 101, "event": "pull_request", "pull_requests": [{"number": 77}]},
+                {"id": 102, "event": "pull_request", "pull_requests": [{"number": 77}]},
             ]
         }
         _, other_pr = run_verdict(
@@ -1520,21 +1525,83 @@ class ApprovalGateStructureTests(unittest.TestCase):
         self.assertEqual("unresolved", other_pr["state"])
 
         # Mixed: the same two, plus one that is actually ours.
-        runs["workflow_runs"].append({"id": 103, "pull_requests": [{"number": 42}]})
+        runs["workflow_runs"].append(
+            {"id": 103, "event": "pull_request", "pull_requests": [{"number": 42}]}
+        )
         _, ours = run_verdict(
             APPROVAL_RESULT="cancelled", MOCK_RUNS_JSON=json.dumps(runs)
         )
         self.assertEqual("superseded", ours["state"])
 
-    def test_a_run_without_pull_requests_falls_back_to_the_branch_scope(self):
-        # Runs from forks come back with `pull_requests: []`. Dropping those
-        # would make every cancellation on a fork unresolved; keeping them
-        # leaves the branch scope as the evidence, which is what there is.
-        runs = {"workflow_runs": [{"id": 101, "pull_requests": []}]}
+    def test_a_run_from_a_fork_is_matched_on_the_head_not_the_branch(self):
+        # Runs from forks come back with `pull_requests: []`. Dropping them
+        # would make every cancellation on a fork unresolved; accepting any run
+        # that has none is how a dispatched run passed for a pull request it
+        # had nothing to do with. They are matched on the head instead, which
+        # ties the run to this revision.
+        same_head = {
+            "workflow_runs": [
+                {
+                    "id": 101,
+                    "event": "pull_request",
+                    "head_sha": "abc123",
+                    "pull_requests": [],
+                }
+            ]
+        }
         _, fork = run_verdict(
-            APPROVAL_RESULT="cancelled", MOCK_RUNS_JSON=json.dumps(runs)
+            APPROVAL_RESULT="cancelled", MOCK_RUNS_JSON=json.dumps(same_head)
         )
         self.assertEqual("superseded", fork["state"])
+
+        other_head = json.loads(json.dumps(same_head))
+        other_head["workflow_runs"][0]["head_sha"] = "def456"
+        _, unrelated = run_verdict(
+            APPROVAL_RESULT="cancelled", MOCK_RUNS_JSON=json.dumps(other_head)
+        )
+        self.assertEqual("unresolved", unrelated["state"])
+
+    def test_a_dispatched_run_is_not_supersession(self):
+        # Reported by @fredcamaral and reproduced: with no event filter, any
+        # newer run of this workflow on the branch counted. Dispatch one by
+        # hand, cancel the pending approval, and the verdict reads
+        # `superseded` — which exits 0. A green gate with no approval, for
+        # anybody with write access.
+        #
+        # `self-pr-validation.yml` enables `workflow_dispatch` and skips
+        # validation on it, so the dispatched run does not even have to do
+        # anything.
+        for description, run in (
+            (
+                "dispatched, no pull request attached",
+                {"id": 101, "event": "workflow_dispatch", "head_sha": "abc123",
+                 "pull_requests": []},
+            ),
+            (
+                "dispatched, naming this pull request",
+                {"id": 101, "event": "workflow_dispatch", "head_sha": "abc123",
+                 "pull_requests": [{"number": 42}]},
+            ),
+            (
+                "a scheduled run on the same branch",
+                {"id": 101, "event": "schedule", "head_sha": "abc123",
+                 "pull_requests": []},
+            ),
+        ):
+            with self.subTest(description):
+                _, outputs = run_verdict(
+                    APPROVAL_RESULT="cancelled",
+                    MOCK_RUNS_JSON=json.dumps({"workflow_runs": [run]}),
+                )
+                self.assertEqual("unresolved", outputs["state"], description)
+
+        # And `unresolved` must not pass, which is the half that makes the
+        # filter matter.
+        body = extract_run_body(
+            extract_job(APPROVAL_WORKFLOW, "outcome"), "Record the verdict"
+        )
+        self.assertIn('[ "$STATE" = "superseded" ]', body)
+        self.assertNotIn('[ "$STATE" = "unresolved" ]', body)
 
     def test_a_reused_approval_must_belong_to_this_pull_request(self):
         step = extract_step(
@@ -1704,6 +1771,111 @@ class ApprovalGateStructureTests(unittest.TestCase):
                     "a standing approval is not a reason to skip the checks that "
                     "say whether this run may speak at all",
                 )
+
+    def run_reuse(self, **overrides):
+        """Run the step that decides whether an approval is reused."""
+        workflow = yaml.safe_load(APPROVAL_WORKFLOW)
+        step = next(
+            s
+            for s in workflow["jobs"]["request"]["steps"]
+            if s.get("name") == "Confirm the approval covers this change"
+        )
+        env = {
+            "CANDIDATE_RUN": "4242",
+            "CANDIDATE_HEAD": "aaaa111",
+            "APPROVED_BY": "carol",
+            "APPROVED_FINGERPRINT": "8b5ad0f390f484b1",
+            "RESOLVE_OUTCOME": "success",
+            "FINGERPRINT": "8b5ad0f390f484b1",
+            "PR_NUMBER": "42",
+            "DRY_RUN": "false",
+        }
+        env.update(overrides)
+        _, outputs = execute_body(step["run"], env)
+        return outputs["already-approved"]
+
+    def test_a_forged_record_cannot_reuse_someone_elses_approval(self):
+        # @fredcamaral's report on #926, reproduced as a test.
+        #
+        # The fingerprint is derived from public commit SHAs, so it is
+        # computable before the commit exists. The attack: a member posts a
+        # record carrying fp(A,B) that points at the run which approved only A,
+        # then pushes the breaking commit B. Every earlier check passes — the
+        # record is from a MEMBER, the run is on this branch, the run really
+        # did carry an Environment approval — and none of them asks what it
+        # approved. The answer used to be taken from the record itself.
+        #
+        # It is now resolved from the approving run's own head, which nobody
+        # can write.
+        self.assertEqual(
+            "false",
+            self.run_reuse(
+                APPROVED_FINGERPRINT="8b5ad0f390f484b1",  # what run 4242 approved: A
+                FINGERPRINT="50306b18a137bc7b",           # what is here now: A+B
+            ),
+            "an approval of a different set was reused",
+        )
+
+        # The legitimate case it exists for: a push that did not touch the
+        # breaking commits — a typo fix — resolves to the same set.
+        self.assertEqual("true", self.run_reuse())
+
+        # Unresolvable is not reusable. A deleted run, an unreadable
+        # comparison, a pull request past the commit cap: none of them is
+        # evidence that the approval still applies.
+        self.assertEqual("false", self.run_reuse(RESOLVE_OUTCOME="failure"))
+        self.assertEqual("false", self.run_reuse(APPROVED_FINGERPRINT=""))
+        self.assertEqual("false", self.run_reuse(CANDIDATE_RUN=""))
+
+    def test_the_reuse_lookup_can_read_the_comparison_it_depends_on(self):
+        # The `at-sha` path reads the comparison API, which is repository
+        # contents rather than pull request data. Without `contents: read` the
+        # comparison fails, the gate reads that as "cannot confirm what that
+        # approval covered", and the reviewer is asked again on every push —
+        # silently, since the step is `continue-on-error`.
+        workflow = yaml.safe_load(APPROVAL_WORKFLOW)
+        self.assertEqual("read", workflow["jobs"]["request"]["permissions"]["contents"])
+
+        # And the composite says so, for anyone calling it directly.
+        action = yaml.safe_load(
+            (
+                REPO_ROOT / "src" / "validate" / "breaking-change-commits"
+                / "action.yml"
+            ).read_text(encoding="utf-8")
+        )
+        self.assertIn("contents: read", action["inputs"]["github-token"]["description"])
+        self.assertIn("contents: read", action["inputs"]["at-sha"]["description"])
+
+    def test_the_approved_set_is_read_from_the_run_not_the_record(self):
+        workflow = yaml.safe_load(APPROVAL_WORKFLOW)
+        steps = workflow["jobs"]["request"]["steps"]
+
+        # The lookup hands over a candidate and the run's own head. It must not
+        # decide reuse by itself any more.
+        lookup = extract_step(
+            extract_job(APPROVAL_WORKFLOW, "request"),
+            "Check for a prior approval of the same change",
+        )
+        self.assertIn("candidate-head=", lookup)
+        self.assertNotIn("already-approved=", lookup)
+        # `.head_sha` comes from the run, beside the branch it is already
+        # verified against.
+        self.assertIn(".head_sha", lookup)
+
+        # The resolver is pointed at that head, never at the current one.
+        resolve = next(
+            s for s in steps if s.get("name") == "Resolve what the approving run approved"
+        )
+        self.assertEqual(
+            "${{ steps.prior.outputs.candidate-head }}", resolve["with"]["at-sha"]
+        )
+        self.assertIn("breaking-change-commits@", resolve["uses"])
+
+        # And the job publishes the confirmed answer, not the candidate.
+        self.assertEqual(
+            "${{ steps.reuse.outputs.already-approved }}",
+            workflow["jobs"]["request"]["outputs"]["already-approved"],
+        )
 
     def test_two_approvers_serialise_into_one_output_value(self):
         # An Environment can require more than one reviewer, and the approvals

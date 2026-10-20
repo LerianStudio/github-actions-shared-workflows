@@ -23,6 +23,13 @@ set -euo pipefail
 GH_TOKEN=${GH_TOKEN:-}
 REPO=${REPO:-}
 PR_NUMBER=${PR_NUMBER:-}
+# Optional. Resolves the set as it stood at a given revision instead of at the
+# pull request's current head — which is what lets the gate ask the question it
+# actually needs answered: what did that approval approve? Reading the
+# fingerprint out of a comment answers a different one, and a comment is
+# writable by anybody who can read the repository.
+BASE_REF=${BASE_REF:-}
+AT_SHA=${AT_SHA:-}
 
 export GH_TOKEN
 
@@ -38,7 +45,34 @@ for binary in gh jq; do
   fi
 done
 
-if ! commits=$(gh api "repos/${REPO}/pulls/${PR_NUMBER}/commits" --paginate \
+if [[ -n "${AT_SHA}" ]]; then
+  if [[ -z "${BASE_REF}" ]]; then
+    printf 'Breaking Change Commits: BASE_REF is required with AT_SHA.\n' >&2
+    exit 1
+  fi
+
+  # `compare` answers for a revision that is no longer the head. The pull
+  # request's own commits endpoint cannot: it always reports the current state.
+  if ! comparison=$(gh api "repos/${REPO}/compare/${BASE_REF}...${AT_SHA}" 2>/dev/null); then
+    printf 'Breaking Change Commits: could not compare %s...%s in %s.\n' \
+      "${BASE_REF}" "${AT_SHA}" "${REPO}" >&2
+    exit 1
+  fi
+
+  # Same cap, same refusal. `compare` returns at most 250 commits and declares
+  # the real total separately, so a truncated answer is detectable — and
+  # answering from one would be worse here than anywhere else, since this
+  # decides whether an approval is reused.
+  declared_total=$(jq -r '.total_commits // 0' <<< "${comparison}")
+  returned_total=$(jq -r '.commits | length' <<< "${comparison}")
+  if [[ "${declared_total}" -ne "${returned_total}" ]]; then
+    printf 'Breaking Change Commits: %s...%s has %s commits but the comparison returned %s.\n' \
+      "${BASE_REF}" "${AT_SHA}" "${declared_total}" "${returned_total}" >&2
+    exit 1
+  fi
+
+  commits=$(jq -r '.commits[] | [.sha, .commit.message] | @base64' <<< "${comparison}")
+elif ! commits=$(gh api "repos/${REPO}/pulls/${PR_NUMBER}/commits" --paginate \
                  --jq '.[] | [.sha, .commit.message] | @base64' 2>/dev/null); then
   printf 'Breaking Change Commits: could not read the commits of PR #%s in %s.\n' \
     "${PR_NUMBER}" "${REPO}" >&2
@@ -53,10 +87,15 @@ fi
 # covered.
 #
 # Refuse instead. A gate that cannot see the whole change says so.
+#
+# Only for the pull-request path: the comparison above does its own version of
+# this check, against `total_commits`, because it has no pull request to ask.
 returned=$(grep -c . <<< "${commits}" || true)
 [[ -z "${commits}" ]] && returned=0
 
-if ! declared=$(gh api "repos/${REPO}/pulls/${PR_NUMBER}" --jq '.commits' 2>/dev/null); then
+if [[ -n "${AT_SHA}" ]]; then
+  declared="${returned}"
+elif ! declared=$(gh api "repos/${REPO}/pulls/${PR_NUMBER}" --jq '.commits' 2>/dev/null); then
   printf 'Breaking Change Commits: could not read the commit count of PR #%s in %s.\n' \
     "${PR_NUMBER}" "${REPO}" >&2
   exit 1
