@@ -82,6 +82,10 @@
   color: "b60205"
   description: Callers must update their workflow configuration after this change
 
+- name: awaiting-breaking-approval
+  color: "fbca04"
+  description: A breaking change on this PR is waiting on a human decision
+
 # ── Capabilities ──────────────────────────────────────────────────────────────
 
 - name: build

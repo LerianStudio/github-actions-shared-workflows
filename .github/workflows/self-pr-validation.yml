@@ -76,11 +76,34 @@ jobs:
         with:
           persist-credentials: false
 
+      # test-workflow.py imports yaml. Without this the job depends on the
+      # runner image happening to ship PyYAML, and `runner_type` is
+      # configurable — the same reasoning as the workflow-secrets job below,
+      # which was already doing this.
+      - name: Install dependencies
+        run: |
+          if ! python3 -c "import yaml" 2>/dev/null; then
+            sudo apt-get install -y --no-install-recommends python3-yaml
+          fi
+
       - name: Run breaking-change detector matrix
         run: bash src/validate/breaking-change-guard/test.sh
 
       - name: Run breaking-change workflow integration tests
         run: python3 src/validate/breaking-change-guard/test-workflow.py
+
+      # The composites the gate is built from. Each ships a suite and none of
+      # them were invoked by any workflow — 76 cases, including the
+      # output-forgery and fingerprint ones, that a change could silently walk
+      # past. A suite nobody runs is documentation.
+      - name: Run gate-scope resolver tests
+        run: bash src/validate/pr-gate-scope/test.sh
+
+      - name: Run breaking-change commit-list tests
+        run: bash src/validate/breaking-change-commits/test.sh
+
+      - name: Run CODEOWNERS reviewer tests
+        run: bash src/validate/codeowners-reviewers/test.sh
 
   # ----------------- GitOps Chart Tooling Tests -----------------
   gitops-chart-tooling-tests:

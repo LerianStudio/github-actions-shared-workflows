@@ -179,6 +179,15 @@ on:
         description: 'Close the pull request when a reviewer rejects the breaking change.'
         type: boolean
         default: true
+      breaking_change_fallback_reviewers:
+        description: >-
+          Who answers the breaking-change gate in a repository whose CODEOWNERS
+          has no catch-all `*` rule. Defaults to the
+          `BREAKING_APPROVAL_FALLBACK_REVIEWERS` organisation variable — see
+          docs/breaking-change-approval.md.
+        required: false
+        type: string
+        default: ''
       breaking_change_approval_reviewers:
         description: 'Who may answer the breaking-change gate, as comma-separated `team:<slug>` or `user:<login>`. Empty takes the repository own CODEOWNERS. Used only to create the `breaking-approval` Environment when it does not exist.'
         type: string
@@ -472,6 +481,7 @@ jobs:
       breaking_change_skip_labels: ${{ inputs.breaking_change_skip_labels }}
       breaking_change_close_on_rejection: ${{ inputs.breaking_change_close_on_rejection }}
       breaking_change_approval_reviewers: ${{ inputs.breaking_change_approval_reviewers }}
+      breaking_change_fallback_reviewers: ${{ inputs.breaking_change_fallback_reviewers }}
       breaking_change_create_environment: ${{ inputs.breaking_change_create_environment }}
       breaking_change_require_protected_environment: ${{ inputs.breaking_change_require_protected_environment }}
     secrets:
