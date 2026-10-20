@@ -108,6 +108,17 @@ on:
         description: 'Enable security scanning (gosec, govulncheck)'
         type: boolean
         default: true
+      fail_on_govulncheck:
+        description: >-
+          Fail the Security job when govulncheck reports findings. Default false preserves the
+          advisory behaviour this step has always had: the Go vulnerability database changes
+          independently of the pull request, so a newly published CVE in a common dependency would
+          otherwise turn every repository on this channel red at once, on pull requests that touch
+          nothing related. Findings are reported either way — as a warning annotation when false, as
+          an error when true — so the scan is never silent. Turn it on per repository once its
+          dependency graph is clean.
+        type: boolean
+        default: false
       enable_tests:
         description: 'Enable unit tests'
         type: boolean
@@ -438,8 +449,22 @@ jobs:
 
       - name: Run govulncheck
         working-directory: ${{ matrix.app.working_dir }}
-        run: govulncheck ./...
-        continue-on-error: true
+        env:
+          # Data, not script: substituted into the environment, never into the line the shell parses.
+          FAIL_ON_FINDINGS: ${{ inputs.fail_on_govulncheck }}
+          APP_NAME: ${{ matrix.app.name }}
+        # A bare `continue-on-error: true` swallowed the result entirely — the finding stayed in the
+        # job log, which nobody opens on a green check. Branching on the exit code instead reports it
+        # as an annotation in both modes, and lets a caller that has cleaned its graph gate on it.
+        run: |
+          if govulncheck ./...; then
+            exit 0
+          fi
+          if [ "$FAIL_ON_FINDINGS" = "true" ]; then
+            echo "::error::govulncheck reported findings for $APP_NAME"
+            exit 1
+          fi
+          echo "::warning::govulncheck reported findings for $APP_NAME (advisory: fail_on_govulncheck is false)"
 
   # ============================================
   # UNIT TESTS
