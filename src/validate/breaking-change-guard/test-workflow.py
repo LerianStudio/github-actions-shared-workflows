@@ -1359,7 +1359,7 @@ class ApprovalGateStructureTests(unittest.TestCase):
         # announced "needs a decision" and added the pending label, and the
         # verdict took both back seconds later. A flicker in the timeline for a
         # decision that was never in question.
-        self.assertIn("steps.prior.outputs.already-approved != 'true'", step)
+        self.assertIn("steps.reuse.outputs.already-approved != 'true'", step)
 
     def test_the_decider_is_linked_not_mentioned(self):
         for state, env, who in (
@@ -1771,6 +1771,92 @@ class ApprovalGateStructureTests(unittest.TestCase):
                     "a standing approval is not a reason to skip the checks that "
                     "say whether this run may speak at all",
                 )
+
+    def run_reuse(self, **overrides):
+        """Run the step that decides whether an approval is reused."""
+        workflow = yaml.safe_load(APPROVAL_WORKFLOW)
+        step = next(
+            s
+            for s in workflow["jobs"]["request"]["steps"]
+            if s.get("name") == "Confirm the approval covers this change"
+        )
+        env = {
+            "CANDIDATE_RUN": "4242",
+            "CANDIDATE_HEAD": "aaaa111",
+            "APPROVED_BY": "carol",
+            "APPROVED_FINGERPRINT": "8b5ad0f390f484b1",
+            "RESOLVE_OUTCOME": "success",
+            "FINGERPRINT": "8b5ad0f390f484b1",
+            "PR_NUMBER": "42",
+            "DRY_RUN": "false",
+        }
+        env.update(overrides)
+        _, outputs = execute_body(step["run"], env)
+        return outputs["already-approved"]
+
+    def test_a_forged_record_cannot_reuse_someone_elses_approval(self):
+        # @fredcamaral's report on #926, reproduced as a test.
+        #
+        # The fingerprint is derived from public commit SHAs, so it is
+        # computable before the commit exists. The attack: a member posts a
+        # record carrying fp(A,B) that points at the run which approved only A,
+        # then pushes the breaking commit B. Every earlier check passes — the
+        # record is from a MEMBER, the run is on this branch, the run really
+        # did carry an Environment approval — and none of them asks what it
+        # approved. The answer used to be taken from the record itself.
+        #
+        # It is now resolved from the approving run's own head, which nobody
+        # can write.
+        self.assertEqual(
+            "false",
+            self.run_reuse(
+                APPROVED_FINGERPRINT="8b5ad0f390f484b1",  # what run 4242 approved: A
+                FINGERPRINT="50306b18a137bc7b",           # what is here now: A+B
+            ),
+            "an approval of a different set was reused",
+        )
+
+        # The legitimate case it exists for: a push that did not touch the
+        # breaking commits — a typo fix — resolves to the same set.
+        self.assertEqual("true", self.run_reuse())
+
+        # Unresolvable is not reusable. A deleted run, an unreadable
+        # comparison, a pull request past the commit cap: none of them is
+        # evidence that the approval still applies.
+        self.assertEqual("false", self.run_reuse(RESOLVE_OUTCOME="failure"))
+        self.assertEqual("false", self.run_reuse(APPROVED_FINGERPRINT=""))
+        self.assertEqual("false", self.run_reuse(CANDIDATE_RUN=""))
+
+    def test_the_approved_set_is_read_from_the_run_not_the_record(self):
+        workflow = yaml.safe_load(APPROVAL_WORKFLOW)
+        steps = workflow["jobs"]["request"]["steps"]
+
+        # The lookup hands over a candidate and the run's own head. It must not
+        # decide reuse by itself any more.
+        lookup = extract_step(
+            extract_job(APPROVAL_WORKFLOW, "request"),
+            "Check for a prior approval of the same change",
+        )
+        self.assertIn("candidate-head=", lookup)
+        self.assertNotIn("already-approved=", lookup)
+        # `.head_sha` comes from the run, beside the branch it is already
+        # verified against.
+        self.assertIn(".head_sha", lookup)
+
+        # The resolver is pointed at that head, never at the current one.
+        resolve = next(
+            s for s in steps if s.get("name") == "Resolve what the approving run approved"
+        )
+        self.assertEqual(
+            "${{ steps.prior.outputs.candidate-head }}", resolve["with"]["at-sha"]
+        )
+        self.assertIn("breaking-change-commits@", resolve["uses"])
+
+        # And the job publishes the confirmed answer, not the candidate.
+        self.assertEqual(
+            "${{ steps.reuse.outputs.already-approved }}",
+            workflow["jobs"]["request"]["outputs"]["already-approved"],
+        )
 
     def test_two_approvers_serialise_into_one_output_value(self):
         # An Environment can require more than one reviewer, and the approvals

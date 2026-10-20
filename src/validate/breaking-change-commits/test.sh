@@ -18,6 +18,12 @@ mkdir -p "${TEST_ROOT}/bin"
 cat > "${TEST_ROOT}/bin/gh" <<'STUB'
 #!/usr/bin/env bash
 case "$*" in
+  # The historical path: the breaking set as it stood at a given revision,
+  # which is how the gate asks what an approval actually approved. COMPARE_JSON
+  # is the canned payload; COMPARE_TOTAL overrides `total_commits` to simulate
+  # the same 250 cap the pull-request path has.
+  *"/compare/"*)
+    printf '%s' "${COMPARE_JSON:-{\"total_commits\":0,\"commits\":[]\}}" ;;
   *"/commits"*) printf '%s\n' ${COMMITS_B64} ;;
   # The declared total. DECLARED_COMMITS overrides it to simulate the 250 cap,
   # where the endpoint returns fewer commits than the pull request has.
@@ -60,6 +66,40 @@ check() {
     FAILED=$((FAILED + 1))
     printf 'not ok - %s (count=%s shas=%s; wanted %s / %s)\n' \
       "${description}" "${count}" "${shas}" "${expected_count}" "${expected_shas}"
+  fi
+}
+
+# compare_payload <total> <sha> <message> [<sha> <message> ...]
+compare_payload() {
+  local total=$1; shift
+  local entries=''
+  while [[ $# -gt 0 ]]; do
+    entries="${entries:+${entries},}$(jq -cn --arg s "$1" --arg m "$2" \
+      '{sha: $s, commit: {message: $m}}')"
+    shift 2
+  done
+  printf '{"total_commits":%s,"commits":[%s]}' "${total}" "${entries}"
+}
+
+run_at_sha() {
+  env GH_TOKEN=stub REPO=LerianStudio/example PR_NUMBER=42 \
+    BASE_REF=develop AT_SHA="$1" COMPARE_JSON="$2" COMMITS_B64='' \
+    bash "${RESOLVER}" 2>/dev/null || true
+}
+
+check_at_sha() {
+  local description=$1 payload=$2 expected_count=$3
+  local output count
+  output=$(run_at_sha aaaa111 "${payload}")
+  count=$(sed -n 's/^count=//p' <<< "${output}")
+
+  if [[ "${count}" == "${expected_count}" ]]; then
+    PASSED=$((PASSED + 1))
+    printf 'ok - %s\n' "${description}"
+  else
+    FAILED=$((FAILED + 1))
+    printf 'not ok - %s (count=%s; wanted %s)\n' \
+      "${description}" "${count}" "${expected_count}"
   fi
 }
 
@@ -219,6 +259,60 @@ if [[ "${complete}" == '1' ]]; then
 else
   FAILED=$((FAILED + 1))
   printf 'not ok - a complete enumeration was refused (count=%s)\n' "${complete}"
+fi
+
+# --- resolving at a past revision -------------------------------------------
+# The gate asks "what did that approval approve?" and the only honest answer
+# comes from the approving run's own head. Believing the fingerprint written in
+# a comment is what let a member reuse somebody else's approval.
+check_at_sha 'a past revision is resolved from the comparison' \
+  "$(compare_payload 2 aaa1111 'feat(scope)!: breaks the contract' \
+                       bbb2222 'fix(scope): ordinary work')" 1
+check_at_sha 'a past revision with nothing breaking' \
+  "$(compare_payload 1 bbb2222 'fix(scope): ordinary work')" 0
+check_at_sha 'the footer form counts there too' \
+  "$(compare_payload 1 ccc3333 'feat(scope): looks ordinary
+
+BREAKING CHANGE: the field was removed')" 1
+
+# The same cap, and the same refusal. Answering from a truncated comparison
+# would let an omitted breaking commit leave the fingerprint unchanged.
+truncated=$(run_at_sha aaaa111 "$(compare_payload 300 aaa1111 'feat(scope)!: breaks')")
+if [[ -z "$(sed -n 's/^count=//p' <<< "${truncated}")" ]]; then
+  PASSED=$((PASSED + 1))
+  printf 'ok - a truncated comparison is refused\n'
+else
+  FAILED=$((FAILED + 1))
+  printf 'not ok - a truncated comparison produced a verdict (%s)\n' "${truncated}"
+fi
+
+# Two revisions of the same pull request: the fingerprint has to differ once a
+# breaking commit is added, or reuse cannot tell them apart.
+fp_before=$(
+  run_at_sha aaaa111 "$(compare_payload 1 aaa1111 'feat(scope)!: breaks')" \
+    | sed -n 's/^fingerprint=//p'
+)
+fp_after=$(
+  run_at_sha bbbb222 "$(compare_payload 2 aaa1111 'feat(scope)!: breaks' \
+                                          ddd4444 'feat(other)!: breaks too')" \
+    | sed -n 's/^fingerprint=//p'
+)
+if [[ -n "${fp_before}" && -n "${fp_after}" && "${fp_before}" != "${fp_after}" ]]; then
+  PASSED=$((PASSED + 1))
+  printf 'ok - adding a breaking commit changes the fingerprint\n'
+else
+  FAILED=$((FAILED + 1))
+  printf 'not ok - the fingerprint did not change (%s vs %s)\n' "${fp_before}" "${fp_after}"
+fi
+
+# And AT_SHA without a base cannot silently fall back to the current head.
+if ! env GH_TOKEN=stub REPO=LerianStudio/example PR_NUMBER=42 \
+     AT_SHA=aaaa111 COMMITS_B64='' bash "${RESOLVER}" >/dev/null 2>&1; then
+  PASSED=$((PASSED + 1))
+  printf 'ok - AT_SHA without BASE_REF is refused\n'
+else
+  FAILED=$((FAILED + 1))
+  printf 'not ok - AT_SHA without BASE_REF was accepted\n'
 fi
 
 printf '\n%s passed, %s failed\n' "${PASSED}" "${FAILED}"

@@ -12,6 +12,18 @@ inputs:
     description: 'Repository owning the pull request, as `owner/name`.'
     required: false
     default: ${{ github.repository }}
+  at-sha:
+    description: >-
+      Resolve the set as it stood at this revision instead of at the pull
+      request's current head. Requires `base-ref`. The gate uses it to ask what
+      an approval actually approved, rather than believing a fingerprint
+      written in a comment.
+    required: false
+    default: ''
+  base-ref:
+    description: 'Base of the comparison when `at-sha` is given — the pull request''s base branch.'
+    required: false
+    default: ''
 
 outputs:
   count:
@@ -37,6 +49,8 @@ runs:
         GH_TOKEN: ${{ inputs.github-token }}
         REPO: ${{ inputs.repository }}
         PR_NUMBER: ${{ inputs.pr-number }}
+        AT_SHA: ${{ inputs.at-sha }}
+        BASE_REF: ${{ inputs.base-ref }}
       run: |
         set -euo pipefail
         bash "${GITHUB_ACTION_PATH}/resolve.sh" >> "${GITHUB_OUTPUT}"

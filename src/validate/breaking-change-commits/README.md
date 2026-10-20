@@ -87,6 +87,24 @@ and decides; this reads the API because the jobs that need it have no checkout.
 They must agree, which is why the patterns are kept identical — and the tests
 here cover the same negative cases.
 
+## Resolving at a past revision
+
+`at-sha` (with `base-ref`) resolves the set as it stood at that revision
+instead of at the pull request's current head, by comparing `base-ref...at-sha`
+rather than reading the pull request's commits — which always report the
+current state.
+
+The gate uses it for one question: *what did that approval approve?* The
+fingerprint written in the approval record answers a different one — what the
+writer claims it covered — and anybody who can read the repository can write a
+record. Since the fingerprint is derived from public commit SHAs it is also
+computable in advance, so a record naming a real approved run could be posted
+before the breaking commit it claims to cover even exists. Resolving from the
+approving run's own head closes that: the head is not writable.
+
+The 250 cap applies here too, measured against `total_commits`, and is refused
+the same way.
+
 ## Inputs
 
 | Input | Description | Required | Default |
@@ -94,6 +112,8 @@ here cover the same negative cases.
 | `github-token` | Token used to read the commits. Needs `pull-requests: read`. | Yes | — |
 | `pr-number` | Pull request whose commits are listed. | Yes | — |
 | `repository` | Repository owning it, as `owner/name`. | No | `${{ github.repository }}` |
+| `at-sha` | Resolve the set as it stood at this revision instead of at the current head. Requires `base-ref`. | No | `''` |
+| `base-ref` | Base of the comparison when `at-sha` is given. | No | `''` |
 
 ## Outputs
 
