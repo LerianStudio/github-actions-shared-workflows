@@ -108,6 +108,7 @@ jobs:
 | `go_version` | Go version to use | No | `1.23` |
 | `golangci_lint_version` | GolangCI-Lint version | No | `v1.62.2` |
 | `govulncheck_version` | govulncheck version to install. Pinned rather than `@latest` so an upstream release cannot change what runs here unchosen. Works at any `go_version` — the install step overrides `GOTOOLCHAIN=auto`, the scan still runs under the pinned toolchain | No | `v1.7.0` |
+| `fail_on_govulncheck` | Fail the Security job when govulncheck reports findings. Default `false` keeps the scan advisory: the Go vulnerability database changes independently of the pull request, so a newly published CVE in a common dependency would otherwise turn every repository on the channel red at once, on pull requests that touch nothing related. Findings are annotated either way — warning when `false`, error when `true` — so the scan is never silent. Turn it on per repository once its dependency graph is clean | No | `false` |
 | `golangci_lint_args` | Additional golangci-lint arguments | No | `--timeout=5m` |
 | `coverage_threshold` | Minimum coverage percentage (0-100) | No | `80` |
 | `fail_on_coverage_threshold` | Fail if coverage below threshold | No | `true` |
@@ -176,6 +177,12 @@ Runs GolangCI-Lint per changed app. Configurable version and arguments.
 Runs security scanners per changed app:
 - **GoSec**: Static analysis for security issues (uploads SARIF to GitHub Security tab)
 - **govulncheck**: Official Go vulnerability database check
+
+GoSec runs in report-only mode (`-no-fail`) and publishes its findings to the Security tab.
+govulncheck is advisory by default as well, but always annotates what it finds: a warning when
+`fail_on_govulncheck` is `false`, an error — and a failed job — when it is `true`. Set it to `true`
+once the repository's dependency graph is clean, so a reachable vulnerability stops being something
+only a reader of the job log would notice.
 
 ### tests
 Runs unit tests per changed app with:
