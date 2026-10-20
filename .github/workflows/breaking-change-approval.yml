@@ -869,6 +869,7 @@ jobs:
           approved=false
           result=failure
           state=unresolved
+          stage=""
           rejecters="$REJECTERS"
 
           emit() {
@@ -876,6 +877,7 @@ jobs:
               echo "approved=$approved"
               echo "result=$result"
               echo "state=$state"
+              echo "stage=$stage"
               echo "rejecters=$rejecters"
             } >> "$GITHUB_OUTPUT"
           }
@@ -971,6 +973,19 @@ jobs:
           if [ "$DETECT_RESULT" != "success" ] || [ "$DETECTION_SUCCEEDED" != "true" ] \
             || [ "$REQUEST_RESULT" != "success" ]; then
             state=blocked
+
+            # Which half failed, carried through to the comment. It used to say
+            # only "the gate did not reach a verdict" and point at the run —
+            # true, and no help to the author, who then opens the run and hunts
+            # for the red job. The verdict already knew; it was telling the log
+            # and nobody else. Measured on a real repository: this is exactly
+            # what ungoliant-controller's first breaking change produced.
+            if [ "$DETECT_RESULT" != "success" ] || [ "$DETECTION_SUCCEEDED" != "true" ]; then
+              stage=detection
+            else
+              stage=request
+            fi
+
             emit
             echo "::error::Breaking change gate could not run (detect=${DETECT_RESULT}, request=${REQUEST_RESULT}, detection_succeeded=${DETECTION_SUCCEEDED})"
             exit 0
@@ -1067,6 +1082,10 @@ jobs:
           github-token: ${{ secrets.MANAGE_TOKEN || github.token }}
           pr-number: ${{ needs.detect.outputs.pr-number }}
           state: ${{ steps.verdict.outputs.state }}
+          # Which half of the gate failed. Without it the comment can only say
+          # "it did not reach a verdict" and point at the run, leaving the
+          # author to open it and find the red job.
+          blocked-stage: ${{ steps.verdict.outputs.stage }}
           # Only a run whose Environment approval actually happened may write a
           # record naming itself. A reused approval reports `approved` with the
           # gate job skipped, and a record pointing at that run would assert

@@ -261,6 +261,7 @@ def render_reporter(state, **overrides):
         # composite reads the commits itself and `MOCK_SUBJECTS` feeds the
         # stubbed API. Pass `SUBJECTS` to exercise the forwarded set instead.
         "SUBJECTS": "",
+        "BLOCKED_STAGE": "",
         "MOCK_SUBJECTS": "",
     }
     env.update(overrides)
@@ -478,6 +479,7 @@ def run_reporter_comment(
         "ACKNOWLEDGED": "true",
         "ACK_LINE": "Breaking change acknowledged: …",
         "SUBJECTS": "",
+        "BLOCKED_STAGE": "",
         "RUN_URL": "https://github.com/LerianStudio/example/actions/runs/1",
         "REVIEWERS": "team:devops",
         "SERVER_URL": "https://github.com",
@@ -592,6 +594,7 @@ def run_reporter_labels(state, **overrides):
         "PENDING_LABEL": "awaiting-breaking-approval",
         "ENABLED": "false",
         "SUBJECTS": "",
+        "BLOCKED_STAGE": "",
         "FINGERPRINT": "",
         "RUN_ID": "1",
         "GH_TOKEN": "stub",
@@ -2264,6 +2267,47 @@ class ApprovalGateStructureTests(unittest.TestCase):
         self.assertNotIn("```", rendered)
         # The break is still announced — only the unusable instruction is gone.
         self.assertIn("acknowledgement missing", rendered)
+
+    def test_a_blocked_gate_names_the_half_that_failed(self):
+        # Measured on a real repository: ungoliant-controller's first breaking
+        # change hit this, and the comment said only "did not reach a verdict"
+        # with a link to the run. True, and no help — the author has to open
+        # the run and find the red job. The verdict already knew which half
+        # failed; it was telling the log and nobody else.
+        detection = render_reporter("blocked", ACKNOWLEDGED="", BLOCKED_STAGE="detection")
+        self.assertIn("Detection did not complete", detection)
+        self.assertNotIn("could not be requested", detection)
+
+        request = render_reporter("blocked", ACKNOWLEDGED="", BLOCKED_STAGE="request")
+        self.assertIn("the approval could not be requested", request)
+        self.assertNotIn("Detection did not complete", request)
+        # And the cause that actually happens, named rather than implied.
+        self.assertIn("breaking-approval", request)
+        self.assertIn("catch-all", request)
+
+        # Empty keeps the generic wording — a caller that does not pass it is
+        # no worse off than before.
+        generic = render_reporter("blocked", ACKNOWLEDGED="", BLOCKED_STAGE="")
+        self.assertIn("did not reach a verdict", generic)
+
+        # The verdict resolves the stage, and the outcome forwards it.
+        _, from_detection = run_verdict(DETECTION_SUCCEEDED="false")
+        self.assertEqual("detection", from_detection["stage"])
+        _, from_request = run_verdict(REQUEST_RESULT="failure")
+        self.assertEqual("request", from_request["stage"])
+        # Not set when nothing is blocked — it describes a failure, not a state.
+        _, approved = run_verdict(APPROVAL_RESULT="success")
+        self.assertEqual("", approved["stage"])
+
+        workflow = yaml.safe_load(APPROVAL_WORKFLOW)
+        step = next(
+            s
+            for s in workflow["jobs"]["outcome"]["steps"]
+            if s.get("name") == "Report the outcome on the pull request"
+        )
+        self.assertEqual(
+            "${{ steps.verdict.outputs.stage }}", step["with"]["blocked-stage"]
+        )
 
     def test_a_blocked_gate_says_so_on_the_pull_request(self):
         # Detection failing fails the check. It used to do that silently: a red
