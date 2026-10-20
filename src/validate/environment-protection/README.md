@@ -46,6 +46,15 @@ drop a wait timer or a deployment branch policy somebody set on purpose, so an
 existing Environment is reported and left untouched. Creating from nothing is a
 different act from overwriting somebody's configuration.
 
+### One read, both answers
+
+The rules and the reviewers come from a single `GET`. Two calls would allow a
+state of "protected, reviewers unknown" — and an empty reviewer list is
+indistinguishable from *this Environment has none*, so a caller naming the
+approvers to a human would quietly fall back to whoever it had configured and
+name the wrong people. With one read there is no such state: either both
+answers are known, or the step fails.
+
 ### A 404 and a 403 are not the same
 
 Only "does not exist" is this composite's to fix. If the Environment merely
@@ -90,6 +99,7 @@ Environments API takes numeric ids only.
 |--------|-------------|
 | `protected` | `true` when the rule is present. The step fails before it could report `false`. |
 | `created` | `true` when this run created the Environment. |
+| `reviewers` | Who the Environment is actually gated by, as `team:<slug>`/`user:<login>`. Read back from the Environment, so it reflects one that already existed with different reviewers than were asked for. |
 
 ## Usage
 

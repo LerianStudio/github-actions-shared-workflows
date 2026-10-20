@@ -1,0 +1,62 @@
+name: Breaking Change Commits
+description: "Lists the commits in a pull request that carry a breaking change, and fingerprints the set so an approval can be matched against what it approved."
+
+inputs:
+  github-token:
+    description: >-
+      Token used to read the commits. Needs `pull-requests: read`, and
+      `contents: read` as well when `at-sha` is given — that path reads the
+      comparison API, which is repository contents rather than pull request
+      data. Granting only the first makes every comparison fail, and the gate
+      reads a failed comparison as "cannot confirm", so it asks the reviewer
+      again on every push without saying why.
+    required: true
+  pr-number:
+    description: Pull request whose commits are listed.
+    required: true
+  repository:
+    description: 'Repository owning the pull request, as `owner/name`.'
+    required: false
+    default: ${{ github.repository }}
+  at-sha:
+    description: >-
+      Resolve the set as it stood at this revision instead of at the pull
+      request's current head. Requires `base-ref`, and a token carrying
+      `contents: read`. The gate uses it to ask what an approval actually
+      approved, rather than believing a fingerprint written in a comment.
+    required: false
+    default: ''
+  base-ref:
+    description: 'Base of the comparison when `at-sha` is given — the pull request''s base branch.'
+    required: false
+    default: ''
+
+outputs:
+  count:
+    description: "How many commits carry a breaking change."
+    value: ${{ steps.resolve.outputs.count }}
+  shas:
+    description: "Comma-separated SHAs of those commits, in commit order."
+    value: ${{ steps.resolve.outputs.shas }}
+  subjects:
+    description: "Their subjects, one per line, for showing the author their own commits."
+    value: ${{ steps.resolve.outputs.subjects }}
+  fingerprint:
+    description: "Short digest of the SHA set. Equal fingerprints mean the same breaking change; empty when there is none. Use it to tell an approval that still applies from one that does not."
+    value: ${{ steps.resolve.outputs.fingerprint }}
+
+runs:
+  using: composite
+  steps:
+    - name: List the breaking-change commits
+      id: resolve
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+        REPO: ${{ inputs.repository }}
+        PR_NUMBER: ${{ inputs.pr-number }}
+        AT_SHA: ${{ inputs.at-sha }}
+        BASE_REF: ${{ inputs.base-ref }}
+      run: |
+        set -euo pipefail
+        bash "${GITHUB_ACTION_PATH}/resolve.sh" >> "${GITHUB_OUTPUT}"

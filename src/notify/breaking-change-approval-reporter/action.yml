@@ -13,7 +13,7 @@ inputs:
     required: false
     default: ${{ github.repository }}
   state:
-    description: "What to report — `waiting`, `approved`, `rejected`, or `unresolved` when the approval ended without a recorded decision. Any other value fails the step."
+    description: "What to report — `waiting`, `approved`, `rejected`, `unresolved` when the approval ended without a recorded decision, `acknowledgement` where no approval is required and only the author's acknowledgement is at stake, or `blocked` when the gate could not reach a verdict at all. `blocked` does not apply the fact label: nothing was established. Any other value fails the step."
     required: true
   reason:
     description: Why the pull request is gated, as resolved by `pr-gate-scope`.
@@ -24,13 +24,54 @@ inputs:
     required: false
     default: ''
   acknowledged:
-    description: Whether the author acknowledgement line is present in the description (true/false). Shown to the reviewer as context.
+    description: 'Whether the author acknowledgement line is present in the description — `true`, `false`, or empty when nobody evaluated it. Empty omits the row entirely: reporting "missing" for something unchecked sends the author after a line no check is asking for.'
     required: false
     default: 'false'
+  author-acknowledgement:
+    description: 'The exact line the author must add to the description. Shown when it is missing — a check that fails without saying what to add is a check people route around.'
+    required: false
+    default: ''
   run-url:
     description: Link to the run carrying the pending deployment.
     required: false
     default: ''
+  reviewers:
+    description: 'Who can answer, as a `team:<slug>` / `user:<login>` list. Rendered as links, never as @mentions — the pending deployment already notifies these people, so a mention would ping them twice for the same thing.'
+    required: false
+    default: ''
+  actual-reviewers:
+    description: 'Reviewers read from the Environment itself, in the same format. Preferred over `reviewers` when present: an Environment that already existed may be gated by different people than the caller configured, and naming the wrong ones is worse than naming none.'
+    required: false
+    default: ''
+  server-url:
+    description: Base URL used to build commit links.
+    required: false
+    default: ${{ github.server_url }}
+  badge-url:
+    description: 'Image used as the call-to-action button. Markdown has no button, so this is a badge image wrapped in the link. Its alt text carries the full call to action, so a reader whose network blocks the image still sees a described link. Set to empty for a plain text link instead.'
+    required: false
+    default: 'https://img.shields.io/badge/%E2%9E%A1%EF%B8%8F%20Review%20pending%20deployment-1f6feb?style=for-the-badge'
+  subjects:
+    description: >-
+      The breaking commit subjects, newline-separated, as resolved by
+      `breaking-change-commits`. Shown in the "how to undo it" example so it
+      names this pull request's own commits. Leave empty and the composite
+      reads them itself — a standalone caller does not have to run the
+      resolver first.
+    required: false
+    default: ''
+  fingerprint:
+    description: 'Digest of the breaking-change commit set, from `breaking-change-commits`. Recorded in the comment when the state is `approved`, alongside the run that carried the approval, so a later run can verify it against the Environment log rather than trusting the text. Previous records are preserved.'
+    required: false
+    default: ''
+  run-id:
+    description: Run recorded with the approval, so the next run can verify that this run's Environment approval actually happened.
+    required: false
+    default: ${{ github.run_id }}
+  docs-url:
+    description: Link to the explanation of how the gate works.
+    required: false
+    default: 'https://github.com/LerianStudio/github-actions-shared-workflows/blob/main/docs/breaking-change-approval.md'
   approvers:
     description: Comma-separated logins that approved.
     required: false
@@ -48,7 +89,11 @@ inputs:
     required: false
     default: 'true'
   label:
-    description: Label applied while waiting and removed once resolved. Cosmetic — failing to apply it never fails the step. Empty disables it.
+    description: 'Label stating that this pull request carries a breaking change. A fact about the change, so it stays once applied — approving does not make the break go away. The caller removes it when the breaking commits are gone. Cosmetic; failing to apply it never fails the step. Empty disables it. Behaviour change: it used to be removed on a decision — a caller using it as a temporary waiting marker should move that value to `pending-label` and clear this one.'
+    required: false
+    default: ''
+  pending-label:
+    description: 'Label stating that the breaking change is waiting on a decision. A state, so it is removed once approved or rejected. Kept separate from `label` because "this breaks things" and "nobody has decided yet" stop being true at different moments. Empty disables it.'
     required: false
     default: ''
   enabled:
@@ -75,20 +120,29 @@ runs:
         REASON: ${{ inputs.reason }}
         HEAD_SHA: ${{ inputs.head-sha }}
         ACKNOWLEDGED: ${{ inputs.acknowledged }}
+        SUBJECTS: ${{ inputs.subjects }}
+        ACK_LINE: ${{ inputs.author-acknowledgement }}
         RUN_URL: ${{ inputs.run-url }}
+        REVIEWERS: ${{ inputs.actual-reviewers != '' && inputs.actual-reviewers || inputs.reviewers }}
+        SERVER_URL: ${{ inputs.server-url }}
+        BADGE_URL: ${{ inputs.badge-url }}
+        FINGERPRINT: ${{ inputs.fingerprint }}
+        RUN_ID: ${{ inputs.run-id }}
+        DOCS_URL: ${{ inputs.docs-url }}
         APPROVERS: ${{ inputs.approvers }}
         REJECTERS: ${{ inputs.rejecters }}
         REJECTION_COMMENT: ${{ inputs.rejection-comment }}
         CLOSE_ON_REJECTION: ${{ inputs.close-on-rejection }}
         LABEL: ${{ inputs.label }}
+        PENDING_LABEL: ${{ inputs.pending-label }}
         ENABLED: ${{ inputs.enabled }}
       run: |
         set -euo pipefail
 
         case "$STATE" in
-          waiting | approved | rejected | unresolved ) ;;
+          waiting | approved | rejected | unresolved | acknowledgement | blocked ) ;;
           * )
-            echo "state must be one of: waiting, approved, rejected, unresolved; got '${STATE}'." >&2
+            echo "state must be one of: waiting, approved, rejected, unresolved, acknowledgement, blocked; got '${STATE}'." >&2
             exit 1
             ;;
         esac
@@ -96,58 +150,251 @@ runs:
         body_file=$(mktemp)
         trap 'rm -f "$body_file"' EXIT INT TERM
 
+        owner=${REPO%%/*}
+
+        # `team:x,user:y` -> linked names. The reader's next question is always
+        # "who can unblock this", and the answer is sitting in the Environment
+        # where nobody thinks to look.
+        #
+        # Links, deliberately not @mentions: the pending deployment already
+        # notifies these very people, and a mention would ping the whole team a
+        # second time for the same thing.
+        mentions=""
+        while IFS= read -r entry; do
+          [ -z "$entry" ] && continue
+          case "$entry" in
+            team:*)
+              slug=${entry#team:}
+              mentions="${mentions:+$mentions, }[@${owner}/${slug}](${SERVER_URL}/orgs/${owner}/teams/${slug})"
+              ;;
+            *)
+              login=${entry#user:}
+              mentions="${mentions:+$mentions, }[@${login}](${SERVER_URL}/${login})"
+              ;;
+          esac
+        done < <(tr ',' '\n' <<< "$REVIEWERS" | xargs -n1 2>/dev/null)
+
+        # The subjects that actually tripped the gate, so the "how to undo it"
+        # example shows this pull request's own commits rather than a made-up
+        # `feat(scope)!: subject`.
+        #
+        # Only the `!` form is matched here, because that is the form the diff
+        # below illustrates. This is a view, never a verdict: the canonical rule
+        # lives in the breaking-change-guard composite, and when the two disagree
+        # the detector wins — this just falls back to generic wording.
+        #
+        # The caller usually has them already — `breaking-change-commits` ran
+        # over the same pull request to produce the fingerprint, and its
+        # `subjects` output went unused while this listed them a second time.
+        # Reading them twice costs an API call and lets the comment disagree
+        # with the set the gate actually judged. Supplied wins; empty still
+        # reads them, so a standalone caller needs no resolver.
+        #
+        # Commit subjects are written by whoever opens the pull request and are
+        # rendered into this comment. A subject carrying an approval marker
+        # would be preserved by the record-carrying code below as if the gate
+        # had written it — the author approving their own break by choosing a
+        # commit message. `<!--` is defanged on both paths so no subject can
+        # open an HTML comment here.
+        breaking_subjects=""
+        if [ "$STATE" = "waiting" ]; then
+          if [ -n "$SUBJECTS" ]; then
+            breaking_subjects=$(
+              printf '%s\n' "$SUBJECTS" \
+                | grep -E '^[A-Za-z0-9_]*(\([^)]*\))?!: ' \
+                | sed 's/<!--/\&lt;!--/g; s/-->/--\&gt;/g' \
+                || true
+            )
+          else
+            breaking_subjects=$(
+              gh api "repos/${REPO}/pulls/${PR_NUMBER}/commits" --paginate \
+                --jq '.[] | .commit.message | split("\n")[0]' 2>/dev/null \
+                | grep -E '^[A-Za-z0-9_]*(\([^)]*\))?!: ' \
+                | sed 's/<!--/\&lt;!--/g; s/-->/--\&gt;/g' \
+                || true
+            )
+          fi
+        fi
+
+        # `carol` -> `[@carol](https://github.com/carol)`. Linked, not a bare
+        # mention: the person being named is the one who just acted, so a
+        # notification tells them what they already know. Same reasoning as the
+        # reviewer list above.
+        link_people() {
+          local out="" person
+          while IFS= read -r person; do
+            person=$(printf '%s' "$person" | tr -d ' ')
+            [ -z "$person" ] && continue
+            out="${out:+$out, }[@${person}](${SERVER_URL}/${person})"
+          done < <(tr ',' '\n' <<< "$1")
+          printf '%s' "$out"
+        }
+
+        linked_approvers=$(link_people "$APPROVERS")
+        linked_rejecters=$(link_people "$REJECTERS")
+
+        commit_link=""
+        if [ -n "$HEAD_SHA" ]; then
+          commit_link="[\`${HEAD_SHA:0:7}\`](${SERVER_URL}/${REPO}/commit/${HEAD_SHA})"
+        fi
+
+        # Blocking Checks fails on a missing acknowledgement whether or not an
+        # approval is pending — and whether or not one was given. Approving a
+        # break is a reviewer saying yes to it; it is not the author declaring
+        # it in the description, which is a separate, mandatory control.
+        #
+        # This used to live inside `waiting` alone, so the approval rewrote the
+        # comment and took the only copy of the line with it. The author was
+        # then left with a red Blocking Checks and nothing saying what to add.
+        ack_followup() {
+          [ "$ACKNOWLEDGED" = "false" ] && [ -n "$ACK_LINE" ] || return 0
+          printf '<details>\n<summary><b>Blocking Checks</b> also needs the author acknowledgement</summary>\n\n'
+          printf 'Add this exact line to the pull request description:\n\n'
+          printf '```\n%s\n```\n\n' "$ACK_LINE"
+          printf '</details>\n\n'
+        }
+
         # shellcheck disable=SC2016  # the backticks below are Markdown code spans, not command substitutions
         {
           printf '<!-- breaking-change-approval -->\n\n'
 
           case "$STATE" in
             waiting)
-              printf '### 🚨 Breaking change — approval required\n\n'
-              printf 'A breaking-change commit was found on this branch, so merging it will force the next release to a **major** version.\n\n'
-              printf 'This pull request is held until a reviewer answers one question: **is this breaking change necessary?**\n\n'
-              [ -n "$RUN_URL" ] && printf '👉 **[Review the pending deployment](%s)** — *Review deployments* → `breaking-approval`.\n\n' "$RUN_URL"
+              printf '> [!IMPORTANT]\n'
+              printf '> ## 💥 Breaking change detected\n'
+              printf '>\n'
+              printf '> **This pull request needs a decision.** Merging it makes the next release a **major** version — often deliberate, so this just asks someone to confirm it before it ships.\n\n'
+
+              # A shields.io badge renders as an actual button, which nothing in
+              # GitHub-flavoured Markdown does on its own. The alt text carries
+              # the full call to action on purpose: if the image fails to load —
+              # shields down, or a network that blocks it — the reader still sees
+              # a described link rather than a broken rectangle.
+              if [ -n "$RUN_URL" ] && [ -n "$BADGE_URL" ]; then
+                printf '[![Review the pending deployment](%s)](%s)\n\n' "$BADGE_URL" "$RUN_URL"
+                printf '<sub>Actions → **Review deployments** → `breaking-approval`</sub>\n\n'
+              elif [ -n "$RUN_URL" ]; then
+                printf '### ➡️ [Review the pending deployment](%s)\n\n' "$RUN_URL"
+              fi
+
+              printf '|  |  |\n|:--|:--|\n'
+              [ -n "$commit_link" ] && printf '| 💥 **Breaking commit** | %s |\n' "$commit_link"
+              [ -n "$mentions" ] && printf '| 👤 **Who can decide** | %s |\n' "$mentions"
+              # Empty means nobody evaluated it — only the caller that enforces
+              # the acknowledgement can say. Printing "missing" there would send
+              # the author after a line no check is asking for.
+              if [ -n "$ACKNOWLEDGED" ]; then
+                printf '| %s **Author acknowledgement** | %s |\n' \
+                  "$([ "$ACKNOWLEDGED" = "true" ] && echo "✅" || echo "⬜")" \
+                  "$([ "$ACKNOWLEDGED" = "true" ] && echo "present" || echo "missing")"
+              fi
+              printf '\n'
+
+              ack_followup
               ;;
             approved)
-              printf '### ✅ Breaking change approved\n\n'
-              printf 'Approved by **%s** — the break is considered necessary and the next release will be a major version.\n\n' \
-                "${APPROVERS:-a reviewer}"
+              printf '> [!NOTE]\n'
+              printf '> ## ✅ Breaking change approved\n'
+              printf '>\n'
+              printf '> Approved by %s. 💥 The next release will be a major version.\n\n' \
+                "${linked_approvers:-a reviewer}"
+              ack_followup
               ;;
             rejected)
-              printf '### ⛔ Breaking change rejected\n\n'
-              printf 'Rejected by **%s** — the break is not considered necessary.\n\n' "${REJECTERS:-a reviewer}"
-              [ -n "$REJECTION_COMMENT" ] && printf '> %s\n\n' "$REJECTION_COMMENT"
+              printf '> [!CAUTION]\n'
+              printf '> ## ⛔ Breaking change rejected\n'
+              printf '>\n'
+              printf '> Rejected by %s' "${linked_rejecters:-a reviewer}"
+              [ -n "$REJECTION_COMMENT" ] && printf ' — *%s*' "$REJECTION_COMMENT"
+              printf '.\n'
+              if [ "$CLOSE_ON_REJECTION" = "true" ]; then
+                printf '>\n'
+                printf '> This pull request was closed. The branch is untouched — rework it without the break and reopen.\n'
+              fi
+              printf '\n'
+              ;;
+            acknowledgement)
+              # No approval is required here — only the author's own
+              # acknowledgement, which Blocking Checks enforces everywhere.
+              if [ "$ACKNOWLEDGED" = "true" ]; then
+                printf '> [!NOTE]\n'
+                printf '> ## 💥 Breaking change acknowledged\n'
+                printf '>\n'
+                printf '> The author has declared this break in the description. No approval is required on this branch.\n\n'
+              elif [ -n "$ACK_LINE" ]; then
+                printf '> [!IMPORTANT]\n'
+                printf '> ## 💥 Breaking change — acknowledgement missing\n'
+                printf '>\n'
+                printf '> This pull request carries a breaking change, so the next release becomes a **major** version. Add this exact line to the description:\n'
+                printf '>\n'
+                printf '> ```\n> %s\n> ```\n\n' "$ACK_LINE"
+              else
+                # No line to paste means nobody configured one — a direct
+                # caller on the composite's defaults. "Add this exact line"
+                # followed by an empty code block is worse than saying less.
+                printf '> [!IMPORTANT]\n'
+                printf '> ## 💥 Breaking change — acknowledgement missing\n'
+                printf '>\n'
+                printf '> This pull request carries a breaking change, so the next release becomes a **major** version. Declare it in the description.\n\n'
+              fi
               ;;
             unresolved)
-              printf '### 🚨 Breaking change — approval required\n\n'
-              printf 'The approval did not complete.'
-              [ -n "$RUN_URL" ] && printf ' [Open the run](%s) and answer the pending deployment.' "$RUN_URL"
+              printf '> [!WARNING]\n'
+              printf '> ## 💥 Breaking change — decision not recorded\n'
+              printf '>\n'
+              printf '> The approval did not complete.'
+              [ -n "$RUN_URL" ] && printf ' [Open the run](%s) to answer it.' "$RUN_URL"
               printf '\n\n'
               ;;
-          esac
-
-          printf '| | |\n|---|---|\n'
-          [ -n "$REASON" ] && printf '| Gated via | `%s` |\n' "$REASON"
-          [ -n "$HEAD_SHA" ] && printf '| Head commit | `%s` |\n' "${HEAD_SHA:0:7}"
-          printf '| Author acknowledgement in the description | %s |\n' \
-            "$([ "$ACKNOWLEDGED" = "true" ] && echo "present" || echo "missing")"
-          printf '\n'
-
-          case "$STATE" in
-            waiting)
-              printf '**Approving** records that the approvers consider the break necessary, and releases the merge.\n\n'
-              if [ "$CLOSE_ON_REJECTION" = "true" ]; then
-                printf '**Rejecting** records that it is not, and **closes this pull request** so the change can be reworked without the break. Reopening is one click and the branch is untouched.\n\n'
-              else
-                printf '**Rejecting** records that it is not, and fails this check.\n\n'
-              fi
-              printf 'If the break was unintentional, reword the commits — drop the `!` after the type and remove any `BREAKING CHANGE:` footer — and push again. No approval is needed then.\n'
-              ;;
-            rejected)
-              if [ "$CLOSE_ON_REJECTION" = "true" ]; then
-                printf 'This pull request was closed. Rework the change so it does not break the contract — drop the `!` and any `BREAKING CHANGE:` footer once it no longer applies — then reopen it. The branch is untouched.\n'
-              fi
+            blocked)
+              # The gate could not reach a verdict, so it fails closed. That
+              # used to be silent on the pull request — a red check with no
+              # comment explaining it, which reads as a flake and gets re-run
+              # rather than looked at.
+              #
+              # Deliberately neutral about which stage failed. `blocked` is
+              # also reached when detection succeeded and the request stage
+              # did not — an Environment preflight refusing an unprotected
+              # `breaking-approval`, say — and blaming detection there sends
+              # the reader to the wrong log.
+              printf '> [!CAUTION]\n'
+              printf '> ## 💥 Breaking change gate could not run\n'
+              printf '>\n'
+              printf '> The gate did not reach a verdict, so this check fails closed — an unknown is not the same as "no breaking changes".'
+              [ -n "$RUN_URL" ] && printf ' [Open the run](%s) to see which step failed.' "$RUN_URL"
+              printf '\n\n'
+              # `ack_followup` is a no-op unless the acknowledgement was
+              # actually evaluated: the gate sends an empty value, not
+              # `false`, when nothing read the description.
+              ack_followup
               ;;
           esac
+
+          # The escape hatch is folded away: it matters enormously to whoever
+          # broke the contract by accident, and not at all to whoever meant to.
+          if [ "$STATE" = "waiting" ]; then
+            printf '<details>\n'
+            printf '<summary><b>Not intentional?</b> — how to clear this without an approval</summary>\n\n'
+            if [ -n "$breaking_subjects" ]; then
+              printf 'Drop the `!` from the commit subject, then push again. The gate re-evaluates and clears itself.\n\n'
+              printf '```diff\n'
+              while IFS= read -r subject; do
+                [ -z "$subject" ] && continue
+                printf -- '- %s\n' "$subject"
+                printf -- '+ %s\n' "$(sed -E 's/^([A-Za-z0-9_]*(\([^)]*\))?)!:/\1:/' <<< "$subject")"
+              done <<< "$breaking_subjects"
+              printf '```\n\n'
+              printf 'Also remove any `BREAKING CHANGE:` footer from the commit bodies, if there is one.\n\n'
+            else
+              printf 'Remove the `BREAKING CHANGE:` footer from the commit bodies, and drop any `!` after the type in the subjects. Push again and the gate re-evaluates.\n\n'
+            fi
+            printf '</details>\n\n'
+          fi
+
+          context=""
+          [ -n "$REASON" ] && context="Gated by \`${REASON}\`"
+          context="${context:+$context · }[How this gate works](${DOCS_URL})"
+          printf '<sub>%s</sub>\n' "$context"
         } > "$body_file"
 
         comment_id=""
@@ -157,6 +404,76 @@ runs:
           # ten times still has one, and the record of who decided what survives.
           existing=$(gh api "repos/${REPO}/issues/${PR_NUMBER}/comments" --paginate \
             --jq "[.[] | select(.body | contains(\"${marker}\")) | .id] | first // empty")
+
+          # The approval record outlives the comment body. Every run rewrites
+          # the body, so without carrying these forward an approval would be
+          # forgotten by the next push — which is the whole thing the record
+          # exists to prevent.
+          previous_records=""
+          if [ -n "$existing" ]; then
+            # A failed read must not look like "there were none". `|| true`
+            # here would hand back an empty set, the PATCH below would rewrite
+            # the comment without the records, and every approval on this pull
+            # request would be silently erased by a transient API error — the
+            # reviewers asked again for changes they had already cleared.
+            if ! current_body=$(gh api "repos/${REPO}/issues/comments/${existing}" --jq '.body'); then
+              echo "Could not read the existing comment (${existing}) to carry its approval records forward." >&2
+              echo "Refusing to rewrite it: that would drop approvals already given." >&2
+              exit 1
+            fi
+
+            # A successful read with no markers is a legitimately empty set.
+            # Only from outside fenced blocks. The undo example renders commit
+            # subjects inside ```diff, and a marker that arrived that way is
+            # the author's text, not the gate's record — defanged above, and
+            # refused here too, because one guard for a privilege escalation
+            # is one guard too few.
+            previous_records=$(
+              awk '/^```/ { fenced = !fenced; next } !fenced' <<< "$current_body" \
+                | grep -oE '<!-- breaking-change-approved: [a-f0-9]+ run=[0-9]+ -->' \
+                || true
+            )
+          fi
+
+          if [ "$STATE" = "approved" ] && [ -n "$FINGERPRINT" ]; then
+            # The run is recorded alongside the fingerprint so the next run can
+            # verify the approval against the Environment's log rather than
+            # taking this text at its word.
+            previous_records=$(printf '%s\n<!-- breaking-change-approved: %s run=%s -->' \
+              "$previous_records" "$FINGERPRINT" "${RUN_ID}")
+          fi
+
+          if [ -n "$(printf '%s' "$previous_records" | tr -d '[:space:]')" ]; then
+            {
+              printf '\n'
+              printf '%s\n' "$previous_records" | awk 'NF' | sort -u
+            } >> "$body_file"
+          fi
+
+          # The comment this one replaced. `breaking-change-comment` used to
+          # own `<!-- lerian-breaking-change-guard -->` and retired it when the
+          # acknowledgement arrived or the break went away; removing that job
+          # removed its cleanup too, so a pull request opened before the
+          # changeover keeps an "awaiting acknowledgement" notice forever —
+          # beside this comment, contradicting it.
+          #
+          # Deliberately narrow. Only a comment the marker *opens*, which is
+          # how that job wrote them, so quoting the marker in a human comment
+          # is not enough to get it deleted. The records live in this
+          # comment's own body and are never read from there.
+          #
+          # Transitional: delete this block once no open pull request predates
+          # the changeover.
+          legacy_marker='<!-- lerian-breaking-change-guard -->'
+          gh api "repos/${REPO}/issues/${PR_NUMBER}/comments" --paginate \
+            --jq "[.[]
+                   | select(.user.type == \"Bot\")
+                   | select(.body | startswith(\"${legacy_marker}\"))
+                   | .id] | .[]" 2>/dev/null \
+            | while IFS= read -r stale; do
+                [ -n "$stale" ] || continue
+                gh api --method DELETE "repos/${REPO}/issues/comments/${stale}" >/dev/null 2>&1 || true
+              done
 
           if [ -n "$existing" ]; then
             gh api --method PATCH "repos/${REPO}/issues/comments/${existing}" \
@@ -169,14 +486,34 @@ runs:
         fi
 
         # Cosmetic and deliberately last — a repository that never declared the
-        # label still gets its gate.
-        if [ -n "$LABEL" ]; then
+        # labels still gets its gate.
+        #
+        # Two of them, because they stop being true at different moments. The
+        # breaking change is a property of the commits: approving it does not
+        # make the break go away, and somebody filtering for `breaking-change`
+        # three months from now wants this pull request in the results. Waiting
+        # on a decision is a state, and it ends.
+        #
+        # Every state reaching this composite means a breaking change is
+        # present — the caller skips it entirely when there is none — with one
+        # exception. `blocked` means the gate never established anything, so
+        # labelling the pull request `breaking-change` there asserts exactly
+        # what the comment beside it says is unknown, and a transient detection
+        # failure would brand a clean pull request. Labels already on it stay:
+        # removing them would be the same mistake inverted.
+        if [ -n "$LABEL" ] && [ "$STATE" != "blocked" ]; then
+          if ! gh pr edit "$PR_NUMBER" --repo "$REPO" --add-label "$LABEL" >/dev/null 2>&1; then
+            echo "::notice::Label '${LABEL}' not applied — it is not declared in ${REPO}. Cosmetic only."
+          fi
+        fi
+
+        if [ -n "$PENDING_LABEL" ]; then
           if [ "$STATE" = "waiting" ]; then
-            if ! gh pr edit "$PR_NUMBER" --repo "$REPO" --add-label "$LABEL" >/dev/null 2>&1; then
-              echo "::notice::Label '${LABEL}' not applied — it is not declared in ${REPO}. Cosmetic only."
+            if ! gh pr edit "$PR_NUMBER" --repo "$REPO" --add-label "$PENDING_LABEL" >/dev/null 2>&1; then
+              echo "::notice::Label '${PENDING_LABEL}' not applied — it is not declared in ${REPO}. Cosmetic only."
             fi
           else
-            gh pr edit "$PR_NUMBER" --repo "$REPO" --remove-label "$LABEL" >/dev/null 2>&1 || true
+            gh pr edit "$PR_NUMBER" --repo "$REPO" --remove-label "$PENDING_LABEL" >/dev/null 2>&1 || true
           fi
         fi
 
