@@ -75,6 +75,7 @@ APPROVAL_GATE_INPUTS = {
     "breaking_change_require_protected_environment",
     "breaking_change_approval_reviewers",
     "breaking_change_fallback_reviewers",
+    "breaking_change_status_context",
     "breaking_change_create_environment",
 }
 
@@ -446,6 +447,58 @@ def run_detect_normalization(**overrides):
     # to carry its own copy of all three.
     _, outputs = execute_body(step["run"], env)
     return outputs
+
+
+def run_gate_status(**overrides):
+    """Run the step that publishes the commit status, and report the call.
+
+    Returns (process, calls). The status is the one check name a branch rule
+    can require across every repository, so what it publishes per state is the
+    contract — not something to read off the source.
+    """
+    workflow = yaml.safe_load(APPROVAL_WORKFLOW)
+    step = next(
+        s
+        for s in workflow["jobs"]["outcome"]["steps"]
+        if s.get("name") == "Publish the gate status"
+    )
+
+    env = {
+        "REPO": "LerianStudio/example",
+        "CONTEXT": "breaking-change-approval",
+        "HEAD_SHA": "abc1234567",
+        "STATE": "approved",
+        "RESULT": "success",
+        "REASON": "rule develop <- '*'",
+        "APPROVERS": "carol",
+        "REJECTERS": "",
+        "RUN_URL": "https://github.com/LerianStudio/example/actions/runs/1",
+        "DRY_RUN": "false",
+        "GH_TOKEN": "stub",
+    }
+    env.update(overrides)
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        calls = Path(temp_dir) / "calls"
+        calls.touch()
+        stub = Path(temp_dir) / "gh"
+        stub.write_text(
+            "#!/usr/bin/env bash\n"
+            f'printf \'%s\\n\' "$*" >> "{calls}"\n'
+            'if [ -n "${STUB_FAILS:-}" ]; then exit 1; fi\n',
+            encoding="utf-8",
+        )
+        stub.chmod(0o755)
+        env["PATH"] = f"{temp_dir}:{os.environ.get('PATH', '/usr/bin:/bin')}"
+        result = subprocess.run(
+            ["bash", "-c", step["run"]],
+            cwd=temp_dir,
+            env=env,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        return result, calls.read_text(encoding="utf-8").splitlines()
 
 
 def run_reporter_comment(
@@ -2267,6 +2320,76 @@ class ApprovalGateStructureTests(unittest.TestCase):
         self.assertNotIn("```", rendered)
         # The break is still announced — only the unusable instruction is gone.
         self.assertIn("acknowledgement missing", rendered)
+
+    def test_the_gate_publishes_one_status_name_everywhere(self):
+        # A reusable workflow's check is reported as `<caller job> / … / <job>`,
+        # and the caller's job name lives in the consumer's repository. Measured
+        # across the organisation, the same gate produces six different names,
+        # so no single ruleset can require it. A commit status carries no job
+        # path — which is why CodeRabbit and Socket look identical everywhere.
+        def published(**overrides):
+            result, calls = run_gate_status(**overrides)
+            self.assertEqual(0, result.returncode, result.stderr)
+            self.assertEqual(1, len(calls), calls)
+            return calls[0]
+
+        # Pass and fail, by state.
+        for state, extra, expected in (
+            ("approved", {}, "success"),
+            ("none", {}, "success"),
+            ("superseded", {}, "success"),
+            ("rejected", {"RESULT": "failure"}, "failure"),
+            ("blocked", {"RESULT": "failure"}, "failure"),
+            ("unresolved", {"RESULT": "failure"}, "failure"),
+        ):
+            with self.subTest(state):
+                call = published(STATE=state, **extra)
+                self.assertIn(f"state={expected}", call.replace("state ", "state="))
+                self.assertIn("statuses/abc1234567", call)
+                self.assertIn("context=breaking-change-approval", call.replace("context ", "context="))
+
+        # `result` is the authority: a state that reads as success cannot
+        # publish success over a verdict that failed.
+        contradictory = published(STATE="none", RESULT="failure")
+        self.assertIn("failure", contradictory)
+
+        # Published on every run, including the ones with nothing to approve —
+        # a required check that never arrives leaves the pull request pending
+        # forever, which is worse than having no rule.
+        self.assertIn("statuses/", published(STATE="none"))
+
+    def test_the_status_is_opt_in_and_degrades_instead_of_failing(self):
+        workflow = yaml.safe_load(APPROVAL_WORKFLOW)
+        step = next(
+            s
+            for s in workflow["jobs"]["outcome"]["steps"]
+            if s.get("name") == "Publish the gate status"
+        )
+        # Off by default: a repository that never asked for it is untouched.
+        self.assertIn("inputs.status_context != ''", step["if"])
+        self.assertEqual(
+            "", yaml.safe_load(APPROVAL_WORKFLOW)[True]["workflow_call"]["inputs"][
+                "status_context"
+            ]["default"]
+        )
+
+        # `statuses: write` is NOT declared on the job. A called workflow may
+        # only ask for permissions the caller already holds, so declaring it
+        # would break every consumer whose entrypoint does not grant it — the
+        # same reasoning the file already applies to `actions: read`.
+        self.assertNotIn("statuses", workflow["jobs"]["outcome"]["permissions"])
+
+        # So a token that cannot write it warns and carries on, rather than
+        # failing the job over a check the caller may not even require.
+        result, calls = run_gate_status(STUB_FAILS="1")
+        self.assertEqual(0, result.returncode)
+        self.assertIn("statuses: write", result.stdout + result.stderr)
+
+        # And a dry run says what it would publish without publishing it.
+        preview, dry_calls = run_gate_status(DRY_RUN="true")
+        self.assertEqual(0, preview.returncode)
+        self.assertEqual([], dry_calls)
+        self.assertIn("would publish status", preview.stdout)
 
     def test_a_blocked_gate_names_the_half_that_failed(self):
         # Measured on a real repository: ungoliant-controller's first breaking
