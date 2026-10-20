@@ -801,11 +801,25 @@ jobs:
             #
             # One head branch can carry more than one pull request — same
             # branch, different bases — so the workflow scope alone still lets
-            # another pull request's run stand in for this one's. `.pull_requests`
-            # carries the run's own pull request and settles it. It comes back
-            # empty for runs from forks, and there the branch scope is the best
-            # evidence left: a run of this workflow, on this head branch, newer
-            # than this one.
+            # another pull request's run stand in for this one's.
+            # `.pull_requests` carries the run's own pull request and settles
+            # it.
+            #
+            # And only a `pull_request` run counts. Without that filter any
+            # newer run of this workflow on the branch qualified, including one
+            # somebody started by hand: dispatch a run, cancel the pending
+            # approval, and the verdict reads `superseded`, which exits 0 — a
+            # green gate with no approval, available to anybody with write
+            # access. Reported by @fredcamaral and reproduced; the `event`
+            # filter is applied twice, once as a query parameter and once in
+            # the selection, because the parameter alone is the server's
+            # promise and this decides whether a merge is allowed.
+            #
+            # `.pull_requests` comes back empty for runs from forks. Those are
+            # matched on the head instead, which still ties the run to this
+            # revision rather than to the branch at large — the empty arm used
+            # to accept any run with no pull request attached, which is what
+            # let a dispatched run through.
             workflow_id=$(
               gh api "repos/${REPO}/actions/runs/${RUN_ID}" --jq '.workflow_id' 2>/dev/null || true
             )
@@ -813,11 +827,13 @@ jobs:
             newer=0
             if [ -n "$workflow_id" ]; then
               newer=$(
-                gh api "repos/${REPO}/actions/workflows/${workflow_id}/runs?branch=${HEAD_REF}&per_page=50" \
+                gh api "repos/${REPO}/actions/workflows/${workflow_id}/runs?branch=${HEAD_REF}&event=pull_request&per_page=50" \
                   --jq "[.workflow_runs[]
                           | select(.id > ${RUN_ID})
-                          | select((.pull_requests | length) == 0
-                                   or any(.pull_requests[]; .number == ${PR_NUMBER}))]
+                          | select(.event == \"pull_request\")
+                          | select(any(.pull_requests[]?; .number == ${PR_NUMBER})
+                                   or ((.pull_requests | length) == 0
+                                       and .head_sha == \"${HEAD_SHA}\"))]
                          | length" 2>/dev/null || echo 0
               )
             fi

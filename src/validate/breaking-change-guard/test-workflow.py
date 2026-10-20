@@ -347,7 +347,12 @@ def run_verdict(**overrides):
         env["MOCK_RUNS_JSON"] = json.dumps(
             {
                 "workflow_runs": [
-                    {"id": run_id + 1 + i, "pull_requests": [{"number": pr_number}]}
+                    {
+                        "id": run_id + 1 + i,
+                        "event": "pull_request",
+                        "head_sha": env["HEAD_SHA"],
+                        "pull_requests": [{"number": pr_number}],
+                    }
                     for i in range(int(env["MOCK_NEWER_RUNS"]))
                 ]
             }
@@ -1510,8 +1515,8 @@ class ApprovalGateStructureTests(unittest.TestCase):
         # pull request it knows nothing about.
         runs = {
             "workflow_runs": [
-                {"id": 101, "pull_requests": [{"number": 77}]},
-                {"id": 102, "pull_requests": [{"number": 77}]},
+                {"id": 101, "event": "pull_request", "pull_requests": [{"number": 77}]},
+                {"id": 102, "event": "pull_request", "pull_requests": [{"number": 77}]},
             ]
         }
         _, other_pr = run_verdict(
@@ -1520,21 +1525,83 @@ class ApprovalGateStructureTests(unittest.TestCase):
         self.assertEqual("unresolved", other_pr["state"])
 
         # Mixed: the same two, plus one that is actually ours.
-        runs["workflow_runs"].append({"id": 103, "pull_requests": [{"number": 42}]})
+        runs["workflow_runs"].append(
+            {"id": 103, "event": "pull_request", "pull_requests": [{"number": 42}]}
+        )
         _, ours = run_verdict(
             APPROVAL_RESULT="cancelled", MOCK_RUNS_JSON=json.dumps(runs)
         )
         self.assertEqual("superseded", ours["state"])
 
-    def test_a_run_without_pull_requests_falls_back_to_the_branch_scope(self):
-        # Runs from forks come back with `pull_requests: []`. Dropping those
-        # would make every cancellation on a fork unresolved; keeping them
-        # leaves the branch scope as the evidence, which is what there is.
-        runs = {"workflow_runs": [{"id": 101, "pull_requests": []}]}
+    def test_a_run_from_a_fork_is_matched_on_the_head_not_the_branch(self):
+        # Runs from forks come back with `pull_requests: []`. Dropping them
+        # would make every cancellation on a fork unresolved; accepting any run
+        # that has none is how a dispatched run passed for a pull request it
+        # had nothing to do with. They are matched on the head instead, which
+        # ties the run to this revision.
+        same_head = {
+            "workflow_runs": [
+                {
+                    "id": 101,
+                    "event": "pull_request",
+                    "head_sha": "abc123",
+                    "pull_requests": [],
+                }
+            ]
+        }
         _, fork = run_verdict(
-            APPROVAL_RESULT="cancelled", MOCK_RUNS_JSON=json.dumps(runs)
+            APPROVAL_RESULT="cancelled", MOCK_RUNS_JSON=json.dumps(same_head)
         )
         self.assertEqual("superseded", fork["state"])
+
+        other_head = json.loads(json.dumps(same_head))
+        other_head["workflow_runs"][0]["head_sha"] = "def456"
+        _, unrelated = run_verdict(
+            APPROVAL_RESULT="cancelled", MOCK_RUNS_JSON=json.dumps(other_head)
+        )
+        self.assertEqual("unresolved", unrelated["state"])
+
+    def test_a_dispatched_run_is_not_supersession(self):
+        # Reported by @fredcamaral and reproduced: with no event filter, any
+        # newer run of this workflow on the branch counted. Dispatch one by
+        # hand, cancel the pending approval, and the verdict reads
+        # `superseded` — which exits 0. A green gate with no approval, for
+        # anybody with write access.
+        #
+        # `self-pr-validation.yml` enables `workflow_dispatch` and skips
+        # validation on it, so the dispatched run does not even have to do
+        # anything.
+        for description, run in (
+            (
+                "dispatched, no pull request attached",
+                {"id": 101, "event": "workflow_dispatch", "head_sha": "abc123",
+                 "pull_requests": []},
+            ),
+            (
+                "dispatched, naming this pull request",
+                {"id": 101, "event": "workflow_dispatch", "head_sha": "abc123",
+                 "pull_requests": [{"number": 42}]},
+            ),
+            (
+                "a scheduled run on the same branch",
+                {"id": 101, "event": "schedule", "head_sha": "abc123",
+                 "pull_requests": []},
+            ),
+        ):
+            with self.subTest(description):
+                _, outputs = run_verdict(
+                    APPROVAL_RESULT="cancelled",
+                    MOCK_RUNS_JSON=json.dumps({"workflow_runs": [run]}),
+                )
+                self.assertEqual("unresolved", outputs["state"], description)
+
+        # And `unresolved` must not pass, which is the half that makes the
+        # filter matter.
+        body = extract_run_body(
+            extract_job(APPROVAL_WORKFLOW, "outcome"), "Record the verdict"
+        )
+        self.assertIn('[ "$STATE" = "superseded" ]', body)
+        self.assertNotIn('[ "$STATE" = "unresolved" ]', body)
 
     def test_a_reused_approval_must_belong_to_this_pull_request(self):
         step = extract_step(
