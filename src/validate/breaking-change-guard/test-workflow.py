@@ -74,6 +74,7 @@ APPROVAL_GATE_INPUTS = {
     "breaking_change_close_on_rejection",
     "breaking_change_require_protected_environment",
     "breaking_change_approval_reviewers",
+    "breaking_change_fallback_reviewers",
     "breaking_change_create_environment",
 }
 
@@ -1259,16 +1260,66 @@ class ApprovalGateStructureTests(unittest.TestCase):
         # branch would let the author choose who approves their own change.
         self.assertIn("ref: ${{ needs.detect.outputs.base-ref }}", step)
         self.assertNotIn("head", step)
-        # Explicit reviewers win; CODEOWNERS is the fallback.
-        preflight = extract_step(
-            extract_job(APPROVAL_WORKFLOW, "request"),
-            "Verify the breaking-approval Environment is protected",
+        # Explicit reviewers win, then CODEOWNERS, then the fallback. Order
+        # matters: a caller that named its reviewers must not be overridden by
+        # a repository-wide default, and the default must not be reached while
+        # CODEOWNERS still has an answer.
+        workflow = yaml.safe_load(APPROVAL_WORKFLOW)
+        preflight = next(
+            s
+            for s in workflow["jobs"]["request"]["steps"]
+            if s.get("name") == "Verify the breaking-approval Environment is protected"
         )
-        self.assertIn(
-            "inputs.approval_reviewers != '' && inputs.approval_reviewers"
-            " || steps.codeowners.outputs.reviewers",
-            preflight,
+        expression = " ".join(preflight["with"]["reviewers"].split())
+        self.assertEqual(
+            "${{ inputs.approval_reviewers != '' && inputs.approval_reviewers"
+            " || (steps.codeowners.outputs.reviewers != ''"
+            " && steps.codeowners.outputs.reviewers"
+            " || inputs.fallback_reviewers) }}",
+            expression,
         )
+
+    def test_a_repository_without_a_catch_all_rule_still_has_a_reviewer(self):
+        # Measured across the consumers before adding this: four of five
+        # CODEOWNERS files carry no `*` rule, and `codeowners-reviewers` reads
+        # the catch-all by design — a repository-wide gate should ask the
+        # repository-wide owner. So those four resolved nobody, the Environment
+        # could not be created, and the first breaking change in each would
+        # have been blocked by a gate with no one able to answer it.
+        gate = yaml.safe_load(APPROVAL_WORKFLOW)
+        self.assertIn("fallback_reviewers", gate[True]["workflow_call"]["inputs"])
+        # Empty by default: refusing is still better than inventing a reviewer.
+        self.assertEqual(
+            "", gate[True]["workflow_call"]["inputs"]["fallback_reviewers"]["default"]
+        )
+
+        # The umbrellas expose it, and `pr-validation` sources the default from
+        # an organisation variable rather than naming a team in the code.
+        validation = yaml.safe_load(
+            (REPO_ROOT / ".github" / "workflows" / "pr-validation.yml").read_text(
+                encoding="utf-8"
+            )
+        )
+        forwarded = validation["jobs"]["breaking-change-approval"]["with"][
+            "fallback_reviewers"
+        ]
+        self.assertIn("vars.BREAKING_APPROVAL_FALLBACK_REVIEWERS", forwarded)
+        self.assertIn("inputs.breaking_change_fallback_reviewers", forwarded)
+
+        for name in ("go-pr-validation", "js-pr-validation"):
+            umbrella = yaml.safe_load(
+                (REPO_ROOT / ".github" / "workflows" / f"{name}.yml").read_text(
+                    encoding="utf-8"
+                )
+            )
+            self.assertIn(
+                "breaking_change_fallback_reviewers",
+                umbrella[True]["workflow_call"]["inputs"],
+                name,
+            )
+
+        # No team name in the code — the organisation variable is the source.
+        self.assertNotIn("G_Github_Devops", APPROVAL_WORKFLOW)
 
     def test_the_waiting_comment_links_instead_of_mentioning(self):
         rendered = render_reporter("waiting")

@@ -182,6 +182,7 @@ jobs:
 | `breaking_change_close_on_rejection` | boolean | `true` | Close the PR when a reviewer rejects the breaking change |
 | `breaking_change_require_protected_environment` | boolean | `true` | Refuse to gate when `breaking-approval` has no required reviewers, instead of silently passing |
 | `breaking_change_approval_reviewers` | string | *(empty)* | Who may answer the gate, as comma-separated `team:<slug>` or `user:<login>`. Empty takes the repository's CODEOWNERS |
+| `breaking_change_fallback_reviewers` | string | *(empty)* | Who answers when the above is empty **and** CODEOWNERS yields nobody — the common case, since most CODEOWNERS have no catch-all `*` rule. Defaults to the `BREAKING_APPROVAL_FALLBACK_REVIEWERS` organisation variable |
 | `breaking_change_create_environment` | boolean | `true` | Create `breaking-approval` when missing. Needs a `MANAGE_TOKEN` with repository administration rights |
 
 The breaking change guard has no enable input, target-branch input, acknowledgement input, or opt-out. It applies to every caller and every PR target branch. `dry_run: true` remains a global preview mode without guard enforcement; it is not a guard-specific opt-out and does not change normal `dry_run: false` operation. Existing callers must migrate their `pull_request.types` list to include both `edited` and `ready_for_review`; otherwise body edits and draft-to-ready transitions do not rerun validation.
