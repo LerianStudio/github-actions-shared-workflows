@@ -60,6 +60,14 @@ inputs:
       resolver first.
     required: false
     default: ''
+  blocked-stage:
+    description: >-
+      With `state: blocked`, which half of the gate failed — `detection` or
+      `request`. Named in the comment so the author knows where to look
+      instead of opening the run and hunting for the red job. Empty keeps the
+      generic wording.
+    required: false
+    default: ''
   fingerprint:
     description: 'Digest of the breaking-change commit set, from `breaking-change-commits`. Recorded in the comment when the state is `approved`, alongside the run that carried the approval, so a later run can verify it against the Environment log rather than trusting the text. Previous records are preserved.'
     required: false
@@ -121,6 +129,7 @@ runs:
         HEAD_SHA: ${{ inputs.head-sha }}
         ACKNOWLEDGED: ${{ inputs.acknowledged }}
         SUBJECTS: ${{ inputs.subjects }}
+        BLOCKED_STAGE: ${{ inputs.blocked-stage }}
         ACK_LINE: ${{ inputs.author-acknowledgement }}
         RUN_URL: ${{ inputs.run-url }}
         REVIEWERS: ${{ inputs.actual-reviewers != '' && inputs.actual-reviewers || inputs.reviewers }}
@@ -360,9 +369,21 @@ runs:
               printf '> [!CAUTION]\n'
               printf '> ## 💥 Breaking change gate could not run\n'
               printf '>\n'
-              printf '> The gate did not reach a verdict, so this check fails closed — an unknown is not the same as "no breaking changes".'
-              [ -n "$RUN_URL" ] && printf ' [Open the run](%s) to see which step failed.' "$RUN_URL"
-              printf '\n\n'
+              case "$BLOCKED_STAGE" in
+                detection)
+                  printf '> **Detection did not complete**, so the gate does not know whether this pull request carries a breaking change — and an unknown is not the same as "no breaking changes". This check fails closed.\n'
+                  ;;
+                request)
+                  printf '> The break was detected, but **the approval could not be requested**, so there is nothing for a reviewer to answer. This check fails closed.\n'
+                  printf '>\n'
+                  printf '> Most often the `breaking-approval` Environment does not exist and could not be created — either no reviewer could be resolved (the repository CODEOWNERS has no catch-all `*` rule and no fallback is configured), or the token cannot create Environments. The job log names which.\n'
+                  ;;
+                *)
+                  printf '> The gate did not reach a verdict, so this check fails closed — an unknown is not the same as "no breaking changes".\n'
+                  ;;
+              esac
+              [ -n "$RUN_URL" ] && printf '>\n> [Open the run](%s) for the failing step.\n' "$RUN_URL"
+              printf '\n'
               # `ack_followup` is a no-op unless the acknowledgement was
               # actually evaluated: the gate sends an empty value, not
               # `false`, when nothing read the description.
