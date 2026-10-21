@@ -179,6 +179,14 @@ on:
         description: 'Close the pull request when a reviewer rejects the breaking change.'
         type: boolean
         default: true
+      breaking_change_status_context:
+        description: >-
+          Publish the gate's verdict as a commit status under this name, so one
+          organisation-wide required check can cover every repository. Defaults
+          to the `BREAKING_APPROVAL_STATUS_CONTEXT` organisation variable.
+        required: false
+        type: string
+        default: ''
       breaking_change_fallback_reviewers:
         description: >-
           Who answers the breaking-change gate in a repository whose CODEOWNERS
@@ -248,6 +256,17 @@ on:
         description: 'Extra arguments passed to golangci-lint (e.g. --timeout=5m)'
         type: string
         default: '--timeout=5m'
+      fail_on_govulncheck:
+        description: >-
+          Fail the Security job when govulncheck reports findings. Default false preserves the
+          advisory behaviour this step has always had: the Go vulnerability database changes
+          independently of the pull request, so a newly published CVE in a common dependency would
+          otherwise turn every repository on this channel red at once, on pull requests that touch
+          nothing related. Findings are reported either way — as a warning annotation when false, as
+          an error when true — so the scan is never silent. Turn it on per repository once its
+          dependency graph is clean.
+        type: boolean
+        default: false
       app_name_prefix:
         description: 'Prefix used to namespace coverage/build artifacts'
         type: string
@@ -482,6 +501,7 @@ jobs:
       breaking_change_close_on_rejection: ${{ inputs.breaking_change_close_on_rejection }}
       breaking_change_approval_reviewers: ${{ inputs.breaking_change_approval_reviewers }}
       breaking_change_fallback_reviewers: ${{ inputs.breaking_change_fallback_reviewers }}
+      breaking_change_status_context: ${{ inputs.breaking_change_status_context }}
       breaking_change_create_environment: ${{ inputs.breaking_change_create_environment }}
       breaking_change_require_protected_environment: ${{ inputs.breaking_change_require_protected_environment }}
     secrets:
@@ -528,6 +548,7 @@ jobs:
       go_version: ${{ inputs.go_version }}
       golangci_lint_version: ${{ inputs.golangci_lint_version }}
       govulncheck_version: ${{ inputs.govulncheck_version }}
+      fail_on_govulncheck: ${{ inputs.fail_on_govulncheck }}
       golangci_lint_args: ${{ inputs.golangci_lint_args }}
       app_name_prefix: ${{ inputs.app_name_prefix }}
       filter_paths: ${{ inputs.filter_paths }}

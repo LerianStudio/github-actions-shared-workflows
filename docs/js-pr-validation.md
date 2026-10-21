@@ -62,6 +62,7 @@ The `Go Analysis` and `Lib Version` stubs are unaffected: they are not flag-guar
 | `breaking_change_require_protected_environment` | Refuse to gate when `breaking-approval` has no required reviewers | boolean | `true` |
 | `breaking_change_approval_reviewers` | Who may answer the gate, as `team:<slug>` or `user:<login>`. Empty takes the repository's CODEOWNERS | string | *(empty)* |
 | `breaking_change_fallback_reviewers` | Who answers when the above is empty **and** CODEOWNERS yields nobody. Defaults to the `BREAKING_APPROVAL_FALLBACK_REVIEWERS` organisation variable | string | *(empty)* |
+| `breaking_change_status_context` | Publish the gate verdict as a commit status under this name, so one organisation-wide required check covers every repository. Defaults to the `BREAKING_APPROVAL_STATUS_CONTEXT` organisation variable | string | *(empty)* |
 | `breaking_change_create_environment` | Create `breaking-approval` when missing. Needs a `MANAGE_TOKEN` with administration rights | boolean | `true` |
 | `node_version` | Node.js version | string | `22` |
 | `package_manager` | Package manager (`npm`, `yarn`, `pnpm`) | string | `npm` |
