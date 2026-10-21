@@ -498,6 +498,7 @@ Declare them with [`labels-sync`](labels-sync.md), or pass `label: ''` /
 | `label` | string | `breaking-change` | States that the change is breaking. A fact, so it survives the decision and comes off only when the breaking commits are gone. Cosmetic. |
 | `pending_label` | string | `awaiting-breaking-approval` | States that a decision is pending. A state, so it comes off once approved or rejected. Cosmetic. |
 | `enable_approval` | boolean | `true` | Hold breaking changes at the Environment. `false` keeps the gate reporting and labelling but never asks for a decision — the author acknowledgement is a separate control the caller still enforces, and the comment carrying the line to paste comes from here. Not the same as not calling the workflow. |
+| `status_context` | string | *(empty)* | Publish the verdict as a commit status under this name — the one check name that is identical in every repository. Through `pr-validation` this defaults to the `BREAKING_APPROVAL_STATUS_CONTEXT` organisation variable. Needs `statuses: write`. Empty publishes nothing. |
 | `enable_comment` | boolean | `true` | Post and keep the comment updated. |
 | `dry_run` | boolean | `false` | Report what would be gated without commenting, labelling, requesting an approval, or failing. |
 | `runner_type` | string | `blacksmith-4vcpu-ubuntu-2404` | Runner label. Overridden by `vars.GENERAL_RUNNERS`. |
@@ -574,6 +575,72 @@ if: >-
 
 Nothing supplied is still `false` — the gate does not scan out of scope, so
 there is no answer to report.
+
+## Requiring the gate in a branch rule
+
+The gate's job surfaces as a check named after the **caller's** job path —
+`validate / PR Metadata / Breaking Change Approval / Breaking Change Approval`
+in one repository, `validation / Breaking Change Approval / Breaking Change
+Approval` in another. The prefix comes from the consumer's own workflow file,
+so the same gate appears under several different names across an organisation.
+Measured across the repositories consuming the umbrellas: **six distinct
+names**. Required status checks match the context exactly, with no wildcard, so
+no single organisation ruleset can require it — and a required check that never
+arrives leaves every pull request pending forever.
+
+`status_context` removes the caller from the name. The gate publishes a commit
+status, which carries no job path, so the same string works everywhere — the
+reason `CodeRabbit` and `Socket Security` look identical in every repository.
+
+```
+BREAKING_APPROVAL_STATUS_CONTEXT = breaking-change-approval
+```
+
+Then one organisation ruleset requires `breaking-change-approval` and covers
+every repository, whatever its jobs are called.
+
+Five things worth knowing:
+
+- **It goes `pending` before the gate waits**, and only then. GitHub reads the
+  latest status for a context, so without it the previous run's `success` stays
+  current while this run sits at the Environment — and the rule would allow a
+  merge on a decision nobody has given. The head SHA does not have to change
+  for that: `edited` re-runs on the same commit, and retargeting a pull request
+  moves it in or out of the gate's scope.
+- **It is published on every run that reaches a verdict**, including those with
+  nothing to approve. Out of scope and no breaking commits both publish
+  `success`. A status that only appears sometimes cannot be required.
+- **An older run never speaks over a newer one.** Runs do not finish in the
+  order they start, and the concurrency group covers the approval job alone.
+  Each write first reads who wrote the context last — the run id is in the
+  `target_url` the gate writes — and stops if that run is newer.
+- **A superseded run publishes nothing.** Its verdict describes a revision that
+  is no longer current and carries `result: failure`, so publishing it would
+  overwrite the live run's success and block the pull request on a decision
+  already given. The same rule the comment and the close already follow.
+- **`result` decides pass or fail**, not the state. The state only chooses the
+  wording, and the two are not allowed to disagree.
+- **It needs `MANAGE_TOKEN` carrying `statuses: write`.** The job declares its
+  own `permissions:`, which replaces whatever the caller granted — so granting
+  `statuses: write` upstream has no effect here. Declaring it on the job is not
+  an option either: a called workflow may only ask for permissions the caller
+  already holds, so it would break every consumer that does not hold it. Hence
+  the token. Without one that can write, the step warns and carries on rather
+  than failing.
+
+  **Confirm the token can write statuses before making this the only required
+  check.** "It will stay pending" is only true for a commit that has no status
+  yet. If the same SHA already carries `success` for the context — an earlier
+  run, before the pull request was retargeted into scope — a failed write
+  leaves that success current, and a status-only rule allows the merge. The
+  failure is silent on the pull request by design, since the step must not
+  fail a job over a check the caller may not require. So either require the
+  gate's job alongside the status, or check that a run has written the status
+  at least once before relying on it alone.
+
+Requiring the job name instead still works for a single repository, and this
+repository does exactly that. Prefer the status wherever one rule has to cover
+more than one repository.
 
 ## Secrets
 

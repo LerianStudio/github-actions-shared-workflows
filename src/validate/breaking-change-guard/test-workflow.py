@@ -75,6 +75,7 @@ APPROVAL_GATE_INPUTS = {
     "breaking_change_require_protected_environment",
     "breaking_change_approval_reviewers",
     "breaking_change_fallback_reviewers",
+    "breaking_change_status_context",
     "breaking_change_create_environment",
 }
 
@@ -261,6 +262,7 @@ def render_reporter(state, **overrides):
         # composite reads the commits itself and `MOCK_SUBJECTS` feeds the
         # stubbed API. Pass `SUBJECTS` to exercise the forwarded set instead.
         "SUBJECTS": "",
+        "BLOCKED_STAGE": "",
         "MOCK_SUBJECTS": "",
     }
     env.update(overrides)
@@ -447,6 +449,69 @@ def run_detect_normalization(**overrides):
     return outputs
 
 
+def run_gate_status(**overrides):
+    """Run the step that publishes the commit status, and report the call.
+
+    Returns (process, calls). The status is the one check name a branch rule
+    can require across every repository, so what it publishes per state is the
+    contract — not something to read off the source.
+    """
+    workflow = yaml.safe_load(APPROVAL_WORKFLOW)
+    step = next(
+        s
+        for s in workflow["jobs"]["outcome"]["steps"]
+        if s.get("name") == "Publish the gate status"
+    )
+
+    env = {
+        "REPO": "LerianStudio/example",
+        "CONTEXT": "breaking-change-approval",
+        "HEAD_SHA": "abc1234567",
+        "STATE": "approved",
+        "RESULT": "success",
+        "REASON": "rule develop <- '*'",
+        "APPROVERS": "carol",
+        "REJECTERS": "",
+        "RUN_URL": "https://github.com/LerianStudio/example/actions/runs/1",
+        "DRY_RUN": "false",
+        "RUN_ID": "500",
+        "GH_TOKEN": "stub",
+    }
+    env.update(overrides)
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        calls = Path(temp_dir) / "calls"
+        calls.touch()
+        stub = Path(temp_dir) / "gh"
+        stub.write_text(
+            "#!/usr/bin/env bash\n"
+            # The read that decides whether an older run may speak. It answers
+            # the target_url of whoever wrote the context last; LATEST_RUN sets
+            # which run that was.
+            'case "$*" in\n'
+            '  *"/statuses"*[!0-9])\n'
+            '    if [ -n "${LATEST_RUN:-}" ]; then\n'
+            "      printf '%s\\n' \"https://github.com/o/r/actions/runs/${LATEST_RUN}\"\n"
+            "    fi\n"
+            "    exit 0 ;;\n"
+            "esac\n"
+            f'printf \'%s\\n\' "$*" >> "{calls}"\n'
+            'if [ -n "${STUB_FAILS:-}" ]; then exit 1; fi\n',
+            encoding="utf-8",
+        )
+        stub.chmod(0o755)
+        env["PATH"] = f"{temp_dir}:{os.environ.get('PATH', '/usr/bin:/bin')}"
+        result = subprocess.run(
+            ["bash", "-c", step["run"]],
+            cwd=temp_dir,
+            env=env,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        return result, calls.read_text(encoding="utf-8").splitlines()
+
+
 def run_reporter_comment(
     state, existing_body=None, read_fails=False, legacy_ids="", **overrides
 ):
@@ -478,6 +543,7 @@ def run_reporter_comment(
         "ACKNOWLEDGED": "true",
         "ACK_LINE": "Breaking change acknowledged: …",
         "SUBJECTS": "",
+        "BLOCKED_STAGE": "",
         "RUN_URL": "https://github.com/LerianStudio/example/actions/runs/1",
         "REVIEWERS": "team:devops",
         "SERVER_URL": "https://github.com",
@@ -592,6 +658,7 @@ def run_reporter_labels(state, **overrides):
         "PENDING_LABEL": "awaiting-breaking-approval",
         "ENABLED": "false",
         "SUBJECTS": "",
+        "BLOCKED_STAGE": "",
         "FINGERPRINT": "",
         "RUN_ID": "1",
         "GH_TOKEN": "stub",
@@ -2264,6 +2331,223 @@ class ApprovalGateStructureTests(unittest.TestCase):
         self.assertNotIn("```", rendered)
         # The break is still announced — only the unusable instruction is gone.
         self.assertIn("acknowledgement missing", rendered)
+
+    def test_the_gate_publishes_one_status_name_everywhere(self):
+        # A reusable workflow's check is reported as `<caller job> / … / <job>`,
+        # and the caller's job name lives in the consumer's repository. Measured
+        # across the organisation, the same gate produces six different names,
+        # so no single ruleset can require it. A commit status carries no job
+        # path — which is why CodeRabbit and Socket look identical everywhere.
+        def published(**overrides):
+            result, calls = run_gate_status(**overrides)
+            self.assertEqual(0, result.returncode, result.stderr)
+            self.assertEqual(1, len(calls), calls)
+            return calls[0]
+
+        # Pass and fail, by state. Each one carries the `result` the verdict
+        # actually emits for it — the previous version of this test passed the
+        # helper's default `success` for every state, which is how it missed
+        # that `superseded` publishes with `result=failure`.
+        for state, extra, expected in (
+            ("approved", {}, "success"),
+            ("none", {}, "success"),
+            ("rejected", {"RESULT": "failure"}, "failure"),
+            ("blocked", {"RESULT": "failure"}, "failure"),
+            ("unresolved", {"RESULT": "failure"}, "failure"),
+        ):
+            with self.subTest(state):
+                call = published(STATE=state, **extra)
+                self.assertIn(f"state={expected}", call.replace("state ", "state="))
+                self.assertIn("statuses/abc1234567", call)
+                self.assertIn("context=breaking-change-approval", call.replace("context ", "context="))
+
+        # `result` is the authority: a state that reads as success cannot
+        # publish success over a verdict that failed.
+        contradictory = published(STATE="none", RESULT="failure")
+        self.assertIn("failure", contradictory)
+
+        # Published on every run, including the ones with nothing to approve —
+        # a required check that never arrives leaves the pull request pending
+        # forever, which is worse than having no rule.
+        self.assertIn("statuses/", published(STATE="none"))
+
+    def test_an_older_run_cannot_speak_over_a_newer_one(self):
+        # Runs do not finish in the order they start, and `concurrency` is on
+        # the approval job only — the rest of an older run keeps going.
+        # Retarget a pull request to an in-scope base without touching the head
+        # SHA and the old out-of-scope run reaches `state=none`, then publishes
+        # `success` after the new run has already set `pending`. GitHub reads
+        # the latest status for a context, so a status-only rule would allow
+        # the merge before anyone decided.
+        #
+        # `superseded` does not cover this: the head did not move and nothing
+        # was cancelled, so the old run's verdict is a legitimate `none`.
+        _, late = run_gate_status(STATE="none", RUN_ID="500", LATEST_RUN="900")
+        self.assertEqual([], late, "an older run published over a newer one")
+
+        # A newer run still speaks over an older one, which is the whole point
+        # of the ordering rather than a blanket refusal.
+        _, newer = run_gate_status(STATE="none", RUN_ID="500", LATEST_RUN="100")
+        self.assertTrue(newer)
+
+        # And a context nobody has written yet is published normally.
+        _, first = run_gate_status(STATE="none", RUN_ID="500")
+        self.assertTrue(first)
+
+        # The hold applies the same rule, or the pending it writes could be
+        # the thing an older run overwrites.
+        workflow = yaml.safe_load(APPROVAL_WORKFLOW)
+        hold = next(
+            s
+            for s in workflow["jobs"]["request"]["steps"]
+            if s.get("name") == "Hold the gate status while the decision is pending"
+        )
+        self.assertIn("previous_run", hold["run"])
+        self.assertIn("RUN_ID", hold["env"])
+
+    def test_a_superseded_run_leaves_the_status_alone(self):
+        # The verdict emits `superseded` with `result=failure` — confirmed by
+        # running it — so publishing from such a run would overwrite the live
+        # run's success with a failure and block the pull request on a decision
+        # that was already given. GitHub reads the latest status for a context,
+        # and a superseded run can finish after the one that replaced it.
+        _, verdict = run_verdict(APPROVAL_RESULT="cancelled", MOCK_NEWER_RUNS="2")
+        self.assertEqual("superseded", verdict["state"])
+        self.assertEqual("failure", verdict["result"])
+
+        result, calls = run_gate_status(
+            STATE=verdict["state"], RESULT=verdict["result"]
+        )
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertEqual([], calls, "a superseded run published a status")
+
+        # Same for a head that moved on, the other route to superseded.
+        _, moved = run_verdict(LIVE_SHA="def456")
+        _, moved_calls = run_gate_status(STATE=moved["state"], RESULT=moved["result"])
+        self.assertEqual([], moved_calls)
+
+    def test_the_status_goes_pending_before_the_gate_waits(self):
+        # GitHub reads the latest status for a context, so without this the
+        # previous run's `success` stays current while this run sits at the
+        # Environment — and a rule requiring it would let the merge through on
+        # a decision nobody has given.
+        #
+        # The head SHA does not have to change for that: `edited` re-runs on
+        # the same commit, and changing a pull request's base moves it in or
+        # out of the gate's scope.
+        workflow = yaml.safe_load(APPROVAL_WORKFLOW)
+        steps = workflow["jobs"]["request"]["steps"]
+        names = [s.get("name") for s in steps]
+        hold = next(
+            s for s in steps if s.get("name") == "Hold the gate status while the decision is pending"
+        )
+
+        # Before the wait, which is the whole point. The hold lives in
+        # `request`, and `approval` — the job that sits at the Environment —
+        # needs `request`, so the status is pending before anything waits.
+        self.assertIn("Hold the gate status while the decision is pending", names)
+        self.assertIn("request", workflow["jobs"]["approval"]["needs"])
+        self.assertLess(
+            names.index("Hold the gate status while the decision is pending"),
+            names.index("Request the approval on the pull request") + 1,
+        )
+
+        # Only when this run will actually hold: publishing pending wherever
+        # the gate has nothing to ask would leave the status pending forever.
+        for condition in (
+            "inputs.status_context != ''",
+            "needs.detect.outputs.in-scope == 'true'",
+            "needs.detect.outputs.has-breaking-changes == 'true'",
+            "steps.reuse.outputs.already-approved != 'true'",
+            "!inputs.dry_run",
+        ):
+            self.assertIn(condition, hold["if"], condition)
+
+        # Same context as the final status, or the two describe different
+        # checks and the rule only ever sees one of them.
+        publish = next(
+            s
+            for s in workflow["jobs"]["outcome"]["steps"]
+            if s.get("name") == "Publish the gate status"
+        )
+        self.assertEqual(
+            publish["env"]["CONTEXT"], hold["env"]["CONTEXT"]
+        )
+        self.assertIn("state=pending", " ".join(hold["run"].split()))
+
+    def test_the_status_is_opt_in_and_degrades_instead_of_failing(self):
+        workflow = yaml.safe_load(APPROVAL_WORKFLOW)
+        step = next(
+            s
+            for s in workflow["jobs"]["outcome"]["steps"]
+            if s.get("name") == "Publish the gate status"
+        )
+        # Off by default: a repository that never asked for it is untouched.
+        self.assertIn("inputs.status_context != ''", step["if"])
+        self.assertEqual(
+            "", yaml.safe_load(APPROVAL_WORKFLOW)[True]["workflow_call"]["inputs"][
+                "status_context"
+            ]["default"]
+        )
+
+        # `statuses: write` is NOT declared on the job. A called workflow may
+        # only ask for permissions the caller already holds, so declaring it
+        # would break every consumer whose entrypoint does not grant it — the
+        # same reasoning the file already applies to `actions: read`.
+        self.assertNotIn("statuses", workflow["jobs"]["outcome"]["permissions"])
+
+        # So a token that cannot write it warns and carries on, rather than
+        # failing the job over a check the caller may not even require.
+        result, calls = run_gate_status(STUB_FAILS="1")
+        self.assertEqual(0, result.returncode)
+        self.assertIn("statuses: write", result.stdout + result.stderr)
+
+        # And a dry run says what it would publish without publishing it.
+        preview, dry_calls = run_gate_status(DRY_RUN="true")
+        self.assertEqual(0, preview.returncode)
+        self.assertEqual([], dry_calls)
+        self.assertIn("would publish status", preview.stdout)
+
+    def test_a_blocked_gate_names_the_half_that_failed(self):
+        # Measured on a real repository: ungoliant-controller's first breaking
+        # change hit this, and the comment said only "did not reach a verdict"
+        # with a link to the run. True, and no help — the author has to open
+        # the run and find the red job. The verdict already knew which half
+        # failed; it was telling the log and nobody else.
+        detection = render_reporter("blocked", ACKNOWLEDGED="", BLOCKED_STAGE="detection")
+        self.assertIn("Detection did not complete", detection)
+        self.assertNotIn("could not be requested", detection)
+
+        request = render_reporter("blocked", ACKNOWLEDGED="", BLOCKED_STAGE="request")
+        self.assertIn("the approval could not be requested", request)
+        self.assertNotIn("Detection did not complete", request)
+        # And the cause that actually happens, named rather than implied.
+        self.assertIn("breaking-approval", request)
+        self.assertIn("catch-all", request)
+
+        # Empty keeps the generic wording — a caller that does not pass it is
+        # no worse off than before.
+        generic = render_reporter("blocked", ACKNOWLEDGED="", BLOCKED_STAGE="")
+        self.assertIn("did not reach a verdict", generic)
+
+        # The verdict resolves the stage, and the outcome forwards it.
+        _, from_detection = run_verdict(DETECTION_SUCCEEDED="false")
+        self.assertEqual("detection", from_detection["stage"])
+        _, from_request = run_verdict(REQUEST_RESULT="failure")
+        self.assertEqual("request", from_request["stage"])
+        # Not set when nothing is blocked — it describes a failure, not a state.
+        _, approved = run_verdict(APPROVAL_RESULT="success")
+        self.assertEqual("", approved["stage"])
+
+        workflow = yaml.safe_load(APPROVAL_WORKFLOW)
+        step = next(
+            s
+            for s in workflow["jobs"]["outcome"]["steps"]
+            if s.get("name") == "Report the outcome on the pull request"
+        )
+        self.assertEqual(
+            "${{ steps.verdict.outputs.stage }}", step["with"]["blocked-stage"]
+        )
 
     def test_a_blocked_gate_says_so_on_the_pull_request(self):
         # Detection failing fails the check. It used to do that silently: a red
