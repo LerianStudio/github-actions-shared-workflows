@@ -296,9 +296,11 @@ runs:
         tags: ${{ steps.meta.outputs.tags }}
         labels: ${{ steps.meta.outputs.labels }}
         # TEMPORARY: the gha cache replays the old apk/apt layer, so a rebuild keeps
-        # the vulnerable ca-certificates. Revert once every repo has been rebuilt and
-        # redeployed. See issue #953.
+        # the vulnerable ca-certificates. no-cache re-runs every step; pull re-resolves
+        # FROM, because no-cache alone leaves a base image that carries the bad package
+        # untouched. Revert once every repo has been rebuilt and redeployed. See #953.
         no-cache: true
+        pull: true
         cache-from: type=gha
         cache-to: type=gha,mode=max
         secrets: ${{ steps.secrets.outputs.value }}
