@@ -335,6 +335,14 @@ on:
         description: 'Name of a GitHub Environment to scope the manifest publish job to. Empty (default) keeps the job unscoped, exactly as before. Set it to put the AWS_INIT_DATA_ROLE_ARN assume-role behind the environment''s protection rules — deployment tag policies (only protected tags may publish) and, optionally, required reviewers.'
         type: string
         default: ''
+      manifest_go_mod_path:
+        description: 'Path to the go.mod used by the manifest publish scope gate (direct lib-auth dependency check), relative to the repo root. Default is the root go.mod, exactly as before. A monorepo with per-service modules and no root go.mod points this at one module that has the direct dependency — manifest discovery stays repo-wide either way.'
+        type: string
+        default: 'go.mod'
+      manifest_component_tags:
+        description: 'Accept per-component release tags (<component>-vX.Y.Z, -beta.N, -rc.N) in the manifest publish environment gate, on top of plain vX.Y.Z tags. Default false keeps the gate plain-semver-only, exactly as before. The semver core stays strict either way — only an optional lowercase component prefix is allowed.'
+        type: boolean
+        default: false
       # ----------------- API Dog E2E (api-dog-e2e-tests.yml) -----------------
       enable_apidog_e2e:
         description: 'Run the ApiDog E2E test job on tag push after a successful gitops-update'
@@ -877,6 +885,9 @@ jobs:
 
       - name: Determine environment folder from tag
         id: env
+        env:
+          # A workflow_call boolean reaches the shell as the string true/false.
+          MANIFEST_COMPONENT_TAGS: ${{ inputs.manifest_component_tags }}
         run: |
           set -euo pipefail
           TAG="${GITHUB_REF#refs/tags/}"
@@ -889,17 +900,29 @@ jobs:
           # otherwise let `v01.2.3` slip past the gate as a production tag.
           NUM='(0|[1-9][0-9]*)'
           CORE="v${NUM}\.${NUM}\.${NUM}"
-          if [[ "$TAG" =~ ^${CORE}-beta\.${NUM}$ ]]; then
+          # manifest_component_tags widens the gate by ONE optional prefix — a
+          # monorepo cutting `<service>-vX.Y.Z` per rail. It is a prefix on the
+          # same anchored patterns, never a replacement: the semver core, the
+          # anchors and the three-way order below are untouched, so `v01.2.3`
+          # and `spi-v1.2.3-hotfix` keep falling through to the empty folder.
+          PREFIX=''
+          if [[ "${MANIFEST_COMPONENT_TAGS}" == 'true' ]]; then
+            PREFIX='([a-z][a-z0-9-]*-)?'
+            SHAPES='vX.Y.Z, vX.Y.Z-beta.N, vX.Y.Z-rc.N, optionally prefixed with <component>-'
+          else
+            SHAPES='vX.Y.Z, vX.Y.Z-beta.N, vX.Y.Z-rc.N'
+          fi
+          if [[ "$TAG" =~ ^${PREFIX}${CORE}-beta\.${NUM}$ ]]; then
             FOLDER="development"
-          elif [[ "$TAG" =~ ^${CORE}-rc\.${NUM}$ ]]; then
+          elif [[ "$TAG" =~ ^${PREFIX}${CORE}-rc\.${NUM}$ ]]; then
             FOLDER="staging"
-          elif [[ "$TAG" =~ ^${CORE}$ ]]; then
+          elif [[ "$TAG" =~ ^${PREFIX}${CORE}$ ]]; then
             FOLDER="production"
           else
             FOLDER=""
           fi
           echo "folder=${FOLDER}" >> "$GITHUB_OUTPUT"
-          [[ -n "$FOLDER" ]] && echo "📁 Environment: ${FOLDER}" || echo "::warning::Tag '${TAG}' is not a release semver tag (vX.Y.Z, vX.Y.Z-beta.N, vX.Y.Z-rc.N) — manifest publish skipped."
+          [[ -n "$FOLDER" ]] && echo "📁 Environment: ${FOLDER}" || echo "::warning::Tag '${TAG}' is not a release semver tag (${SHAPES}) — manifest publish skipped."
 
       # ----------------- AWS credentials (guarded) -----------------
       # Skip on a dry-run (the composite previews with no AWS call) and when the
@@ -920,6 +943,8 @@ jobs:
         with:
           environment: ${{ steps.env.outputs.folder }}
           github-token: ${{ github.token }}
+          # Only moves the lib-auth scope gate; manifest discovery stays repo-wide.
+          go-mod-path: ${{ inputs.manifest_go_mod_path }}
           dry-run: ${{ inputs.dry_run }}
 
   # ----------------- Extra Builds (tag push, opt-in) -----------------

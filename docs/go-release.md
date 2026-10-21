@@ -94,6 +94,8 @@ A third layout needs `release_single_app: true`: **one semantic-release tag for 
 | `s3_upload_mirrors` | JSON object mapping an `s3_uploads` bucket to a second bucket that receives every file uploaded to it under the same key (see [Mirror bucket](#mirror-bucket)) | string | `{"lerian-migration-files":{"bucket":"lerian-development-migrations","region":"us-east-2"}}` |
 | `run_manifest_publish` | Publish this service's own `permissions.yaml` to the shared Access-Manager RI catalog in S3 on tag push (see [Permission manifest publish](#permission-manifest-publish-ri)) | boolean | `true` |
 | `manifest_publish_environment` | GitHub Environment to scope the manifest publish job to, putting the `AWS_INIT_DATA_ROLE_ARN` assume-role behind that environment's protection rules. Empty keeps the job unscoped | string | `''` |
+| `manifest_go_mod_path` | Path to the `go.mod` the manifest publish scope gate reads for the direct lib-auth dependency, relative to the repo root. Point it at a service module in a monorepo with no root `go.mod` — discovery stays repo-wide | string | `'go.mod'` |
+| `manifest_component_tags` | Also accept per-component release tags (`<component>-vX.Y.Z`, `-beta.N`, `-rc.N`) in the environment gate. The semver core stays strict either way | boolean | `false` |
 | `enable_apidog_e2e` | Run the ApiDog E2E test job on tag push after a successful gitops-update | boolean | `false` |
 | `apidog_runner_type` | Runner for the ApiDog E2E test job (needs reach to the deployed environment) | string | `eveo-lxc-runners` |
 | `apidog_auto_detect_environment` | Auto-detect the ApiDog environment from the tag (beta → dev, rc → stg); when `false`, uses `APIDOG_ENVIRONMENT_ID` | boolean | `true` |
@@ -230,7 +232,34 @@ The catalog is **per-service and env-scoped**: each service writes exactly one o
 s3://lerian-casdoor-init-data/{environment}/permissions/{service}.yaml
 ```
 
-The `{environment}` folder is derived from the pushed tag, which must be a **strict release semver tag**: `vX.Y.Z-beta.N` → `development`, `vX.Y.Z-rc.N` → `staging`, `vX.Y.Z` → `production`. That is exactly what semantic-release produces; any other tag shape publishes **nothing** (the job logs a warning and skips) so a stray tag merely containing `beta`/`rc` can never write to the shared catalog. There is **no aggregation** on write — the tenant-manager aggregates at read time by listing the `{environment}/permissions/` prefix, and each release overwrites only its own file.
+The `{environment}` folder is derived from the pushed tag, which must be a **strict release semver tag**: `vX.Y.Z-beta.N` → `development`, `vX.Y.Z-rc.N` → `staging`, `vX.Y.Z` → `production`. That is exactly what semantic-release produces; any other tag shape publishes **nothing** (the job logs a warning and skips) so a stray tag merely containing `beta`/`rc` can never write to the shared catalog.
+
+### Per-component tags and a non-root `go.mod`
+
+A monorepo that cuts one version line per service — tags like `spi-v1.2.3`, `slc-edge-v1.2.3-beta.4` — matches none of those shapes and publishes nothing. Set `manifest_component_tags: true` to allow **one optional lowercase component prefix** before the version:
+
+| Tag | `manifest_component_tags: false` | `manifest_component_tags: true` |
+|---|---|---|
+| `v1.2.3` | `production` | `production` |
+| `spi-v1.2.3` | skipped | `production` |
+| `slc-edge-v1.2.3-beta.4` | skipped | `development` |
+| `cockpit-v2.0.0-rc.3` | skipped | `staging` |
+| `v01.2.3` | skipped | skipped |
+| `spi-v1.2.3-hotfix` | skipped | skipped |
+
+The prefix is the **only** thing that widens: the semver core keeps rejecting leading zeroes and arbitrary suffixes, and the prefix itself must start with a lowercase letter and hold only lowercase letters, digits and hyphens. A tag off-shape still publishes nothing. Leave the input at its default and the gate behaves exactly as it always has.
+
+`manifest_go_mod_path` moves **only** the lib-auth scope gate. A repo with per-service modules and no root `go.mod` points it at one module carrying the direct dependency; manifest discovery stays repo-wide, so the repo still publishes one object per `service:` value found anywhere in the tree:
+
+```yaml
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/go-release.yml@tier-1
+    with:
+      run_manifest_publish: true
+      manifest_go_mod_path: services/spi/go.mod
+      manifest_component_tags: true
+    secrets:
+      AWS_INIT_DATA_ROLE_ARN: ${{ secrets.AWS_INIT_DATA_ROLE_ARN }}
+``` There is **no aggregation** on write — the tenant-manager aggregates at read time by listing the `{environment}/permissions/` prefix, and each release overwrites only its own file.
 
 The job assumes the **`AWS_INIT_DATA_ROLE_ARN`** secret (scoped to the `lerian-casdoor-init-data` bucket — the same bucket the Casdoor `init_data.json` uses) via OIDC in region `sa-east-1`. Prefer mapping it **explicitly** rather than relying on `secrets: inherit`, so the release only ever receives the secrets it needs:
 
