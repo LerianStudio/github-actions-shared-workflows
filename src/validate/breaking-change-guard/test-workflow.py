@@ -2333,11 +2333,13 @@ class ApprovalGateStructureTests(unittest.TestCase):
             self.assertEqual(1, len(calls), calls)
             return calls[0]
 
-        # Pass and fail, by state.
+        # Pass and fail, by state. Each one carries the `result` the verdict
+        # actually emits for it — the previous version of this test passed the
+        # helper's default `success` for every state, which is how it missed
+        # that `superseded` publishes with `result=failure`.
         for state, extra, expected in (
             ("approved", {}, "success"),
             ("none", {}, "success"),
-            ("superseded", {}, "success"),
             ("rejected", {"RESULT": "failure"}, "failure"),
             ("blocked", {"RESULT": "failure"}, "failure"),
             ("unresolved", {"RESULT": "failure"}, "failure"),
@@ -2357,6 +2359,76 @@ class ApprovalGateStructureTests(unittest.TestCase):
         # a required check that never arrives leaves the pull request pending
         # forever, which is worse than having no rule.
         self.assertIn("statuses/", published(STATE="none"))
+
+    def test_a_superseded_run_leaves_the_status_alone(self):
+        # The verdict emits `superseded` with `result=failure` — confirmed by
+        # running it — so publishing from such a run would overwrite the live
+        # run's success with a failure and block the pull request on a decision
+        # that was already given. GitHub reads the latest status for a context,
+        # and a superseded run can finish after the one that replaced it.
+        _, verdict = run_verdict(APPROVAL_RESULT="cancelled", MOCK_NEWER_RUNS="2")
+        self.assertEqual("superseded", verdict["state"])
+        self.assertEqual("failure", verdict["result"])
+
+        result, calls = run_gate_status(
+            STATE=verdict["state"], RESULT=verdict["result"]
+        )
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertEqual([], calls, "a superseded run published a status")
+
+        # Same for a head that moved on, the other route to superseded.
+        _, moved = run_verdict(LIVE_SHA="def456")
+        _, moved_calls = run_gate_status(STATE=moved["state"], RESULT=moved["result"])
+        self.assertEqual([], moved_calls)
+
+    def test_the_status_goes_pending_before_the_gate_waits(self):
+        # GitHub reads the latest status for a context, so without this the
+        # previous run's `success` stays current while this run sits at the
+        # Environment — and a rule requiring it would let the merge through on
+        # a decision nobody has given.
+        #
+        # The head SHA does not have to change for that: `edited` re-runs on
+        # the same commit, and changing a pull request's base moves it in or
+        # out of the gate's scope.
+        workflow = yaml.safe_load(APPROVAL_WORKFLOW)
+        steps = workflow["jobs"]["request"]["steps"]
+        names = [s.get("name") for s in steps]
+        hold = next(
+            s for s in steps if s.get("name") == "Hold the gate status while the decision is pending"
+        )
+
+        # Before the wait, which is the whole point. The hold lives in
+        # `request`, and `approval` — the job that sits at the Environment —
+        # needs `request`, so the status is pending before anything waits.
+        self.assertIn("Hold the gate status while the decision is pending", names)
+        self.assertIn("request", workflow["jobs"]["approval"]["needs"])
+        self.assertLess(
+            names.index("Hold the gate status while the decision is pending"),
+            names.index("Request the approval on the pull request") + 1,
+        )
+
+        # Only when this run will actually hold: publishing pending wherever
+        # the gate has nothing to ask would leave the status pending forever.
+        for condition in (
+            "inputs.status_context != ''",
+            "needs.detect.outputs.in-scope == 'true'",
+            "needs.detect.outputs.has-breaking-changes == 'true'",
+            "steps.reuse.outputs.already-approved != 'true'",
+            "!inputs.dry_run",
+        ):
+            self.assertIn(condition, hold["if"], condition)
+
+        # Same context as the final status, or the two describe different
+        # checks and the rule only ever sees one of them.
+        publish = next(
+            s
+            for s in workflow["jobs"]["outcome"]["steps"]
+            if s.get("name") == "Publish the gate status"
+        )
+        self.assertEqual(
+            publish["env"]["CONTEXT"], hold["env"]["CONTEXT"]
+        )
+        self.assertIn("state=pending", " ".join(hold["run"].split()))
 
     def test_the_status_is_opt_in_and_degrades_instead_of_failing(self):
         workflow = yaml.safe_load(APPROVAL_WORKFLOW)

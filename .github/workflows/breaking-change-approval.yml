@@ -202,9 +202,9 @@ on:
           single ruleset can require it.
 
           Set it and the gate publishes that status on every run, so one
-          required status check covers every repository. Needs a token with
-          `statuses: write` — MANAGE_TOKEN, or the caller granting it. Empty
-          publishes nothing.
+          required status check covers every repository. Needs MANAGE_TOKEN
+          carrying `statuses: write`: this job declares its own `permissions:`,
+          so granting it on the caller has no effect. Empty publishes nothing.
         required: false
         type: string
         default: ''
@@ -740,6 +740,50 @@ jobs:
       # run announces "needs a decision", adds the pending label, and then the
       # verdict takes both back seconds later — a flicker in the timeline for a
       # decision that was never in question.
+      # The status goes pending before the wait, and only when there will be
+      # one. GitHub reads the latest status for a context, so without this the
+      # previous run's `success` stays current while this run sits at the
+      # Environment — and a rule requiring it would let the merge through on a
+      # decision nobody has given yet.
+      #
+      # The head SHA does not have to change for that to happen: `edited`
+      # re-runs on the same commit, and changing a pull request's base moves it
+      # in or out of scope. A pull request that was out of scope published
+      # `success`, and retargeting it to `develop` must not keep it.
+      #
+      # Only when this run will actually hold. Publishing pending on every run
+      # would leave the status pending wherever the gate has nothing to ask.
+      - name: Hold the gate status while the decision is pending
+        if: >-
+          inputs.status_context != ''
+          && needs.detect.result == 'success'
+          && needs.detect.outputs.in-scope == 'true'
+          && needs.detect.outputs.has-breaking-changes == 'true'
+          && steps.reuse.outputs.already-approved != 'true'
+          && !inputs.dry_run
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.MANAGE_TOKEN || github.token }}
+          REPO: ${{ github.repository }}
+          CONTEXT: ${{ inputs.status_context }}
+          HEAD_SHA: ${{ needs.detect.outputs.head-sha }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+
+          [ -n "${HEAD_SHA:-}" ] || exit 0
+
+          if ! gh api --method POST "repos/${REPO}/statuses/${HEAD_SHA}" \
+                 -f state=pending \
+                 -f context="$CONTEXT" \
+                 -f description="Waiting for a decision on the breaking change" \
+                 -f target_url="$RUN_URL" >/dev/null 2>&1; then
+            echo "::warning::Could not hold the '${CONTEXT}' status pending. It needs MANAGE_TOKEN carrying \`statuses: write\`." >&2
+            exit 0
+          fi
+
+          echo "::notice::Status '${CONTEXT}' = pending — waiting for a decision"
+
       - name: Request the approval on the pull request
         if: >-
           needs.detect.result == 'success'
@@ -1185,6 +1229,17 @@ jobs:
           # `pending` is never published. The status exists so a branch rule can
           # read it, and a rule reading `pending` blocks — this job runs once
           # the verdict is in, so it always has a final answer to give.
+          # A superseded run must not touch the pull request, and the status is
+          # the pull request. Its verdict is about a revision that is no longer
+          # current, and it carries `result=failure` — so publishing it would
+          # overwrite the live run's success with a failure and block the pull
+          # request on a decision that was already made. The same rule the
+          # comment and the close already follow.
+          if [ "$STATE" = "superseded" ]; then
+            echo "::notice::Superseded — leaving the '${CONTEXT}' status to the run that replaced this one"
+            exit 0
+          fi
+
           case "$STATE" in
             approved)
               status=success
@@ -1197,10 +1252,6 @@ jobs:
             none)
               status=success
               description="No approval needed — ${REASON}"
-              ;;
-            superseded)
-              status=success
-              description="Superseded by a newer run"
               ;;
             blocked)
               status=failure
@@ -1231,7 +1282,12 @@ jobs:
                  -f context="$CONTEXT" \
                  -f description="${description:0:140}" \
                  -f target_url="$RUN_URL" >/dev/null 2>&1; then
-            echo "::warning::Could not publish the '${CONTEXT}' status. It needs a token with \`statuses: write\` — pass MANAGE_TOKEN, or grant it on the caller's job. A branch rule requiring this status will stay pending until it can be written." >&2
+            # Only MANAGE_TOKEN can fix this. The job declares its own
+            # `permissions:`, which replaces whatever the caller granted, so
+            # adding `statuses: write` upstream changes nothing — and the job
+            # cannot declare it itself without breaking every consumer that
+            # does not hold it.
+            echo "::warning::Could not publish the '${CONTEXT}' status. It needs MANAGE_TOKEN carrying \`statuses: write\`; granting it on the caller's job has no effect here. A branch rule requiring this status will stay pending until it can be written." >&2
             exit 0
           fi
 

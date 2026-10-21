@@ -599,19 +599,31 @@ BREAKING_APPROVAL_STATUS_CONTEXT = breaking-change-approval
 Then one organisation ruleset requires `breaking-change-approval` and covers
 every repository, whatever its jobs are called.
 
-Three things worth knowing:
+Four things worth knowing:
 
-- **It is published on every run**, including those with nothing to approve.
-  Out of scope, no breaking commits, superseded — all publish `success`. A
-  status that only appears sometimes cannot be required.
+- **It goes `pending` before the gate waits**, and only then. GitHub reads the
+  latest status for a context, so without it the previous run's `success` stays
+  current while this run sits at the Environment — and the rule would allow a
+  merge on a decision nobody has given. The head SHA does not have to change
+  for that: `edited` re-runs on the same commit, and retargeting a pull request
+  moves it in or out of the gate's scope.
+- **It is published on every run that reaches a verdict**, including those with
+  nothing to approve. Out of scope and no breaking commits both publish
+  `success`. A status that only appears sometimes cannot be required.
+- **A superseded run publishes nothing.** Its verdict describes a revision that
+  is no longer current and carries `result: failure`, so publishing it would
+  overwrite the live run's success and block the pull request on a decision
+  already given. The same rule the comment and the close already follow.
 - **`result` decides pass or fail**, not the state. The state only chooses the
   wording, and the two are not allowed to disagree.
-- **It needs `statuses: write`.** The job does not declare that permission, and
-  deliberately: a called workflow may only ask for permissions the caller
-  already holds, so declaring it would break every consumer that does not grant
-  it. It goes through `MANAGE_TOKEN` instead. Without a token that can write it
-  the step warns and carries on rather than failing — but a rule requiring the
-  status will stay pending, so check the warning before turning the rule on.
+- **It needs `MANAGE_TOKEN` carrying `statuses: write`.** The job declares its
+  own `permissions:`, which replaces whatever the caller granted — so granting
+  `statuses: write` upstream has no effect here. Declaring it on the job is not
+  an option either: a called workflow may only ask for permissions the caller
+  already holds, so it would break every consumer that does not hold it. Hence
+  the token. Without one that can write, the step warns and carries on rather
+  than failing — but a rule requiring the status will stay pending, so check
+  the warning before turning the rule on.
 
 Requiring the job name instead still works for a single repository, and this
 repository does exactly that. Prefer the status wherever one rule has to cover
