@@ -732,6 +732,12 @@ jobs:
             VERSION=${{ steps.version.outputs.version }}
             REVISION=${{ steps.source.outputs.sha }}
             BUILD_TIME=${{ steps.version.outputs.build_time }}
+          # TEMPORARY: a cached rebuild replays the old apk/apt layer and would ship
+          # the vulnerable ca-certificates again. no-cache re-runs every step; pull re-resolves
+          # FROM, because no-cache alone leaves a base image that carries the bad package
+          # untouched. Revert once every repo has been rebuilt and redeployed. See #953.
+          no-cache: true
+          pull: true
           cache-from: type=gha
           cache-to: type=gha,mode=max
           secrets: |
@@ -859,6 +865,12 @@ jobs:
             BUILD_TIME=${{ steps.version.outputs.build_time }}
           sbom: generator=docker/scout-sbom-indexer:latest
           provenance: mode=max
+          # TEMPORARY: a cached rebuild replays the old apk/apt layer and would ship
+          # the vulnerable ca-certificates again. no-cache re-runs every step; pull re-resolves
+          # FROM, because no-cache alone leaves a base image that carries the bad package
+          # untouched. Revert once every repo has been rebuilt and redeployed. See #953.
+          no-cache: true
+          pull: true
           cache-from: type=gha
           cache-to: type=gha,mode=max
           secrets: |
