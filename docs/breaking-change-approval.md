@@ -599,7 +599,7 @@ BREAKING_APPROVAL_STATUS_CONTEXT = breaking-change-approval
 Then one organisation ruleset requires `breaking-change-approval` and covers
 every repository, whatever its jobs are called.
 
-Four things worth knowing:
+Five things worth knowing:
 
 - **It goes `pending` before the gate waits**, and only then. GitHub reads the
   latest status for a context, so without it the previous run's `success` stays
@@ -610,6 +610,10 @@ Four things worth knowing:
 - **It is published on every run that reaches a verdict**, including those with
   nothing to approve. Out of scope and no breaking commits both publish
   `success`. A status that only appears sometimes cannot be required.
+- **An older run never speaks over a newer one.** Runs do not finish in the
+  order they start, and the concurrency group covers the approval job alone.
+  Each write first reads who wrote the context last — the run id is in the
+  `target_url` the gate writes — and stops if that run is newer.
 - **A superseded run publishes nothing.** Its verdict describes a revision that
   is no longer current and carries `result: failure`, so publishing it would
   overwrite the live run's success and block the pull request on a decision
@@ -622,8 +626,17 @@ Four things worth knowing:
   an option either: a called workflow may only ask for permissions the caller
   already holds, so it would break every consumer that does not hold it. Hence
   the token. Without one that can write, the step warns and carries on rather
-  than failing — but a rule requiring the status will stay pending, so check
-  the warning before turning the rule on.
+  than failing.
+
+  **Confirm the token can write statuses before making this the only required
+  check.** "It will stay pending" is only true for a commit that has no status
+  yet. If the same SHA already carries `success` for the context — an earlier
+  run, before the pull request was retargeted into scope — a failed write
+  leaves that success current, and a status-only rule allows the merge. The
+  failure is silent on the pull request by design, since the step must not
+  fail a job over a check the caller may not require. So either require the
+  gate's job alongside the status, or check that a run has written the status
+  at least once before relying on it alone.
 
 Requiring the job name instead still works for a single repository, and this
 repository does exactly that. Prefer the status wherever one rule has to cover

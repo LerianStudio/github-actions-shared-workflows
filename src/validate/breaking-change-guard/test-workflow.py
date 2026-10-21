@@ -474,6 +474,7 @@ def run_gate_status(**overrides):
         "REJECTERS": "",
         "RUN_URL": "https://github.com/LerianStudio/example/actions/runs/1",
         "DRY_RUN": "false",
+        "RUN_ID": "500",
         "GH_TOKEN": "stub",
     }
     env.update(overrides)
@@ -484,6 +485,16 @@ def run_gate_status(**overrides):
         stub = Path(temp_dir) / "gh"
         stub.write_text(
             "#!/usr/bin/env bash\n"
+            # The read that decides whether an older run may speak. It answers
+            # the target_url of whoever wrote the context last; LATEST_RUN sets
+            # which run that was.
+            'case "$*" in\n'
+            '  *"/statuses"*[!0-9])\n'
+            '    if [ -n "${LATEST_RUN:-}" ]; then\n'
+            "      printf '%s\\n' \"https://github.com/o/r/actions/runs/${LATEST_RUN}\"\n"
+            "    fi\n"
+            "    exit 0 ;;\n"
+            "esac\n"
             f'printf \'%s\\n\' "$*" >> "{calls}"\n'
             'if [ -n "${STUB_FAILS:-}" ]; then exit 1; fi\n',
             encoding="utf-8",
@@ -2359,6 +2370,40 @@ class ApprovalGateStructureTests(unittest.TestCase):
         # a required check that never arrives leaves the pull request pending
         # forever, which is worse than having no rule.
         self.assertIn("statuses/", published(STATE="none"))
+
+    def test_an_older_run_cannot_speak_over_a_newer_one(self):
+        # Runs do not finish in the order they start, and `concurrency` is on
+        # the approval job only — the rest of an older run keeps going.
+        # Retarget a pull request to an in-scope base without touching the head
+        # SHA and the old out-of-scope run reaches `state=none`, then publishes
+        # `success` after the new run has already set `pending`. GitHub reads
+        # the latest status for a context, so a status-only rule would allow
+        # the merge before anyone decided.
+        #
+        # `superseded` does not cover this: the head did not move and nothing
+        # was cancelled, so the old run's verdict is a legitimate `none`.
+        _, late = run_gate_status(STATE="none", RUN_ID="500", LATEST_RUN="900")
+        self.assertEqual([], late, "an older run published over a newer one")
+
+        # A newer run still speaks over an older one, which is the whole point
+        # of the ordering rather than a blanket refusal.
+        _, newer = run_gate_status(STATE="none", RUN_ID="500", LATEST_RUN="100")
+        self.assertTrue(newer)
+
+        # And a context nobody has written yet is published normally.
+        _, first = run_gate_status(STATE="none", RUN_ID="500")
+        self.assertTrue(first)
+
+        # The hold applies the same rule, or the pending it writes could be
+        # the thing an older run overwrites.
+        workflow = yaml.safe_load(APPROVAL_WORKFLOW)
+        hold = next(
+            s
+            for s in workflow["jobs"]["request"]["steps"]
+            if s.get("name") == "Hold the gate status while the decision is pending"
+        )
+        self.assertIn("previous_run", hold["run"])
+        self.assertIn("RUN_ID", hold["env"])
 
     def test_a_superseded_run_leaves_the_status_alone(self):
         # The verdict emits `superseded` with `result=failure` — confirmed by

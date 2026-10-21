@@ -767,11 +767,33 @@ jobs:
           REPO: ${{ github.repository }}
           CONTEXT: ${{ inputs.status_context }}
           HEAD_SHA: ${{ needs.detect.outputs.head-sha }}
+          RUN_ID: ${{ github.run_id }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           set -euo pipefail
 
           [ -n "${HEAD_SHA:-}" ] || exit 0
+
+          # Who wrote this context last, and from which run? Runs do not finish
+          # in the order they start: retarget a pull request and the old
+          # out-of-scope run keeps going, reaches `state=none`, and publishes
+          # `success` after the new run has already set `pending`. The status
+          # is the merge decision, so the older run must not have the last
+          # word.
+          #
+          # The run id is in the `target_url` this gate writes, so the ordering
+          # is readable without asking the runs API. A status written by
+          # anything else has no id to compare and is left alone.
+          latest=$(
+            gh api "repos/${REPO}/commits/${HEAD_SHA}/statuses" \
+              --jq "[.[] | select(.context == \"${CONTEXT}\")] | first | .target_url // empty" 2>/dev/null || true
+          )
+          previous_run=$(grep -oE '[0-9]+$' <<< "${latest:-}" || true)
+
+          if [ -n "$previous_run" ] && [ "$previous_run" -gt "$RUN_ID" ] 2>/dev/null; then
+            echo "::notice::Run ${previous_run} already spoke for '${CONTEXT}' and is newer than this one — leaving it alone"
+            exit 0
+          fi
 
           if ! gh api --method POST "repos/${REPO}/statuses/${HEAD_SHA}" \
                  -f state=pending \
@@ -1216,6 +1238,7 @@ jobs:
           REASON: ${{ needs.detect.outputs.reason }}
           APPROVERS: ${{ steps.decisions.outputs.approvers || needs.request.outputs.approved-by }}
           REJECTERS: ${{ steps.verdict.outputs.rejecters }}
+          RUN_ID: ${{ github.run_id }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           DRY_RUN: ${{ inputs.dry_run && 'true' || 'false' }}
         run: |
@@ -1229,6 +1252,27 @@ jobs:
           # `pending` is never published. The status exists so a branch rule can
           # read it, and a rule reading `pending` blocks — this job runs once
           # the verdict is in, so it always has a final answer to give.
+          # Who wrote this context last, and from which run? Runs do not finish
+          # in the order they start: retarget a pull request and the old
+          # out-of-scope run keeps going, reaches `state=none`, and publishes
+          # `success` after the new run has already set `pending`. The status
+          # is the merge decision, so the older run must not have the last
+          # word.
+          #
+          # The run id is in the `target_url` this gate writes, so the ordering
+          # is readable without asking the runs API. A status written by
+          # anything else has no id to compare and is left alone.
+          latest=$(
+            gh api "repos/${REPO}/commits/${HEAD_SHA}/statuses" \
+              --jq "[.[] | select(.context == \"${CONTEXT}\")] | first | .target_url // empty" 2>/dev/null || true
+          )
+          previous_run=$(grep -oE '[0-9]+$' <<< "${latest:-}" || true)
+
+          if [ -n "$previous_run" ] && [ "$previous_run" -gt "$RUN_ID" ] 2>/dev/null; then
+            echo "::notice::Run ${previous_run} already spoke for '${CONTEXT}' and is newer than this one — leaving it alone"
+            exit 0
+          fi
+
           # A superseded run must not touch the pull request, and the status is
           # the pull request. Its verdict is about a revision that is no longer
           # current, and it carries `result=failure` — so publishing it would
