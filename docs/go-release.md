@@ -232,7 +232,18 @@ The catalog is **per-service and env-scoped**: each service writes exactly one o
 s3://lerian-casdoor-init-data/{environment}/permissions/{service}.yaml
 ```
 
-The `{environment}` folder is derived from the pushed tag, which must be a **strict release semver tag**: `vX.Y.Z-beta.N` → `development`, `vX.Y.Z-rc.N` → `staging`, `vX.Y.Z` → `production`. That is exactly what semantic-release produces; any other tag shape publishes **nothing** (the job logs a warning and skips) so a stray tag merely containing `beta`/`rc` can never write to the shared catalog.
+The `{environment}` folder is derived from the pushed tag, which must be a **strict release semver tag**: `vX.Y.Z-beta.N` → `development`, `vX.Y.Z-rc.N` → `staging`, `vX.Y.Z` → `production`. That is exactly what semantic-release produces; any other tag shape publishes **nothing** (the job logs a warning and skips) so a stray tag merely containing `beta`/`rc` can never write to the shared catalog. There is **no aggregation** on write — the tenant-manager aggregates at read time by listing the `{environment}/permissions/` prefix, and each release overwrites only its own file.
+
+The job assumes the **`AWS_INIT_DATA_ROLE_ARN`** secret (scoped to the `lerian-casdoor-init-data` bucket — the same bucket the Casdoor `init_data.json` uses) via OIDC in region `sa-east-1`. Prefer mapping it **explicitly** rather than relying on `secrets: inherit`, so the release only ever receives the secrets it needs:
+
+```yaml
+    secrets:
+      AWS_INIT_DATA_ROLE_ARN: ${{ secrets.AWS_INIT_DATA_ROLE_ARN }}
+```
+
+Set `run_manifest_publish: false` to opt out.
+
+For an extra gate on **who** may publish, set `manifest_publish_environment` to the name of a GitHub Environment configured in the caller repo. The publish job then runs under that environment, so its protection rules apply to the assume-role — a **deployment tag policy** (e.g. `v*.*.*`) restricts publishing to the tags you protect, and required reviewers can hold a production publish for approval. Left empty (the default) the job stays unscoped, as before.
 
 ### Per-component tags and a non-root `go.mod`
 
@@ -259,18 +270,7 @@ The prefix is the **only** thing that widens: the semver core keeps rejecting le
       manifest_component_tags: true
     secrets:
       AWS_INIT_DATA_ROLE_ARN: ${{ secrets.AWS_INIT_DATA_ROLE_ARN }}
-``` There is **no aggregation** on write — the tenant-manager aggregates at read time by listing the `{environment}/permissions/` prefix, and each release overwrites only its own file.
-
-The job assumes the **`AWS_INIT_DATA_ROLE_ARN`** secret (scoped to the `lerian-casdoor-init-data` bucket — the same bucket the Casdoor `init_data.json` uses) via OIDC in region `sa-east-1`. Prefer mapping it **explicitly** rather than relying on `secrets: inherit`, so the release only ever receives the secrets it needs:
-
-```yaml
-    secrets:
-      AWS_INIT_DATA_ROLE_ARN: ${{ secrets.AWS_INIT_DATA_ROLE_ARN }}
 ```
-
-Set `run_manifest_publish: false` to opt out.
-
-For an extra gate on **who** may publish, set `manifest_publish_environment` to the name of a GitHub Environment configured in the caller repo. The publish job then runs under that environment, so its protection rules apply to the assume-role — a **deployment tag policy** (e.g. `v*.*.*`) restricts publishing to the tags you protect, and required reviewers can hold a production publish for approval. Left empty (the default) the job stays unscoped, as before.
 
 ## ApiDog E2E tests
 
