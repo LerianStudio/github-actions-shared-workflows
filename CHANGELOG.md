@@ -1,5 +1,37 @@
 # Github-actions-shared-workflows Changelog
 
+## [1.86.0](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.86.0)
+
+Features:
+- Added a reviewer to the gate when `CODEOWNERS` has none. (@bedatty)
+- Introduced a single comment for breaking changes instead of two. (@bedatty)
+- Added a composite to handle breaking-change commits. (@bedatty)
+- Implemented a button and a real undo example for live approval. (@bedatty)
+- Marked breaking changes for easy readability at a glance. (@bedatty)
+
+Fixes:
+- Closed paths past the breaking-change gate to ensure proper validation. (@bedatty)
+- Resolved issues with reused approvals by binding them to the correct pull request. (@bedatty)
+- Restored feedback that was being swallowed by the approval gate. (@bedatty)
+- Scoped the newer-run check to the gate's own workflow. (@bedatty)
+- Ensured that the breaking-change label is retained after approval. (@bedatty)
+- Made the breaking-change comment read as informational rather than as a warning. (@bedatty)
+- Addressed issues with the Environment gate to ensure reviewers are correctly named. (@bedatty)
+- Realigned `codeql-action` references after a bump. (@bedatty)
+- Pinned `go-fuzz` actions by commit SHA for stability. (@bedatty)
+
+Improvements:
+- Documented behavior changes in the breaking-change approval process without a major version update. (@bedatty)
+- Stated the `v2` label and output contracts for breaking-change approval. (@bedatty)
+- Updated documentation to reflect the current state of the validation process, including the removal of outdated job descriptions. (@bedatty)
+- Serialized approvers to prevent blocked assertions. (@bedatty)
+- Refactored the gate's leftovers to provide a clear purpose. (@bedatty)
+- Enhanced test coverage for the gate's suites and error paths. (@bedatty)
+
+[Compare changes](https://github.com/LerianStudio/github-actions-shared-workflows/compare/v1.85.0...v1.86.0)
+
+---
+
 ## [1.85.0](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.85.0)
 
 Features:

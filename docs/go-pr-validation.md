@@ -72,10 +72,12 @@ This distinguishes the two skips that used to look identical: a pipeline the cal
 | `breaking_change_require_protected_environment` | Refuse to gate when `breaking-approval` has no required reviewers | boolean | `true` |
 | `breaking_change_approval_reviewers` | Who may answer the gate, as `team:<slug>` or `user:<login>`. Empty takes the repository's CODEOWNERS | string | *(empty)* |
 | `breaking_change_fallback_reviewers` | Who answers when the above is empty **and** CODEOWNERS yields nobody. Defaults to the `BREAKING_APPROVAL_FALLBACK_REVIEWERS` organisation variable | string | *(empty)* |
+| `breaking_change_status_context` | Publish the gate verdict as a commit status under this name, so one organisation-wide required check covers every repository. Defaults to the `BREAKING_APPROVAL_STATUS_CONTEXT` organisation variable | string | *(empty)* |
 | `breaking_change_create_environment` | Create `breaking-approval` when missing. Needs a `MANAGE_TOKEN` with administration rights | boolean | `true` |
 | `go_version` | Go version | string | `1.23` |
 | `golangci_lint_version` | GolangCI-Lint version | string | `v1.62.2` |
 | `govulncheck_version` | govulncheck version to install. Pinned rather than `@latest` so an upstream release cannot change what runs here unchosen. Works at any `go_version` — the install step overrides `GOTOOLCHAIN=auto`, the scan still runs under the pinned toolchain | string | `v1.7.0` |
+| `fail_on_govulncheck` | Fail the Security job when govulncheck reports findings. Default `false` keeps the scan advisory: the Go vulnerability database changes independently of the pull request, so a newly published CVE in a common dependency would otherwise turn every repository on the channel red at once, on pull requests that touch nothing related. Findings are annotated either way — warning when `false`, error when `true` — so the scan is never silent. Turn it on per repository once its dependency graph is clean | boolean | `false` |
 | `golangci_lint_args` | Extra arguments passed to golangci-lint (e.g. `--timeout=5m`) | string | `--timeout=5m` |
 | `app_name_prefix` | Prefix used to namespace coverage/build artifacts | string | `''` |
 | `filter_paths` | Newline-separated component path prefixes for monorepo per-component analysis (lint/tests/coverage) **and** security scanning; empty = single-app root run. When using it for security, leave `dockerfile_path` empty so each component Dockerfile is discovered | string | `''` |
