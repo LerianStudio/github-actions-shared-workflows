@@ -1,5 +1,21 @@
 # Github-actions-shared-workflows Changelog
 
+## [1.87.0](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.87.0)
+
+Features:
+- Publish the gate verdict under one stable check name for pull request validation. (@bedatty)
+- Allow callers to gate on `govulncheck` instead of only logging it in Go pull request analysis. (@bedatty)
+
+Fixes:
+- Ensure only the newest run speaks for the gate status in pull request validation. (@bedatty)
+- Keep the gate status pending and avoid publishing a dead one in pull request validation. (@bedatty)
+- Provide specific information on which half of the gate failed in pull request validation. (@bedatty)
+- Wrap generated guides in a hidden Liquid raw block in Helm upgrade documentation. (@guimoreirar)
+
+[Compare changes](https://github.com/LerianStudio/github-actions-shared-workflows/compare/v1.86.0...v1.87.0)
+
+---
+
 ## [1.86.0](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.86.0)
 
 Features:
