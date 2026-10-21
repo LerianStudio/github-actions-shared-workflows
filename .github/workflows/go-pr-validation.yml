@@ -179,6 +179,14 @@ on:
         description: 'Close the pull request when a reviewer rejects the breaking change.'
         type: boolean
         default: true
+      breaking_change_status_context:
+        description: >-
+          Publish the gate's verdict as a commit status under this name, so one
+          organisation-wide required check can cover every repository. Defaults
+          to the `BREAKING_APPROVAL_STATUS_CONTEXT` organisation variable.
+        required: false
+        type: string
+        default: ''
       breaking_change_fallback_reviewers:
         description: >-
           Who answers the breaking-change gate in a repository whose CODEOWNERS
@@ -493,6 +501,7 @@ jobs:
       breaking_change_close_on_rejection: ${{ inputs.breaking_change_close_on_rejection }}
       breaking_change_approval_reviewers: ${{ inputs.breaking_change_approval_reviewers }}
       breaking_change_fallback_reviewers: ${{ inputs.breaking_change_fallback_reviewers }}
+      breaking_change_status_context: ${{ inputs.breaking_change_status_context }}
       breaking_change_create_environment: ${{ inputs.breaking_change_create_environment }}
       breaking_change_require_protected_environment: ${{ inputs.breaking_change_require_protected_environment }}
     secrets:

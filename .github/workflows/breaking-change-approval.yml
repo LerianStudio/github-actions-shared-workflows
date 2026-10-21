@@ -192,6 +192,22 @@ on:
         required: false
         type: boolean
         default: true
+      status_context:
+        description: >-
+          Name of a commit status published with the gate's verdict. Fixed
+          across repositories, which a job name cannot be: a reusable
+          workflow's check surfaces as `<caller job> / … / <job>`, and the
+          caller's job name lives in the consumer's own file — so the same gate
+          appears under several different names across an organisation and no
+          single ruleset can require it.
+
+          Set it and the gate publishes that status on every run, so one
+          required status check covers every repository. Needs MANAGE_TOKEN
+          carrying `statuses: write`: this job declares its own `permissions:`,
+          so granting it on the caller has no effect. Empty publishes nothing.
+        required: false
+        type: string
+        default: ''
       enable_comment:
         description: Post (and keep updated) a single comment carrying the request, the approval link and the outcome.
         required: false
@@ -724,6 +740,72 @@ jobs:
       # run announces "needs a decision", adds the pending label, and then the
       # verdict takes both back seconds later — a flicker in the timeline for a
       # decision that was never in question.
+      # The status goes pending before the wait, and only when there will be
+      # one. GitHub reads the latest status for a context, so without this the
+      # previous run's `success` stays current while this run sits at the
+      # Environment — and a rule requiring it would let the merge through on a
+      # decision nobody has given yet.
+      #
+      # The head SHA does not have to change for that to happen: `edited`
+      # re-runs on the same commit, and changing a pull request's base moves it
+      # in or out of scope. A pull request that was out of scope published
+      # `success`, and retargeting it to `develop` must not keep it.
+      #
+      # Only when this run will actually hold. Publishing pending on every run
+      # would leave the status pending wherever the gate has nothing to ask.
+      - name: Hold the gate status while the decision is pending
+        if: >-
+          inputs.status_context != ''
+          && needs.detect.result == 'success'
+          && needs.detect.outputs.in-scope == 'true'
+          && needs.detect.outputs.has-breaking-changes == 'true'
+          && steps.reuse.outputs.already-approved != 'true'
+          && !inputs.dry_run
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.MANAGE_TOKEN || github.token }}
+          REPO: ${{ github.repository }}
+          CONTEXT: ${{ inputs.status_context }}
+          HEAD_SHA: ${{ needs.detect.outputs.head-sha }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+
+          [ -n "${HEAD_SHA:-}" ] || exit 0
+
+          # Who wrote this context last, and from which run? Runs do not finish
+          # in the order they start: retarget a pull request and the old
+          # out-of-scope run keeps going, reaches `state=none`, and publishes
+          # `success` after the new run has already set `pending`. The status
+          # is the merge decision, so the older run must not have the last
+          # word.
+          #
+          # The run id is in the `target_url` this gate writes, so the ordering
+          # is readable without asking the runs API. A status written by
+          # anything else has no id to compare and is left alone.
+          latest=$(
+            gh api "repos/${REPO}/commits/${HEAD_SHA}/statuses" \
+              --jq "[.[] | select(.context == \"${CONTEXT}\")] | first | .target_url // empty" 2>/dev/null || true
+          )
+          previous_run=$(grep -oE '[0-9]+$' <<< "${latest:-}" || true)
+
+          if [ -n "$previous_run" ] && [ "$previous_run" -gt "$RUN_ID" ] 2>/dev/null; then
+            echo "::notice::Run ${previous_run} already spoke for '${CONTEXT}' and is newer than this one — leaving it alone"
+            exit 0
+          fi
+
+          if ! gh api --method POST "repos/${REPO}/statuses/${HEAD_SHA}" \
+                 -f state=pending \
+                 -f context="$CONTEXT" \
+                 -f description="Waiting for a decision on the breaking change" \
+                 -f target_url="$RUN_URL" >/dev/null 2>&1; then
+            echo "::warning::Could not hold the '${CONTEXT}' status pending. It needs MANAGE_TOKEN carrying \`statuses: write\`." >&2
+            exit 0
+          fi
+
+          echo "::notice::Status '${CONTEXT}' = pending — waiting for a decision"
+
       - name: Request the approval on the pull request
         if: >-
           needs.detect.result == 'success'
@@ -814,11 +896,13 @@ jobs:
     runs-on: ${{ vars.GENERAL_RUNNERS || inputs.runner_type }}
     needs: [detect, request, approval]
     if: always()
-    # Deliberately NOT declaring `actions: read`. A called workflow may only ask
-    # for permissions the caller already holds, so declaring it would break every
-    # consumer whose entrypoint does not grant it. The approvals API is read
-    # through MANAGE_TOKEN when present, and degrades to the job conclusion when
-    # it is not — see the fallback in the step.
+    # Deliberately NOT declaring `actions: read`, and for the same reason not
+    # `statuses: write`. A called workflow may only ask for permissions the
+    # caller already holds, so declaring either would break every consumer whose
+    # entrypoint does not grant it. Both are reached through MANAGE_TOKEN
+    # instead, and both degrade rather than fail — the approvals API falls back
+    # to the job conclusion, and the commit status warns loudly if it cannot be
+    # published.
     permissions:
       pull-requests: write
     outputs:
@@ -1130,6 +1214,128 @@ jobs:
           else
             echo "::warning::PR #${PR_NUMBER} could not be closed (token lacks 'pull-requests: write'?) — the gate still failed"
           fi
+
+      # One check name, the same in every repository. A reusable workflow's job
+      # surfaces as `<caller job> / … / Breaking Change Approval`, and the
+      # caller's job name is in the consumer's own file — measured across the
+      # organisation, the same gate produces six different names, so no single
+      # organisation ruleset can require it. A commit status carries no job
+      # path, which is why CodeRabbit and Socket look identical everywhere.
+      #
+      # Published on every run, including the ones with nothing to approve: a
+      # required status check that never arrives leaves the pull request
+      # pending forever, which is worse than not having the rule.
+      - name: Publish the gate status
+        if: always() && inputs.status_context != ''
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.MANAGE_TOKEN || github.token }}
+          REPO: ${{ github.repository }}
+          CONTEXT: ${{ inputs.status_context }}
+          HEAD_SHA: ${{ needs.detect.outputs.head-sha }}
+          STATE: ${{ steps.verdict.outputs.state }}
+          RESULT: ${{ steps.verdict.outputs.result }}
+          REASON: ${{ needs.detect.outputs.reason }}
+          APPROVERS: ${{ steps.decisions.outputs.approvers || needs.request.outputs.approved-by }}
+          REJECTERS: ${{ steps.verdict.outputs.rejecters }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          DRY_RUN: ${{ inputs.dry_run && 'true' || 'false' }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${HEAD_SHA:-}" ]; then
+            echo "::warning::No head SHA resolved, so the '${CONTEXT}' status cannot be published. A required check will stay pending."
+            exit 0
+          fi
+
+          # `pending` is never published. The status exists so a branch rule can
+          # read it, and a rule reading `pending` blocks — this job runs once
+          # the verdict is in, so it always has a final answer to give.
+          # Who wrote this context last, and from which run? Runs do not finish
+          # in the order they start: retarget a pull request and the old
+          # out-of-scope run keeps going, reaches `state=none`, and publishes
+          # `success` after the new run has already set `pending`. The status
+          # is the merge decision, so the older run must not have the last
+          # word.
+          #
+          # The run id is in the `target_url` this gate writes, so the ordering
+          # is readable without asking the runs API. A status written by
+          # anything else has no id to compare and is left alone.
+          latest=$(
+            gh api "repos/${REPO}/commits/${HEAD_SHA}/statuses" \
+              --jq "[.[] | select(.context == \"${CONTEXT}\")] | first | .target_url // empty" 2>/dev/null || true
+          )
+          previous_run=$(grep -oE '[0-9]+$' <<< "${latest:-}" || true)
+
+          if [ -n "$previous_run" ] && [ "$previous_run" -gt "$RUN_ID" ] 2>/dev/null; then
+            echo "::notice::Run ${previous_run} already spoke for '${CONTEXT}' and is newer than this one — leaving it alone"
+            exit 0
+          fi
+
+          # A superseded run must not touch the pull request, and the status is
+          # the pull request. Its verdict is about a revision that is no longer
+          # current, and it carries `result=failure` — so publishing it would
+          # overwrite the live run's success with a failure and block the pull
+          # request on a decision that was already made. The same rule the
+          # comment and the close already follow.
+          if [ "$STATE" = "superseded" ]; then
+            echo "::notice::Superseded — leaving the '${CONTEXT}' status to the run that replaced this one"
+            exit 0
+          fi
+
+          case "$STATE" in
+            approved)
+              status=success
+              description="Approved by ${APPROVERS:-a reviewer}"
+              ;;
+            rejected)
+              status=failure
+              description="Rejected by ${REJECTERS:-a reviewer}"
+              ;;
+            none)
+              status=success
+              description="No approval needed — ${REASON}"
+              ;;
+            blocked)
+              status=failure
+              description="The gate could not run — see the run log"
+              ;;
+            would-request)
+              status=success
+              description="Dry run — would hold for approval"
+              ;;
+            *)
+              status=failure
+              description="Awaiting a decision on the breaking change"
+              ;;
+          esac
+
+          # `result` is the authority on pass or fail; the state only chooses
+          # the wording. Letting the two disagree is how a status says success
+          # over a verdict that failed.
+          [ "$RESULT" = "success" ] || [ "$status" = "failure" ] || status=failure
+
+          if [ "$DRY_RUN" = "true" ]; then
+            echo "::notice::DRY RUN — would publish status '${CONTEXT}' = ${status} (${description})"
+            exit 0
+          fi
+
+          if ! gh api --method POST "repos/${REPO}/statuses/${HEAD_SHA}" \
+                 -f state="$status" \
+                 -f context="$CONTEXT" \
+                 -f description="${description:0:140}" \
+                 -f target_url="$RUN_URL" >/dev/null 2>&1; then
+            # Only MANAGE_TOKEN can fix this. The job declares its own
+            # `permissions:`, which replaces whatever the caller granted, so
+            # adding `statuses: write` upstream changes nothing — and the job
+            # cannot declare it itself without breaking every consumer that
+            # does not hold it.
+            echo "::warning::Could not publish the '${CONTEXT}' status. It needs MANAGE_TOKEN carrying \`statuses: write\`; granting it on the caller's job has no effect here. A branch rule requiring this status will stay pending until it can be written." >&2
+            exit 0
+          fi
+
+          echo "::notice::Status '${CONTEXT}' = ${status} — ${description}"
 
       - name: Record the verdict
         if: always()

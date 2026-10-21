@@ -158,6 +158,19 @@ on:
         description: 'Close the pull request when a reviewer rejects the breaking change.'
         type: boolean
         default: true
+      breaking_change_status_context:
+        description: >-
+          Publish the gate's verdict as a commit status under this name. A
+          reusable workflow's check carries the caller's job path, so the same
+          gate appears under a different name in each repository and an
+          organisation ruleset cannot require it. A commit status does not,
+          so one name works everywhere.
+
+          Defaults to the `BREAKING_APPROVAL_STATUS_CONTEXT` organisation
+          variable. Empty publishes nothing.
+        required: false
+        type: string
+        default: ''
       breaking_change_fallback_reviewers:
         description: >-
           Who answers the breaking-change gate in a repository whose CODEOWNERS
@@ -342,6 +355,7 @@ jobs:
       # The caller's value wins; the organisation variable is the default, so
       # a repository that never heard of this gate still has someone to ask.
       fallback_reviewers: ${{ inputs.breaking_change_fallback_reviewers != '' && inputs.breaking_change_fallback_reviewers || vars.BREAKING_APPROVAL_FALLBACK_REVIEWERS }}
+      status_context: ${{ inputs.breaking_change_status_context != '' && inputs.breaking_change_status_context || vars.BREAKING_APPROVAL_STATUS_CONTEXT }}
       create_approval_environment: ${{ inputs.breaking_change_create_environment }}
       require_protected_environment: ${{ inputs.breaking_change_require_protected_environment }}
       dry_run: ${{ inputs.dry_run }}
