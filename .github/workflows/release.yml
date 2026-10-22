@@ -67,6 +67,10 @@ on:
         description: 'Limits the path to the first N segments (e.g., 2 -> "apps/agent")'
         type: string
         default: '2'
+      normalize_to_filter:
+        description: 'Use the matching filter_paths entry as the release working_dir instead of the path_level-trimmed directory, so a top-level component (e.g. "cockpit") releases from its root rather than once per subdirectory.'
+        type: boolean
+        default: false
       enable_changelog:
         description: 'Generate CHANGELOG.md files via GPT after a successful release'
         required: false
@@ -228,6 +232,7 @@ jobs:
           filter-paths: ${{ inputs.filter_paths }}
           shared-paths: ${{ inputs.shared_paths }}
           path-level: ${{ inputs.path_level }}
+          normalize-to-filter: ${{ inputs.normalize_to_filter }}
           get-app-name: 'true'
 
       - name: Set matrix

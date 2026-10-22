@@ -19,6 +19,8 @@ Umbrella reusable workflow for Go **service** repositories (deployable apps that
 
 A third layout needs `release_single_app: true`: **one semantic-release tag for the whole repo, but one image per component**. Set `filter_paths` to the component prefixes (so the tag-push build still produces N images) and `release_single_app: true` so the branch-push release ignores `filter_paths` and runs once from the repo root. Without it, each component spawns a parallel `Semantic Release` job and they race to tag the same branch.
 
+The release legs trim each changed path to `path_level` segments (default `2`). A component that sits at the top level next to nested ones — `cockpit` beside `services/spb` — would get one leg per subdirectory (`cockpit/src`, `cockpit/e2e`), none of which holds its `.releaserc`. Set `release_normalize_to_filter: true` to run each leg from its `filter_paths` entry instead; an entry with exactly `path_level` segments (`services/spb` at the default `2`) is unaffected, since it already equals its trimmed path. Deeper changes under a shorter entry are the ones that collapse onto it.
+
 ## Inputs
 
 | Input | Description | Type | Default |
@@ -109,6 +111,7 @@ A third layout needs `release_single_app: true`: **one semantic-release tag for 
 | `shared_paths` | Path patterns that trigger a release/build for all components | string | `''` |
 | `filter_paths` | Path prefixes to filter (empty = single-app repo) | string | `''` |
 | `release_single_app` | Force single-app mode for the release job even when `filter_paths` is set (one version tag, many images) | boolean | `false` |
+| `release_normalize_to_filter` | Run each release leg from its matching `filter_paths` entry instead of the `path_level`-trimmed directory (release job only; builds unaffected) | boolean | `false` |
 
 > **Derived gitops defaults** — to slim down gitops/helm plugin callers, three gitops-update inputs derive from `app_name_prefix` / the repo name when left unset: `commit_message_prefix` → `app_name_prefix`; the gitops deploy `app_name` → `app_name_prefix`; `gitops_artifact_pattern` → `gitops-tags-<repo-name>*`. Set any of them explicitly to override (e.g. a repo whose deploy app name differs from its `app_name_prefix`, or a monorepo needing a different artifact suffix). All derivations fall back to the repository name when `app_name_prefix` is also empty, preserving the previous behavior.
 >

@@ -418,6 +418,10 @@ on:
         description: 'Force single-app mode for the release job even when filter_paths is set. Use for repos with one version tag but multiple Docker images.'
         type: boolean
         default: false
+      release_normalize_to_filter:
+        description: 'Run each release leg from its matching filter_paths entry instead of the path_level-trimmed directory. Use when a component sits at the top level (e.g. "cockpit") next to nested ones (e.g. "services/spb"), so it releases once from its root, where its .releaserc lives. Does not affect the build jobs.'
+        type: boolean
+        default: false
       filter_paths:
         description: 'Newline-separated list of path prefixes to filter. Empty = single-app repo.'
         type: string
@@ -510,6 +514,7 @@ jobs:
       announcement_slack_channel: ${{ inputs.announcement_slack_channel }}
       shared_paths: ${{ inputs.shared_paths }}
       filter_paths: ${{ !inputs.release_single_app && inputs.filter_paths || '' }}
+      normalize_to_filter: ${{ inputs.release_normalize_to_filter }}
     secrets: inherit
 
   # ----------------- Build (tag push, or same-run stable release when build_on_release) -----------------

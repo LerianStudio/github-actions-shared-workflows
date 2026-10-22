@@ -140,6 +140,7 @@ is the correct setting.
 | `announcement_product_name` | string | `''` | Product name displayed in the announcement. Defaults to the repository name |
 | `announcement_slack_channel` | string | `''` | Slack channel that receives the announcement. Defaults to the `RELEASE_SLACK_CHANNEL` repository variable; the announcement is skipped when both are empty |
 | `release_notes_max_chars` | number | `125000` | Fail the release before any tag is created when the generated release notes are longer than this. Matches the GitHub Releases API limit — see [Oversized release notes](#oversized-release-notes). `0` disables the check |
+| `normalize_to_filter` | boolean | `false` | With `filter_paths` set, run each release leg from the matching `filter_paths` entry instead of the `path_level`-trimmed directory. Use it when a top-level component (e.g. `cockpit`) would otherwise get one leg per subdirectory, none carrying its `.releaserc` |
 | `environment_name` | string | `''` | Overrides the per-channel deployment environment for this run. Empty keeps `stable`/`rc`/`beta` by ref — see [Deployment Environments](#deployment-environments) |
 
 ## Oversized Release Notes
