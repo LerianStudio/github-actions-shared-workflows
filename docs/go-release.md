@@ -94,6 +94,8 @@ A third layout needs `release_single_app: true`: **one semantic-release tag for 
 | `s3_upload_mirrors` | JSON object mapping an `s3_uploads` bucket to a second bucket that receives every file uploaded to it under the same key (see [Mirror bucket](#mirror-bucket)) | string | `{"lerian-migration-files":{"bucket":"lerian-development-migrations","region":"us-east-2"}}` |
 | `run_manifest_publish` | Publish this service's own `permissions.yaml` to the shared Access-Manager RI catalog in S3 on tag push (see [Permission manifest publish](#permission-manifest-publish-ri)) | boolean | `true` |
 | `manifest_publish_environment` | GitHub Environment to scope the manifest publish job to, putting the `AWS_INIT_DATA_ROLE_ARN` assume-role behind that environment's protection rules. Empty keeps the job unscoped | string | `''` |
+| `manifest_go_mod_path` | Path to the `go.mod` the manifest publish scope gate reads for the direct lib-auth dependency, relative to the repo root. Point it at a service module in a monorepo with no root `go.mod` — discovery stays repo-wide | string | `'go.mod'` |
+| `manifest_component_tags` | Also accept per-component release tags (`<component>-vX.Y.Z`, `-beta.N`, `-rc.N`) in the environment gate. The semver core stays strict either way | boolean | `false` |
 | `enable_apidog_e2e` | Run the ApiDog E2E test job on tag push after a successful gitops-update | boolean | `false` |
 | `apidog_runner_type` | Runner for the ApiDog E2E test job (needs reach to the deployed environment) | string | `eveo-lxc-runners` |
 | `apidog_auto_detect_environment` | Auto-detect the ApiDog environment from the tag (beta → dev, rc → stg); when `false`, uses `APIDOG_ENVIRONMENT_ID` | boolean | `true` |
@@ -242,6 +244,33 @@ The job assumes the **`AWS_INIT_DATA_ROLE_ARN`** secret (scoped to the `lerian-c
 Set `run_manifest_publish: false` to opt out.
 
 For an extra gate on **who** may publish, set `manifest_publish_environment` to the name of a GitHub Environment configured in the caller repo. The publish job then runs under that environment, so its protection rules apply to the assume-role — a **deployment tag policy** (e.g. `v*.*.*`) restricts publishing to the tags you protect, and required reviewers can hold a production publish for approval. Left empty (the default) the job stays unscoped, as before.
+
+### Per-component tags and a non-root `go.mod`
+
+A monorepo that cuts one version line per service — tags like `spi-v1.2.3`, `slc-edge-v1.2.3-beta.4` — matches none of those shapes and publishes nothing. Set `manifest_component_tags: true` to allow **one optional lowercase component prefix** before the version:
+
+| Tag | `manifest_component_tags: false` | `manifest_component_tags: true` |
+|---|---|---|
+| `v1.2.3` | `production` | `production` |
+| `spi-v1.2.3` | skipped | `production` |
+| `slc-edge-v1.2.3-beta.4` | skipped | `development` |
+| `cockpit-v2.0.0-rc.3` | skipped | `staging` |
+| `v01.2.3` | skipped | skipped |
+| `spi-v1.2.3-hotfix` | skipped | skipped |
+
+The prefix is the **only** thing that widens: the semver core keeps rejecting leading zeroes and arbitrary suffixes, and the prefix itself must start with a lowercase letter and hold only lowercase letters, digits and hyphens. A tag off-shape still publishes nothing. Leave the input at its default and the gate behaves exactly as it always has.
+
+`manifest_go_mod_path` moves **only** the lib-auth scope gate. A repo with per-service modules and no root `go.mod` points it at one module carrying the direct dependency; manifest discovery stays repo-wide, so the repo still publishes one object per `service:` value found anywhere in the tree:
+
+```yaml
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/go-release.yml@tier-1
+    with:
+      run_manifest_publish: true
+      manifest_go_mod_path: services/spi/go.mod
+      manifest_component_tags: true
+    secrets:
+      AWS_INIT_DATA_ROLE_ARN: ${{ secrets.AWS_INIT_DATA_ROLE_ARN }}
+```
 
 ## ApiDog E2E tests
 
