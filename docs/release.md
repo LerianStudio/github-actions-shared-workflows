@@ -185,6 +185,25 @@ published nothing.
 When it fires, re-run the job: the same commits usually release immediately. If it
 keeps happening, the runner cannot reach the npm registry.
 
+## Release Skipped Because the Branch Moved
+
+semantic-release opens with a `git push --dry-run` of the checked-out head. When
+another merge lands on the branch after the job synced to it, that push is rejected,
+semantic-release finds the local branch behind the remote, logs *"The local branch
+… is behind the remote one, therefore a new version won't be published"* and exits
+`0` with `new_release_published` set to `false`. The newer push only releases the
+component again if it touches the same paths, so the release is lost while the run
+reports success. Monorepo legs run one at a time (`max-parallel: 1`), so the window
+is the whole run, not one step.
+
+`false` is also the legitimate "nothing to release", so after a `false` the job
+checks whether the branch moved. When it did, it moves HEAD to the new remote head
+and runs semantic-release again in dry-run. If that finds a release, the job fails
+with an error naming the component; if it finds none, the job stays green.
+
+When it fires, re-run the failed job: it syncs to the current head of the branch
+before releasing, and the release guards run again on it.
+
 ## Release Announcement
 
 After a successful release, the `announce_release` job calls
