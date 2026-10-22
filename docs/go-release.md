@@ -19,7 +19,7 @@ Umbrella reusable workflow for Go **service** repositories (deployable apps that
 
 A third layout needs `release_single_app: true`: **one semantic-release tag for the whole repo, but one image per component**. Set `filter_paths` to the component prefixes (so the tag-push build still produces N images) and `release_single_app: true` so the branch-push release ignores `filter_paths` and runs once from the repo root. Without it, each component spawns a parallel `Semantic Release` job and they race to tag the same branch.
 
-The release legs trim each changed path to `path_level` segments (default `2`). A component that sits at the top level next to nested ones — `cockpit` beside `services/spb` — would get one leg per subdirectory (`cockpit/src`, `cockpit/e2e`), none of which holds its `.releaserc`. Set `release_normalize_to_filter: true` to run each leg from its `filter_paths` entry instead; nested entries such as `services/spb` are unaffected, since they already match their trimmed path.
+The release legs trim each changed path to `path_level` segments (default `2`). A component that sits at the top level next to nested ones — `cockpit` beside `services/spb` — would get one leg per subdirectory (`cockpit/src`, `cockpit/e2e`), none of which holds its `.releaserc`. Set `release_normalize_to_filter: true` to run each leg from its `filter_paths` entry instead; an entry with exactly `path_level` segments (`services/spb` at the default `2`) is unaffected, since it already equals its trimmed path. Deeper changes under a shorter entry are the ones that collapse onto it.
 
 ## Inputs
 
