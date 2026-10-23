@@ -180,7 +180,7 @@ on:
         type: string
         default: 'maintenance/*'
       extra_builds:
-        description: 'JSON array of additional build groups, each forwarded to build.yml with its own config (filter_paths, path_level, normalize_to_filter, app_name_overrides, build_context_from_working_dir, helm_*, tag_prefix, enable_dockerhub, enable_ghcr, enable_gitops_artifacts, force_full_matrix, require_build_identity). Runs alongside the primary build on tag push; groups with enable_gitops_artifacts enabled (the default) feed the single gitops-update. A group with tag_prefix set only builds when the triggering tag starts with that prefix (e.g. a component with its own independent semver and tag scheme); omit tag_prefix to build on every tag push, as before. enable_dockerhub/enable_ghcr default to the top-level inputs of the same name when omitted (explicit true/false on the group always wins, including false) — use to publish a group to only one registry regardless of the primary build''s registries. enable_gitops_artifacts defaults to true when omitted. require_build_identity defaults to the top-level input (itself true by default) when omitted (explicit true/false on the group wins) — set false on a group whose image has not adopted the build identity (e.g. a migrations image without a Go binary). force_full_matrix defaults to true, skipping change detection so the group builds/publishes every listed component in lockstep with the release version; set it to false to build only changed components. Empty = one build only (default).'
+        description: 'JSON array of additional build groups, each forwarded to build.yml with its own config (filter_paths, path_level, normalize_to_filter, app_name_overrides, build_context_from_working_dir, helm_*, tag_prefix, enable_dockerhub, enable_ghcr, enable_gitops_artifacts, force_full_matrix, require_build_identity). Runs alongside the primary build on tag push; groups with enable_gitops_artifacts enabled (the default) feed the single gitops-update. A group with tag_prefix set only builds when the triggering tag starts with that prefix (e.g. a component with its own independent semver and tag scheme); omit tag_prefix to build on every tag push, as before. enable_dockerhub/enable_ghcr default to the top-level inputs of the same name when omitted (explicit true/false on the group always wins, including false) — use to publish a group to only one registry regardless of the primary build''s registries. enable_gitops_artifacts defaults to true when omitted. require_build_identity defaults to the top-level input (itself true by default) when omitted (explicit true/false on the group wins) — set false on a group whose image has not adopted the build identity (e.g. a migrations image without a Go binary). force_full_matrix defaults to true, skipping change detection so the group builds/publishes every listed component in lockstep with the release version; set it to false to build only changed components. While the top-level enable_helm_dispatch is true, set enable_helm_dispatch/helm_chart/helm_values_key_mappings on a group only when it targets a different chart than the top-level helm_chart: a group for the same chart is already in the central dispatch, so map its component in the top-level helm_values_key_mappings instead (the same-chart combination is flagged with a warning). Empty = one build only (default).'
         type: string
         default: ''
       force_full_matrix:
@@ -951,6 +951,45 @@ jobs:
           # Only moves the lib-auth scope gate; manifest discovery stays repo-wide.
           go-mod-path: ${{ inputs.manifest_go_mod_path }}
           dry-run: ${{ inputs.dry_run }}
+
+  # ----------------- Helm Dispatch Guard (extra_builds) -----------------
+  # A group that sets enable_helm_dispatch for the chart the top level already
+  # dispatches leaves the central dispatch_helm payload and bumps that chart on
+  # its own, once per component and before its siblings' images exist. Warn
+  # instead of failing: the group's own helm_values_key_mappings cannot be
+  # folded into the central payload safely, so the caller has to move them.
+  helm_dispatch_guard:
+    name: Check extra_builds Helm dispatch
+    if: >-
+      inputs.enable_helm_dispatch && inputs.helm_chart != '' &&
+      inputs.extra_builds != '' && inputs.extra_builds != '[]'
+    runs-on: ${{ inputs.runner_type }}
+    permissions: {}
+    steps:
+      - name: Flag extra_builds groups dispatching the top-level chart
+        env:
+          EXTRA_BUILDS: ${{ inputs.extra_builds }}
+          HELM_CHART: ${{ inputs.helm_chart }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          set -euo pipefail
+          # An unparsable value is reported by extra_build's fromJson; this
+          # check only ever adds warnings. filter_paths is newline-separated, and
+          # a newline would end the workflow command before its remediation text.
+          if ! jq -e 'type == "array"' <<<"$EXTRA_BUILDS" >/dev/null 2>&1; then
+            exit 0
+          fi
+          if [[ "$DRY_RUN" == "true" ]]; then
+            echo "chart: ${HELM_CHART}"
+            echo "extra_builds groups: $(jq 'length' <<<"$EXTRA_BUILDS")"
+          fi
+          jq -r --arg chart "$HELM_CHART" '
+            to_entries[]
+            | select(.value | type == "object")
+            | select(.value.enable_helm_dispatch == true
+                and ((.value.helm_chart // "") == "" or .value.helm_chart == $chart))
+            | "::warning title=extra_builds[\(.key)] dispatches the top-level chart::extra_builds[\(.key)] (filter_paths: \(.value.filter_paths // "" | tostring | gsub("%"; "%25") | gsub("[\r\n]+"; ", "))) sets enable_helm_dispatch for chart \($chart), which the top level already dispatches. The chart is bumped once per component and the image of this group is left out of the central payload. Remove enable_helm_dispatch, helm_chart and helm_values_key_mappings from the group and map its component in the top-level helm_values_key_mappings."
+          ' <<<"$EXTRA_BUILDS"
 
   # ----------------- Extra Builds (tag push, opt-in) -----------------
   extra_build:

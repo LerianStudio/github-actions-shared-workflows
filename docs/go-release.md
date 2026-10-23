@@ -325,7 +325,11 @@ Extra builds run on tag push (beta/rc, and stable when `build_on_release` is off
 > remove, and it bumps the chart once per component instead of once per release.
 > Keep a group-level `enable_helm_dispatch: true` only when that group targets a
 > **different** chart; such a group is then left out of the central payload
-> rather than published twice.
+> rather than published twice. While the top-level `enable_helm_dispatch` is
+> `true`, a group that sets `enable_helm_dispatch: true` with the top-level
+> `helm_chart` (or none) gets a warning from the `helm_dispatch_guard` job naming
+> it; the run itself is not failed. With the top-level dispatch off, the central
+> job does not run and nothing is flagged.
 >
 > ```yaml
 > enable_helm_dispatch: true
