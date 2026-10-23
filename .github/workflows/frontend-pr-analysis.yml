@@ -513,7 +513,9 @@ jobs:
             const appName = '${{ matrix.app.name }}';
             const passFail = parseFloat(coverage) >= parseFloat(threshold) ? '✅ PASS' : '⚠️ BELOW THRESHOLD';
 
-            const body = `## 📊 Unit Test Coverage Report: \`${appName}\`
+            const marker = `<!-- coverage-report:${appName} -->`;
+            const body = `${marker}
+            ## 📊 Unit Test Coverage Report: \`${appName}\`
 
             | Metric | Value | Status |
             |--------|-------|--------|
