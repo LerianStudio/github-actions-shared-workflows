@@ -34,17 +34,19 @@ extract_step 'Flag extra_builds groups dispatching the top-level chart' >"${WORK
 }
 
 # Runs the step and compares the warning titles it printed with the expected ones.
-# The step must exit 0 in every case.
+# The step must exit 0 in every case, and every line it prints must be a whole
+# warning command ending in the remediation, so none is cut short by a newline.
 assert_warnings() {
-  local label=$1 extra_builds=$2 expected=$3 status=0 got
-  got=$(EXTRA_BUILDS="${extra_builds}" HELM_CHART=my-chart DRY_RUN=false bash "${WORK_DIR}/guard.sh" 2>&1) || status=$?
-  got=$(sed -n 's/^::warning title=\([^:]*\)::.*/\1/p' <<<"${got}")
-  if [[ ${status} -eq 0 && "${got}" == "${expected}" ]]; then
+  local label=$1 extra_builds=$2 expected=$3 status=0 out got stray
+  out=$(EXTRA_BUILDS="${extra_builds}" HELM_CHART=my-chart DRY_RUN=false bash "${WORK_DIR}/guard.sh" 2>&1) || status=$?
+  got=$(sed -n 's/^::warning title=\([^:]*\)::.*/\1/p' <<<"${out}")
+  stray=$(grep -v '^::warning title=.*top-level helm_values_key_mappings\.$' <<<"${out}" | grep -v '^$' || true)
+  if [[ ${status} -eq 0 && "${got}" == "${expected}" && -z "${stray}" ]]; then
     PASSED=$((PASSED + 1))
     printf 'ok - %s\n' "${label}"
   else
     FAILED=$((FAILED + 1))
-    printf 'not ok - %s (exit %s), warned:\n%s\n' "${label}" "${status}" "${got}" >&2
+    printf 'not ok - %s (exit %s), printed:\n%s\n' "${label}" "${status}" "${out}" >&2
   fi
 }
 
@@ -54,6 +56,10 @@ MIGRATIONS='"filter_paths": "migrations-image", "app_name_overrides": "migration
 assert_warnings 'same chart as the top level: the group is named' \
   "[{${WORKER}}, {${MIGRATIONS}, \"enable_helm_dispatch\": true, \"helm_chart\": \"my-chart\", \"helm_values_key_mappings\": \"{}\"}]" \
   'extra_builds[1] dispatches the top-level chart'
+
+assert_warnings 'newline-separated filter_paths stay on the one warning line' \
+  '[{"filter_paths": "cmd/worker\ncmd/scheduler", "enable_helm_dispatch": true, "helm_chart": "my-chart"}]' \
+  'extra_builds[0] dispatches the top-level chart'
 
 assert_warnings 'group dispatch with no chart of its own falls on the top-level chart' \
   "[{${WORKER}, \"enable_helm_dispatch\": true}]" \
