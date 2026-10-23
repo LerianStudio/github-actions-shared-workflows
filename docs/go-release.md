@@ -60,7 +60,7 @@ The release legs trim each changed path to `path_level` segments (default `2`). 
 | `helm_chart` | Helm chart name to update (required when `enable_helm_dispatch`) | string | `''` |
 | `helm_detect_env_changes` | Detect new environment variables for Helm during dispatch | boolean | `true` |
 | `helm_env_file` | Example env file `helm_detect_env_changes` reads, relative to each component path. Set it when the repository keeps its example env elsewhere (e.g. `config/.env.example`) — otherwise detection finds nothing. Per-group override: `helm_env_file` | string | `.env.example` |
-| `helm_values_key_mappings` | JSON mapping of component names to values.yaml keys | string | `''` |
+| `helm_values_key_mappings` | JSON mapping of component names to values.yaml keys (nested keys allowed; `null` leaves a component out of the chart update) | string | `''` |
 | `extra_builds` | JSON array of additional build groups, each forwarded to `build.yml` with its own config; all feed the single gitops-update (see [Multiple build groups](#multiple-build-groups)) | string | `''` |
 | `dockerfile_name` | Dockerfile name for the primary build and every `extra_builds` group (per-group override via the group's own `dockerfile_name`); forwarded to `build.yml`, which resolves the path as `{working_dir}/{dockerfile_name}` | string | `'Dockerfile'` |
 | `enable_goreleaser` | Publish binaries with GoReleaser from the repository `.goreleaser.yml`, instead of (or in addition to) container images (see [GoReleaser binary lane](#goreleaser-binary-lane)) | boolean | `false` |
