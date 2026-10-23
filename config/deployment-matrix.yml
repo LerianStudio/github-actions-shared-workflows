@@ -149,6 +149,7 @@ apps:
     - br-sfn-sims
     - finance-hub
     - plugin-br-ted-lerian
+    - public-bedatty-application
     - status-page-lerian
     - system-facts
 
@@ -386,5 +387,6 @@ clusters:
       - br-sfn-sims
       - finance-hub
       - plugin-br-ted-lerian
+      - public-bedatty-application
       - status-page-lerian
       - system-facts
