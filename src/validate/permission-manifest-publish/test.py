@@ -235,6 +235,7 @@ def run_publish(files, env_overrides=None, fake_aws=None):
             "GOWORK": "off",
             **GO_CACHE_ENV,
             "GO_MOD_PATH": "go.mod",
+            "REQUIRE_LIB_AUTH": "true",
             "S3_BUCKET": "lerian-casdoor-init-data",
             "S3_PREFIX": "permissions",
             "AWS_REGION": "us-east-2",
@@ -539,6 +540,69 @@ class ValidateBeforePublish(unittest.TestCase):
                 extract_step(ACTION, name),
                 msg=f"step {name!r} must only run when detect proceeds",
             )
+
+
+class NonGoRepo(unittest.TestCase):
+    """`require-lib-auth: false` lets a repo that is not a Go service (a JS/TS app
+    such as the console) publish: go.mod is not read, the manifest alone decides,
+    and validation still applies."""
+
+    OFF = {"REQUIRE_LIB_AUTH": "false"}
+
+    def test_default_keeps_the_gate(self):
+        m = re.search(r'^  require-lib-auth:\n.*?default:\s*"([^"]+)"', ACTION, re.DOTALL | re.MULTILINE)
+        self.assertIsNotNone(m, "require-lib-auth input default not found in action.yml")
+        self.assertEqual(m.group(1), "true")
+
+    def test_gate_on_without_go_mod_still_skips(self):
+        result, out = run_publish({"permissions.yaml": manifest("console")})
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(out.get("state"), "skip")
+        self.assertEqual(result.ran, ["detect"])
+
+    def test_no_go_mod_publishes_when_gate_off(self):
+        result, out = run_publish(
+            {"package.json": "{}\n", "permissions.yaml": manifest("console")},
+            env_overrides=self.OFF,
+        )
+        self.assertEqual(result.returncode, 0, msg=result.stdout + result.stderr)
+        self.assertEqual(out.get("state"), "dryrun")
+        self.assertEqual(out.get("services"), "console")
+        self.assertEqual(out.get("s3_key"), "development/permissions/console.yaml")
+        self.assertIn("go.mod not checked", result.stdout)
+
+    def test_gate_off_ignores_a_go_mod_without_lib_auth(self):
+        result, out = run_publish(
+            {"go.mod": GO_MOD_OUT_OF_SCOPE, "permissions.yaml": manifest("console")},
+            env_overrides=self.OFF,
+        )
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(out.get("state"), "dryrun")
+
+    def test_gate_off_still_validates(self):
+        result, out = run_publish(
+            {"permissions.yaml": old_schema_manifest("console")},
+            env_overrides={**self.OFF, "DRY_RUN": "false"},
+            fake_aws=0,
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertNotIn("publish", result.ran)
+        self.assertEqual(out.get("published_count"), "0")
+
+    def test_gate_off_without_manifest_skips(self):
+        result, out = run_publish({"package.json": "{}\n"}, env_overrides=self.OFF)
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(out.get("state"), "skip")
+
+    def test_gate_off_real_publish(self):
+        result, out = run_publish(
+            {"permissions.yaml": manifest("console")},
+            env_overrides={**self.OFF, "DRY_RUN": "false", "ENVIRONMENT": "staging"},
+            fake_aws=0,
+        )
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(out.get("state"), "published")
+        self.assertEqual(out.get("s3_key"), "staging/permissions/console.yaml")
 
 
 class RegionConfiguration(unittest.TestCase):

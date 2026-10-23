@@ -155,6 +155,29 @@ jobs:
       - name: Run go-release Helm dispatch guard tests
         run: bash tests/go-release/test-helm-dispatch-guard.sh
 
+  # ----------------- js-release Workflow Shape Tests -----------------
+  js-release-workflow-tests:
+    name: js-release Workflow Shape Tests
+    runs-on: ${{ vars.GENERAL_RUNNERS || 'blacksmith-4vcpu-ubuntu-2404' }}
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+        with:
+          persist-credentials: false
+
+      # The test reads both workflows with PyYAML; do not depend on the runner
+      # image happening to ship it (same as the breaking-change-guard job).
+      - name: Install dependencies
+        run: |
+          if ! python3 -c "import yaml" 2>/dev/null; then
+            sudo apt-get install -y --no-install-recommends python3-yaml
+          fi
+
+      - name: Run js-release manifest publish tests
+        run: python3 tests/js-release/test_manifest_publish.py
+
   # ----------------- Build Identity Verification Tests -----------------
   # The build.yml verification step decides whether a service image may be published,
   # so a regression in it blocks releases across every consumer of build.yml. The
