@@ -15,6 +15,9 @@ description: |
   Scope gate (identical to `permission-manifest-nudge`): only acts when the repo has a
   DIRECT dependency on `github.com/LerianStudio/lib-auth` in go.mod AND ships a qualifying
   `permissions.yaml` (top-level `service:` AND `permissions:` keys). Otherwise → state=skip.
+  A repo that is not a Go service (e.g. a JS/TS app such as the console) sets
+  `require-lib-auth: false` to drop the go.mod half of the gate; the manifest half — and
+  validation — still apply.
 
   Validated before it is published: every qualifying manifest is parsed and checked exactly
   as the tenant-manager checks the catalog it loads (`yaml.Unmarshal` into lib-auth's
@@ -39,6 +42,14 @@ inputs:
     description: Path to go.mod (relative to repo root). Used only for the lib-auth scope gate.
     required: false
     default: "go.mod"
+  require-lib-auth:
+    description: >-
+      Require a direct github.com/LerianStudio/lib-auth dependency in go.mod (the scope gate).
+      Set "false" for a repo that is not a Go service (JS/TS) but ships a permissions.yaml:
+      go.mod is then not read at all, and manifest detection and validation apply as usual.
+      Any value other than "false" keeps the gate.
+    required: false
+    default: "true"
   s3-bucket:
     description: Target S3 bucket (without the s3:// prefix). Same bucket as the Casdoor init_data.
     required: false
@@ -88,6 +99,7 @@ runs:
       shell: bash
       env:
         GO_MOD_PATH: ${{ inputs.go-mod-path }}
+        REQUIRE_LIB_AUTH: ${{ inputs.require-lib-auth }}
         ENVIRONMENT: ${{ inputs.environment }}
       run: |
         # Best-effort by design: never `set -e`. Any internal hiccup degrades to a
@@ -105,23 +117,29 @@ runs:
         #    publisher agree on "what is in scope": a DIRECT github.com/LerianStudio/
         #    lib-auth dependency in go.mod. No go.mod, or only a transitive/indirect
         #    dependency, is out of scope (state=skip, no upload).
+        #    `require-lib-auth: false` (a non-Go repo, e.g. a JS/TS app) skips this
+        #    section entirely: go.mod is not read, and section 2 alone decides.
         # ---------------------------------------------------------------------------
-        if [[ ! -f "${GO_MOD_PATH}" ]]; then
-          echo "::notice title=Permission manifest publish::No go.mod at '${GO_MOD_PATH}' — not a Go service, skipping."
-          emit state skip
-          exit 0
-        fi
-
-        # Match `github.com/LerianStudio/lib-auth` or `.../lib-auth/vN` as a whole module
-        # token, in both the block form (indented) and single-line `require` form, then
-        # exclude `// indirect` so only a DIRECT dependency counts.
-        if grep -E '^[[:space:]]*(require[[:space:]]+)?github\.com/LerianStudio/lib-auth(/v[0-9]+)?[[:space:]]' "${GO_MOD_PATH}" \
-             | grep -qv '// indirect'; then
-          echo "Scope gate: direct github.com/LerianStudio/lib-auth dependency found — repo is in scope."
+        if [[ "${REQUIRE_LIB_AUTH}" == "false" ]]; then
+          echo "Scope gate: require-lib-auth is false — go.mod not checked; the manifest alone decides."
         else
-          echo "::notice title=Permission manifest publish::go.mod has no direct lib-auth dependency — out of scope, skipping."
-          emit state skip
-          exit 0
+          if [[ ! -f "${GO_MOD_PATH}" ]]; then
+            echo "::notice title=Permission manifest publish::No go.mod at '${GO_MOD_PATH}' — not a Go service, skipping."
+            emit state skip
+            exit 0
+          fi
+
+          # Match `github.com/LerianStudio/lib-auth` or `.../lib-auth/vN` as a whole module
+          # token, in both the block form (indented) and single-line `require` form, then
+          # exclude `// indirect` so only a DIRECT dependency counts.
+          if grep -E '^[[:space:]]*(require[[:space:]]+)?github\.com/LerianStudio/lib-auth(/v[0-9]+)?[[:space:]]' "${GO_MOD_PATH}" \
+               | grep -qv '// indirect'; then
+            echo "Scope gate: direct github.com/LerianStudio/lib-auth dependency found — repo is in scope."
+          else
+            echo "::notice title=Permission manifest publish::go.mod has no direct lib-auth dependency — out of scope, skipping."
+            emit state skip
+            exit 0
+          fi
         fi
 
         # ---------------------------------------------------------------------------

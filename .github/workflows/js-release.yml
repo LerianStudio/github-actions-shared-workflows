@@ -312,6 +312,20 @@ on:
         type: string
         default: '.releaserc.yml .github/* .coderabbit.yml .coderabbit.yaml'
 
+      # ----------------- Permission Manifest Publish (RI, permission-manifest-publish composite) -----------------
+      run_manifest_publish:
+        description: 'Publish this app''s own permissions.yaml manifest to the shared Access-Manager RI catalog in S3 on tag push (upstream half of the Inversão de Responsabilidade). Opt-in: default false, so no existing caller changes. The manifest is validated (same check the tenant-manager runs) before anything is uploaded; the job is continue-on-error, so neither a hiccup nor a rejected manifest blocks the release. Requires the AWS_INIT_DATA_ROLE_ARN secret.'
+        type: boolean
+        default: false
+      manifest_publish_environment:
+        description: 'Name of a GitHub Environment to scope the manifest publish job to. Empty (default) keeps the job unscoped. Set it to put the AWS_INIT_DATA_ROLE_ARN assume-role behind the environment''s protection rules — deployment tag policies (only protected tags may publish) and, optionally, required reviewers.'
+        type: string
+        default: ''
+      manifest_component_tags:
+        description: 'Accept per-component release tags (<component>-vX.Y.Z, -beta.N, -rc.N) in the manifest publish environment gate, on top of plain vX.Y.Z tags. Default false keeps the gate plain-semver-only. The semver core stays strict either way — only an optional lowercase component prefix is allowed.'
+        type: boolean
+        default: false
+
     secrets:
       MANAGE_TOKEN:
         required: false
@@ -324,6 +338,9 @@ on:
         description: 'IAM role ARN assumed via OIDC to upload the E2E (Playwright) report to the lerian-e2e-artifacts S3 bucket. Optional — when unset, the S3 upload step is skipped and only the GitHub Actions artifact is produced.'
         required: false
       UNGOLIANT_WEBHOOK_TOKEN:
+        required: false
+      AWS_INIT_DATA_ROLE_ARN:
+        description: 'IAM role ARN (scoped to the lerian-casdoor-init-data bucket) assumed via OIDC by the permission manifest publish job. Only used when run_manifest_publish is true; when unset the real upload is skipped.'
         required: false
 
     outputs:
@@ -511,6 +528,113 @@ jobs:
             echo "::warning::playwright-report/ not found — skipping S3 upload"
             echo "uploaded=false" >> "$GITHUB_OUTPUT"
           fi
+
+  # ----------------- Permission Manifest Publish (RI, tag push, opt-in) -----------------
+  # Upstream half of the Access-Manager "Inversão de Responsabilidade" for a JS/TS app:
+  # on a tag push the app publishes its OWN permissions.yaml to the shared RI catalog in
+  # S3 (one object per service, keyed by the manifest's `service:` value). The
+  # tenant-manager aggregates at read time by listing the prefix — there is no merge here.
+  #
+  # Same job as go-release's permission_manifest_publish (tag -> folder derivation kept
+  # byte-identical; tests/js-release/test_manifest_publish.py guards the drift), with two
+  # differences: it is opt-in (run_manifest_publish defaults to false here), and the
+  # composite's go.mod lib-auth scope gate is turned off with require-lib-auth: false —
+  # a JS repo has no go.mod, so the manifest alone decides. The manifest is validated
+  # before upload exactly as for a Go service. Reads repo files only, so it does not
+  # gate on the image build; continue-on-error keeps a publish hiccup (or a rejected
+  # manifest) from ever blocking the release.
+  permission_manifest_publish:
+    name: Permission Manifest Publish
+    if: >-
+      !cancelled() && github.ref_type == 'tag' && inputs.run_manifest_publish
+    runs-on: ${{ inputs.runner_type }}
+    continue-on-error: true
+    # Optional GitHub Environment gate. Empty (the default) leaves the job
+    # unscoped, as it has always been; when the caller names an environment the
+    # AWS_INIT_DATA_ROLE_ARN assume-role happens under that environment's
+    # protection rules, so a deployment tag policy can keep a stray tag from
+    # ever writing to the shared RI catalog.
+    environment: ${{ inputs.manifest_publish_environment }}
+    permissions:
+      id-token: write
+      contents: read
+    env:
+      # Secrets can't be referenced directly in a step `if:`, so surface the
+      # role's presence as a job-level env boolean. A repo that opted in but never
+      # mapped AWS_INIT_DATA_ROLE_ARN must SKIP the real upload (not attempt an
+      # unauthenticated one) — a dry-run still runs since the composite previews
+      # without any AWS call.
+      HAS_INIT_DATA_ROLE: ${{ secrets.AWS_INIT_DATA_ROLE_ARN != '' }}
+    steps:
+      # ----------------- Checkout & environment resolution -----------------
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+        with:
+          persist-credentials: false
+
+      - name: Determine environment folder from tag
+        id: env
+        env:
+          # A workflow_call boolean reaches the shell as the string true/false.
+          MANIFEST_COMPONENT_TAGS: ${{ inputs.manifest_component_tags }}
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF#refs/tags/}"
+          # Strict semver, the shape semantic-release actually produces. The
+          # previous *-beta* / *-rc* globs matched any tag merely CONTAINING the
+          # marker, so an arbitrary tag could write to the shared RI catalog;
+          # only `production` was pinned. Anything off-pattern now falls through
+          # to the empty folder, which already skips the publish with a warning.
+          # NUM rejects leading zeroes, which semver forbids and which would
+          # otherwise let `v01.2.3` slip past the gate as a production tag.
+          NUM='(0|[1-9][0-9]*)'
+          CORE="v${NUM}\.${NUM}\.${NUM}"
+          # manifest_component_tags widens the gate by ONE optional prefix — a
+          # monorepo cutting `<service>-vX.Y.Z` per rail. It is a prefix on the
+          # same anchored patterns, never a replacement: the semver core, the
+          # anchors and the three-way order below are untouched, so `v01.2.3`
+          # and `spi-v1.2.3-hotfix` keep falling through to the empty folder.
+          PREFIX=''
+          if [[ "${MANIFEST_COMPONENT_TAGS}" == 'true' ]]; then
+            PREFIX='([a-z][a-z0-9-]*-)?'
+            SHAPES='vX.Y.Z, vX.Y.Z-beta.N, vX.Y.Z-rc.N, optionally prefixed with <component>-'
+          else
+            SHAPES='vX.Y.Z, vX.Y.Z-beta.N, vX.Y.Z-rc.N'
+          fi
+          if [[ "$TAG" =~ ^${PREFIX}${CORE}-beta\.${NUM}$ ]]; then
+            FOLDER="development"
+          elif [[ "$TAG" =~ ^${PREFIX}${CORE}-rc\.${NUM}$ ]]; then
+            FOLDER="staging"
+          elif [[ "$TAG" =~ ^${PREFIX}${CORE}$ ]]; then
+            FOLDER="production"
+          else
+            FOLDER=""
+          fi
+          echo "folder=${FOLDER}" >> "$GITHUB_OUTPUT"
+          [[ -n "$FOLDER" ]] && echo "📁 Environment: ${FOLDER}" || echo "::warning::Tag '${TAG}' is not a release semver tag (${SHAPES}) — manifest publish skipped."
+
+      # ----------------- AWS credentials (guarded) -----------------
+      # Skip on a dry-run (the composite previews with no AWS call) and when the
+      # role secret is absent (nothing to assume — the publish step is skipped too).
+      - name: Configure AWS credentials
+        if: steps.env.outputs.folder != '' && env.HAS_INIT_DATA_ROLE == 'true' && inputs.dry_run != true
+        uses: aws-actions/configure-aws-credentials@e7f100cf4c008499ea8adda475de1042d6975c7b # v6.2.0
+        with:
+          role-to-assume: ${{ secrets.AWS_INIT_DATA_ROLE_ARN }}
+          aws-region: sa-east-1
+
+      # ----------------- Publish manifest to the RI catalog -----------------
+      # Publish when there are real creds, or preview when dry-running; otherwise
+      # (no role secret and not a dry-run) skip rather than fail a credential-less upload.
+      - name: Publish permission manifest to the RI catalog
+        if: steps.env.outputs.folder != '' && (env.HAS_INIT_DATA_ROLE == 'true' || inputs.dry_run == true)
+        uses: LerianStudio/github-actions-shared-workflows/src/validate/permission-manifest-publish@v1
+        with:
+          environment: ${{ steps.env.outputs.folder }}
+          github-token: ${{ github.token }}
+          # A JS/TS repo has no go.mod: drop the lib-auth half of the scope gate.
+          require-lib-auth: 'false'
+          dry-run: ${{ inputs.dry_run }}
 
   # ----------------- GitOps Update (tag push) -----------------
   update_gitops:

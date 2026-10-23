@@ -5,7 +5,7 @@
   </tr>
 </table>
 
-Publishes a Go plugin/service's **own** permission manifest (`permissions.yaml`) to the shared Access-Manager **Inversão de Responsabilidade (RI)** catalog in S3, **on release**.
+Publishes a plugin/service's **own** permission manifest (`permissions.yaml`) to the shared Access-Manager **Inversão de Responsabilidade (RI)** catalog in S3, **on release**.
 
 This is the **upstream half** of the RI: each **service identity** publishes exactly **one** object and the tenant-manager aggregates at **read time** by listing the prefix. There is **no merge / no aggregation** on write — one service overwrites only its own file. It is the release-time counterpart to [`permission-manifest-nudge`](../permission-manifest-nudge/README.md) (the PR reminder) and **reuses the same detection**, so the two always agree on what a manifest is.
 
@@ -13,7 +13,7 @@ A repo may host **several** app identities. A monorepo like **midaz** ships four
 
 The action:
 
-1. **Scope gate** — identical to the nudge: only acts when `go.mod` has a **direct** dependency on `github.com/LerianStudio/lib-auth`. No `go.mod`, or an only-transitive (`// indirect`) dependency → `state=skip`.
+1. **Scope gate** — identical to the nudge: only acts when `go.mod` has a **direct** dependency on `github.com/LerianStudio/lib-auth`. No `go.mod`, or an only-transitive (`// indirect`) dependency → `state=skip`. A repo that is **not a Go service** (a JS/TS app such as the console) sets `require-lib-auth: false`: `go.mod` is then not read at all and the manifest alone decides (detection and validation still apply).
 2. **Manifest presence** — globs **every** `permissions.yaml` (excluding `vendor/`, `node_modules/`, `.git/`) and **collects** each file with top-level `service:` **and** `permissions:` keys (results are `sort`ed for a deterministic first-published). No qualifying manifest → `state=skip`.
 3. **Validate before publish** — every collected manifest is parsed and checked **exactly as the tenant-manager checks the catalog it loads**: `yaml.Unmarshal` into lib-auth's `declaration.DeclarationManifest`, then `DeclarationManifest.Validate()` (the same code path as the tenant-manager's `permission_catalog_loader.go`). The check is a small Go program shipped **inside this action** ([`validator/`](validator/)) with its **own** `go.mod` pinning lib-auth, so it never reads the caller's `go.mod` and works the same in a Go service, a monorepo or a repo with no Go at all. If **any** manifest is invalid — or the validator cannot be built — the step **fails** and **nothing is published** (see [Validation](#validation)).
 4. **Per-manifest publish** — for **each** collected manifest it extracts that manifest's own top-level `service:` value (the **S3 object basename**) and runs `aws s3 cp <manifest> s3://<bucket>/<environment>/<prefix>/<service>.yaml --content-type application/yaml`. On `dry-run` it logs the exact target key + command per manifest and calls no AWS.
@@ -71,6 +71,7 @@ A typical rejection, for a manifest still on the old schema:
 |----------------|-------------------------------------------------------------------------------------------------|----------|------------------------------|
 | `environment`  | Resolved environment folder (`development` \| `staging` \| `production`), derived by the caller from the tag suffix. Empty → `skip`. | Yes      |                              |
 | `go-mod-path`  | Path to `go.mod` (relative to repo root). Used only for the lib-auth scope gate.               | No       | `go.mod`                     |
+| `require-lib-auth` | Require a direct `lib-auth` dependency in `go.mod` (the scope gate). `"false"` for a non-Go repo (JS/TS) that ships a `permissions.yaml`: `go.mod` is not read, detection and validation apply as usual. Any other value keeps the gate. | No | `"true"` |
 | `s3-bucket`    | Target S3 bucket (without the `s3://` prefix). Same bucket as the Casdoor `init_data`.          | No       | `lerian-casdoor-init-data`   |
 | `s3-prefix`    | Prefix inside the environment folder — the key is `{environment}/{s3-prefix}/{service}.yaml`.   | No       | `permissions`                |
 | `aws-region`   | AWS region for the `aws s3 cp` call.                                                             | No       | `sa-east-1`                  |
@@ -96,6 +97,7 @@ A typical rejection, for a manifest still on the old schema:
 |---------------------------------------------------------------|-----------------------------------------------------------|
 | `go.mod` not found at `go-mod-path`                           | `skip` — `::notice`, no upload, exit 0                     |
 | `go.mod` has no **direct** `lib-auth` dependency              | `skip` — `::notice`, no upload, exit 0                     |
+| `require-lib-auth: "false"`                                   | the two rows above do not apply — `go.mod` is not read; the manifest rows below decide |
 | In scope + no qualifying `permissions.yaml`                   | `skip` — `::notice`, no upload, exit 0                     |
 | `environment` empty (tag matched no env)                      | `skip` — `::warning`, no upload, exit 0 (short-circuits the whole action) |
 | Any qualifying manifest fails validation (or the validator cannot be built) | **fails** — `::error` per invalid file, **nothing** uploaded (valid manifests of the same repo included); dry-run too |
@@ -135,7 +137,7 @@ jobs:
           environment: development   # resolved from the tag
 ```
 
-Most callers get this for free through the [`go-release`](../../../docs/go-release.md) umbrella (`run_manifest_publish`, default `true`), which handles the checkout, tag→folder derivation and role-assume for you.
+Most callers get this for free through the [`go-release`](../../../docs/go-release.md) umbrella (`run_manifest_publish`, default `true`), which handles the checkout, tag→folder derivation and role-assume for you. JS/TS apps use the [`js-release`](../../../docs/js-release.md#permission-manifest-publish-ri) umbrella (`run_manifest_publish: true`, opt-in), which runs the same job with `require-lib-auth: 'false'`.
 
 ### Third-party actions
 
