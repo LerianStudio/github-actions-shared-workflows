@@ -1,5 +1,26 @@
 # Github-actions-shared-workflows Changelog
 
+## [1.88.0](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.88.0)
+
+Features:
+- Allow release legs to run from their `filter_paths` entry. (@bedatty)
+- Warn when an extra build dispatches the top-level chart. (@bedatty)
+- Enable manifest publishing for component tags and non-root `go.mod`. (@bedatty)
+
+Fixes:
+- Ensure the guard warning in `go-release` remains on one line and scope its guidance. (@bedatty)
+- Correct spelling errors flagged by typos in `go-release`. (@bedatty)
+- Fail the release process when the branch moves and `semantic-release` skips. (@bedatty)
+
+Improvements:
+- Qualify the unaffected-entry claim by `path_level` in `go-release` documentation. (@bedatty)
+- Document the temporary no-cache on Docker builds and scope the no-cache note to the push build. (@bedatty)
+- Fix the section that the component-tag documentation broke in `go-release`. (@bedatty)
+
+[Compare changes](https://github.com/LerianStudio/github-actions-shared-workflows/compare/v1.87.1...v1.88.0)
+
+---
+
 ## [1.87.1](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.87.1)
 
 Fixes:
