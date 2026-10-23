@@ -67,7 +67,7 @@ assert_warnings 'the central shape from the docs is left alone' \
   "[{${WORKER}}, {${MIGRATIONS}}]" \
   ''
 
-assert_warnings 'an unparseable value is left to extra_build to report' \
+assert_warnings 'an unparsable value is left to extra_build to report' \
   '[{"filter_paths": ' \
   ''
 

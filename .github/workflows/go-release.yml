@@ -973,7 +973,7 @@ jobs:
           DRY_RUN: ${{ inputs.dry_run }}
         run: |
           set -euo pipefail
-          # An unparseable value is reported by extra_build's fromJson; this
+          # An unparsable value is reported by extra_build's fromJson; this
           # check only ever adds warnings.
           if ! jq -e 'type == "array"' <<<"$EXTRA_BUILDS" >/dev/null 2>&1; then
             exit 0
