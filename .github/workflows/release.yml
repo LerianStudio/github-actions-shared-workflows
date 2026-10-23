@@ -67,6 +67,10 @@ on:
         description: 'Limits the path to the first N segments (e.g., 2 -> "apps/agent")'
         type: string
         default: '2'
+      normalize_to_filter:
+        description: 'Use the matching filter_paths entry as the release working_dir instead of the path_level-trimmed directory, so a top-level component (e.g. "cockpit") releases from its root rather than once per subdirectory.'
+        type: boolean
+        default: false
       enable_changelog:
         description: 'Generate CHANGELOG.md files via GPT after a successful release'
         required: false
@@ -228,6 +232,7 @@ jobs:
           filter-paths: ${{ inputs.filter_paths }}
           shared-paths: ${{ inputs.shared_paths }}
           path-level: ${{ inputs.path_level }}
+          normalize-to-filter: ${{ inputs.normalize_to_filter }}
           get-app-name: 'true'
 
       - name: Set matrix
@@ -567,6 +572,70 @@ jobs:
             "semantic-release never started: the action could not install its own dependencies and exited successfully anyway. The npm error is in the step log above.%0A" \
             "No version was released. This is not the same as having nothing to release — the tool never ran.%0A" \
             "Re-run the job. If it keeps happening, the runner cannot reach the npm registry."
+          exit 1
+
+      # semantic-release opens with a `git push --dry-run` of HEAD; when that is
+      # rejected because the branch moved since the sync step, it checks whether
+      # the local branch is behind the remote and, if so, logs "behind the remote
+      # one" and returns without releasing — exit 0, `new_release_published`
+      # `false`. Another merge landing during the run is enough, and with
+      # `max-parallel: 1` across the matrix that window is the whole run. The
+      # newer push only releases this leg again if it touches the same paths,
+      # so the release is lost while the run reports success.
+      #
+      # `false` alone cannot tell this from "nothing to release", so when the
+      # branch did move, the release is recomputed in dry-run on the new head:
+      # a version there means one was owed and skipped.
+      - name: Check the branch did not move during the release
+        id: branch_moved
+        if: |
+          steps.semantic.outcome == 'success' &&
+          steps.semantic.outputs.new_release_published == 'false'
+        env:
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          git fetch --quiet origin "$REF_NAME"
+          if git merge-base --is-ancestor "origin/$REF_NAME" HEAD; then
+            echo "moved=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "::notice::$REF_NAME moved during the release; rechecking on $(git rev-parse --short "origin/$REF_NAME")"
+          # --soft moves HEAD only: the working tree keeps the package.json and
+          # release config the steps above prepared, which a hard reset would
+          # put back to the committed versions.
+          git reset --soft "origin/$REF_NAME"
+          echo "moved=true" >> "$GITHUB_OUTPUT"
+
+      - name: Recheck the release on the moved branch
+        id: semantic_recheck
+        if: steps.branch_moved.outputs.moved == 'true'
+        uses: cycjimmy/semantic-release-action@b12c8f6015dc215fe37bc154d4ad456dd3833c90 # v6
+        with:
+          ci: false
+          dry_run: true
+          semantic_version: ${{ inputs.semantic_version }}
+          working_directory: ${{ matrix.app.working_dir }}
+          extra_plugins: |
+            conventional-changelog-conventionalcommits@v7.0.2
+        env:
+          GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      # An empty output means the recheck never started (see the check above),
+      # which leaves the question open — that fails too rather than passing.
+      - name: Fail on a release the moved branch skipped
+        if: |
+          steps.branch_moved.outputs.moved == 'true' &&
+          steps.semantic_recheck.outputs.new_release_published != 'false'
+        env:
+          REF_NAME: ${{ github.ref_name }}
+          APP_NAME: ${{ matrix.app.name }}
+          NEXT_VERSION: ${{ steps.semantic_recheck.outputs.new_release_version }}
+        run: |
+          printf '::error::%s%s%s\n' \
+            "No release was published for ${APP_NAME}: ${REF_NAME} moved while this run was releasing, and semantic-release skips when the local branch is behind the remote.%0A" \
+            "Rechecked on the new head, a release is still owed${NEXT_VERSION:+ (v${NEXT_VERSION})}. The newer push only releases it if it touches the same paths.%0A" \
+            "Re-run this job: it syncs to the current head of ${REF_NAME} before releasing."
           exit 1
 
       # ----------------- Backmerge -----------------

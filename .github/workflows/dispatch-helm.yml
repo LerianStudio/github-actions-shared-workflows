@@ -86,7 +86,7 @@ on:
         type: boolean
         default: true
       values_key_mappings:
-        description: 'JSON mapping of component names to values.yaml keys. If not mapped, uses component name as fallback.'
+        description: 'JSON mapping of component names to values.yaml keys. If not mapped, uses component name as fallback. Map a component to null to leave it out of the chart update.'
         type: string
         default: ''
       legacy_patch_detection:
@@ -350,6 +350,16 @@ jobs:
           # Process each component
           for row in $(echo "$COMPONENTS_JSON" | jq -c '.[]'); do
             COMP_NAME=$(echo "$row" | jq -r '.name')
+
+            # A component mapped to null in values_key_mappings has no place in
+            # the chart (a test mock image, a sidecar the chart does not deploy):
+            # leave it out of the payload. Unmapped components still fall back to
+            # their own name as the values key, which is a root-level key.
+            if [ -n "$VALUES_KEY_MAPPINGS" ] && \
+               echo "$VALUES_KEY_MAPPINGS" | jq -e --arg name "$COMP_NAME" 'type == "object" and has($name) and .[$name] == null' >/dev/null 2>&1; then
+              echo "Skipping ${COMP_NAME}: mapped to null in values_key_mappings"
+              continue
+            fi
             COMP_PATH=$(echo "$row" | jq -r '.path // empty')
             COMP_VERSION=$(echo "$row" | jq -r '.version // empty')
 
