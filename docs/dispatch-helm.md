@@ -25,7 +25,7 @@ It also classifies the release: when the tag being dispatched was cut from a mai
 | `components_base_path` | Base path for components in the source repository | no | `components` |
 | `env_file` | Env example file relative to the component path | no | `.env.example` |
 | `detect_env_changes` | Detect environment variables added since the previous release | no | `true` |
-| `values_key_mappings` | JSON mapping of component names to `values.yaml` keys | no | `''` |
+| `values_key_mappings` | JSON mapping of component names to `values.yaml` keys. A key may be nested (`app.migrations` writes `app.migrations.image.tag`). Map a component to `null` to leave it out of the chart update (e.g. a test mock image the chart does not deploy); an unmapped component falls back to its own name as a root-level key | no | `''` |
 | `legacy_patch_detection` | Flag releases cut from maintenance branches as legacy patches | no | `true` |
 | `legacy_branch_patterns` | Glob patterns (newline or comma separated) of maintenance branches | no | `maintenance/*` |
 | `runner_type` | GitHub runner type | no | `blacksmith-4vcpu-ubuntu-2404` |

@@ -130,7 +130,8 @@ jobs:
 
   # ----------------- go-release Workflow Shape Tests -----------------
   # Asserts the per-group boolean overrides go-release.yml forwards for extra_builds,
-  # and runs the s3_upload steps against a fake aws (mirror bucket, failure path).
+  # runs the s3_upload steps against a fake aws (mirror bucket, failure path), and
+  # runs the same-chart Helm dispatch guard against extra_builds fixtures.
   go-release-workflow-tests:
     name: go-release Workflow Shape Tests
     runs-on: ${{ vars.GENERAL_RUNNERS || 'blacksmith-4vcpu-ubuntu-2404' }}
@@ -150,6 +151,9 @@ jobs:
 
       - name: Run go-release S3 upload and mirror tests
         run: bash tests/go-release/test-s3-upload.sh
+
+      - name: Run go-release Helm dispatch guard tests
+        run: bash tests/go-release/test-helm-dispatch-guard.sh
 
   # ----------------- Build Identity Verification Tests -----------------
   # The build.yml verification step decides whether a service image may be published,

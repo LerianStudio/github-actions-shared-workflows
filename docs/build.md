@@ -192,6 +192,28 @@ The workflow automatically selects platforms based on the tag type:
 | RC | `true` | `linux/amd64,linux/arm64` | Multi-arch needed in staging |
 | Release | N/A | `linux/amd64,linux/arm64` | Always full multi-arch support |
 
+## Layer cache — temporarily disabled
+
+Every Docker build in this workflow currently runs with `no-cache: true` and
+`pull: true`. A cached rebuild replays the old `apk`/`apt` layer and would ship
+the vulnerable `ca-certificates` again; `no-cache` re-runs every step, and `pull`
+re-resolves `FROM`, because `no-cache` alone leaves a base image that still
+carries the bad package untouched.
+
+What this costs callers while the measure is in place:
+
+- **Builds are slower.** No layer is reused — dependency layers, the toolchain
+  layer and the compile step all run on every build, on every platform.
+- **`cache-from: type=gha` reads nothing.** The export (`cache-to`) still runs,
+  so the Actions cache keeps being written and is never read back.
+- **Nothing in the caller's configuration changes.** There is no input to turn
+  this off and no input was removed — the flags are set inside the workflow and
+  the composite.
+
+This is temporary. It is reverted once every repository has been rebuilt and
+redeployed; the revert is tracked in
+[#953](https://github.com/LerianStudio/github-actions-shared-workflows/issues/953).
+
 ## Docker Image Tags
 
 Generated tags based on semantic versioning:
@@ -234,7 +256,9 @@ workflow.
 
 `BUILD_TIME` changes on every run, so the layers from its `ARG` onward rebuild
 each time; put the three `ARG` lines as late as the build stage allows to keep
-dependency layers cached.
+dependency layers cached. While the temporary `no-cache` measure above is in
+place no layer is reused anyway, but the placement still matters for when it is
+reverted.
 
 ## Build identity contract
 
@@ -291,7 +315,9 @@ For an image whose Dockerfile has adopted the contract, this workflow builds the
 image for the runner's native platform first, runs `--version` against it, and only then builds and pushes the real
 multi-arch image. The local image is tagged `build-identity-verify/<app>:<version>`
 and never leaves the runner; its layers land in the GitHub Actions cache, so the
-push build reuses them for that platform instead of compiling it twice.
+push build reuses them for that platform instead of compiling it twice — except
+while the temporary `no-cache` measure above is in place, where that platform is
+compiled twice.
 
 The check runs the image with no network and never pulls it, so a tag that is
 not in the runner's daemon fails locally:

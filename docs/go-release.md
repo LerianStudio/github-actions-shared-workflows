@@ -19,6 +19,8 @@ Umbrella reusable workflow for Go **service** repositories (deployable apps that
 
 A third layout needs `release_single_app: true`: **one semantic-release tag for the whole repo, but one image per component**. Set `filter_paths` to the component prefixes (so the tag-push build still produces N images) and `release_single_app: true` so the branch-push release ignores `filter_paths` and runs once from the repo root. Without it, each component spawns a parallel `Semantic Release` job and they race to tag the same branch.
 
+The release legs trim each changed path to `path_level` segments (default `2`). A component that sits at the top level next to nested ones — `cockpit` beside `services/spb` — would get one leg per subdirectory (`cockpit/src`, `cockpit/e2e`), none of which holds its `.releaserc`. Set `release_normalize_to_filter: true` to run each leg from its `filter_paths` entry instead; an entry with exactly `path_level` segments (`services/spb` at the default `2`) is unaffected, since it already equals its trimmed path. Deeper changes under a shorter entry are the ones that collapse onto it.
+
 ## Inputs
 
 | Input | Description | Type | Default |
@@ -58,7 +60,7 @@ A third layout needs `release_single_app: true`: **one semantic-release tag for 
 | `helm_chart` | Helm chart name to update (required when `enable_helm_dispatch`) | string | `''` |
 | `helm_detect_env_changes` | Detect new environment variables for Helm during dispatch | boolean | `true` |
 | `helm_env_file` | Example env file `helm_detect_env_changes` reads, relative to each component path. Set it when the repository keeps its example env elsewhere (e.g. `config/.env.example`) — otherwise detection finds nothing. Per-group override: `helm_env_file` | string | `.env.example` |
-| `helm_values_key_mappings` | JSON mapping of component names to values.yaml keys | string | `''` |
+| `helm_values_key_mappings` | JSON mapping of component names to values.yaml keys (nested keys allowed; `null` leaves a component out of the chart update) | string | `''` |
 | `extra_builds` | JSON array of additional build groups, each forwarded to `build.yml` with its own config; all feed the single gitops-update (see [Multiple build groups](#multiple-build-groups)) | string | `''` |
 | `dockerfile_name` | Dockerfile name for the primary build and every `extra_builds` group (per-group override via the group's own `dockerfile_name`); forwarded to `build.yml`, which resolves the path as `{working_dir}/{dockerfile_name}` | string | `'Dockerfile'` |
 | `enable_goreleaser` | Publish binaries with GoReleaser from the repository `.goreleaser.yml`, instead of (or in addition to) container images (see [GoReleaser binary lane](#goreleaser-binary-lane)) | boolean | `false` |
@@ -94,6 +96,8 @@ A third layout needs `release_single_app: true`: **one semantic-release tag for 
 | `s3_upload_mirrors` | JSON object mapping an `s3_uploads` bucket to a second bucket that receives every file uploaded to it under the same key (see [Mirror bucket](#mirror-bucket)) | string | `{"lerian-migration-files":{"bucket":"lerian-development-migrations","region":"us-east-2"}}` |
 | `run_manifest_publish` | Publish this service's own `permissions.yaml` to the shared Access-Manager RI catalog in S3 on tag push (see [Permission manifest publish](#permission-manifest-publish-ri)) | boolean | `true` |
 | `manifest_publish_environment` | GitHub Environment to scope the manifest publish job to, putting the `AWS_INIT_DATA_ROLE_ARN` assume-role behind that environment's protection rules. Empty keeps the job unscoped | string | `''` |
+| `manifest_go_mod_path` | Path to the `go.mod` the manifest publish scope gate reads for the direct lib-auth dependency, relative to the repo root. Point it at a service module in a monorepo with no root `go.mod` — discovery stays repo-wide | string | `'go.mod'` |
+| `manifest_component_tags` | Also accept per-component release tags (`<component>-vX.Y.Z`, `-beta.N`, `-rc.N`) in the environment gate. The semver core stays strict either way | boolean | `false` |
 | `enable_apidog_e2e` | Run the ApiDog E2E test job on tag push after a successful gitops-update | boolean | `false` |
 | `apidog_runner_type` | Runner for the ApiDog E2E test job (needs reach to the deployed environment) | string | `eveo-lxc-runners` |
 | `apidog_auto_detect_environment` | Auto-detect the ApiDog environment from the tag (beta → dev, rc → stg); when `false`, uses `APIDOG_ENVIRONMENT_ID` | boolean | `true` |
@@ -107,6 +111,7 @@ A third layout needs `release_single_app: true`: **one semantic-release tag for 
 | `shared_paths` | Path patterns that trigger a release/build for all components | string | `''` |
 | `filter_paths` | Path prefixes to filter (empty = single-app repo) | string | `''` |
 | `release_single_app` | Force single-app mode for the release job even when `filter_paths` is set (one version tag, many images) | boolean | `false` |
+| `release_normalize_to_filter` | Run each release leg from its matching `filter_paths` entry instead of the `path_level`-trimmed directory (release job only; builds unaffected) | boolean | `false` |
 
 > **Derived gitops defaults** — to slim down gitops/helm plugin callers, three gitops-update inputs derive from `app_name_prefix` / the repo name when left unset: `commit_message_prefix` → `app_name_prefix`; the gitops deploy `app_name` → `app_name_prefix`; `gitops_artifact_pattern` → `gitops-tags-<repo-name>*`. Set any of them explicitly to override (e.g. a repo whose deploy app name differs from its `app_name_prefix`, or a monorepo needing a different artifact suffix). All derivations fall back to the repository name when `app_name_prefix` is also empty, preserving the previous behavior.
 >
@@ -243,6 +248,33 @@ Set `run_manifest_publish: false` to opt out.
 
 For an extra gate on **who** may publish, set `manifest_publish_environment` to the name of a GitHub Environment configured in the caller repo. The publish job then runs under that environment, so its protection rules apply to the assume-role — a **deployment tag policy** (e.g. `v*.*.*`) restricts publishing to the tags you protect, and required reviewers can hold a production publish for approval. Left empty (the default) the job stays unscoped, as before.
 
+### Per-component tags and a non-root `go.mod`
+
+A monorepo that cuts one version line per service — tags like `spi-v1.2.3`, `slc-edge-v1.2.3-beta.4` — matches none of those shapes and publishes nothing. Set `manifest_component_tags: true` to allow **one optional lowercase component prefix** before the version:
+
+| Tag | `manifest_component_tags: false` | `manifest_component_tags: true` |
+|---|---|---|
+| `v1.2.3` | `production` | `production` |
+| `spi-v1.2.3` | skipped | `production` |
+| `slc-edge-v1.2.3-beta.4` | skipped | `development` |
+| `cockpit-v2.0.0-rc.3` | skipped | `staging` |
+| `v01.2.3` | skipped | skipped |
+| `spi-v1.2.3-hotfix` | skipped | skipped |
+
+The prefix is the **only** thing that widens: the semver core keeps rejecting leading zeroes and arbitrary suffixes, and the prefix itself must start with a lowercase letter and hold only lowercase letters, digits and hyphens. A tag off-shape still publishes nothing. Leave the input at its default and the gate behaves exactly as it always has.
+
+`manifest_go_mod_path` moves **only** the lib-auth scope gate. A repo with per-service modules and no root `go.mod` points it at one module carrying the direct dependency; manifest discovery stays repo-wide, so the repo still publishes one object per `service:` value found anywhere in the tree:
+
+```yaml
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/go-release.yml@tier-1
+    with:
+      run_manifest_publish: true
+      manifest_go_mod_path: services/spi/go.mod
+      manifest_component_tags: true
+    secrets:
+      AWS_INIT_DATA_ROLE_ARN: ${{ secrets.AWS_INIT_DATA_ROLE_ARN }}
+```
+
 ## ApiDog E2E tests
 
 Set `enable_apidog_e2e: true` to run [api-dog-e2e-tests](./api-dog-e2e-tests.md) on tag push after a successful `update_gitops`. The job is skipped on branch pushes and when the gitops update did not succeed.
@@ -293,7 +325,11 @@ Extra builds run on tag push (beta/rc, and stable when `build_on_release` is off
 > remove, and it bumps the chart once per component instead of once per release.
 > Keep a group-level `enable_helm_dispatch: true` only when that group targets a
 > **different** chart; such a group is then left out of the central payload
-> rather than published twice.
+> rather than published twice. While the top-level `enable_helm_dispatch` is
+> `true`, a group that sets `enable_helm_dispatch: true` with the top-level
+> `helm_chart` (or none) gets a warning from the `helm_dispatch_guard` job naming
+> it; the run itself is not failed. With the top-level dispatch off, the central
+> job does not run and nothing is flagged.
 >
 > ```yaml
 > enable_helm_dispatch: true
