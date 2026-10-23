@@ -1,5 +1,18 @@
 # Github-actions-shared-workflows Changelog
 
+## [1.87.1](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.87.1)
+
+Fixes:
+- Ensure images do not ship with stale `ca-certificates` by forcing `no-cache` during the build process. (@bedatty)
+- Re-resolve the base image to ensure `no-cache` also applies to the `FROM` directive, preventing stale `ca-certificates` from being included. (@bedatty)
+
+Improvements:
+- Document which rebuilds are responsible for shipping stale `ca-certificates`. (@bedatty)
+
+[Compare changes](https://github.com/LerianStudio/github-actions-shared-workflows/compare/v1.87.0...v1.87.1)
+
+---
+
 ## [1.87.0](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.87.0)
 
 Features:
