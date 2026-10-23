@@ -78,3 +78,24 @@ Dockerfiles must mount the `npmrc` secret for installing private packages:
 ```dockerfile
 RUN --mount=type=secret,id=npmrc,target=/root/.npmrc npm install
 ```
+
+## Layer cache — temporarily disabled
+
+The **push** build step (`dry-run` unset or `false`) currently runs with
+`no-cache: true` and `pull: true`. A cached rebuild replays the old `apk`/`apt`
+layer and would ship the vulnerable `ca-certificates` again; `no-cache` re-runs
+every step, and `pull` re-resolves `FROM`, because `no-cache` alone leaves a
+base image that still carries the bad package untouched.
+
+Push builds are therefore slower — no layer is reused — and `cache-from:
+type=gha` reads nothing while the export keeps writing. No input was added or
+removed, so nothing changes in how this action is called.
+
+The `dry-run: true` step is deliberately left alone. It is mutually exclusive
+with the push step, sets `push: false`, and declares no `cache-to`, so nothing
+it builds can reach a published image or seed the cache the push build reads.
+Forcing a cold rebuild there would cost time without closing any gap.
+
+This is temporary and is reverted once every repository has been rebuilt and
+redeployed; see
+[#953](https://github.com/LerianStudio/github-actions-shared-workflows/issues/953).

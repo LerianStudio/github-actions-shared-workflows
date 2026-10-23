@@ -180,7 +180,7 @@ on:
         type: string
         default: 'maintenance/*'
       extra_builds:
-        description: 'JSON array of additional build groups, each forwarded to build.yml with its own config (filter_paths, path_level, normalize_to_filter, app_name_overrides, build_context_from_working_dir, helm_*, tag_prefix, enable_dockerhub, enable_ghcr, enable_gitops_artifacts, force_full_matrix, require_build_identity). Runs alongside the primary build on tag push; groups with enable_gitops_artifacts enabled (the default) feed the single gitops-update. A group with tag_prefix set only builds when the triggering tag starts with that prefix (e.g. a component with its own independent semver and tag scheme); omit tag_prefix to build on every tag push, as before. enable_dockerhub/enable_ghcr default to the top-level inputs of the same name when omitted (explicit true/false on the group always wins, including false) — use to publish a group to only one registry regardless of the primary build''s registries. enable_gitops_artifacts defaults to true when omitted. require_build_identity defaults to the top-level input (itself true by default) when omitted (explicit true/false on the group wins) — set false on a group whose image has not adopted the build identity (e.g. a migrations image without a Go binary). force_full_matrix defaults to true, skipping change detection so the group builds/publishes every listed component in lockstep with the release version; set it to false to build only changed components. Empty = one build only (default).'
+        description: 'JSON array of additional build groups, each forwarded to build.yml with its own config (filter_paths, path_level, normalize_to_filter, app_name_overrides, build_context_from_working_dir, helm_*, tag_prefix, enable_dockerhub, enable_ghcr, enable_gitops_artifacts, force_full_matrix, require_build_identity). Runs alongside the primary build on tag push; groups with enable_gitops_artifacts enabled (the default) feed the single gitops-update. A group with tag_prefix set only builds when the triggering tag starts with that prefix (e.g. a component with its own independent semver and tag scheme); omit tag_prefix to build on every tag push, as before. enable_dockerhub/enable_ghcr default to the top-level inputs of the same name when omitted (explicit true/false on the group always wins, including false) — use to publish a group to only one registry regardless of the primary build''s registries. enable_gitops_artifacts defaults to true when omitted. require_build_identity defaults to the top-level input (itself true by default) when omitted (explicit true/false on the group wins) — set false on a group whose image has not adopted the build identity (e.g. a migrations image without a Go binary). force_full_matrix defaults to true, skipping change detection so the group builds/publishes every listed component in lockstep with the release version; set it to false to build only changed components. While the top-level enable_helm_dispatch is true, set enable_helm_dispatch/helm_chart/helm_values_key_mappings on a group only when it targets a different chart than the top-level helm_chart: a group for the same chart is already in the central dispatch, so map its component in the top-level helm_values_key_mappings instead (the same-chart combination is flagged with a warning). Empty = one build only (default).'
         type: string
         default: ''
       force_full_matrix:
@@ -335,6 +335,14 @@ on:
         description: 'Name of a GitHub Environment to scope the manifest publish job to. Empty (default) keeps the job unscoped, exactly as before. Set it to put the AWS_INIT_DATA_ROLE_ARN assume-role behind the environment''s protection rules — deployment tag policies (only protected tags may publish) and, optionally, required reviewers.'
         type: string
         default: ''
+      manifest_go_mod_path:
+        description: 'Path to the go.mod used by the manifest publish scope gate (direct lib-auth dependency check), relative to the repo root. Default is the root go.mod, exactly as before. A monorepo with per-service modules and no root go.mod points this at one module that has the direct dependency — manifest discovery stays repo-wide either way.'
+        type: string
+        default: 'go.mod'
+      manifest_component_tags:
+        description: 'Accept per-component release tags (<component>-vX.Y.Z, -beta.N, -rc.N) in the manifest publish environment gate, on top of plain vX.Y.Z tags. Default false keeps the gate plain-semver-only, exactly as before. The semver core stays strict either way — only an optional lowercase component prefix is allowed.'
+        type: boolean
+        default: false
       # ----------------- API Dog E2E (api-dog-e2e-tests.yml) -----------------
       enable_apidog_e2e:
         description: 'Run the ApiDog E2E test job on tag push after a successful gitops-update'
@@ -408,6 +416,10 @@ on:
         default: ''
       release_single_app:
         description: 'Force single-app mode for the release job even when filter_paths is set. Use for repos with one version tag but multiple Docker images.'
+        type: boolean
+        default: false
+      release_normalize_to_filter:
+        description: 'Run each release leg from its matching filter_paths entry instead of the path_level-trimmed directory. Use when a component sits at the top level (e.g. "cockpit") next to nested ones (e.g. "services/spb"), so it releases once from its root, where its .releaserc lives. Does not affect the build jobs.'
         type: boolean
         default: false
       filter_paths:
@@ -502,6 +514,7 @@ jobs:
       announcement_slack_channel: ${{ inputs.announcement_slack_channel }}
       shared_paths: ${{ inputs.shared_paths }}
       filter_paths: ${{ !inputs.release_single_app && inputs.filter_paths || '' }}
+      normalize_to_filter: ${{ inputs.release_normalize_to_filter }}
     secrets: inherit
 
   # ----------------- Build (tag push, or same-run stable release when build_on_release) -----------------
@@ -877,6 +890,9 @@ jobs:
 
       - name: Determine environment folder from tag
         id: env
+        env:
+          # A workflow_call boolean reaches the shell as the string true/false.
+          MANIFEST_COMPONENT_TAGS: ${{ inputs.manifest_component_tags }}
         run: |
           set -euo pipefail
           TAG="${GITHUB_REF#refs/tags/}"
@@ -889,17 +905,29 @@ jobs:
           # otherwise let `v01.2.3` slip past the gate as a production tag.
           NUM='(0|[1-9][0-9]*)'
           CORE="v${NUM}\.${NUM}\.${NUM}"
-          if [[ "$TAG" =~ ^${CORE}-beta\.${NUM}$ ]]; then
+          # manifest_component_tags widens the gate by ONE optional prefix — a
+          # monorepo cutting `<service>-vX.Y.Z` per rail. It is a prefix on the
+          # same anchored patterns, never a replacement: the semver core, the
+          # anchors and the three-way order below are untouched, so `v01.2.3`
+          # and `spi-v1.2.3-hotfix` keep falling through to the empty folder.
+          PREFIX=''
+          if [[ "${MANIFEST_COMPONENT_TAGS}" == 'true' ]]; then
+            PREFIX='([a-z][a-z0-9-]*-)?'
+            SHAPES='vX.Y.Z, vX.Y.Z-beta.N, vX.Y.Z-rc.N, optionally prefixed with <component>-'
+          else
+            SHAPES='vX.Y.Z, vX.Y.Z-beta.N, vX.Y.Z-rc.N'
+          fi
+          if [[ "$TAG" =~ ^${PREFIX}${CORE}-beta\.${NUM}$ ]]; then
             FOLDER="development"
-          elif [[ "$TAG" =~ ^${CORE}-rc\.${NUM}$ ]]; then
+          elif [[ "$TAG" =~ ^${PREFIX}${CORE}-rc\.${NUM}$ ]]; then
             FOLDER="staging"
-          elif [[ "$TAG" =~ ^${CORE}$ ]]; then
+          elif [[ "$TAG" =~ ^${PREFIX}${CORE}$ ]]; then
             FOLDER="production"
           else
             FOLDER=""
           fi
           echo "folder=${FOLDER}" >> "$GITHUB_OUTPUT"
-          [[ -n "$FOLDER" ]] && echo "📁 Environment: ${FOLDER}" || echo "::warning::Tag '${TAG}' is not a release semver tag (vX.Y.Z, vX.Y.Z-beta.N, vX.Y.Z-rc.N) — manifest publish skipped."
+          [[ -n "$FOLDER" ]] && echo "📁 Environment: ${FOLDER}" || echo "::warning::Tag '${TAG}' is not a release semver tag (${SHAPES}) — manifest publish skipped."
 
       # ----------------- AWS credentials (guarded) -----------------
       # Skip on a dry-run (the composite previews with no AWS call) and when the
@@ -920,7 +948,48 @@ jobs:
         with:
           environment: ${{ steps.env.outputs.folder }}
           github-token: ${{ github.token }}
+          # Only moves the lib-auth scope gate; manifest discovery stays repo-wide.
+          go-mod-path: ${{ inputs.manifest_go_mod_path }}
           dry-run: ${{ inputs.dry_run }}
+
+  # ----------------- Helm Dispatch Guard (extra_builds) -----------------
+  # A group that sets enable_helm_dispatch for the chart the top level already
+  # dispatches leaves the central dispatch_helm payload and bumps that chart on
+  # its own, once per component and before its siblings' images exist. Warn
+  # instead of failing: the group's own helm_values_key_mappings cannot be
+  # folded into the central payload safely, so the caller has to move them.
+  helm_dispatch_guard:
+    name: Check extra_builds Helm dispatch
+    if: >-
+      inputs.enable_helm_dispatch && inputs.helm_chart != '' &&
+      inputs.extra_builds != '' && inputs.extra_builds != '[]'
+    runs-on: ${{ inputs.runner_type }}
+    permissions: {}
+    steps:
+      - name: Flag extra_builds groups dispatching the top-level chart
+        env:
+          EXTRA_BUILDS: ${{ inputs.extra_builds }}
+          HELM_CHART: ${{ inputs.helm_chart }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          set -euo pipefail
+          # An unparsable value is reported by extra_build's fromJson; this
+          # check only ever adds warnings. filter_paths is newline-separated, and
+          # a newline would end the workflow command before its remediation text.
+          if ! jq -e 'type == "array"' <<<"$EXTRA_BUILDS" >/dev/null 2>&1; then
+            exit 0
+          fi
+          if [[ "$DRY_RUN" == "true" ]]; then
+            echo "chart: ${HELM_CHART}"
+            echo "extra_builds groups: $(jq 'length' <<<"$EXTRA_BUILDS")"
+          fi
+          jq -r --arg chart "$HELM_CHART" '
+            to_entries[]
+            | select(.value | type == "object")
+            | select(.value.enable_helm_dispatch == true
+                and ((.value.helm_chart // "") == "" or .value.helm_chart == $chart))
+            | "::warning title=extra_builds[\(.key)] dispatches the top-level chart::extra_builds[\(.key)] (filter_paths: \(.value.filter_paths // "" | tostring | gsub("%"; "%25") | gsub("[\r\n]+"; ", "))) sets enable_helm_dispatch for chart \($chart), which the top level already dispatches. The chart is bumped once per component and the image of this group is left out of the central payload. Remove enable_helm_dispatch, helm_chart and helm_values_key_mappings from the group and map its component in the top-level helm_values_key_mappings."
+          ' <<<"$EXTRA_BUILDS"
 
   # ----------------- Extra Builds (tag push, opt-in) -----------------
   extra_build:
