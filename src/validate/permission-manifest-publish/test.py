@@ -497,7 +497,7 @@ class ValidateBeforePublish(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertNotIn("would publish", result.stdout)
 
-    def test_unparseable_yaml_fails(self):
+    def test_unparsable_yaml_fails(self):
         result, _ = run_publish(
             {
                 "go.mod": GO_MOD_IN_SCOPE,
