@@ -215,6 +215,20 @@ jobs:
         with:
           persist-credentials: false
 
+      # The validate step builds the real validator (its own go.mod pins
+      # lib-auth), and test.py runs it end to end, so the job needs that toolchain.
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: src/validate/permission-manifest-publish/validator/go.mod
+          cache-dependency-path: src/validate/permission-manifest-publish/validator/go.sum
+
+      - name: Run manifest validator unit tests
+        working-directory: src/validate/permission-manifest-publish/validator
+        run: |
+          go vet ./...
+          go test -count=1 ./...
+
       - name: Run permission-manifest-publish behavioural tests
         run: python3 src/validate/permission-manifest-publish/test.py
 

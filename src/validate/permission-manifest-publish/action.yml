@@ -16,10 +16,19 @@ description: |
   DIRECT dependency on `github.com/LerianStudio/lib-auth` in go.mod AND ships a qualifying
   `permissions.yaml` (top-level `service:` AND `permissions:` keys). Otherwise → state=skip.
 
-  Best-effort by contract: every step exits 0 and an upload hiccup logs `::warning` rather
-  than failing. AWS credentials are assumed by the CALLER job (mirroring the go-release
+  Validated before it is published: every qualifying manifest is parsed and checked exactly
+  as the tenant-manager checks the catalog it loads (`yaml.Unmarshal` into lib-auth's
+  `declaration.DeclarationManifest` + `Validate()`), by a small Go validator that lives in
+  this action (`validator/`, its own go.mod pinning lib-auth — the caller's go.mod is never
+  read). If ANY manifest is invalid, or the validator cannot be built, the validation step
+  FAILS and NOTHING is published: a manifest the tenant-manager would reject never reaches
+  the bucket. Validation also runs on `dry-run`.
+
+  Best-effort for everything else: detection and upload never fail — an upload hiccup logs
+  `::warning` rather than failing. AWS credentials are assumed by the CALLER job (mirroring the go-release
   `s3_upload` job) before this composite runs; pair it with `continue-on-error: true` so a
-  publish hiccup can never gate the release.
+  publish hiccup — or a rejected manifest — can never gate the release (the job still goes
+  red, so the rejection is visible).
 
 inputs:
   github-token:
@@ -52,52 +61,44 @@ inputs:
 
 outputs:
   state:
-    description: "One of: skip (out of scope / no manifest / no environment / nothing landed), published (>=1 uploaded), dryrun (>=1 previewed)."
-    value: ${{ steps.publish.outputs.state }}
+    description: "One of: skip (out of scope / no manifest / no environment / nothing landed), published (>=1 uploaded), dryrun (>=1 previewed). Unset when validation fails (the action fails)."
+    value: ${{ steps.publish.outputs.state || steps.detect.outputs.state }}
   service:
     description: "Backward-compat: the FIRST published service name — the S3 object basename. Empty when skipped. See `services` for the full set."
-    value: ${{ steps.publish.outputs.service }}
+    value: ${{ steps.publish.outputs.service || '' }}
   s3_key:
     description: "Backward-compat: the FIRST published S3 object key, e.g. development/permissions/midaz.yaml. Empty when skipped. See `s3_keys` for the full set."
-    value: ${{ steps.publish.outputs.s3_key }}
+    value: ${{ steps.publish.outputs.s3_key || '' }}
   services:
     description: "Comma-separated list of every service published (or previewed), e.g. `midaz,routing,plugin-fees,tracer`. Empty when skipped."
-    value: ${{ steps.publish.outputs.services }}
+    value: ${{ steps.publish.outputs.services || '' }}
   s3_keys:
     description: "Comma-separated list of every S3 object key published (or previewed), e.g. `development/permissions/midaz.yaml,development/permissions/routing.yaml`. Empty when skipped."
-    value: ${{ steps.publish.outputs.s3_keys }}
+    value: ${{ steps.publish.outputs.s3_keys || '' }}
   published_count:
     description: "How many manifests were published (or, on dry-run, previewed). 0 when skipped."
-    value: ${{ steps.publish.outputs.published_count }}
+    value: ${{ steps.publish.outputs.published_count || '0' }}
 
 runs:
   using: composite
   steps:
-    - name: Detect manifest and publish to the RI catalog
-      id: publish
+    # ----------------- Detect -----------------
+    - name: Detect permission manifests
+      id: detect
       shell: bash
       env:
         GO_MOD_PATH: ${{ inputs.go-mod-path }}
-        S3_BUCKET: ${{ inputs.s3-bucket }}
-        S3_PREFIX: ${{ inputs.s3-prefix }}
-        AWS_REGION: ${{ inputs.aws-region }}
         ENVIRONMENT: ${{ inputs.environment }}
-        DRY_RUN: ${{ inputs.dry-run }}
       run: |
         # Best-effort by design: never `set -e`. Any internal hiccup degrades to a
-        # skip (state=skip) or a logged ::warning and exits 0 so publishing can never
-        # gate the release. The caller adds `continue-on-error: true` as a second net.
+        # skip (state=skip) and exits 0 so detection can never gate the release. On
+        # a skip the validate and publish steps do not run, and the action outputs
+        # fall back to this step's state (the others default to empty / 0).
         set -uo pipefail
 
         emit() { echo "$1=$2" >> "${GITHUB_OUTPUT}"; }
 
-        # Emit deterministic defaults so downstream `steps.publish.outputs.*` are never
-        # blank on an early exit.
-        emit service ""
-        emit s3_key ""
-        emit services ""
-        emit s3_keys ""
-        emit published_count "0"
+        emit proceed "false"
 
         # ---------------------------------------------------------------------------
         # 1. SCOPE GATE — identical to permission-manifest-nudge so the nudge and the
@@ -131,6 +132,8 @@ runs:
         #    tracer; br-sfn, br-pix similar) ships one qualifying manifest per identity,
         #    and each is published on its own (section 4). Results are `sort`ed so the
         #    first-published (the backward-compat scalar outputs) is deterministic.
+        #    The list is handed to the validate and publish steps as the `manifests`
+        #    output (newline-delimited).
         #    NOTE: the qualifying grep below is copied VERBATIM from
         #    permission-manifest-nudge — keep the two in agreement.
         # ---------------------------------------------------------------------------
@@ -158,7 +161,7 @@ runs:
         # 3. ENVIRONMENT — the caller resolves it from the tag suffix (beta ->
         #    development, rc -> staging, release -> production). An empty value means
         #    the tag matched no environment: skip the WHOLE action rather than write to
-        #    the bucket root. This short-circuits before any publish.
+        #    the bucket root. This short-circuits before validation and publish.
         # ---------------------------------------------------------------------------
         if [[ -z "${ENVIRONMENT}" ]]; then
           echo "::warning title=Permission manifest publish::No environment resolved (tag matched none) — skipping."
@@ -166,10 +169,104 @@ runs:
           exit 0
         fi
 
+        # Hand the collected manifests to the validate and publish steps. A random
+        # heredoc delimiter keeps a path from ever terminating the value early.
+        DELIM="GHO_$(openssl rand -hex 8)"
+        printf 'manifests<<%s\n%s\n%s\n' "${DELIM}" "$(printf '%s\n' "${QUALIFYING_MANIFESTS[@]}")" "${DELIM}" >> "${GITHUB_OUTPUT}"
+        emit proceed "true"
+        exit 0
+
+    # ----------------- Validate -----------------
+    # The validator is this action's own Go module (validator/go.mod pins lib-auth),
+    # so the toolchain comes from that go.mod — never from the caller's — and the
+    # step works the same in a Go service, a monorepo or a repo with no Go at all.
+    - name: Set up Go for the manifest validator
+      if: steps.detect.outputs.proceed == 'true'
+      uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+      with:
+        go-version-file: ${{ github.action_path }}/validator/go.mod
+        cache: false
+
+    - name: Validate permission manifests
+      id: validate
+      if: steps.detect.outputs.proceed == 'true'
+      shell: bash
+      env:
+        VALIDATOR_DIR: ${{ github.action_path }}/validator
+        MANIFESTS: ${{ steps.detect.outputs.manifests }}
+        # Resolve the validator's dependencies from the public module proxy against
+        # its committed go.sum, whatever the caller job configured for its own
+        # modules (a GOPRIVATE/GOFLAGS/go.work meant for the repo must not leak in).
+        GOFLAGS: -mod=readonly
+        GOWORK: "off"
+        GOPROXY: https://proxy.golang.org,direct
+        GOPRIVATE: ""
+        GONOPROXY: ""
+        GONOSUMDB: ""
+      run: |
+        # FAIL-CLOSED, unlike the rest of the action: a manifest the tenant-manager
+        # would reject must never reach the catalog, so ANY invalid manifest — or a
+        # validator that cannot be built, since then nothing was checked — fails
+        # this step and the publish step never runs. Nothing is published, not even
+        # the valid manifests of the same repo: the catalog keeps their previous
+        # objects until the repo is fixed.
+        set -uo pipefail
+
+        QUALIFYING_MANIFESTS=()
+        while IFS= read -r f; do
+          [[ -n "${f}" ]] && QUALIFYING_MANIFESTS+=("${f}")
+        done <<< "${MANIFESTS}"
+
+        VALIDATOR_BIN="${RUNNER_TEMP:-/tmp}/permission-manifest-validator"
+        if ! (cd "${VALIDATOR_DIR}" && go build -trimpath -o "${VALIDATOR_BIN}" .); then
+          echo "::error title=Permission manifest validation::Could not build the manifest validator — refusing to publish unvalidated manifests."
+          exit 1
+        fi
+
+        if ! "${VALIDATOR_BIN}" "${QUALIFYING_MANIFESTS[@]}"; then
+          echo "::error title=Permission manifest validation::At least one permissions.yaml is invalid (see the errors above) — nothing was published. Fix the manifest(s) and cut a new release."
+          exit 1
+        fi
+
+    # ----------------- Publish -----------------
+    - name: Publish permission manifests to the RI catalog
+      id: publish
+      if: steps.detect.outputs.proceed == 'true'
+      shell: bash
+      env:
+        MANIFESTS: ${{ steps.detect.outputs.manifests }}
+        S3_BUCKET: ${{ inputs.s3-bucket }}
+        S3_PREFIX: ${{ inputs.s3-prefix }}
+        AWS_REGION: ${{ inputs.aws-region }}
+        ENVIRONMENT: ${{ inputs.environment }}
+        DRY_RUN: ${{ inputs.dry-run }}
+      run: |
+        # Best-effort by design: never `set -e`. An upload hiccup logs ::warning and
+        # exits 0 so publishing can never gate the release. The caller adds
+        # `continue-on-error: true` as a second net.
+        set -uo pipefail
+
+        emit() { echo "$1=$2" >> "${GITHUB_OUTPUT}"; }
+
+        # Emit deterministic defaults so downstream `steps.publish.outputs.*` are never
+        # blank on an early exit.
+        emit service ""
+        emit s3_key ""
+        emit services ""
+        emit s3_keys ""
+        emit published_count "0"
+
+        QUALIFYING_MANIFESTS=()
+        while IFS= read -r f; do
+          [[ -n "${f}" ]] && QUALIFYING_MANIFESTS+=("${f}")
+        done <<< "${MANIFESTS}"
+
         # ---------------------------------------------------------------------------
-        # 4. PUBLISH EVERY MANIFEST — one S3 object per `service:` value, each
-        #    overwriting only its own file. For each manifest: extract its OWN
-        #    `service:` value, guard an empty value, guard against two manifests that
+        # 4. PUBLISH EVERY MANIFEST — every manifest here already passed the
+        #    validate step (this step does not run otherwise). One S3 object per
+        #    `service:` value, each overwriting only its own file. For each manifest:
+        #    extract its OWN `service:` value, guard an empty value (validation already
+        #    rejects one; the guard stays as a second net), guard against two manifests that
         #    declare the SAME service (a real collision — they would clobber each other
         #    under one S3 key), then upload. Dry-run logs the target + command and calls
         #    no AWS. A real upload failure logs ::warning (best-effort) and never fails
