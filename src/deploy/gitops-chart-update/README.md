@@ -31,7 +31,7 @@ Only releases whose `chart:` matches `chart-ref` **exactly** are touched. That i
 | `enable-argocd-sync` | Sync the affected applications and wait for healthy after a direct commit | no | `true` |
 | `argocd-url` | ArgoCD server; required when the sync is enabled | no | `''` |
 | `argocd-token` | ArgoCD auth token; required when the sync is enabled | no | `''` |
-| `argocd-sync-timeout` | Seconds to wait for each application to become healthy | no | `600` |
+| `argocd-sync-timeout` | Seconds each ArgoCD wait may take per application (a running operation, the sync, the health check) | no | `600` |
 
 ## Outputs
 
@@ -59,6 +59,10 @@ The case worth having it for is the one that looks like success and is not. **A 
 ## Reconciliation
 
 Writing to git is not the same as the change being live. The composite syncs each affected ArgoCD application and waits for it to report healthy; a run that cannot reach that state fails instead of reporting success over a half-updated cluster.
+
+ArgoCD refuses a sync while another operation runs on the application (usually its automated sync of the same commit) and does not queue it. The composite then waits for that operation, up to `argocd-sync-timeout`, and submits the sync again; an operation still running after that fails the run.
+
+An ArgoCD API error, such as a 504 from a proxy in front of the server, is retried: the sync up to five attempts, the health wait up to three. A sync whose operation failed, or a wait that runs out its timeout, fails the run at once.
 
 The application name is derived from the environment path — `environments/<cluster>/helmfile/applications/<env>/<app>/` becomes `<cluster>-<app>-<env>`, with the context separator flattened, so `chaos/dev-st` gives `anacleto-midaz-chaos-dev-st`.
 

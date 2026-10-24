@@ -128,6 +128,25 @@ jobs:
           "${RUNNER_TEMP}/gitops-chart-tooling-tests/bin/pip" install 'PyYAML==6.0.2'
           "${RUNNER_TEMP}/gitops-chart-tooling-tests/bin/python" src/deploy/gitops-chart-update/test-tooling.py
 
+  # ----------------- gitops-update ArgoCD Sync Tests -----------------
+  gitops-update-argocd-sync-tests:
+    name: gitops-update ArgoCD Sync Tests
+    runs-on: ${{ vars.GENERAL_RUNNERS || 'blacksmith-4vcpu-ubuntu-2404' }}
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+        with:
+          persist-credentials: false
+
+      # The shellcheck job lints `run:` blocks inside YAML, not standalone scripts.
+      - name: Lint gitops-update test scripts
+        run: shellcheck tests/gitops-update/*.sh
+
+      - name: Run ArgoCD sync failure tests
+        run: bash tests/gitops-update/test-argocd-sync.sh
+
   # ----------------- go-release Workflow Shape Tests -----------------
   # Asserts the per-group boolean overrides go-release.yml forwards for extra_builds,
   # runs the s3_upload steps against a fake aws (mirror bucket, failure path), and
@@ -154,6 +173,29 @@ jobs:
 
       - name: Run go-release Helm dispatch guard tests
         run: bash tests/go-release/test-helm-dispatch-guard.sh
+
+  # ----------------- js-release Workflow Shape Tests -----------------
+  js-release-workflow-tests:
+    name: js-release Workflow Shape Tests
+    runs-on: ${{ vars.GENERAL_RUNNERS || 'blacksmith-4vcpu-ubuntu-2404' }}
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+        with:
+          persist-credentials: false
+
+      # The test reads both workflows with PyYAML; do not depend on the runner
+      # image happening to ship it (same as the breaking-change-guard job).
+      - name: Install dependencies
+        run: |
+          if ! python3 -c "import yaml" 2>/dev/null; then
+            sudo apt-get install -y --no-install-recommends python3-yaml
+          fi
+
+      - name: Run js-release manifest publish tests
+        run: python3 tests/js-release/test_manifest_publish.py
 
   # ----------------- Build Identity Verification Tests -----------------
   # The build.yml verification step decides whether a service image may be published,
@@ -214,6 +256,20 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
         with:
           persist-credentials: false
+
+      # The validate step builds the real validator (its own go.mod pins
+      # lib-auth), and test.py runs it end to end, so the job needs that toolchain.
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: src/validate/permission-manifest-publish/validator/go.mod
+          cache-dependency-path: src/validate/permission-manifest-publish/validator/go.sum
+
+      - name: Run manifest validator unit tests
+        working-directory: src/validate/permission-manifest-publish/validator
+        run: |
+          go vet ./...
+          go test -count=1 ./...
 
       - name: Run permission-manifest-publish behavioural tests
         run: python3 src/validate/permission-manifest-publish/test.py

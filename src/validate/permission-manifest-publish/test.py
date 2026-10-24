@@ -3,11 +3,17 @@
 
 Mirrors the extract/execute/parse harness used by
 src/validate/breaking-change-guard/test-workflow.py: the embedded `run: |`
-script is pulled out of action.yml by step name, executed in a throwaway
-workspace with a controlled env, and its GITHUB_OUTPUT + stdout are asserted.
+scripts are pulled out of action.yml by step name and executed in a throwaway
+workspace with a controlled env, chained the way the runner chains them
+(detect -> validate -> publish, each gated on detect's `proceed` output, and
+publish skipped when validate fails). GITHUB_OUTPUT + stdout are asserted.
+
+The validate step runs the REAL validator (validator/, built with the local Go
+toolchain against its pinned lib-auth), so these tests need `go` on PATH and
+access to the Go module proxy (or a warm module cache).
 
 All publish assertions run in dry-run (DRY_RUN=true) so no AWS call is made,
-except the two cases that deliberately stub a fake `aws` binary on PATH to
+except the cases that deliberately stub a fake `aws` binary on PATH to
 exercise the real success / failure branches.
 """
 
@@ -24,7 +30,10 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 ACTION_PATH = Path(__file__).resolve().parent / "action.yml"
 ACTION = ACTION_PATH.read_text(encoding="utf-8")
 
-STEP_NAME = "Detect manifest and publish to the RI catalog"
+DETECT_STEP = "Detect permission manifests"
+VALIDATE_STEP = "Validate permission manifests"
+PUBLISH_STEP = "Publish permission manifests to the RI catalog"
+VALIDATOR_DIR = Path(__file__).resolve().parent / "validator"
 
 # A go.mod with a DIRECT lib-auth dependency clears the scope gate.
 GO_MOD_IN_SCOPE = textwrap.dedent(
@@ -50,12 +59,33 @@ GO_MOD_OUT_OF_SCOPE = textwrap.dedent(
 
 
 def manifest(service):
+    """A manifest that passes lib-auth's DeclarationManifest.Validate()."""
+    return textwrap.dedent(
+        f"""\
+        service: {service}
+        version: 1
+        roles:
+          - name: viewer
+        permissions:
+          - resource: account
+            action: get
+            effect: allow
+            roles: [viewer]
+        """
+    )
+
+
+# The schema-drift shape that reached the catalog before validation existed
+# (reporter, br-ccs): no version, plural `actions:`, no effect, and a role that
+# is granted but never declared. Qualifies for detection, fails Validate().
+def old_schema_manifest(service):
     return textwrap.dedent(
         f"""\
         service: {service}
         permissions:
           - resource: account
             actions: [read]
+            roles: [{service}-viewer]
         """
     )
 
@@ -102,15 +132,41 @@ def extract_run_body(text, step_name):
 
 
 def parse_github_output(output):
+    """Parse GITHUB_OUTPUT, including the `name<<DELIM ... DELIM` multiline form."""
     values = {}
-    for line in output.splitlines():
-        if "=" in line:
+    lines = output.splitlines()
+    index = 0
+    while index < len(lines):
+        line = lines[index]
+        index += 1
+        if "<<" in line and ("=" not in line or line.index("<<") < line.index("=")):
+            key, delim = line.split("<<", 1)
+            body = []
+            while index < len(lines) and lines[index] != delim:
+                body.append(lines[index])
+                index += 1
+            index += 1  # skip the closing delimiter
+            values[key] = "\n".join(body)
+        elif "=" in line:
             key, value = line.split("=", 1)
             values[key] = value  # last write wins, matching GitHub Actions
     return values
 
 
-RUN_BODY = extract_run_body(ACTION, STEP_NAME)
+DETECT_BODY = extract_run_body(ACTION, DETECT_STEP)
+VALIDATE_BODY = extract_run_body(ACTION, VALIDATE_STEP)
+PUBLISH_BODY = extract_run_body(ACTION, PUBLISH_STEP)
+
+
+def go_env(name):
+    return subprocess.run(
+        ["go", "env", name], text=True, capture_output=True, check=True
+    ).stdout.strip()
+
+
+# HOME is a throwaway per test, so point Go at the host caches explicitly — a
+# cold module/build cache per test would rebuild lib-auth every time.
+GO_CACHE_ENV = {name: go_env(name) for name in ("GOCACHE", "GOMODCACHE", "GOPATH")}
 
 
 def write_fake_aws(bin_dir, exit_code):
@@ -120,13 +176,25 @@ def write_fake_aws(bin_dir, exit_code):
     aws.chmod(aws.stat().st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
 
 
+class PipelineResult:
+    """The chained run: combined stdout, the exit code of the step that decided
+    the outcome (a failing validate step fails the action), and which steps ran."""
+
+    def __init__(self):
+        self.stdout = ""
+        self.stderr = ""
+        self.returncode = 0
+        self.ran = []
+
+
 def run_publish(files, env_overrides=None, fake_aws=None):
-    """Run the extracted publish script in a fresh workspace.
+    """Run the extracted detect -> validate -> publish scripts in a fresh workspace.
 
     files: {relative_path: contents} written into the workspace.
     env_overrides: extra/override env for the action.
     fake_aws: None (rely on dry-run), or an int exit code for a stubbed `aws`.
-    Returns (CompletedProcess, outputs_dict).
+    Returns (PipelineResult, outputs_dict) where outputs_dict is the action's
+    outputs as action.yml resolves them (publish first, falling back to detect).
     """
     with tempfile.TemporaryDirectory() as temp_dir:
         workspace = Path(temp_dir)
@@ -152,13 +220,22 @@ def run_publish(files, env_overrides=None, fake_aws=None):
             write_fake_aws(bin_dir, fake_aws)
             path_value = f"{bin_dir}:{path_value}"
 
+        runner_temp = workspace / ".runner-temp"
+        runner_temp.mkdir()
+
         env = {
             "PATH": path_value,
             "HOME": str(workspace),
+            "RUNNER_TEMP": str(runner_temp),
             "GITHUB_OUTPUT": str(output_path),
             "GITHUB_ENV": str(env_path),
             "GITHUB_STEP_SUMMARY": str(summary_path),
+            "VALIDATOR_DIR": str(VALIDATOR_DIR),
+            "GOFLAGS": "-mod=readonly",
+            "GOWORK": "off",
+            **GO_CACHE_ENV,
             "GO_MOD_PATH": "go.mod",
+            "REQUIRE_LIB_AUTH": "true",
             "S3_BUCKET": "lerian-casdoor-init-data",
             "S3_PREFIX": "permissions",
             "AWS_REGION": "us-east-2",
@@ -168,15 +245,44 @@ def run_publish(files, env_overrides=None, fake_aws=None):
         if env_overrides:
             env.update(env_overrides)
 
-        result = subprocess.run(
-            ["bash", "-c", RUN_BODY],
-            cwd=workspace,
-            env=env,
-            text=True,
-            capture_output=True,
-            check=False,
-        )
-        outputs = parse_github_output(output_path.read_text(encoding="utf-8"))
+        result = PipelineResult()
+
+        def step(name, body, step_env):
+            # Each step gets its own GITHUB_OUTPUT, as on the runner.
+            output_path.write_text("", encoding="utf-8")
+            completed = subprocess.run(
+                ["bash", "-c", body],
+                cwd=workspace,
+                env=step_env,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            result.ran.append(name)
+            result.stdout += completed.stdout
+            result.stderr += completed.stderr
+            result.returncode = completed.returncode
+            return completed.returncode, parse_github_output(
+                output_path.read_text(encoding="utf-8")
+            )
+
+        code, detect = step("detect", DETECT_BODY, env)
+        publish = {}
+        if code == 0 and detect.get("proceed") == "true":
+            chained = {**env, "MANIFESTS": detect.get("manifests", "")}
+            code, _ = step("validate", VALIDATE_BODY, chained)
+            if code == 0:
+                _, publish = step("publish", PUBLISH_BODY, chained)
+
+        # Resolve the action outputs exactly as action.yml declares them.
+        outputs = {
+            "state": publish.get("state") or detect.get("state", ""),
+            "service": publish.get("service", ""),
+            "s3_key": publish.get("s3_key", ""),
+            "services": publish.get("services", ""),
+            "s3_keys": publish.get("s3_keys", ""),
+            "published_count": publish.get("published_count") or "0",
+        }
         return result, outputs
 
 
@@ -292,15 +398,18 @@ class PublishEveryManifest(unittest.TestCase):
         self.assertEqual(out.get("state"), "skip")
         self.assertEqual(out.get("published_count"), "0")
 
-    def test_empty_service_value_skipped(self):
+    # An empty service: value used to be skipped by the publish step; it is now
+    # rejected one step earlier, by validation, and nothing is published.
+    def test_empty_service_value_fails_validation(self):
         result, out = run_publish(
             {
                 "go.mod": GO_MOD_IN_SCOPE,
                 "permissions.yaml": "service:\npermissions:\n  - resource: account\n",
             }
         )
-        self.assertExitZero(result)
-        self.assertEqual(out.get("state"), "skip")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertNotIn("publish", result.ran)
+        self.assertIn("service must not be empty", result.stdout)
         self.assertEqual(out.get("published_count"), "0")
 
     # Real (non-dry-run) success branch via a stubbed `aws` that exits 0.
@@ -334,6 +443,166 @@ class PublishEveryManifest(unittest.TestCase):
         self.assertEqual(out.get("state"), "skip")
         self.assertEqual(out.get("published_count"), "0")
         self.assertIn("::warning", result.stdout)
+
+
+class ValidateBeforePublish(unittest.TestCase):
+    """A manifest the tenant-manager would reject must never reach the bucket:
+    validation runs the same yaml.Unmarshal + DeclarationManifest.Validate()
+    the tenant-manager runs, and any failure stops the action before publish."""
+
+    def test_old_schema_manifest_fails_and_publishes_nothing(self):
+        result, out = run_publish(
+            {
+                "go.mod": GO_MOD_IN_SCOPE,
+                "permissions.yaml": old_schema_manifest("reporter"),
+            },
+            env_overrides={"DRY_RUN": "false"},
+            fake_aws=0,
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(result.ran, ["detect", "validate"])
+        self.assertIn("::error file=./permissions.yaml", result.stdout)
+        self.assertIn("version must be a positive integer", result.stdout)
+        self.assertIn('references undeclared role "reporter-viewer"', result.stdout)
+        self.assertEqual(out.get("state"), "")
+        self.assertEqual(out.get("published_count"), "0")
+
+    # One bad manifest in a monorepo blocks the whole publish, valid ones too:
+    # the catalog keeps their previous objects until the repo is fixed.
+    def test_one_invalid_manifest_blocks_every_publish(self):
+        result, out = run_publish(
+            {
+                "go.mod": GO_MOD_IN_SCOPE,
+                "components/a/permissions.yaml": manifest("midaz"),
+                "components/b/permissions.yaml": old_schema_manifest("br-ccs"),
+            },
+            env_overrides={"DRY_RUN": "false"},
+            fake_aws=0,
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertNotIn("publish", result.ran)
+        self.assertIn("valid: ./components/a/permissions.yaml", result.stdout)
+        self.assertIn("::error file=./components/b/permissions.yaml", result.stdout)
+        self.assertIn("1 of 2 permission manifest(s) invalid", result.stdout)
+        self.assertEqual(out.get("published_count"), "0")
+
+    # Validation is not a real-upload-only gate: a dry-run fails the same way,
+    # so a preview never reports a manifest as publishable when it is not.
+    def test_dry_run_also_validates(self):
+        result, _ = run_publish(
+            {
+                "go.mod": GO_MOD_IN_SCOPE,
+                "permissions.yaml": old_schema_manifest("reporter"),
+            }
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertNotIn("would publish", result.stdout)
+
+    def test_unparsable_yaml_fails(self):
+        result, _ = run_publish(
+            {
+                "go.mod": GO_MOD_IN_SCOPE,
+                "permissions.yaml": "service: broken\npermissions: [\n",
+            }
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("parse yaml manifest", result.stdout)
+
+    # A validator that cannot be built checked nothing: fail closed.
+    def test_unbuildable_validator_fails_closed(self):
+        result, _ = run_publish(
+            {
+                "go.mod": GO_MOD_IN_SCOPE,
+                "permissions.yaml": manifest("midaz"),
+            },
+            env_overrides={"VALIDATOR_DIR": "/nonexistent/validator"},
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertNotIn("publish", result.ran)
+        self.assertIn("Could not build the manifest validator", result.stdout)
+
+    # Skips never pay for the toolchain: validation only runs once detect says so.
+    def test_skip_paths_do_not_validate(self):
+        result, out = run_publish(
+            {
+                "go.mod": GO_MOD_OUT_OF_SCOPE,
+                "permissions.yaml": old_schema_manifest("reporter"),
+            }
+        )
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(result.ran, ["detect"])
+        self.assertEqual(out.get("state"), "skip")
+
+    def test_validation_steps_are_gated_on_detect(self):
+        for name in ("Set up Go for the manifest validator", VALIDATE_STEP, PUBLISH_STEP):
+            self.assertIn(
+                "if: steps.detect.outputs.proceed == 'true'",
+                extract_step(ACTION, name),
+                msg=f"step {name!r} must only run when detect proceeds",
+            )
+
+
+class NonGoRepo(unittest.TestCase):
+    """`require-lib-auth: false` lets a repo that is not a Go service (a JS/TS app
+    such as the console) publish: go.mod is not read, the manifest alone decides,
+    and validation still applies."""
+
+    OFF = {"REQUIRE_LIB_AUTH": "false"}
+
+    def test_default_keeps_the_gate(self):
+        m = re.search(r'^  require-lib-auth:\n.*?default:\s*"([^"]+)"', ACTION, re.DOTALL | re.MULTILINE)
+        self.assertIsNotNone(m, "require-lib-auth input default not found in action.yml")
+        self.assertEqual(m.group(1), "true")
+
+    def test_gate_on_without_go_mod_still_skips(self):
+        result, out = run_publish({"permissions.yaml": manifest("console")})
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(out.get("state"), "skip")
+        self.assertEqual(result.ran, ["detect"])
+
+    def test_no_go_mod_publishes_when_gate_off(self):
+        result, out = run_publish(
+            {"package.json": "{}\n", "permissions.yaml": manifest("console")},
+            env_overrides=self.OFF,
+        )
+        self.assertEqual(result.returncode, 0, msg=result.stdout + result.stderr)
+        self.assertEqual(out.get("state"), "dryrun")
+        self.assertEqual(out.get("services"), "console")
+        self.assertEqual(out.get("s3_key"), "development/permissions/console.yaml")
+        self.assertIn("go.mod not checked", result.stdout)
+
+    def test_gate_off_ignores_a_go_mod_without_lib_auth(self):
+        result, out = run_publish(
+            {"go.mod": GO_MOD_OUT_OF_SCOPE, "permissions.yaml": manifest("console")},
+            env_overrides=self.OFF,
+        )
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(out.get("state"), "dryrun")
+
+    def test_gate_off_still_validates(self):
+        result, out = run_publish(
+            {"permissions.yaml": old_schema_manifest("console")},
+            env_overrides={**self.OFF, "DRY_RUN": "false"},
+            fake_aws=0,
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertNotIn("publish", result.ran)
+        self.assertEqual(out.get("published_count"), "0")
+
+    def test_gate_off_without_manifest_skips(self):
+        result, out = run_publish({"package.json": "{}\n"}, env_overrides=self.OFF)
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(out.get("state"), "skip")
+
+    def test_gate_off_real_publish(self):
+        result, out = run_publish(
+            {"permissions.yaml": manifest("console")},
+            env_overrides={**self.OFF, "DRY_RUN": "false", "ENVIRONMENT": "staging"},
+            fake_aws=0,
+        )
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(out.get("state"), "published")
+        self.assertEqual(out.get("s3_key"), "staging/permissions/console.yaml")
 
 
 class RegionConfiguration(unittest.TestCase):
