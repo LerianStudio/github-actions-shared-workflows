@@ -506,7 +506,7 @@ The workflow uses a matrix strategy for ArgoCD sync:
 
 ### Sync Command Behavior
 
-The `argocd app sync` call uses `--async --timeout 180`, dispatching the sync without blocking on completion. On failure, the sync step makes up to 5 attempts with a 30s interval between attempts.
+The `argocd app sync` call uses `--async --timeout 180`, dispatching the sync without blocking on completion. On failure, the sync step makes up to 5 attempts with a 30s interval between attempts, then fails the job with the CLI's error. One exception: when an app with an automated sync policy refuses the sync because Argo CD is already syncing it, the step goes straight to the wait, since that sync reaches the new commit on its own.
 
 A subsequent `argocd app wait --timeout` (configurable via `argocd_sync_timeout`, default `600`) confirms the rollout. On failure, the wait step makes up to 3 attempts with exponential backoff (30s, then 60s between attempts), then fails the job with the CLI's error from the last attempt.
 
@@ -605,6 +605,10 @@ If you see a warning like "ArgoCD app 'anacleto-myapp-chaos-dev-st' does not exi
 ### ArgoCD sync fails with `Unauthenticated: no session information`
 
 The calling repository's job got an empty `ARGOCD_TOKEN`. The secret is an organization secret with selected-repository visibility: an org admin must add the calling repository to it. Before this check existed, these legs skipped silently and read green.
+
+### ArgoCD sync fails with `another operation is already in progress`
+
+Only an app with a manual sync policy fails this way: another sync, started by a person or a concurrent run, held the app through all 5 attempts. Rerun the leg once that sync ends. An automated app waits on Argo CD's own sync instead, and its leg fails only if that sync does.
 
 ### Artifact not found
 

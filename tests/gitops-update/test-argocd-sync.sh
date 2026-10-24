@@ -29,13 +29,15 @@ awk '
 }
 
 # `argocd app get` answers STUB_GET; each `argocd app wait` answers the next word of
-# STUB_WAITS; `argocd app sync` succeeds. `sleep` returns at once.
+# STUB_WAITS; every `argocd app sync` answers STUB_SYNC (ok). `sleep` returns at once.
 mkdir "${WORK_DIR}/bin"
 cat >"${WORK_DIR}/bin/argocd" <<'STUB'
 #!/usr/bin/env bash
 answer() {
   case "$1" in
-    ok) echo 'Health Status:      Healthy'; return 0 ;;
+    ok) printf 'Sync Policy:        Automated (Prune)\nHealth Status:      Healthy\n'; return 0 ;;
+    manual) echo 'Sync Policy:        Manual'; return 0 ;;
+    busy) desc='code = FailedPrecondition desc = another operation is already in progress' ;;
     unauthenticated) desc='code = Unauthenticated desc = no session information' ;;
     denied) desc='code = PermissionDenied desc = permission denied' ;;
     504) desc='code = Unknown desc = POST https://argocd.example/application.ApplicationService/Get failed with status code 504' ;;
@@ -45,7 +47,7 @@ answer() {
 }
 case "$2" in
   get) answer "${STUB_GET}" ;;
-  sync) exit 0 ;;
+  sync) answer "${STUB_SYNC:-ok}" ;;
   wait)
     echo x >>"${STUB_WAIT_LOG}"
     read -ra waits <<<"${STUB_WAITS}"
@@ -86,6 +88,10 @@ assert_sync 'a wait failing three times reports the CLI error, not a timeout' ok
   '^::error::.*after 3 attempts.*status code 504'
 assert_sync 'a wait failing once is retried and the sync succeeds' ok '504 ok' 0 success 2 \
   '^Health Status'
+STUB_SYNC=busy assert_sync 'an automated app Argo CD is already syncing is waited on' ok 'ok' 0 success 1 \
+  '^Argo CD is already syncing benedita-app-dev under its automated policy'
+STUB_SYNC=busy assert_sync 'a manual app held by another operation fails after 5 sync attempts' manual '' 1 '' 0 \
+  '^::error::.*after 5 attempts.*another operation is already in progress'
 
 printf '\n%d passed, %d failed\n' "${PASSED}" "${FAILED}"
 [[ ${FAILED} -eq 0 ]]

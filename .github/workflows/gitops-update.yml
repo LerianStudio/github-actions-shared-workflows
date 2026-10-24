@@ -1152,14 +1152,22 @@ jobs:
             exit 1
           fi
 
+          SYNC_POLICY=$(sed -n 's/^Sync Policy: *//p' "$ARGOCD_LOG")
+
           echo "::group::argocd app sync $APP_NAME"
           for attempt in 1 2 3 4 5; do
-            if argocd app sync "$APP_NAME" --server "$ARGOCD_URL" --auth-token "$ARGOCD_TOKEN" --grpc-web --async --timeout 180 $PRUNE_FLAG; then
+            if argocd app sync "$APP_NAME" --server "$ARGOCD_URL" --auth-token "$ARGOCD_TOKEN" --grpc-web --async --timeout 180 $PRUNE_FLAG 2>&1 | tee "$ARGOCD_LOG"; then
+              break
+            fi
+            # Argo CD re-resolves the branch when an operation ends, so an automated app that is
+            # already syncing reaches this commit on its own; a second sync would only race it.
+            if [[ "$SYNC_POLICY" == Automated* ]] && grep -q "another operation is already in progress" "$ARGOCD_LOG"; then
+              echo "Argo CD is already syncing $APP_NAME under its automated policy; waiting on that sync."
               break
             fi
             if [[ "$attempt" == "5" ]]; then
               echo "::endgroup::"
-              echo "::error::Sync failed for $APP_NAME after 5 attempts"
+              echo "::error::Sync failed for $APP_NAME after 5 attempts: $(argocd_error)"
               exit 1
             fi
             echo "Sync attempt $attempt failed, retrying in 30s..."
