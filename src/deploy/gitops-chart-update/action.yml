@@ -64,7 +64,7 @@ inputs:
     required: false
     default: ''
   argocd-sync-timeout:
-    description: Seconds to wait for each application to become healthy
+    description: Seconds each ArgoCD wait may take per application (a running operation, the sync, the health check)
     required: false
     default: '600'
 
@@ -406,12 +406,14 @@ runs:
         # Checksum-verified rather than a bare download: this binary runs moments
         # later holding a token that can sync production.
         curl -sSL -o /tmp/argocd \
-          https://github.com/argoproj/argo-cd/releases/download/v3.0.6/argocd-linux-amd64
-        echo "ae3257671dd0b7a787b21a70db43c3c869adec5dd520c90b419871a5ca1a8fc9  /tmp/argocd" \
+          https://github.com/argoproj/argo-cd/releases/download/v3.4.4/argocd-linux-amd64
+        echo "b93c312956880c9597a246a7d1e705fbb7ee7f19c5229affdec99b26d5663e09  /tmp/argocd" \
           | sha256sum --check --status
         chmod +x /tmp/argocd
 
         argo() { /tmp/argocd "$@" --server "$ARGOCD_URL" --auth-token "$ARGOCD_TOKEN" --grpc-web; }
+        # A synchronous sync fails unless its operation ends Succeeded, so the health wait needs no phase check.
+        argo_sync() { argo app sync "$1" --timeout "$SYNC_TIMEOUT" 2>&1 | tee /tmp/argocd-sync.log; }
 
         # environments/<cluster>/helmfile/applications/<env>/<app>/helmfile.yaml
         # becomes <cluster>-<app>-<env>, flattening the context separator so that
@@ -425,11 +427,14 @@ runs:
           name="${cluster}-${app}-${env_path//\//-}"
 
           echo "::group::argocd $name"
-          if argo app sync "$name" --timeout "$SYNC_TIMEOUT" \
+          # Argo CD refuses a sync while another operation runs and does not queue it: wait that one out, then
+          # resubmit once. A wait that times out means a stuck operation and fails the leg.
+          if { argo_sync "$name" || { grep -q "another operation is already in progress" /tmp/argocd-sync.log \
+                 && argo app wait "$name" --operation --timeout "$SYNC_TIMEOUT" && argo_sync "$name"; }; } \
              && argo app wait "$name" --health --timeout "$SYNC_TIMEOUT"; then
             echo "::notice::$name is healthy"
           else
-            echo "::error::$name did not reach a healthy state within ${SYNC_TIMEOUT}s"
+            echo "::error::$name did not sync to a healthy state (each wait up to ${SYNC_TIMEOUT}s)"
             failed=1
           fi
           echo "::endgroup::"
