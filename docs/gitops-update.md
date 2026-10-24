@@ -170,7 +170,7 @@ update_gitops:
 | `kustomize_environments` | string | - | Optional space-separated env list overriding the default tag-based env loop when `gitops_layout=kustomize`. Leave empty for layouts without env split |
 | `kustomize_version` | string | `v5.4.3` | Version of kustomize CLI to install (only when `gitops_layout=kustomize`) |
 | `argocd_app_name_template` | string | `{server}-{app}-{env}` | Template for the ArgoCD application name. Supports `{server}`, `{app}`, `{env}`. For kustomize layouts without env split, use e.g. `{server}-{app}` |
-| `argocd_sync_timeout` | number | `600` | Timeout in seconds for `argocd app wait` after sync. Increase for larger applications or clusters under load. |
+| `argocd_sync_timeout` | number | `600` | Timeout in seconds for `argocd app wait` after sync, and for the wait on an operation already running at sync time. Increase for larger applications or clusters under load. |
 | `beta_environments` | string | `dev` | Space-separated environments updated by a beta release (`develop` branch) |
 | `rc_environments` | string | `stg` | Space-separated environments updated by an rc release (`release-candidate` branch) |
 | `stable_environments` | string | `prd` | Space-separated environments updated by a stable release (`main` branch). Default `prd` so a hotfix does not overwrite features still in dev/stg. Set to `dev stg prd` to refresh lower environments too. Sandbox is controlled separately by `update_sandbox` |

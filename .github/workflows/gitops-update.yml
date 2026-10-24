@@ -97,7 +97,7 @@ on:
         type: string
         default: '{server}-{app}-{env}'
       argocd_sync_timeout:
-        description: 'Timeout in seconds for argocd app wait after sync. Increase for larger applications or clusters under load.'
+        description: 'Timeout in seconds for argocd app wait after sync, and for the wait on an operation already running at sync time. Increase for larger applications or clusters under load.'
         type: number
         default: 600
       force_env:
@@ -1086,7 +1086,7 @@ jobs:
             echo "argocd already installed: $(argocd version --client --short 2>/dev/null || argocd version --client)"
           else
             mkdir -p ~/.local/bin
-            curl -sSL -o ~/.local/bin/argocd https://github.com/argoproj/argo-cd/releases/download/v3.0.6/argocd-linux-amd64
+            curl -sSL -o ~/.local/bin/argocd https://github.com/argoproj/argo-cd/releases/download/v3.4.4/argocd-linux-amd64
             chmod +x ~/.local/bin/argocd
             echo "$HOME/.local/bin" >> "$GITHUB_PATH"
             export PATH="$HOME/.local/bin:$PATH"
