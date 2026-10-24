@@ -64,7 +64,7 @@ inputs:
     required: false
     default: ''
   argocd-sync-timeout:
-    description: Seconds to wait for each application to become healthy
+    description: Seconds each ArgoCD wait may take per application (a running operation, the sync, the health check)
     required: false
     default: '600'
 
@@ -406,12 +406,36 @@ runs:
         # Checksum-verified rather than a bare download: this binary runs moments
         # later holding a token that can sync production.
         curl -sSL -o /tmp/argocd \
-          https://github.com/argoproj/argo-cd/releases/download/v3.0.6/argocd-linux-amd64
-        echo "ae3257671dd0b7a787b21a70db43c3c869adec5dd520c90b419871a5ca1a8fc9  /tmp/argocd" \
+          https://github.com/argoproj/argo-cd/releases/download/v3.4.4/argocd-linux-amd64
+        echo "b93c312956880c9597a246a7d1e705fbb7ee7f19c5229affdec99b26d5663e09  /tmp/argocd" \
           | sha256sum --check --status
         chmod +x /tmp/argocd
 
-        argo() { /tmp/argocd "$@" --server "$ARGOCD_URL" --auth-token "$ARGOCD_TOKEN" --grpc-web; }
+        argo() { /tmp/argocd "$@" --server "$ARGOCD_URL" --auth-token "$ARGOCD_TOKEN" --grpc-web 2>&1 | tee /tmp/argocd.log; }
+        # Retried: an API error (a 504 from the edge), read from the CLI's last line. Not retried:
+        # its own timeout, announced even when it then dies with 'context canceled', or a sync that ran and failed.
+        transient() { tail -n1 /tmp/argocd.log | grep -q 'rpc error' && ! grep -qE 'after .?wait.? timed out' /tmp/argocd.log; }
+        # A synchronous sync fails unless its operation ends Succeeded, so the health wait needs no phase check.
+        sync_and_wait() {
+          local attempt
+          for attempt in 1 2 3 4 5; do
+            argo app sync "$1" --timeout "$SYNC_TIMEOUT" && break
+            [ "$attempt" != 5 ] || return 1
+            # Argo CD refuses a sync while another operation runs and does not queue it: wait that one out, then resubmit.
+            if grep -q "another operation is already in progress" /tmp/argocd.log; then
+              argo app wait "$1" --operation --timeout "$SYNC_TIMEOUT" && continue
+            fi
+            transient || return 1
+            echo "Sync attempt $attempt failed, retrying in 30s..."
+            sleep 30
+          done
+          for attempt in 1 2 3; do
+            argo app wait "$1" --health --timeout "$SYNC_TIMEOUT" && return 0
+            [ "$attempt" != 3 ] && transient || return 1
+            echo "Wait attempt $attempt failed, retrying in $((attempt * 30))s..."
+            sleep $((attempt * 30))
+          done
+        }
 
         # environments/<cluster>/helmfile/applications/<env>/<app>/helmfile.yaml
         # becomes <cluster>-<app>-<env>, flattening the context separator so that
@@ -425,11 +449,10 @@ runs:
           name="${cluster}-${app}-${env_path//\//-}"
 
           echo "::group::argocd $name"
-          if argo app sync "$name" --timeout "$SYNC_TIMEOUT" \
-             && argo app wait "$name" --health --timeout "$SYNC_TIMEOUT"; then
+          if sync_and_wait "$name"; then
             echo "::notice::$name is healthy"
           else
-            echo "::error::$name did not reach a healthy state within ${SYNC_TIMEOUT}s"
+            echo "::error::$name did not sync to a healthy state: $(tail -n1 /tmp/argocd.log)"
             failed=1
           fi
           echo "::endgroup::"

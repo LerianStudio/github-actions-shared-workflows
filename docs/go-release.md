@@ -229,6 +229,8 @@ with:
 
 The `permission_manifest_publish` job is **`continue-on-error`** — a publish hiccup never blocks the release — and **auto-detects** the manifest, no-opping when the repo is out of scope (`go.mod` has no direct `github.com/LerianStudio/lib-auth` dependency) or has no qualifying `permissions.yaml` (a file with top-level `service:` and `permissions:` keys). Unlike `s3_upload` it reads repo files, so it does **not** gate on the image build.
 
+Every manifest is **validated before anything is uploaded**, with the same check the tenant-manager runs when it loads the catalog (`yaml.Unmarshal` + lib-auth's `DeclarationManifest.Validate()`). One invalid manifest fails the job and **nothing** is published — the catalog keeps each service's previous object — so a manifest the tenant-manager would reject never reaches it. The job stays `continue-on-error`, so the release itself is not blocked, but it goes red with one `::error` annotation per invalid file. See [Validation](../src/validate/permission-manifest-publish/README.md#validation).
+
 The catalog is **per-service and env-scoped**: each service writes exactly one object, keyed by its manifest's `service:` value, to
 
 ```

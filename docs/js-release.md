@@ -8,7 +8,7 @@
 Umbrella reusable workflow for JavaScript/TypeScript **service** repositories (deployable apps that ship as container images). A caller references this single workflow and it drives the full release pipeline, branching on the pushed ref:
 
 - **Branch push** → change gate (`src/config/non-doc-changes`) → semantic release (`release.yml`). Documentation-only pushes skip the release, and so do pushes that touch only `.github/workflows/`, `.github/actions/` or `.github/scripts/` unless `release_on_workflow_changes` is on.
-- **Tag push** → container build & push (`typescript-build.yml`) → GitOps update (`gitops-update.yml`), gated on the build actually producing images.
+- **Tag push** → container build & push (`typescript-build.yml`) → GitOps update (`gitops-update.yml`), gated on the build actually producing images. With `run_manifest_publish: true`, the app's `permissions.yaml` is also validated and published to the Access-Manager RI catalog (independent of the build).
 
 Mirrors the [`go-release`](./go-release.md) umbrella for Go services — providing the same single-caller DX for Next.js frontends, NestJS backends, and any JS/TS service that ships a Docker image.
 
@@ -90,6 +90,9 @@ Mirrors the [`go-release`](./go-release.md) umbrella for Go services — providi
 | `ungoliant_tenancy` | **Deprecated no-op** — the app's registration decides the surface | string | `st` |
 | `ungoliant_controller_url` | Ungoliant controller base URL (reachable over Tailscale) | string | `https://ungoliant-controller.anacleto.lerian.net` |
 | `ungoliant_runner_type` | Runner for the Ungoliant release-diff job (needs Tailscale reach to the controller) | string | `eveo-anacleto-lxc-runners` |
+| `run_manifest_publish` | Publish this app's own `permissions.yaml` to the shared Access-Manager RI catalog in S3 on tag push, after validating it (see [Permission manifest publish](#permission-manifest-publish-ri)). **Opt-in** | boolean | `false` |
+| `manifest_publish_environment` | GitHub Environment to scope the manifest publish job to, putting the `AWS_INIT_DATA_ROLE_ARN` assume-role behind that environment's protection rules. Empty keeps the job unscoped | string | `''` |
+| `manifest_component_tags` | Also accept per-component release tags (`<component>-vX.Y.Z`, `-beta.N`, `-rc.N`) in the environment gate. The semver core stays strict either way | boolean | `false` |
 
 ## Secrets
 
@@ -100,6 +103,7 @@ Mirrors the [`go-release`](./go-release.md) umbrella for Go services — providi
 | `NPM_TOKEN` | npm registry auth token, forwarded to the `release` job. Only needed when the caller's own `.releaserc` includes `@semantic-release/npm` (a component with independent semver that publishes to an npm registry) | No |
 | `AWS_E2E_ARTIFACTS_ROLE_ARN` | IAM role ARN assumed via OIDC to upload the Playwright report to the `lerian-e2e-artifacts` S3 bucket (`s3://lerian-e2e-artifacts/<repo>/<channel>/<tag>/<e2e_s3_artifact_path>/`). Unset → S3 upload step is skipped, only the GitHub Actions artifact is produced | No |
 | `UNGOLIANT_WEBHOOK_TOKEN` | Token sent as the `X-Ungoliant-Token` header (used when `enable_ungoliant_release_diff`) | No |
+| `AWS_INIT_DATA_ROLE_ARN` | IAM role ARN (scoped to the `lerian-casdoor-init-data` bucket) assumed via OIDC by the permission manifest publish job. Used only when `run_manifest_publish` is `true`; unset → the real upload is skipped | No |
 
 All other secrets required by the underlying primitives (GitHub App tokens, GPG key, DockerHub credentials, etc.) are forwarded automatically via `secrets: inherit`.
 
@@ -324,6 +328,31 @@ jobs:
     secrets: inherit
 ```
 
+## Permission manifest publish (RI)
+
+Set `run_manifest_publish: true` (**opt-in**, default `false`) to publish the app's **own** `permissions.yaml` to the shared Access-Manager **Inversão de Responsabilidade (RI)** catalog on tag push — the same job [`go-release`](./go-release.md#permission-manifest-publish-ri) runs for Go services, using the [permission-manifest-publish](../src/validate/permission-manifest-publish/README.md) composite. A Next.js app such as the console has no runtime that declares its permissions at boot, so the release pipeline is what puts its manifest in the catalog.
+
+What is the same as `go-release`:
+
+- **Tag → folder**: `vX.Y.Z-beta.N` → `development`, `vX.Y.Z-rc.N` → `staging`, `vX.Y.Z` → `production`; any other tag shape publishes nothing (warning). `manifest_component_tags: true` allows one lowercase `<component>-` prefix. The step is byte-identical to go-release's (a test guards the drift).
+- **Key**: `s3://lerian-casdoor-init-data/{folder}/permissions/{service}.yaml`, one object per `service:` value.
+- **Validation before upload**: the same `yaml.Unmarshal` + `DeclarationManifest.Validate()` check the tenant-manager runs. One invalid manifest fails the job and **nothing** is published.
+- **Credentials**: `AWS_INIT_DATA_ROLE_ARN` assumed via OIDC in `sa-east-1`; unset → the real upload is skipped (a `dry_run` still previews). `manifest_publish_environment` puts the assume-role behind a GitHub Environment's protection rules.
+- **Never blocks the release**: the job is `continue-on-error`; a rejected manifest turns it red without failing the pipeline.
+
+What differs: the composite's go.mod **lib-auth scope gate is off** (`require-lib-auth: 'false'`) — a JS repo has no go.mod, so a qualifying `permissions.yaml` (top-level `service:` and `permissions:`) alone decides.
+
+```yaml
+jobs:
+  release:
+    uses: LerianStudio/github-actions-shared-workflows/.github/workflows/js-release.yml@tier-1
+    with:
+      run_manifest_publish: true
+    secrets: inherit   # or map AWS_INIT_DATA_ROLE_ARN explicitly
+```
+
+The caller job needs `id-token: write` (already in the [permissions](#permissions) union above).
+
 ## Related
 
 - [release](./release.md) — semantic-release pipeline this umbrella calls on branch push
@@ -331,3 +360,4 @@ jobs:
 - [gitops-update](./gitops-update.md) — GitOps update this umbrella calls
 - [go-release](./go-release.md) — the equivalent umbrella for Go service repositories
 - [ungoliant-release-diff](../src/validate/ungoliant-release-diff/README.md) — the composite the release-diff job runs
+- [permission-manifest-publish](../src/validate/permission-manifest-publish/README.md) — the composite the manifest publish job runs
