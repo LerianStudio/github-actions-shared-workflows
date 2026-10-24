@@ -33,11 +33,19 @@ awk '
 mkdir "${WORK_DIR}/bin"
 cat >"${WORK_DIR}/bin/argocd" <<'STUB'
 #!/usr/bin/env bash
+ARGS=" $* "
 answer() {
   case "$1" in
     ok) printf 'Sync Policy:        Automated (Prune)\nHealth Status:      Healthy\n'; return 0 ;;
     manual) echo 'Sync Policy:        Manual'; return 0 ;;
     busy) desc='code = FailedPrecondition desc = another operation is already in progress' ;;
+    # A failed sync leaves the app OutOfSync, so only a wait on the operation alone returns.
+    failed)
+      if [[ ${ARGS} == *" --operation "* ]]; then
+        printf 'Phase:              Failed\nMessage:            one or more synchronization tasks completed unsuccessfully\n'
+        return 0
+      fi
+      desc='timed out (600s) waiting for app "benedita-app-dev" match desired state' ;;
     unauthenticated) desc='code = Unauthenticated desc = no session information' ;;
     denied) desc='code = PermissionDenied desc = permission denied' ;;
     504) desc='code = Unknown desc = POST https://argocd.example/application.ApplicationService/Get failed with status code 504' ;;
@@ -87,10 +95,12 @@ assert_sync 'a missing app (PermissionDenied) is still skipped with a warning' d
   '^::warning::.*benedita-app-dev'
 assert_sync 'a wait failing three times reports the CLI error, not a timeout' ok '504 504 504' 1 '' 3 \
   '^::error::.*after 3 attempts.*status code 504'
-assert_sync 'a wait failing once is retried and the sync succeeds' ok '504 ok' 0 success 2 \
+assert_sync 'a wait failing once is retried and the sync succeeds' ok '504 ok ok' 0 success 3 \
   '^Health Status'
-STUB_SYNC=busy assert_sync 'an automated app Argo CD is already syncing is waited on' ok 'ok' 0 success 1 \
+STUB_SYNC=busy assert_sync 'an automated app Argo CD is already syncing is waited on' ok 'ok ok' 0 success 2 \
   '^Argo CD is already syncing benedita-app-dev under its automated policy'
+STUB_SYNC=busy assert_sync 'a sync Argo CD ends Failed fails the job with its message, without a timeout' ok 'failed' 1 '' 1 \
+  '^::error::.*benedita-app-dev.*Failed: one or more synchronization tasks completed unsuccessfully'
 STUB_SYNC=busy assert_sync 'a manual app held by another operation fails after 5 sync attempts' manual '' 1 '' 0 \
   '^::error::.*after 5 attempts.*another operation is already in progress'
 

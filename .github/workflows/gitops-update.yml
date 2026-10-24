@@ -1178,8 +1178,16 @@ jobs:
           echo "::group::argocd app wait $APP_NAME"
           wait_delay=30
           for attempt in 1 2 3; do
-            if argocd app wait "$APP_NAME" --server "$ARGOCD_URL" --auth-token "$ARGOCD_TOKEN" --grpc-web --timeout "$ARGOCD_SYNC_TIMEOUT" 2>&1 | tee "$ARGOCD_LOG"; then
-              break
+            # A failed sync leaves the app OutOfSync, so only a wait on the operation alone ends at the failure.
+            if argocd app wait "$APP_NAME" --server "$ARGOCD_URL" --auth-token "$ARGOCD_TOKEN" --grpc-web --operation --timeout "$ARGOCD_SYNC_TIMEOUT" 2>&1 | tee "$ARGOCD_LOG"; then
+              if grep -qE '^Phase: +(Failed|Error)$' "$ARGOCD_LOG"; then
+                echo "::endgroup::"
+                echo "::error::Argo CD's sync of $APP_NAME ended $(sed -n 's/^Phase: *//p' "$ARGOCD_LOG"): $(sed -n 's/^Message: *//p' "$ARGOCD_LOG")"
+                exit 1
+              fi
+              if argocd app wait "$APP_NAME" --server "$ARGOCD_URL" --auth-token "$ARGOCD_TOKEN" --grpc-web --timeout "$ARGOCD_SYNC_TIMEOUT" 2>&1 | tee "$ARGOCD_LOG"; then
+                break
+              fi
             fi
             if [[ "$attempt" == "3" ]]; then
               echo "::endgroup::"

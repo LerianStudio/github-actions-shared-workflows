@@ -508,7 +508,7 @@ The workflow uses a matrix strategy for ArgoCD sync:
 
 The `argocd app sync` call uses `--async --timeout 180`, dispatching the sync without blocking on completion. On failure, the sync step makes up to 5 attempts with a 30s interval between attempts, then fails the job with the CLI's error. One exception: when an app with an automated sync policy refuses the sync because Argo CD is already syncing it, the step goes straight to the wait: the app lookup before the sync uses `--refresh`, which makes Argo CD look up the branch again, so the automated policy syncs the new commit once the running sync ends.
 
-A subsequent `argocd app wait --timeout` (configurable via `argocd_sync_timeout`, default `600`) confirms the rollout. On failure, the wait step makes up to 3 attempts with exponential backoff (30s, then 60s between attempts), then fails the job with the CLI's error from the last attempt.
+A subsequent `argocd app wait --timeout` (configurable via `argocd_sync_timeout`, default `600`) confirms the rollout in two waits: `--operation` until the sync operation ends, then sync and health. A sync that ends `Failed` or `Error` fails the job at once with Argo CD's message, since a failed sync leaves the app OutOfSync and the sync and health wait could only time out. On failure, the wait step makes up to 3 attempts with exponential backoff (30s, then 60s between attempts), then fails the job with the CLI's error from the last attempt.
 
 When `argocd_prune` is `true`, `--prune` is appended so orphaned resources left behind by previous renames/removals are cleaned up automatically. Keep this disabled by default in production and enable per-caller when you knowingly need cleanup.
 
@@ -608,7 +608,7 @@ The calling repository's job got an empty `ARGOCD_TOKEN`. The secret is an organ
 
 ### ArgoCD sync fails with `another operation is already in progress`
 
-Only an app with a manual sync policy fails this way: another sync, started by a person or a concurrent run, held the app through all 5 attempts. Rerun the leg once that sync ends. An automated app waits on Argo CD's own sync instead, and its leg fails only if that sync does.
+Only an app with a manual sync policy fails this way: another sync, started by a person or a concurrent run, held the app through all 5 attempts. Rerun the leg once that sync ends. An automated app waits on Argo CD's own sync instead, and its leg fails as soon as that sync ends `Failed` or `Error`, with Argo CD's message.
 
 ### Artifact not found
 
