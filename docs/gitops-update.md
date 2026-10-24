@@ -503,13 +503,12 @@ The workflow uses a matrix strategy for ArgoCD sync:
 1. The `apply_tags` step outputs a JSON array of server/env combinations that were updated
 2. A separate `argocd_sync` job runs in parallel for each combination
 3. Each job first checks if the ArgoCD app exists before attempting sync
-4. Each sync has `continue-on-error: true` for graceful failure handling
 
 ### Sync Command Behavior
 
 The `argocd app sync` call uses `--async --timeout 180`, dispatching the sync without blocking on completion. On failure, the sync step makes up to 5 attempts with a 30s interval between attempts.
 
-A subsequent `argocd app wait --timeout` (configurable via `argocd_sync_timeout`, default `600`) confirms the rollout. On failure, the wait step makes up to 3 attempts with exponential backoff (30s, then 60s between attempts).
+A subsequent `argocd app wait --timeout` (configurable via `argocd_sync_timeout`, default `600`) confirms the rollout. On failure, the wait step makes up to 3 attempts with exponential backoff (30s, then 60s between attempts), then fails the job with the CLI's error from the last attempt.
 
 When `argocd_prune` is `true`, `--prune` is appended so orphaned resources left behind by previous renames/removals are cleaned up automatically. Keep this disabled by default in production and enable per-caller when you knowingly need cleanup.
 
@@ -517,14 +516,15 @@ When `argocd_prune` is `true`, `--prune` is appended so orphaned resources left 
 
 Before syncing, each matrix job checks if the ArgoCD app exists:
 - **App exists**: Proceeds with sync
-- **App doesn't exist**: Logs a warning and skips sync (no failure)
+- **App doesn't exist**: Logs a warning and skips sync (no failure). Argo CD answers `PermissionDenied` for a missing app, so a token without access to the app is skipped the same way
+- **Any other error** (missing or expired `ARGOCD_TOKEN`, API or network failure): fails the job with the CLI's error
 
 This prevents unnecessary errors when an app hasn't been created in ArgoCD yet for a specific server/environment.
 
 ### Graceful Failure
 
-- If one sync fails, other syncs will still attempt
-- The overall workflow will continue even if some syncs fail
+- If one sync fails, other syncs will still attempt (`fail-fast: false`)
+- A failed sync turns the run red once every leg finishes
 - Missing apps are logged as warnings, not failures
 - Check workflow logs to identify which syncs failed or were skipped
 
@@ -600,7 +600,11 @@ If you see warnings like "Values file not found for anacleto/chaos/dev-st", this
 
 ### ArgoCD app does not exist
 
-If you see warnings like "ArgoCD app anacleto-myapp-chaos-dev-st does not exist, sync skipped", this means the ArgoCD application hasn't been created yet. The workflow will log a warning and continue.
+If you see a warning like "ArgoCD app 'anacleto-myapp-chaos-dev-st' does not exist or the token lacks 'applications, get' on it. Skipping sync.", the ArgoCD application hasn't been created yet, or the token's Argo CD account has no RBAC on it. The workflow logs a warning and continues.
+
+### ArgoCD sync fails with `Unauthenticated: no session information`
+
+The calling repository's job got an empty `ARGOCD_TOKEN`. The secret is an organization secret with selected-repository visibility: an org admin must add the calling repository to it. Before this check existed, these legs skipped silently and read green.
 
 ### Artifact not found
 
