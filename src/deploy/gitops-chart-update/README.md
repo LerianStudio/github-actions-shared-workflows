@@ -31,7 +31,7 @@ Only releases whose `chart:` matches `chart-ref` **exactly** are touched. That i
 | `enable-argocd-sync` | Sync the affected applications and wait for healthy after a direct commit | no | `true` |
 | `argocd-url` | ArgoCD server; required when the sync is enabled | no | `''` |
 | `argocd-token` | ArgoCD auth token; required when the sync is enabled | no | `''` |
-| `argocd-sync-timeout` | Seconds to wait for each application to become healthy | no | `600` |
+| `argocd-sync-timeout` | Seconds each ArgoCD wait may take per application (a running operation, the sync, the health check) | no | `600` |
 
 ## Outputs
 

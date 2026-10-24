@@ -1,9 +1,8 @@
 #!/usr/bin/env bash
 
-# Runs the "Sync ArgoCD application" step of gitops-update.yml and the "Sync the affected
-# ArgoCD applications" step of the gitops-chart-update action as written, under the runner's
-# shell flags, with a stub `argocd` on PATH answering the way the real CLI does (a fatal JSON
-# log line, exit 20), and asserts which failures fail the job.
+# Runs the ArgoCD sync steps of gitops-update.yml and of the gitops-chart-update action as written,
+# under the runner's shell flags, with a stub `argocd` answering like the real CLI (a fatal JSON log
+# line, exit 20), and asserts which failures fail the job.
 
 set -euo pipefail
 
@@ -37,10 +36,9 @@ extract_step "${ROOT}/src/deploy/gitops-chart-update/action.yml" 'Sync the affec
 printf '{"changed":[{"file":"environments/benedita/helmfile/applications/dev/app/helmfile.yaml"}]}\n' \
   >"${WORK_DIR}/bump.json"
 
-# `argocd app get` answers STUB_GET; the Nth `argocd app sync`, `argocd app wait` and `argocd app get -o json`
-# answer the Nth word of STUB_SYNCS (ok past its end), STUB_WAITS and STUB_PHASES (an operation phase, default
-# Succeeded, or an error). Each call, marked by its --prune, --operation, --health or -o json flag, and each `sleep`
-# (a no-op) lands in STUB_CALLS.
+# `argocd app get` answers STUB_GET; the Nth sync, wait and `get -o json` answer the Nth word of STUB_SYNCS (ok
+# past its end), STUB_WAITS and STUB_PHASES (a phase, default Succeeded, or an error). Each call, marked by its
+# --prune, --operation, --health or -o json flag, and each `sleep` (a no-op) lands in STUB_CALLS.
 mkdir "${WORK_DIR}/bin"
 cat >"${WORK_DIR}/bin/argocd" <<'STUB'
 #!/usr/bin/env bash
@@ -87,7 +85,7 @@ cat >"${WORK_DIR}/bin/curl" <<'STUB'
 #!/bin/sh
 cp "$(dirname "$0")/argocd" "$3"
 STUB
-printf '#!/bin/sh\n' >"${WORK_DIR}/bin/sha256sum"
+printf '#!/bin/sh\ncat >/dev/null\n' >"${WORK_DIR}/bin/sha256sum"
 chmod +x "${WORK_DIR}/bin/"*
 
 # Runs the step and checks its exit status, its sync_result (synced for the chart-update step), the
@@ -101,7 +99,7 @@ assert_sync() {
     RUNNER_TEMP="${WORK_DIR}" ARGOCD_URL=argocd.example ARGOCD_TOKEN=token APP_NAME=benedita-app-dev \
     ARGOCD_PRUNE="${ARGOCD_PRUNE:-false}" ARGOCD_SYNC_TIMEOUT=600 SYNC_TIMEOUT=600 \
     bash --noprofile --norc -eo pipefail "${WORK_DIR}/${STEP:-sync.sh}" 2>&1) || status=$?
-  result=$(sed -n 's/^\(sync_result\|synced\)=//p' "${WORK_DIR}/output")
+  result=$(sed -nE 's/^(sync_result|synced)=//p' "${WORK_DIR}/output")
   calls=$(paste -sd ' ' "${WORK_DIR}/calls")
   if [[ ${status} -eq ${want_status} && "${result}" == "${want_result}" && "${calls}" == "${want_calls}" ]] &&
     grep -qE "${want_line}" <<<"${out}"; then
@@ -143,7 +141,7 @@ STUB_PHASES='504 Succeeded' assert_sync 'an API error reading the operation phas
 STEP=chart-sync.sh STUB_SYNCS=busy assert_sync 'chart update: a sync refused as busy is resubmitted once the running operation ends' \
   '' 'ok ok' 0 true 'sync wait:operation sync wait:health' '^::notice::benedita-app-dev is healthy'
 STEP=chart-sync.sh STUB_SYNCS=busy assert_sync 'chart update: an operation still running after the sync timeout fails the leg' \
-  '' 'timeout' 1 false 'sync wait:operation' '^::error::benedita-app-dev did not reach a healthy state'
+  '' 'timeout' 1 false 'sync wait:operation' '^::error::benedita-app-dev did not sync to a healthy state'
 
 printf '\n%d passed, %d failed\n' "${PASSED}" "${FAILED}"
 [[ ${FAILED} -eq 0 ]]

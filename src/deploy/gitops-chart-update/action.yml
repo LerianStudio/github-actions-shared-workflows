@@ -64,7 +64,7 @@ inputs:
     required: false
     default: ''
   argocd-sync-timeout:
-    description: Seconds to wait for each application to become healthy
+    description: Seconds each ArgoCD wait may take per application (a running operation, the sync, the health check)
     required: false
     default: '600'
 
@@ -434,7 +434,7 @@ runs:
              && argo app wait "$name" --health --timeout "$SYNC_TIMEOUT"; then
             echo "::notice::$name is healthy"
           else
-            echo "::error::$name did not reach a healthy state within ${SYNC_TIMEOUT}s"
+            echo "::error::$name did not sync to a healthy state (each wait up to ${SYNC_TIMEOUT}s)"
             failed=1
           fi
           echo "::endgroup::"

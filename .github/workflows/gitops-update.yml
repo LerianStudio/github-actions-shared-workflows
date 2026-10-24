@@ -1170,7 +1170,7 @@ jobs:
               fi
               # A timeout means a stuck operation (a hook held in Running): fail now. Other errors get the 30s retry.
               # The CLI prints this line on its own timeout, also when it then dies with 'context canceled'.
-              if grep -q 'after wait timed out' "$ARGOCD_LOG"; then
+              if grep -qE 'after .?wait.? timed out' "$ARGOCD_LOG"; then
                 echo "::endgroup::"
                 echo "::error::An Argo CD operation was still running on $APP_NAME after ${ARGOCD_SYNC_TIMEOUT}s: $(argocd_error)"
                 exit 1
