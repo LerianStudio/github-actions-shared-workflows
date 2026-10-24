@@ -332,6 +332,7 @@ With `app_name_prefix: "console"`:
 Coverage reports are posted as PR comments in this format:
 
 ```markdown
+<!-- coverage-report:console-web -->
 ## 📊 Unit Test Coverage Report: `console-web`
 
 | Metric | Value | Status |
