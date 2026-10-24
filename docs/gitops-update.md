@@ -506,9 +506,9 @@ The workflow uses a matrix strategy for ArgoCD sync:
 
 ### Sync Command Behavior
 
-The `argocd app sync` call uses `--async --timeout 180`, dispatching the sync without blocking on completion. On failure, the sync step makes up to 5 attempts with a 30s interval between attempts, then fails the job with the CLI's error. One exception: when an app with an automated sync policy refuses the sync because Argo CD is already syncing it, the step goes straight to the wait: the app lookup before the sync uses `--refresh`, which makes Argo CD look up the branch again, so the automated policy syncs the new commit once the running sync ends.
+The `argocd app sync` call uses `--async --timeout 180`, dispatching the sync without blocking on completion. On failure, the sync step makes up to 5 attempts with a 30s interval between attempts, then fails the job with the CLI's error. When Argo CD refuses the sync because another operation is running on the app (usually its automated sync of the same commit), the step waits for that operation to end (`argocd app wait --operation`, up to `argocd_sync_timeout`) instead of 30s, then submits the same sync again (with `--prune` when `argocd_prune` is `true`).
 
-A subsequent `argocd app wait --timeout` (configurable via `argocd_sync_timeout`, default `600`) confirms the rollout in two waits: `--operation` until the sync operation ends, then sync and health. A sync that ends `Failed` or `Error` fails the job at once with Argo CD's message, since a failed sync leaves the app OutOfSync and the sync and health wait could only time out. On failure, the wait step makes up to 3 attempts with exponential backoff (30s, then 60s between attempts), then fails the job with the CLI's error from the last attempt.
+A subsequent `argocd app wait --timeout` (configurable via `argocd_sync_timeout`, default `600`) confirms the rollout. On failure, the wait step makes up to 3 attempts with exponential backoff (30s, then 60s between attempts), then fails the job with the CLI's error from the last attempt.
 
 When `argocd_prune` is `true`, `--prune` is appended so orphaned resources left behind by previous renames/removals are cleaned up automatically. Keep this disabled by default in production and enable per-caller when you knowingly need cleanup.
 
@@ -606,9 +606,9 @@ If you see a warning like "ArgoCD app 'anacleto-myapp-chaos-dev-st' does not exi
 
 The calling repository's job got an empty `ARGOCD_TOKEN`. The secret is an organization secret with selected-repository visibility: an org admin must add the calling repository to it. Before this check existed, these legs skipped silently and read green.
 
-### ArgoCD sync fails with `another operation is already in progress`
+### ArgoCD sync fails with `An Argo CD operation was still running`
 
-Only an app with a manual sync policy fails this way: another sync, started by a person or a concurrent run, held the app through all 5 attempts. Rerun the leg once that sync ends. An automated app waits on Argo CD's own sync instead, and its leg fails as soon as that sync ends `Failed` or `Error`, with Argo CD's message.
+An operation on the app, often a sync hook stuck in `Running`, did not end within `argocd_sync_timeout` seconds while the leg waited to submit its sync. Inspect it in Argo CD (`argocd app terminate-op <app>` stops it), then rerun the leg. The leg can also fail after 5 attempts with `another operation is already in progress` when a new operation started each time the previous one ended; rerun it once the app is idle.
 
 ### Artifact not found
 

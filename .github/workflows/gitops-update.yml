@@ -1139,7 +1139,7 @@ jobs:
 
           echo "::group::argocd app get $APP_NAME"
           argocd_rc=0
-          argocd app get "$APP_NAME" --server "$ARGOCD_URL" --auth-token "$ARGOCD_TOKEN" --grpc-web --refresh 2>&1 | tee "$ARGOCD_LOG" || argocd_rc=$?
+          argocd app get "$APP_NAME" --server "$ARGOCD_URL" --auth-token "$ARGOCD_TOKEN" --grpc-web 2>&1 | tee "$ARGOCD_LOG" || argocd_rc=$?
           echo "::endgroup::"
           if [[ "$argocd_rc" -ne 0 ]]; then
             # Argo CD answers PermissionDenied for an app that does not exist: the one deliberate skip.
@@ -1152,23 +1152,25 @@ jobs:
             exit 1
           fi
 
-          SYNC_POLICY=$(sed -n 's/^Sync Policy: *//p' "$ARGOCD_LOG")
-
           echo "::group::argocd app sync $APP_NAME"
           for attempt in 1 2 3 4 5; do
             if argocd app sync "$APP_NAME" --server "$ARGOCD_URL" --auth-token "$ARGOCD_TOKEN" --grpc-web --async --timeout 180 $PRUNE_FLAG 2>&1 | tee "$ARGOCD_LOG"; then
-              break
-            fi
-            # The refresh above made Argo CD look up the branch again, so an automated app busy with
-            # an older sync syncs this commit next by itself; a second sync would only race it.
-            if [[ "$SYNC_POLICY" == Automated* ]] && grep -q "another operation is already in progress" "$ARGOCD_LOG"; then
-              echo "Argo CD is already syncing $APP_NAME under its automated policy; waiting on that sync."
               break
             fi
             if [[ "$attempt" == "5" ]]; then
               echo "::endgroup::"
               echo "::error::Sync failed for $APP_NAME after 5 attempts: $(argocd_error)"
               exit 1
+            fi
+            # Argo CD refuses a sync while another operation runs and does not queue it: wait that one out, then resubmit.
+            if grep -q "another operation is already in progress" "$ARGOCD_LOG"; then
+              echo "Sync attempt $attempt refused, waiting for the running operation to end..."
+              if ! argocd app wait "$APP_NAME" --server "$ARGOCD_URL" --auth-token "$ARGOCD_TOKEN" --grpc-web --operation --timeout "$ARGOCD_SYNC_TIMEOUT" 2>&1 | tee "$ARGOCD_LOG"; then
+                echo "::endgroup::"
+                echo "::error::An Argo CD operation was still running on $APP_NAME after ${ARGOCD_SYNC_TIMEOUT}s: $(argocd_error)"
+                exit 1
+              fi
+              continue
             fi
             echo "Sync attempt $attempt failed, retrying in 30s..."
             sleep 30
@@ -1178,16 +1180,8 @@ jobs:
           echo "::group::argocd app wait $APP_NAME"
           wait_delay=30
           for attempt in 1 2 3; do
-            # A failed sync leaves the app OutOfSync, so only a wait on the operation alone ends at the failure.
-            if argocd app wait "$APP_NAME" --server "$ARGOCD_URL" --auth-token "$ARGOCD_TOKEN" --grpc-web --operation --timeout "$ARGOCD_SYNC_TIMEOUT" 2>&1 | tee "$ARGOCD_LOG"; then
-              if grep -qE '^Phase: +(Failed|Error)$' "$ARGOCD_LOG"; then
-                echo "::endgroup::"
-                echo "::error::Argo CD's sync of $APP_NAME ended $(sed -n 's/^Phase: *//p' "$ARGOCD_LOG"): $(sed -n 's/^Message: *//p' "$ARGOCD_LOG")"
-                exit 1
-              fi
-              if argocd app wait "$APP_NAME" --server "$ARGOCD_URL" --auth-token "$ARGOCD_TOKEN" --grpc-web --timeout "$ARGOCD_SYNC_TIMEOUT" 2>&1 | tee "$ARGOCD_LOG"; then
-                break
-              fi
+            if argocd app wait "$APP_NAME" --server "$ARGOCD_URL" --auth-token "$ARGOCD_TOKEN" --grpc-web --timeout "$ARGOCD_SYNC_TIMEOUT" 2>&1 | tee "$ARGOCD_LOG"; then
+              break
             fi
             if [[ "$attempt" == "3" ]]; then
               echo "::endgroup::"
