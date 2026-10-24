@@ -37,9 +37,10 @@ extract_step "${ROOT}/src/deploy/gitops-chart-update/action.yml" 'Sync the affec
 printf '{"changed":[{"file":"environments/benedita/helmfile/applications/dev/app/helmfile.yaml"}]}\n' \
   >"${WORK_DIR}/bump.json"
 
-# `argocd app get` answers STUB_GET; the Nth `argocd app sync` and `argocd app wait` answer the Nth word
-# of STUB_SYNCS (ok past its end) and STUB_WAITS. Each call, marked by its --prune, --operation or --health
-# flag, and each `sleep` (which returns at once) lands in STUB_CALLS.
+# `argocd app get` answers STUB_GET (with -o json, an operation that ended STUB_PHASE, default Succeeded);
+# the Nth `argocd app sync` and `argocd app wait` answer the Nth word of STUB_SYNCS (ok past its end) and
+# STUB_WAITS. Each call, marked by its --prune, --operation, --health or -o json flag, and each `sleep`
+# (a no-op) lands in STUB_CALLS.
 mkdir "${WORK_DIR}/bin"
 cat >"${WORK_DIR}/bin/argocd" <<'STUB'
 #!/usr/bin/env bash
@@ -59,10 +60,15 @@ call=$2
 [[ " $* " == *" --prune "* ]] && call+=:prune
 [[ " $* " == *" --operation "* ]] && call+=:operation
 [[ " $* " == *" --health "* ]] && call+=:health
+[[ " $* " == *" -o json "* ]] && call+=:json
 echo "${call}" >>"${STUB_CALLS}"
 n=$(grep -c "^$2" "${STUB_CALLS}")
 case "$2" in
-  get) answer "${STUB_GET}" ;;
+  get) if [[ ${call} == get:json ]]; then
+    msg='successfully synced (all tasks run)'
+    [[ ${STUB_PHASE:-Succeeded} == Succeeded ]] || msg='one or more synchronization tasks completed unsuccessfully'
+    printf '{"status":{"operationState":{"phase":"%s","message":"%s"}}}\n' "${STUB_PHASE:-Succeeded}" "${msg}"
+  else answer "${STUB_GET}"; fi ;;
   sync) read -ra syncs <<<"${STUB_SYNCS}" && answer "${syncs[n - 1]:-ok}" ;;
   wait) read -ra waits <<<"${STUB_WAITS}" && answer "${waits[n - 1]}" ;;
 esac
@@ -81,12 +87,12 @@ chmod +x "${WORK_DIR}/bin/"*
 
 # Runs the step and checks its exit status, its sync_result (synced for the chart-update step), the
 # calls it made in order and the annotation it printed (a grep -E pattern). STEP (sync.sh by default),
-# STUB_SYNCS and ARGOCD_PRUNE come from the caller.
+# STUB_SYNCS, STUB_PHASE and ARGOCD_PRUNE come from the caller.
 assert_sync() {
   local label=$1 get=$2 waits=$3 want_status=$4 want_result=$5 want_calls=$6 want_line=$7 status=0 out result calls
   : >"${WORK_DIR}/output" && : >"${WORK_DIR}/calls"
   out=$(cd "${WORK_DIR}" && PATH="${WORK_DIR}/bin:${PATH}" STUB_GET="${get}" STUB_SYNCS="${STUB_SYNCS:-}" \
-    STUB_WAITS="${waits}" STUB_CALLS="${WORK_DIR}/calls" GITHUB_OUTPUT="${WORK_DIR}/output" \
+    STUB_WAITS="${waits}" STUB_PHASE="${STUB_PHASE:-}" STUB_CALLS="${WORK_DIR}/calls" GITHUB_OUTPUT="${WORK_DIR}/output" \
     RUNNER_TEMP="${WORK_DIR}" ARGOCD_URL=argocd.example ARGOCD_TOKEN=token APP_NAME=benedita-app-dev \
     ARGOCD_PRUNE="${ARGOCD_PRUNE:-false}" ARGOCD_SYNC_TIMEOUT=600 SYNC_TIMEOUT=600 \
     bash --noprofile --norc -eo pipefail "${WORK_DIR}/${STEP:-sync.sh}" 2>&1) || status=$?
@@ -110,18 +116,23 @@ assert_sync 'a missing app (PermissionDenied) is still skipped with a warning' d
 assert_sync 'a wait failing three times reports the CLI error, not a timeout' ok '504 504 504' 1 '' \
   'get sync wait sleep:30 wait sleep:60 wait' '^::error::.*after 3 attempts.*status code 504'
 assert_sync 'a wait failing once is retried and the sync succeeds' ok '504 ok' 0 success \
-  'get sync wait sleep:30 wait' '^Health Status'
+  'get sync wait sleep:30 wait get:json' '^Health Status'
 STUB_SYNCS=504 assert_sync 'a refused sync is retried after 30s' ok 'ok' 0 success \
-  'get sync sleep:30 sync wait' '^Sync attempt 1 failed, retrying in 30s'
+  'get sync sleep:30 sync wait get:json' '^Sync attempt 1 failed, retrying in 30s'
 STUB_SYNCS=busy ARGOCD_PRUNE=true assert_sync 'a sync refused as busy is resubmitted, prune included, once the running operation ends' \
-  ok 'ok ok' 0 success 'get sync:prune wait:operation sync:prune wait' '^Health Status'
+  ok 'ok ok' 0 success 'get sync:prune wait:operation sync:prune wait get:json' '^Health Status'
 STUB_SYNCS=busy assert_sync 'an operation still running after the sync timeout fails the job with the CLI error' ok 'timeout' 1 '' \
   'get sync wait:operation' '^::error::An Argo CD operation was still running on benedita-app-dev after 600s: .*timed out \(600s\)'
 STUB_SYNCS=busy assert_sync 'an API error while waiting on the running operation gets the 30s retry' ok '504 ok' 0 success \
-  'get sync wait:operation sleep:30 sync wait' '^Sync attempt 1 failed, retrying in 30s'
+  'get sync wait:operation sleep:30 sync wait get:json' '^Sync attempt 1 failed, retrying in 30s'
 STUB_SYNCS='busy busy busy busy busy' assert_sync 'an app busy on every attempt fails after 5 sync attempts' ok 'ok ok ok ok' 1 '' \
   'get sync wait:operation sync wait:operation sync wait:operation sync wait:operation sync' \
   '^::error::.*after 5 attempts.*another operation is already in progress'
+STUB_PHASE=Failed assert_sync 'a sync whose operation ended Failed fails the job although the app is healthy' ok 'ok' 1 '' \
+  'get sync wait get:json' '^::error::The Argo CD sync of benedita-app-dev did not succeed: Failed: one or more synchronization tasks'
+STUB_PHASE=Error assert_sync 'a sync whose operation ended in Error fails the job' ok 'ok' 1 '' \
+  'get sync wait get:json' '^::error::.*did not succeed: Error: '
+
 STEP=chart-sync.sh STUB_SYNCS=busy assert_sync 'chart update: a sync refused as busy is resubmitted once the running operation ends' \
   '' 'ok ok' 0 true 'sync wait:operation sync wait:health' '^::notice::benedita-app-dev is healthy'
 STEP=chart-sync.sh STUB_SYNCS=busy assert_sync 'chart update: an operation still running after the sync timeout fails the leg' \

@@ -508,7 +508,7 @@ The workflow uses a matrix strategy for ArgoCD sync:
 
 The `argocd app sync` call uses `--async --timeout 180`, dispatching the sync without blocking on completion. On failure, the sync step makes up to 5 attempts with a 30s interval between attempts, then fails the job with the CLI's error. When Argo CD refuses the sync because another operation is running on the app (usually its automated sync of the same commit), the step waits for that operation to end (`argocd app wait --operation`, up to `argocd_sync_timeout`) instead of 30s, then submits the same sync again (with `--prune` when `argocd_prune` is `true`).
 
-A subsequent `argocd app wait --timeout` (configurable via `argocd_sync_timeout`, default `600`) confirms the rollout. On failure, the wait step makes up to 3 attempts with exponential backoff (30s, then 60s between attempts), then fails the job with the CLI's error from the last attempt.
+A subsequent `argocd app wait --timeout` (configurable via `argocd_sync_timeout`, default `600`) confirms the rollout. On failure, the wait step makes up to 3 attempts with exponential backoff (30s, then 60s between attempts), then fails the job with the CLI's error from the last attempt. `argocd app wait` returns once the app is Synced and Healthy even when the sync operation itself failed (a failed PostSync hook, for example), so the leg then reads the operation's phase and fails with its message unless it is `Succeeded`.
 
 When `argocd_prune` is `true`, `--prune` is appended so orphaned resources left behind by previous renames/removals are cleaned up automatically. Keep this disabled by default in production and enable per-caller when you knowingly need cleanup.
 
