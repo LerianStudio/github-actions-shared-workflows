@@ -28,7 +28,7 @@ awk '
   exit 1
 }
 
-# `argocd app get` answers STUB_GET; each `argocd app wait` answers the next word of
+# `argocd app get --refresh` answers STUB_GET; each `argocd app wait` answers the next word of
 # STUB_WAITS; every `argocd app sync` answers STUB_SYNC (ok). `sleep` returns at once.
 mkdir "${WORK_DIR}/bin"
 cat >"${WORK_DIR}/bin/argocd" <<'STUB'
@@ -46,7 +46,8 @@ answer() {
   return 20
 }
 case "$2" in
-  get) answer "${STUB_GET}" ;;
+  # Without --refresh the server reads the branch head from a cache that can predate the push.
+  get) [[ " $* " == *" --refresh "* ]] || exit 2; answer "${STUB_GET}" ;;
   sync) answer "${STUB_SYNC:-ok}" ;;
   wait)
     echo x >>"${STUB_WAIT_LOG}"

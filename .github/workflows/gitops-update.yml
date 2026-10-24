@@ -1139,7 +1139,7 @@ jobs:
 
           echo "::group::argocd app get $APP_NAME"
           argocd_rc=0
-          argocd app get "$APP_NAME" --server "$ARGOCD_URL" --auth-token "$ARGOCD_TOKEN" --grpc-web 2>&1 | tee "$ARGOCD_LOG" || argocd_rc=$?
+          argocd app get "$APP_NAME" --server "$ARGOCD_URL" --auth-token "$ARGOCD_TOKEN" --grpc-web --refresh 2>&1 | tee "$ARGOCD_LOG" || argocd_rc=$?
           echo "::endgroup::"
           if [[ "$argocd_rc" -ne 0 ]]; then
             # Argo CD answers PermissionDenied for an app that does not exist: the one deliberate skip.
@@ -1159,8 +1159,8 @@ jobs:
             if argocd app sync "$APP_NAME" --server "$ARGOCD_URL" --auth-token "$ARGOCD_TOKEN" --grpc-web --async --timeout 180 $PRUNE_FLAG 2>&1 | tee "$ARGOCD_LOG"; then
               break
             fi
-            # Argo CD re-resolves the branch when an operation ends, so an automated app that is
-            # already syncing reaches this commit on its own; a second sync would only race it.
+            # The refresh above made Argo CD look up the branch again, so an automated app busy with
+            # an older sync syncs this commit next by itself; a second sync would only race it.
             if [[ "$SYNC_POLICY" == Automated* ]] && grep -q "another operation is already in progress" "$ARGOCD_LOG"; then
               echo "Argo CD is already syncing $APP_NAME under its automated policy; waiting on that sync."
               break
