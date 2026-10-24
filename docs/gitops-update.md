@@ -170,7 +170,7 @@ update_gitops:
 | `kustomize_environments` | string | - | Optional space-separated env list overriding the default tag-based env loop when `gitops_layout=kustomize`. Leave empty for layouts without env split |
 | `kustomize_version` | string | `v5.4.3` | Version of kustomize CLI to install (only when `gitops_layout=kustomize`) |
 | `argocd_app_name_template` | string | `{server}-{app}-{env}` | Template for the ArgoCD application name. Supports `{server}`, `{app}`, `{env}`. For kustomize layouts without env split, use e.g. `{server}-{app}` |
-| `argocd_sync_timeout` | number | `600` | Timeout in seconds for `argocd app wait` after sync. Increase for larger applications or clusters under load. |
+| `argocd_sync_timeout` | number | `600` | Timeout in seconds for `argocd app wait` after sync, and for the wait on an operation already running at sync time. Increase for larger applications or clusters under load. |
 | `beta_environments` | string | `dev` | Space-separated environments updated by a beta release (`develop` branch) |
 | `rc_environments` | string | `stg` | Space-separated environments updated by an rc release (`release-candidate` branch) |
 | `stable_environments` | string | `prd` | Space-separated environments updated by a stable release (`main` branch). Default `prd` so a hotfix does not overwrite features still in dev/stg. Set to `dev stg prd` to refresh lower environments too. Sandbox is controlled separately by `update_sandbox` |
@@ -506,7 +506,7 @@ The workflow uses a matrix strategy for ArgoCD sync:
 
 ### Sync Command Behavior
 
-The `argocd app sync` call uses `--async --timeout 180`, dispatching the sync without blocking on completion. On failure, the sync step makes up to 5 attempts with a 30s interval between attempts.
+The `argocd app sync` call uses `--async --timeout 180`, dispatching the sync without blocking on completion. On failure, the sync step makes up to 5 attempts with a 30s interval between attempts, then fails the job with the CLI's error. When Argo CD refuses the sync because another operation is running on the app (usually its automated sync of the same commit), the step waits for that operation to end (`argocd app wait --operation`, up to `argocd_sync_timeout`) instead of 30s, then submits the same sync again (with `--prune` when `argocd_prune` is `true`).
 
 A subsequent `argocd app wait --timeout` (configurable via `argocd_sync_timeout`, default `600`) confirms the rollout. On failure, the wait step makes up to 3 attempts with exponential backoff (30s, then 60s between attempts), then fails the job with the CLI's error from the last attempt.
 
@@ -605,6 +605,10 @@ If you see a warning like "ArgoCD app 'anacleto-myapp-chaos-dev-st' does not exi
 ### ArgoCD sync fails with `Unauthenticated: no session information`
 
 The calling repository's job got an empty `ARGOCD_TOKEN`. The secret is an organization secret with selected-repository visibility: an org admin must add the calling repository to it. Before this check existed, these legs skipped silently and read green.
+
+### ArgoCD sync fails with `An Argo CD operation was still running`
+
+An operation on the app, often a sync hook stuck in `Running`, did not end within `argocd_sync_timeout` seconds while the leg waited to submit its sync. Inspect it in Argo CD (`argocd app terminate-op <app>` stops it), then rerun the leg. The leg can also fail after 5 attempts with `another operation is already in progress` when a new operation started each time the previous one ended; rerun it once the app is idle.
 
 ### Artifact not found
 
