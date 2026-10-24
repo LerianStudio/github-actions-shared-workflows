@@ -1133,14 +1133,23 @@ jobs:
             PRUNE_FLAG="--prune"
           fi
 
+          # The CLI's error is its last line: it logs it through logrus Fatal, which exits.
+          ARGOCD_LOG="$RUNNER_TEMP/argocd.log"
+          argocd_error() { tail -n1 "$ARGOCD_LOG"; }
+
           echo "::group::argocd app get $APP_NAME"
           argocd_rc=0
-          argocd app get "$APP_NAME" --server "$ARGOCD_URL" --auth-token "$ARGOCD_TOKEN" --grpc-web || argocd_rc=$?
+          argocd app get "$APP_NAME" --server "$ARGOCD_URL" --auth-token "$ARGOCD_TOKEN" --grpc-web 2>&1 | tee "$ARGOCD_LOG" || argocd_rc=$?
           echo "::endgroup::"
           if [[ "$argocd_rc" -ne 0 ]]; then
-            echo "::warning::Failed to get ArgoCD app '$APP_NAME' (exit $argocd_rc). Skipping sync — check whether the app exists, auth is valid, and the user has 'applications, get' permission."
-            echo "sync_result=failure" >> "$GITHUB_OUTPUT"
-            exit 0
+            # Argo CD answers PermissionDenied for an app that does not exist: the one deliberate skip.
+            if grep -q "code = PermissionDenied" "$ARGOCD_LOG"; then
+              echo "::warning::ArgoCD app '$APP_NAME' does not exist or the token lacks 'applications, get' on it. Skipping sync."
+              echo "sync_result=failure" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            echo "::error::Failed to get ArgoCD app '$APP_NAME': $(argocd_error)"
+            exit 1
           fi
 
           echo "::group::argocd app sync $APP_NAME"
@@ -1161,12 +1170,12 @@ jobs:
           echo "::group::argocd app wait $APP_NAME"
           wait_delay=30
           for attempt in 1 2 3; do
-            if argocd app wait "$APP_NAME" --server "$ARGOCD_URL" --auth-token "$ARGOCD_TOKEN" --grpc-web --timeout "$ARGOCD_SYNC_TIMEOUT"; then
+            if argocd app wait "$APP_NAME" --server "$ARGOCD_URL" --auth-token "$ARGOCD_TOKEN" --grpc-web --timeout "$ARGOCD_SYNC_TIMEOUT" 2>&1 | tee "$ARGOCD_LOG"; then
               break
             fi
             if [[ "$attempt" == "3" ]]; then
               echo "::endgroup::"
-              echo "::error::Timeout waiting for sync completion of $APP_NAME after 3 attempts"
+              echo "::error::argocd app wait failed for $APP_NAME after 3 attempts: $(argocd_error)"
               exit 1
             fi
             echo "Wait attempt $attempt failed, retrying in ${wait_delay}s..."
