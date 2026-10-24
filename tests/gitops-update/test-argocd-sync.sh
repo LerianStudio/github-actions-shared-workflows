@@ -52,6 +52,7 @@ answer() {
     unauthenticated) desc='code = Unauthenticated desc = no session information' ;;
     denied) desc='code = PermissionDenied desc = permission denied' ;;
     504) desc='code = Unknown desc = POST https://argocd.example/application.ApplicationService/Get failed with status code 504' ;;
+    failed) echo '{"level":"fatal","msg":"Operation has completed with phase: Failed"}' >&2; return 20 ;;
   esac
   printf '{"level":"fatal","msg":"rpc error: %s","time":"2026-10-24T00:00:00Z"}\n' "${desc}" >&2
   return 20
@@ -142,6 +143,14 @@ STEP=chart-sync.sh STUB_SYNCS=busy assert_sync 'chart update: a sync refused as 
   '' 'ok ok' 0 true 'sync wait:operation sync wait:health' '^::notice::benedita-app-dev is healthy'
 STEP=chart-sync.sh STUB_SYNCS=busy assert_sync 'chart update: an operation still running after the sync timeout fails the leg' \
   '' 'timeout' 1 false 'sync wait:operation' '^::error::benedita-app-dev did not sync to a healthy state'
+STEP=chart-sync.sh STUB_SYNCS=504 assert_sync 'chart update: a sync refused with an API error is retried after 30s' \
+  '' 'ok' 0 true 'sync sleep:30 sync wait:health' '^Sync attempt 1 failed, retrying in 30s'
+STEP=chart-sync.sh assert_sync 'chart update: a health wait failing with an API error is retried' \
+  '' '504 ok' 0 true 'sync wait:health sleep:30 wait:health' '^Wait attempt 1 failed, retrying in 30s'
+STEP=chart-sync.sh STUB_SYNCS=failed assert_sync 'chart update: a sync whose operation failed is not resubmitted' \
+  '' '' 1 false 'sync' '^::error::benedita-app-dev did not sync.*Operation has completed with phase: Failed'
+STEP=chart-sync.sh assert_sync 'chart update: a health wait that times out fails the leg at once' \
+  '' 'timeout' 1 false 'sync wait:health' '^::error::benedita-app-dev did not sync.*timed out \(600s\)'
 
 printf '\n%d passed, %d failed\n' "${PASSED}" "${FAILED}"
 [[ ${FAILED} -eq 0 ]]
