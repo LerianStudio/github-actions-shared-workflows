@@ -1165,12 +1165,15 @@ jobs:
             # Argo CD refuses a sync while another operation runs and does not queue it: wait that one out, then resubmit.
             if grep -q "another operation is already in progress" "$ARGOCD_LOG"; then
               echo "Sync attempt $attempt refused, waiting for the running operation to end..."
-              if ! argocd app wait "$APP_NAME" --server "$ARGOCD_URL" --auth-token "$ARGOCD_TOKEN" --grpc-web --operation --timeout "$ARGOCD_SYNC_TIMEOUT" 2>&1 | tee "$ARGOCD_LOG"; then
+              if argocd app wait "$APP_NAME" --server "$ARGOCD_URL" --auth-token "$ARGOCD_TOKEN" --grpc-web --operation --timeout "$ARGOCD_SYNC_TIMEOUT" 2>&1 | tee "$ARGOCD_LOG"; then
+                continue
+              fi
+              # A timeout means a stuck operation (a hook held in Running): fail now. Other errors get the 30s retry.
+              if grep -q 'timed out ([0-9]*s) waiting for app' "$ARGOCD_LOG"; then
                 echo "::endgroup::"
                 echo "::error::An Argo CD operation was still running on $APP_NAME after ${ARGOCD_SYNC_TIMEOUT}s: $(argocd_error)"
                 exit 1
               fi
-              continue
             fi
             echo "Sync attempt $attempt failed, retrying in 30s..."
             sleep 30

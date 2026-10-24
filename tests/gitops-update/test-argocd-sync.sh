@@ -99,6 +99,8 @@ STUB_SYNCS=busy ARGOCD_PRUNE=true assert_sync 'a sync refused as busy is resubmi
   ok 'ok ok' 0 success 'get sync:prune wait:operation sync:prune wait' '^Health Status'
 STUB_SYNCS=busy assert_sync 'an operation still running after the sync timeout fails the job with the CLI error' ok 'timeout' 1 '' \
   'get sync wait:operation' '^::error::An Argo CD operation was still running on benedita-app-dev after 600s: .*timed out \(600s\)'
+STUB_SYNCS=busy assert_sync 'an API error while waiting on the running operation gets the 30s retry' ok '504 ok' 0 success \
+  'get sync wait:operation sleep:30 sync wait' '^Sync attempt 1 failed, retrying in 30s'
 STUB_SYNCS='busy busy busy busy busy' assert_sync 'an app busy on every attempt fails after 5 sync attempts' ok 'ok ok ok ok' 1 '' \
   'get sync wait:operation sync wait:operation sync wait:operation sync wait:operation sync' \
   '^::error::.*after 5 attempts.*another operation is already in progress'
