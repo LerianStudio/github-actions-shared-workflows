@@ -1,5 +1,33 @@
 # Github-actions-shared-workflows Changelog
 
+## [1.89.0](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.89.0)
+
+Features:
+- Publish the permission manifest on tag push for JavaScript releases. (@qnen)
+- Validate permission manifests before publishing. (@qnen)
+
+Fixes:
+- Retry transient Argo CD API errors during gitops chart updates. (@fredcamaral)
+- Catch busy and failed Argo CD sync operations in gitops updates. (@fredcamaral)
+- Match both CLI timeout spellings and harden the stubs in gitops updates. (@fredcamaral)
+- Retry the phase read and handle a cancelled timeout in gitops updates. (@fredcamaral)
+- Fail a leg whose Argo CD sync operation did not succeed in gitops updates. (@fredcamaral)
+- Resubmit a busy Argo CD sync after its operation ends in both gitops chart and update processes. (@fredcamaral)
+- Pin the fallback Argo CD CLI to `v3.4.4` in gitops updates. (@fredcamaral)
+- Retry an Argo CD API error while a sync is busy in gitops updates. (@fredcamaral)
+- Fail the leg as soon as Argo CD's sync fails in gitops updates. (@fredcamaral)
+- Refresh the app before syncing in gitops updates to ensure waits see the push. (@fredcamaral)
+- Wait on the automated sync instead of racing it in gitops updates. (@fredcamaral)
+- Fail the Argo CD sync on authentication and API errors in gitops updates. (@fredcamaral)
+- Mark the coverage comment as a machine report in frontend PR analysis. (@fredcamaral)
+
+Improvements:
+- State the retry rule in gitops chart updates without cross-referencing. (@fredcamaral)
+
+[Compare changes](https://github.com/LerianStudio/github-actions-shared-workflows/compare/v1.88.0...v1.89.0)
+
+---
+
 ## [1.88.0](https://github.com/LerianStudio/github-actions-shared-workflows/releases/tag/v1.88.0)
 
 Features:
